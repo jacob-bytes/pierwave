@@ -37,6 +37,12 @@ const en = {
     details: "Error details (include these when reporting)",
     errorLabel: "Error",
   },
+  notFound: {
+    description: "This address does not exist or has been moved.",
+    console: "Back to console",
+    status: "View public status",
+    back: "Go back",
+  },
   common: {
     moreActions: "More actions",
     cancel: "Cancel",
@@ -287,6 +293,22 @@ const en = {
         system: "System",
       },
       availabilityDetails: "Availability details",
+      summary: {
+        healthy: "Online for the past 24 hours, no outages",
+        noSamples: "No samples in the past 24 hours",
+        outage: "{count} outages in the past 24 hours, {hours} h {minutes} min total",
+        outageOne: "1 outage in the past 24 hours, {hours} h {minutes} min total",
+        outageHours: "{count} outages in the past 24 hours, {hours} h total",
+        outageHoursOne: "1 outage in the past 24 hours, {hours} h total",
+        outageMinutes: "{count} outages in the past 24 hours, {minutes} min total",
+        outageMinutesOne: "1 outage in the past 24 hours, {minutes} min total",
+        outageUnknown: "{count} outages in the past 24 hours",
+        outageUnknownOne: "1 outage in the past 24 hours",
+        outageLessThanMinute:
+          "{count} outages in the past 24 hours, less than a minute total",
+        outageLessThanMinuteOne:
+          "1 outage in the past 24 hours, less than a minute total",
+      },
       runtime: "Runtime",
       billingTraffic: "Billing and traffic",
       outageCount: "Outages",
@@ -2403,6 +2425,46 @@ const en = {
         "Ready; takes effect after the controller restarts",
       uploadSuccessDesc:
         "The backup is stored on the server; current data is replaced only after the controller restarts.",
+      restoreSyncFailed:
+        "Restore did not complete: the staged file could not be synced to disk. Check disk space and permissions, then try again; the current database was not replaced.",
+      restoreDiff: {
+        title: "Settings that will roll back",
+        secretReset: "A secret was reset (value hidden)",
+        servers: {
+          title:
+            "{n} servers need the Agent reinstalled or their token reset",
+          desc: "After the restore their tokens no longer match the running Agents, so the old Agents cannot register.",
+        },
+        keys: {
+          panel_name: "Panel name",
+          login_max_attempts: "Sign-in attempt limit",
+          login_lock_secs: "Sign-in lockout duration",
+          session_ttl_hours: "Session lifetime",
+          agent_upgrade_concurrency: "Agent upgrade concurrency",
+          public_status_enabled: "Public status page",
+          public_billing_visible: "Show expiry and price on the public page",
+          public_status_servers: "Public servers",
+          agent_base_url: "Agent base URL",
+          subscription_base_url: "Subscription base URL",
+          telegram_bot_enabled: "Telegram notifications",
+          telegram_chat_id: "Telegram Chat ID",
+          telegram_admin_chat_ids: "Telegram admin Chat IDs",
+          telegram_bot_token: "Telegram Bot Token",
+          alert_events: "Alert events",
+          alert_cooldown_secs: "Alert cooldown",
+          update_check_enabled: "Version update checks",
+          update_check_interval_hours: "Version check interval",
+          update_check_notify: "New release notifications",
+          backup_webdav_enabled: "Off-site backup",
+          backup_webdav_url: "WebDAV URL",
+          backup_webdav_username: "WebDAV username",
+          backup_webdav_password: "WebDAV password",
+          backup_webdav_interval_hours: "Off-site backup interval",
+          backup_webdav_keep: "Off-site backup retention",
+          backup_encrypt: "Backup encryption",
+          webhook_url: "Webhook URL",
+        },
+      },
       cancelRestore: "Cancel pending restore",
       cancelRestoreTitle: "Cancel pending restore",
       cancelRestoreDesc:
@@ -3426,13 +3488,6 @@ const en = {
     kickedCurrent: "Signed out",
     kickedOthers: "Signed out {n} other devices",
     kickFailed: "Could not sign the device out. Please try again.",
-    history: {
-      title: "Recent sign-ins",
-      empty: "No sign-in history",
-      emptyDesc: "Records appear here after the next successful sign-in.",
-      loadFailed: "Could not load sign-in history",
-      loadError: "Could not load sign-in history. Please try again.",
-    },
     admin: {
       title: "Sign-in devices for {username}",
       empty: "This user has no sign-in devices",
@@ -3546,6 +3601,8 @@ const en = {
       history: "Package history",
       historyEmpty: "No package history",
       historyEmptyDesc: "Expired packages are listed here.",
+      historyEmptyLine:
+        "No package history yet; expired packages will be listed here.",
       quota: "Quota",
       unlimited: "Unlimited",
     },
@@ -4106,6 +4163,8 @@ const en = {
     "backup.remote_upload_failed": "Off-site backup upload failed: {detail}",
     "backup.export_too_large":
       "The database exceeds the {max_mb} MB export and off-site backup limit; clean up data or raise PIERWAVE_MAX_BACKUP_MB and retry",
+    "backup.restore_sync_failed":
+      "Restore did not complete. Check disk space and permissions, then try again",
     "settings.backup_webdav_url_invalid": "Invalid WebDAV URL",
     "settings.backup_webdav_username_invalid": "Invalid WebDAV username",
     "settings.backup_webdav_password_invalid": "Invalid WebDAV password",

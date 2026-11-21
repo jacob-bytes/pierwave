@@ -3,10 +3,7 @@ import type { UseQueryResult } from "@tanstack/react-query";
 import { ListError } from "@/components/common";
 import { meErrorText } from "@/lib/meError";
 import { useMeShellSummary } from "@/lib/meShell";
-import {
-  LoginDevicesCard,
-  RecentLoginsCard,
-} from "@/components/me/LoginDevicesCard";
+import { LoginDevicesCard } from "@/components/me/LoginDevicesCard";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import {
   Card,
@@ -158,10 +155,8 @@ export default function MeOverviewPage() {
 
       <TrafficCard traffic={traffic} />
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
-        <LoginDevicesCard />
-        <RecentLoginsCard />
-      </div>
+      {/* 登录设备独占整宽：不再和另一张卡并排，避免一高一矮的底边错位。 */}
+      <LoginDevicesCard />
 
       <ChangePasswordDialog
         open={passwordOpen}

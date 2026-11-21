@@ -332,3 +332,25 @@ test("backup.export_too_large maps to a readable, localized limit", () => {
     );
   });
 });
+
+test("backup.restore_sync_failed points at the disk instead of a generic failure", () => {
+  const error = () =>
+    new ApiError(
+      "failed to fsync directory /srv/pierwave",
+      500,
+      "backup.restore_sync_failed",
+      { path: "/srv/pierwave" },
+    );
+  assert.equal(hasErrorCode("backup.restore_sync_failed"), true);
+
+  withLocale("zh-CN", () => {
+    const text = errorText(error(), "fallback");
+    assert.equal(text.includes("磁盘"), true, text);
+    assert.equal(text.includes("重试"), true, text);
+  });
+  withLocale("en", () => {
+    const text = errorText(error(), "fallback");
+    assert.equal(text.toLowerCase().includes("disk"), true, text);
+    assert.equal(text.toLowerCase().includes("try again"), true, text);
+  });
+});

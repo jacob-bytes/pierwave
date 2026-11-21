@@ -151,7 +151,12 @@ async fn main() -> anyhow::Result<()> {
 
     // 启动时应用/拒绝恢复也要进审计；此时还没有登录用户，记系统审计。
     match restore_outcome {
-        Some(RestoreOutcome::Applied { pending, previous }) => {
+        Some(RestoreOutcome::Applied {
+            pending,
+            previous,
+            config_version,
+            servers_bumped,
+        }) => {
             let previous_display = previous
                 .as_ref()
                 .map(|path| path.display().to_string())
@@ -159,6 +164,8 @@ async fn main() -> anyhow::Result<()> {
             tracing::warn!(
                 pending = %pending.display(),
                 previous = %previous_display,
+                config_version = config_version.unwrap_or(0),
+                servers_bumped,
                 "已应用待恢复的数据库备份；旧库已保留为 pre-restore 文件"
             );
             audit::record_system(
@@ -169,6 +176,8 @@ async fn main() -> anyhow::Result<()> {
                     "result": "applied",
                     "pending": pending.display().to_string(),
                     "previous": previous.map(|path| path.display().to_string()),
+                    "config_version": config_version,
+                    "servers_bumped": servers_bumped,
                 }),
             )
             .await;

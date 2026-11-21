@@ -1,5 +1,5 @@
 /**
- * 登录设备 / 最近登录的纯逻辑（不依赖 React）。
+ * 登录设备的纯逻辑（不依赖 React）。
  *
  * 后端只返回原始 `user_agent`、`ip` 与时间戳；设备名由这里解析：
  * - 命中常见浏览器 / 系统时显示「浏览器 · 系统」（只保留主版本号）；
@@ -17,7 +17,6 @@ import { formatRelativeTime } from "./time.ts";
 export const RAW_UA_MAX_CHARS = 48;
 
 export const SESSIONS_EMPTY_KEY = "sessions.empty";
-export const LOGINS_EMPTY_KEY = "sessions.history.empty";
 
 /** 本次新增的登录告警事件；与 `alerts.ts` 的 ALERT_EVENTS 保持一致。 */
 export const LOGIN_ALERT_EVENTS = ["login_failed", "login_new_ip"] as const;
@@ -30,13 +29,6 @@ export interface SessionLike {
   created_at: number;
   last_seen_at?: number | null;
   current: boolean;
-}
-
-export interface LoginRecordLike {
-  id: string;
-  user_agent?: string | null;
-  ip?: string | null;
-  created_at: number;
 }
 
 /**
@@ -144,14 +136,6 @@ export function sessionCountText(count: number): string {
   return count === 1
     ? t("sessions.countOne")
     : t("sessions.countMany", { n: count });
-}
-
-/** 最近登录行的时间文案；没有 last_seen 概念，统一用 created_at。 */
-export function formatLoginTime(
-  login: LoginRecordLike,
-  now = Date.now(),
-): string {
-  return formatRelativeTime(login.created_at, now);
 }
 
 /** IP 为空时显示占位文案。 */

@@ -38,7 +38,13 @@ import {
   SettingsGroup,
   SETTINGS_FULL_ROW,
 } from "@/components/settings/SettingsGroup";
-import { api, ApiError, type BackupPending } from "@/lib/api";
+import { RestorePreviewNotice } from "@/components/settings/RestorePreviewNotice";
+import {
+  api,
+  ApiError,
+  type BackupPending,
+  type RestoreBackupResponse,
+} from "@/lib/api";
 import {
   BACKUP_ACCEPT,
   BACKUP_MAX_BYTES,
@@ -52,6 +58,11 @@ import {
 } from "@/lib/backup";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
+import {
+  emptyRestorePreview,
+  restorePreviewFromResponse,
+  type RestorePreview,
+} from "@/lib/restoreDiff";
 import {
   useBackupInfo,
   useCancelRestore,
@@ -74,6 +85,10 @@ function backupErrorText(
       return t("settings.backup.exportTooLargeError", {
         size: formatBytes(exportTooLargeLimitBytes(error) ?? exportLimitBytes),
       });
+    }
+    // 落位后同步目录失败：恢复没有完成，不能只显示「上传失败」。
+    if (error.code === "backup.restore_sync_failed") {
+      return t("settings.backup.restoreSyncFailed");
     }
     if (error.status === 404) {
       return t("settings.backup.notReady404");
@@ -164,10 +179,10 @@ function PendingNotice({
  * 不需要用 effect 在 pending 出现时手动清空。
  */
 function RestoreForm({
-  onWarning,
+  onScheduled,
 }: {
-  /** 把 force 恢复的 warning 交给父组件，常驻显示在待恢复提示里。 */
-  onWarning: (warning: string | null) => void;
+  /** 恢复已调度：把 warning 与「将回退的内容」一起交给父组件常驻展示。 */
+  onScheduled: (result: RestoreBackupResponse) => void;
 }) {
   const restoreBackup = useRestoreBackup();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -236,7 +251,7 @@ function RestoreForm({
       {
         onSuccess: (result) => {
           resetSelection();
-          onWarning(result.warning ?? null);
+          onScheduled(result);
           toast.success(t("settings.backup.uploadedToast"));
         },
         onError: (error) => {
@@ -494,8 +509,9 @@ function RestoreForm({
 /**
  * P7：备份与恢复，见 docs/PLAN.md「P7：备份与恢复」。
  *
- * 下载走同源直链，浏览器自己带 Cookie；恢复必须把文件作为原始字节 POST，
- * 不能套 FormData。上传前在本地挡掉错误扩展名、空文件与 >512 MB。
+ * 下载先读成 Blob，超限时能把 `backup.export_too_large` 显示成可读提示；
+ * 恢复必须把文件作为原始字节 POST，不能套 FormData。上传前在本地挡掉
+ * 错误扩展名、空文件与 >512 MB。
  *
  * 与其它 tab 同一套结构：每个分组一张独立卡片（数据库大小与下载 / 恢复数据），
  * 破坏性按钮不与下载并排。
@@ -509,6 +525,11 @@ export function BackupCard() {
   const [cancelError, setCancelError] = useState<string | null>(null);
   // force 恢复返回的 warning：只属于当前待恢复文件，取消或重新上传后清空。
   const [forceWarning, setForceWarning] = useState<string | null>(null);
+  // 恢复调度响应里的「将回退的设置 / 需要刷新 token 的服务器」。
+  // 只来自本次响应：刷新页面后 info 里没有这些字段，就不显示额外区块。
+  const [restorePreview, setRestorePreview] = useState<RestorePreview>(() =>
+    emptyRestorePreview(),
+  );
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
 
@@ -549,12 +570,18 @@ export function BackupCard() {
     }
   };
 
+  const handleRestoreScheduled = (result: RestoreBackupResponse) => {
+    setForceWarning(result.warning ?? null);
+    setRestorePreview(restorePreviewFromResponse(result));
+  };
+
   const handleCancelRestore = () => {
     setCancelError(null);
     cancelRestore.mutate(undefined, {
       onSuccess: () => {
         setCancelOpen(false);
         setForceWarning(null);
+        setRestorePreview(emptyRestorePreview());
         toast.success(t("settings.backup.cancelRestoreSuccess"));
       },
       onError: (error) => {
@@ -689,6 +716,7 @@ export function BackupCard() {
                   </p>
                 </div>
               </div>
+              <RestorePreviewNotice preview={restorePreview} />
               <div className="flex justify-end">
                 <Button
                   type="button"
@@ -706,7 +734,7 @@ export function BackupCard() {
             </div>
           </>
         ) : (
-          <RestoreForm onWarning={setForceWarning} />
+          <RestoreForm onScheduled={handleRestoreScheduled} />
         )}
       </SettingsGroup>
 

@@ -631,6 +631,9 @@ impl AgentHub {
     }
 }
 
+/// 恢复落位时目录 `fsync` 的实现；测试可注入失败/计数版本。
+pub type RestoreFsync = Arc<dyn Fn(&std::path::Path) -> std::io::Result<()> + Send + Sync>;
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Arc<Db>,
@@ -672,6 +675,11 @@ pub struct AppState {
     pub api_token_throttle: Arc<ApiTokenRateLimiter>,
     /// API Token 的 `last_used_at` 写回缓冲；调度器批量落库。
     pub api_token_usage: Arc<ApiTokenUsage>,
+    /// 恢复落位时 `fsync` 父目录的实现。
+    ///
+    /// 生产固定是 [`pierwave_domain::fs_security::sync_dir`]；测试注入失败/计数
+    /// 版本，验证「fsync 失败不能静默成功」以及成功路径恰好同步一次。
+    pub restore_fsync: RestoreFsync,
 }
 
 impl AppState {
@@ -697,6 +705,7 @@ impl AppState {
             max_backup_bytes: max_backup_bytes_from_env(),
             api_token_throttle: Arc::new(ApiTokenRateLimiter::default()),
             api_token_usage: Arc::new(ApiTokenUsage::default()),
+            restore_fsync: Arc::new(pierwave_domain::fs_security::sync_dir),
         }
     }
 

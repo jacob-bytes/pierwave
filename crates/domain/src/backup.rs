@@ -63,6 +63,13 @@ pub enum RestoreOutcome {
     Applied {
         pending: PathBuf,
         previous: Option<PathBuf>,
+        /// 恢复应用时统一写入的 `config_version`；备份里没有服务器时为 `None`。
+        ///
+        /// 取 `max(恢复前主库, 备份库) + 1`：Agent 只接受**更大**的版本，
+        /// 只按备份库的版本 +1 可能仍小于现场 Agent 已应用的版本。
+        config_version: Option<i64>,
+        /// 本次被提升版本号的服务器数量。
+        servers_bumped: u64,
     },
     /// 文件存在但校验不通过：**不替换**，保留现场，由调用方记录日志/审计。
     Rejected { reason: String },
@@ -177,7 +184,10 @@ pub async fn discard_unreadable_settings(
         .connect_with(options)
         .await
         .with_context(|| format!("无法打开待恢复数据库以丢弃旧秘密：{}", path.display()))?;
-    let result = async {
+    let result: anyhow::Result<Vec<String>> = async {
+        // 写下去的秘密删除/开关修改必须落在主文件里：候选库随后只会被 rename，
+        // 如果提交停在 `-wal`，换库后这些修改就丢了。
+        repo::backup::use_rollback_journal(&pool).await?;
         let unreadable = crate::secret_box::find_unreadable_settings(&pool, key).await?;
         for name in &unreadable {
             repo::settings::delete(&pool, name).await?;
@@ -197,7 +207,17 @@ pub async fn discard_unreadable_settings(
     }
     .await;
     pool.close().await;
-    result
+    let unreadable: Vec<String> = result?;
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = append_suffix(path, suffix);
+        if sidecar.exists() {
+            bail!(
+                "丢弃旧秘密后仍残留旁路文件 {}，拒绝换库（可能丢失修改）",
+                sidecar.display()
+            );
+        }
+    }
+    Ok(unreadable)
 }
 
 async fn inspect(pool: &SqlitePool) -> anyhow::Result<()> {
@@ -274,6 +294,85 @@ async fn open_readonly(path: &Path) -> anyhow::Result<SqlitePool> {
         .connect_with(options)
         .await
         .with_context(|| format!("无法打开备份数据库：{}", path.display()))
+}
+
+/// 只读打开一个数据库文件；恢复预览（设置差异 / token 对比）也用它。
+///
+/// 调用方用完必须 `pool.close().await`，否则文件会一直被占用。
+pub async fn open_readonly_pool(path: &Path) -> anyhow::Result<SqlitePool> {
+    open_readonly(path).await
+}
+
+/// `rename` 之后用于 `fsync` 父目录的函数；生产用
+/// [`crate::fs_security::sync_dir`]，测试可以注入失败或计数。
+pub type SyncDirFn<'a> = &'a (dyn Fn(&Path) -> std::io::Result<()> + Send + Sync);
+
+/// 把校验通过的上传文件原子落位为 `<db>.restore-pending`，并 `fsync` 父目录。
+///
+/// 只做同目录 `rename`：崩溃窗口内要么看到旧文件名，要么看到 pending。
+/// `rename` 本身不保证目录项落盘，所以成功后必须 `sync_dir`；同步失败时
+/// **撤销这次落位**（删除 pending 并再次尝试同步），避免出现「接口报失败、
+/// 重启却真的恢复了」的半成功状态。
+pub fn land_pending_restore(raw: &Path, pending: &Path) -> anyhow::Result<()> {
+    land_pending_restore_with_sync(raw, pending, &crate::fs_security::sync_dir)
+}
+
+/// 同 [`land_pending_restore`]，但由调用方提供目录 `fsync` 实现（测试注入用）。
+pub fn land_pending_restore_with_sync(
+    raw: &Path,
+    pending: &Path,
+    sync_dir: SyncDirFn<'_>,
+) -> anyhow::Result<()> {
+    fs::rename(raw, pending).with_context(|| {
+        format!(
+            "把上传的备份落位为待恢复文件失败：{} -> {}",
+            raw.display(),
+            pending.display()
+        )
+    })?;
+
+    let parent = pending
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    // 待恢复文件里是完整业务数据；上传临时文件已是 0600，这里再兜底一次。
+    if let Err(error) = crate::fs_security::ensure_private_file(pending) {
+        // 落位后的任何失败都不能留下「接口报错但重启会恢复」的文件。
+        rollback_landing(pending, parent, sync_dir);
+        return Err(error)
+            .with_context(|| format!("收紧待恢复文件权限失败：{}", pending.display()));
+    }
+
+    if let Err(error) = sync_dir(parent) {
+        // 同步失败 = 这次落位能否在崩溃后活下来未知。撤销 pending（best effort）
+        // 并再同步一次目录，把「没有待恢复文件」这个事实尽量持久化。
+        rollback_landing(pending, parent, sync_dir);
+        return Err(sync_failed_error(parent, &error));
+    }
+    Ok(())
+}
+
+/// 落位后失败时撤销 pending 并尽量把「没有待恢复文件」同步下去。
+fn rollback_landing(pending: &Path, parent: &Path, sync_dir: SyncDirFn<'_>) {
+    let _ = fs::remove_file(pending);
+    let _ = sync_dir(parent);
+}
+
+/// 目录 `fsync` 失败的可读错误（键名/路径，不含备份内容）。
+fn sync_failed_error(parent: &Path, error: &std::io::Error) -> anyhow::Error {
+    DomainError::with_params(
+        "backup.restore_sync_failed",
+        json!({ "path": parent.display().to_string() }),
+        format!(
+            "备份文件已落位，但同步目录 {} 失败（{error}），本次恢复未生效；\
+             请检查磁盘空间、挂载与文件系统状态后重试 / The backup file was moved into \
+             place but syncing its parent directory {} failed ({error}); this restore is not \
+             in effect. Check disk space, mounts and the filesystem, then retry.",
+            parent.display(),
+            parent.display(),
+        ),
+    )
+    .into()
 }
 
 /// 本产品在数据库目录写下的临时文件前缀。
@@ -451,6 +550,20 @@ pub async fn apply_pending_restore_with_key(
     db_path: &Path,
     key: &crate::secret_box::SecretKey,
 ) -> anyhow::Result<RestoreOutcome> {
+    apply_pending_restore_with_sync(db_path, key, &crate::fs_security::sync_dir).await
+}
+
+/// 同 [`apply_pending_restore_with_key`]，但由调用方提供目录 `fsync` 实现。
+///
+/// 换库是**两次**关键 `rename` 之一（另一次是上传落位）；`rename` 只保证
+/// 同一时刻能看到哪个名字，不保证目录项在崩溃后仍然存在，所以换库成功后
+/// 必须 `fsync` 父目录。同步失败会回滚本次换库并返回可读的 `Rejected`，
+/// 不能把「可能没落盘」报成已应用。
+pub async fn apply_pending_restore_with_sync(
+    db_path: &Path,
+    key: &crate::secret_box::SecretKey,
+    sync_dir: SyncDirFn<'_>,
+) -> anyhow::Result<RestoreOutcome> {
     let pending = pending_path(db_path);
     if !pending.exists() {
         return Ok(RestoreOutcome::NoPending);
@@ -503,6 +616,27 @@ pub async fn apply_pending_restore_with_key(
         }
     }
 
+    // R3：恢复旧库后 `config_version` 可能低于现场 Agent 已应用的版本，
+    // Agent 只接受更大的版本。把所有服务器提升到 `max(旧主库, 备份库) + 1`，
+    // 保证**每台**恢复后的服务器都严格大于恢复前的任何版本。
+    let current_max = max_config_version_on_disk(db_path).await?;
+    let restored_max = max_config_version_on_disk(&pending).await?;
+    let applied_version = match restored_max {
+        Some(restored) => {
+            let current = current_max.unwrap_or(restored).max(restored);
+            Some(
+                current
+                    .checked_add(1)
+                    .context("恢复后提升 config_version 溢出 i64 上限")?,
+            )
+        }
+        None => None,
+    };
+    let servers_bumped = match applied_version {
+        Some(version) => bump_pending_config_versions(&pending, version).await?,
+        None => 0,
+    };
+
     let previous = move_current_aside(db_path)?;
     if let Err(error) = fs::rename(&pending, db_path) {
         rollback_previous(db_path, previous.as_deref());
@@ -515,11 +649,115 @@ pub async fn apply_pending_restore_with_key(
         });
     }
 
+    // R1：换库 rename 只改目录项，不保证崩溃后仍可见；必须 fsync 父目录。
+    let parent = db_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    if let Err(error) = sync_dir(parent) {
+        // 不能把「可能没落盘」报成已应用：把候选库放回 pending、旧库搬回原位，
+        // 然后返回可读的 Rejected，让主控继续用旧库启动。
+        let rollback = rollback_applied_swap(db_path, &pending, previous.as_deref());
+        let mut reason = format!("{:#}", sync_failed_error(parent, &error));
+        if let Err(problems) = rollback {
+            reason.push_str(&format!(
+                " 回滚也未完全成功（{problems}），请人工检查 {} 与 pending 文件 / \
+                 rollback was incomplete ({problems}); inspect {} and the pending file manually",
+                db_path.display(),
+                db_path.display(),
+            ));
+        }
+        return Ok(RestoreOutcome::Rejected { reason });
+    }
+
     // 待恢复文件可能是旧版本上传的 0644 副本；落位后主库必须立即收紧。
     crate::fs_security::ensure_private_file(db_path)
         .with_context(|| format!("收紧恢复后的数据库权限失败：{}", db_path.display()))?;
 
-    Ok(RestoreOutcome::Applied { pending, previous })
+    Ok(RestoreOutcome::Applied {
+        pending,
+        previous,
+        config_version: if servers_bumped > 0 {
+            applied_version
+        } else {
+            None
+        },
+        servers_bumped,
+    })
+}
+
+/// 读取一个数据库文件里所有服务器的最大 `config_version`；文件不存在返回 `None`。
+///
+/// 用可写连接打开：旧主库可能处于 WAL 模式且带着 `-wal`，只读打开在缺少
+/// `-shm` 时会失败；这里只读一列，不会修改业务数据。
+async fn max_config_version_on_disk(path: &Path) -> anyhow::Result<Option<i64>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .busy_timeout(std::time::Duration::from_secs(5));
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .with_context(|| format!("无法打开数据库读取配置版本：{}", path.display()))?;
+    let result = repo::servers::max_config_version(&pool)
+        .await
+        .with_context(|| format!("读取配置版本失败：{}", path.display()));
+    pool.close().await;
+    result
+}
+
+/// 在换库之前把待恢复库里所有服务器的 `config_version` 统一提升。
+async fn bump_pending_config_versions(pending: &Path, target: i64) -> anyhow::Result<u64> {
+    let options = SqliteConnectOptions::new()
+        .filename(pending)
+        .busy_timeout(std::time::Duration::from_secs(5));
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .with_context(|| format!("无法打开待恢复数据库以提升配置版本：{}", pending.display()))?;
+    let result = async {
+        // 必须切回回滚日志：否则提交停在 `-wal` 里，换库只 rename 主文件会把
+        // 这次版本提升丢掉（甚至让恢复后的库缺页）。
+        repo::backup::use_rollback_journal(&pool).await?;
+        repo::servers::set_all_config_versions(&pool, target).await
+    }
+    .await;
+    pool.close().await;
+    let bumped =
+        result.with_context(|| format!("提升待恢复数据库的配置版本失败：{}", pending.display()))?;
+    for suffix in ["-wal", "-shm"] {
+        let sidecar = append_suffix(pending, suffix);
+        if sidecar.exists() {
+            bail!(
+                "提升配置版本后仍残留旁路文件 {}，拒绝换库（可能丢失提交）",
+                sidecar.display()
+            );
+        }
+    }
+    Ok(bumped)
+}
+
+/// 换库并 `fsync` 失败后的回滚：候选库改回 pending，旧库搬回主库位置。
+fn rollback_applied_swap(
+    db_path: &Path,
+    pending: &Path,
+    previous: Option<&Path>,
+) -> Result<(), String> {
+    fs::rename(db_path, pending).map_err(|error| format!("把候选库改回 pending 失败：{error}"))?;
+    if let Some(previous) = previous {
+        for suffix in ["-wal", "-shm"] {
+            let source = append_suffix(previous, suffix);
+            if source.exists() {
+                let _ = fs::rename(&source, append_suffix(db_path, suffix));
+            }
+        }
+        fs::rename(previous, db_path).map_err(|error| format!("把旧库搬回原位失败：{error}"))?;
+    }
+    Ok(())
 }
 
 /// 把当前主库与 WAL/SHM 旁路文件一起改名，返回回滚副本路径。
@@ -979,6 +1217,213 @@ mod tests {
         assert!(reason.contains("迁移版本"), "实际：{reason}");
         assert!(reason.contains("高于当前程序支持"), "实际：{reason}");
         db.pool.close().await;
+    }
+
+    /// 把一份带指定用户的合法快照复制成 `.restore-pending`。
+    async fn stage_pending_with_user(dir: &TestDir, db_path: &Path, username: &str) {
+        let source_path = dir.file(&format!("source-{username}.db"));
+        let source = open_db(&source_path).await;
+        source.migrate().await.unwrap();
+        create_user(&source, username).await;
+        let snapshot = dir.file(&format!("snapshot-{username}.db"));
+        create_snapshot(&source.pool, &snapshot).await.unwrap();
+        source.pool.close().await;
+        fs::copy(&snapshot, pending_path(db_path)).unwrap();
+    }
+
+    /// R1：pending 落位后必须 `fsync` 父目录；失败要回滚落位并返回可读错误。
+    #[test]
+    fn landing_pending_fsyncs_parent_and_rolls_back_on_failure() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+
+        fn counting_sync(path: &Path) -> std::io::Result<()> {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            crate::fs_security::sync_dir(path)
+        }
+
+        let dir = TestDir::new("land-fsync");
+        let raw = dir.file("upload.tmp");
+        fs::write(&raw, b"sqlite").unwrap();
+        let pending = pending_path(&dir.db_path());
+        land_pending_restore_with_sync(&raw, &pending, &counting_sync).unwrap();
+        assert!(pending.exists(), "成功落位后必须存在 pending");
+        assert_eq!(
+            CALLS.load(Ordering::SeqCst),
+            1,
+            "pending 落位后必须恰好 fsync 一次父目录"
+        );
+
+        let raw_fail = dir.file("upload-fail.tmp");
+        fs::write(&raw_fail, b"sqlite").unwrap();
+        let pending_fail = dir.file("failed.db.restore-pending");
+        let error = land_pending_restore_with_sync(&raw_fail, &pending_fail, &|_: &Path| {
+            Err(std::io::Error::other("injected fsync failure"))
+        })
+        .unwrap_err();
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("同步目录") || message.contains("fsync"),
+            "错误要可读并指出同步失败：{message}"
+        );
+        assert!(
+            !pending_fail.exists(),
+            "fsync 失败必须撤销落位，不能留下一个可能未落盘的 pending"
+        );
+    }
+
+    /// R1：换库 rename 之后必须 `fsync` 父目录；成功路径恰好一次。
+    #[tokio::test]
+    async fn apply_pending_restore_fsyncs_parent_and_rolls_back_on_failure() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+
+        fn counting_sync(path: &Path) -> std::io::Result<()> {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            crate::fs_security::sync_dir(path)
+        }
+
+        let dir = TestDir::new("apply-fsync");
+        let db_path = dir.db_path();
+        let current = open_db(&db_path).await;
+        current.migrate().await.unwrap();
+        create_user(&current, "old-admin").await;
+        current.pool.close().await;
+        stage_pending_with_user(&dir, &db_path, "restored-admin").await;
+
+        let key = crate::secret_box::SecretKey::for_database(Some(&db_path)).unwrap();
+        let outcome = apply_pending_restore_with_sync(&db_path, &key, &counting_sync)
+            .await
+            .unwrap();
+        assert!(
+            matches!(outcome, RestoreOutcome::Applied { .. }),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            CALLS.load(Ordering::SeqCst),
+            1,
+            "换库 rename 后必须恰好 fsync 一次父目录"
+        );
+        let restored = open_db(&db_path).await;
+        assert!(users::find_by_username(&restored.pool, "restored-admin")
+            .await
+            .unwrap()
+            .is_some());
+        restored.pool.close().await;
+
+        // 失败路径：sync 失败必须回滚换库，主库仍是旧库，pending 保留。
+        let dir = TestDir::new("apply-fsync-fail");
+        let db_path = dir.db_path();
+        let current = open_db(&db_path).await;
+        current.migrate().await.unwrap();
+        create_user(&current, "old-admin").await;
+        current.pool.close().await;
+        stage_pending_with_user(&dir, &db_path, "restored-admin").await;
+
+        let key = crate::secret_box::SecretKey::for_database(Some(&db_path)).unwrap();
+        let outcome = apply_pending_restore_with_sync(&db_path, &key, &|_: &Path| {
+            Err(std::io::Error::other("injected fsync failure"))
+        })
+        .await
+        .unwrap();
+        let reason = match outcome {
+            RestoreOutcome::Rejected { reason } => reason,
+            other => panic!("fsync 失败不能报成功，实际 {other:?}"),
+        };
+        assert!(
+            reason.contains("同步目录") || reason.contains("fsync"),
+            "拒绝原因要可读并指出同步失败：{reason}"
+        );
+        assert!(pending_path(&db_path).exists(), "回滚后必须保留 pending");
+        let current = open_db(&db_path).await;
+        assert!(
+            users::find_by_username(&current.pool, "old-admin")
+                .await
+                .unwrap()
+                .is_some(),
+            "fsync 失败后必须回滚到旧库"
+        );
+        assert!(
+            users::find_by_username(&current.pool, "restored-admin")
+                .await
+                .unwrap()
+                .is_none(),
+            "fsync 失败后候选库不能生效"
+        );
+        current.pool.close().await;
+    }
+
+    /// R3：恢复应用时把所有服务器的 `config_version` 提升到
+    /// `max(恢复前主库, 备份库) + 1`，保证现场 Agent 收到更大的版本。
+    #[tokio::test]
+    async fn apply_pending_restore_bumps_config_versions_above_both_databases() {
+        let dir = TestDir::new("apply-bump");
+        let db_path = dir.db_path();
+        let current = open_db(&db_path).await;
+        current.migrate().await.unwrap();
+        for name in ["live-a", "live-b"] {
+            create_user(&current, name).await;
+        }
+        let (live_server, _) =
+            repo::servers::create(&current.pool, "live-1", "1.1.1.1", "external")
+                .await
+                .unwrap();
+        repo::servers::set_all_config_versions(&current.pool, 11)
+            .await
+            .unwrap();
+        current.pool.close().await;
+
+        // 备份库里的版本更低（旧库），但现场 Agent 可能已经应用过 11。
+        let source_path = dir.file("source-bump.db");
+        let source = open_db(&source_path).await;
+        source.migrate().await.unwrap();
+        for name in ["backup-a", "backup-b", "backup-c"] {
+            let (server, _) = repo::servers::create(&source.pool, name, "2.2.2.2", "external")
+                .await
+                .unwrap();
+            let _ = server;
+        }
+        repo::servers::set_all_config_versions(&source.pool, 8)
+            .await
+            .unwrap();
+        let snapshot = dir.file("snapshot-bump.db");
+        create_snapshot(&source.pool, &snapshot).await.unwrap();
+        source.pool.close().await;
+        fs::copy(&snapshot, pending_path(&db_path)).unwrap();
+
+        let outcome = apply_pending_restore(&db_path).await.unwrap();
+        let (bumped_to, servers) = match outcome {
+            RestoreOutcome::Applied {
+                config_version,
+                servers_bumped,
+                ..
+            } => (config_version, servers_bumped),
+            other => panic!("应已应用，实际 {other:?}"),
+        };
+        assert_eq!(
+            bumped_to,
+            Some(12),
+            "必须是 max(恢复前 11, 备份 8) + 1 = 12"
+        );
+        assert_eq!(servers, 3, "备份库里的 3 台服务器都要提升");
+
+        let restored = open_db(&db_path).await;
+        let rows = repo::servers::list(&restored.pool).await.unwrap();
+        assert_eq!(rows.len(), 3);
+        for row in &rows {
+            assert_eq!(
+                row.config_version, 12,
+                "服务器 {} 的版本必须严格大于 11",
+                row.name
+            );
+        }
+        assert!(
+            rows.iter().all(|row| row.id != live_server.id),
+            "恢复后应是备份库的服务器集合"
+        );
+        restored.pool.close().await;
     }
 
     #[tokio::test]

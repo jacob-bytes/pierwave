@@ -5,13 +5,11 @@ import zh from "../i18n/zh-CN.ts";
 import { setCurrentLocale } from "../i18n/locale.ts";
 import { ALERT_EVENTS } from "./alerts.ts";
 import {
-  LOGINS_EMPTY_KEY,
   LOGIN_ALERT_EVENTS,
   RAW_UA_MAX_CHARS,
   SESSIONS_EMPTY_KEY,
   deviceSummary,
   formatLastSeen,
-  formatLoginTime,
   ipLabel,
   lastSeenAt,
   parseUserAgent,
@@ -91,7 +89,6 @@ test("last seen falls back to created_at and formats relative time", () => {
     formatLastSeen({ ...session, last_seen_at: secondsAgo(60) }, NOW),
     "1 分钟前",
   );
-  assert.equal(formatLoginTime({ id: "l1", created_at: secondsAgo(60) }, NOW), "1 分钟前");
 });
 
 test("sortSessions puts the current session first and newest activity next", () => {
@@ -125,7 +122,6 @@ test("empty states and the two new alert events exist in both locales", () => {
 
   for (const dictionary of [zh, en]) {
     assert.equal(typeof pick(dictionary, SESSIONS_EMPTY_KEY), "string");
-    assert.equal(typeof pick(dictionary, LOGINS_EMPTY_KEY), "string");
     for (const event of LOGIN_ALERT_EVENTS) {
       assert.equal(
         typeof pick(dictionary, `settings.alerts.events.${event}`),

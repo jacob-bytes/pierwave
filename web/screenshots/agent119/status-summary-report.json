@@ -1,0 +1,518 @@
+{
+  "healthy-light-1440": {
+    "summary": "过去 24 小时持续在线，无中断",
+    "summaryY": 177,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 206.19,
+    "cardHeight": 359.19,
+    "overviewHeight": 359.19,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 44,
+        "y": 137,
+        "w": 420,
+        "h": 359.19
+      },
+      {
+        "slot": "detail-availability",
+        "x": 480,
+        "y": 137,
+        "w": 916,
+        "h": 359.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 44,
+        "y": 512.19,
+        "w": 420,
+        "h": 208.89
+      },
+      {
+        "slot": "detail-billing",
+        "x": 480,
+        "y": 512.19,
+        "w": 916,
+        "h": 208.89
+      }
+    ],
+    "pageHeight": 1000,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/status-summary-healthy-light-1440.png"
+  },
+  "healthy-light-390": {
+    "summary": "过去 24 小时持续在线，无中断",
+    "summaryY": 531.89,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 561.08,
+    "cardHeight": 345.19,
+    "overviewHeight": 342.89,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 16,
+        "y": 137,
+        "w": 358,
+        "h": 342.89
+      },
+      {
+        "slot": "detail-availability",
+        "x": 16,
+        "y": 495.89,
+        "w": 358,
+        "h": 345.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 16,
+        "y": 857.08,
+        "w": 358,
+        "h": 255.77
+      },
+      {
+        "slot": "detail-billing",
+        "x": 16,
+        "y": 1128.84,
+        "w": 358,
+        "h": 269.78
+      }
+    ],
+    "pageHeight": 1447,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/status-summary-healthy-light-390.png"
+  },
+  "healthy-dark-1440": {
+    "summary": "过去 24 小时持续在线，无中断",
+    "summaryY": 177,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 206.19,
+    "cardHeight": 359.19,
+    "overviewHeight": 359.19,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 44,
+        "y": 137,
+        "w": 420,
+        "h": 359.19
+      },
+      {
+        "slot": "detail-availability",
+        "x": 480,
+        "y": 137,
+        "w": 916,
+        "h": 359.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 44,
+        "y": 512.19,
+        "w": 420,
+        "h": 208.89
+      },
+      {
+        "slot": "detail-billing",
+        "x": 480,
+        "y": 512.19,
+        "w": 916,
+        "h": 208.89
+      }
+    ],
+    "pageHeight": 1000,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/status-summary-healthy-dark-1440.png"
+  },
+  "healthy-dark-390": {
+    "summary": "过去 24 小时持续在线，无中断",
+    "summaryY": 531.89,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 561.08,
+    "cardHeight": 345.19,
+    "overviewHeight": 342.89,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 16,
+        "y": 137,
+        "w": 358,
+        "h": 342.89
+      },
+      {
+        "slot": "detail-availability",
+        "x": 16,
+        "y": 495.89,
+        "w": 358,
+        "h": 345.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 16,
+        "y": 857.08,
+        "w": 358,
+        "h": 255.77
+      },
+      {
+        "slot": "detail-billing",
+        "x": 16,
+        "y": 1128.84,
+        "w": 358,
+        "h": 269.78
+      }
+    ],
+    "pageHeight": 1447,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/status-summary-healthy-dark-390.png"
+  },
+  "incident-light-1440": {
+    "summary": "过去 24 小时中断 2 次，累计 3 小时 12 分",
+    "summaryY": 177,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 206.19,
+    "cardHeight": 359.19,
+    "overviewHeight": 359.19,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 44,
+        "y": 137,
+        "w": 420,
+        "h": 359.19
+      },
+      {
+        "slot": "detail-availability",
+        "x": 480,
+        "y": 137,
+        "w": 916,
+        "h": 359.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 44,
+        "y": 512.19,
+        "w": 420,
+        "h": 208.89
+      },
+      {
+        "slot": "detail-billing",
+        "x": 480,
+        "y": 512.19,
+        "w": 916,
+        "h": 208.89
+      }
+    ],
+    "pageHeight": 1000,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/status-summary-incident-light-1440.png"
+  },
+  "incident-light-390": {
+    "summary": "过去 24 小时中断 2 次，累计 3 小时 12 分",
+    "summaryY": 531.89,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 561.08,
+    "cardHeight": 365.19,
+    "overviewHeight": 342.89,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 16,
+        "y": 137,
+        "w": 358,
+        "h": 342.89
+      },
+      {
+        "slot": "detail-availability",
+        "x": 16,
+        "y": 495.89,
+        "w": 358,
+        "h": 365.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 16,
+        "y": 877.08,
+        "w": 358,
+        "h": 255.77
+      },
+      {
+        "slot": "detail-billing",
+        "x": 16,
+        "y": 1148.84,
+        "w": 358,
+        "h": 269.78
+      }
+    ],
+    "pageHeight": 1467,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/status-summary-incident-light-390.png"
+  },
+  "incident-dark-1440": {
+    "summary": "过去 24 小时中断 2 次，累计 3 小时 12 分",
+    "summaryY": 177,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 206.19,
+    "cardHeight": 359.19,
+    "overviewHeight": 359.19,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 44,
+        "y": 137,
+        "w": 420,
+        "h": 359.19
+      },
+      {
+        "slot": "detail-availability",
+        "x": 480,
+        "y": 137,
+        "w": 916,
+        "h": 359.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 44,
+        "y": 512.19,
+        "w": 420,
+        "h": 208.89
+      },
+      {
+        "slot": "detail-billing",
+        "x": 480,
+        "y": 512.19,
+        "w": 916,
+        "h": 208.89
+      }
+    ],
+    "pageHeight": 1000,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/status-summary-incident-dark-1440.png"
+  },
+  "incident-dark-390": {
+    "summary": "过去 24 小时中断 2 次，累计 3 小时 12 分",
+    "summaryY": 531.89,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 561.08,
+    "cardHeight": 365.19,
+    "overviewHeight": 342.89,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 16,
+        "y": 137,
+        "w": 358,
+        "h": 342.89
+      },
+      {
+        "slot": "detail-availability",
+        "x": 16,
+        "y": 495.89,
+        "w": 358,
+        "h": 365.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 16,
+        "y": 877.08,
+        "w": 358,
+        "h": 255.77
+      },
+      {
+        "slot": "detail-billing",
+        "x": 16,
+        "y": 1148.84,
+        "w": 358,
+        "h": 269.78
+      }
+    ],
+    "pageHeight": 1467,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/status-summary-incident-dark-390.png"
+  },
+  "nodata-light-1440": {
+    "summary": "过去 24 小时暂无采样",
+    "summaryY": 177,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 206.19,
+    "cardHeight": 358.59,
+    "overviewHeight": 358.59,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 44,
+        "y": 137,
+        "w": 420,
+        "h": 358.59
+      },
+      {
+        "slot": "detail-availability",
+        "x": 480,
+        "y": 137,
+        "w": 916,
+        "h": 358.59
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 44,
+        "y": 511.59,
+        "w": 420,
+        "h": 208.89
+      },
+      {
+        "slot": "detail-billing",
+        "x": 480,
+        "y": 511.59,
+        "w": 916,
+        "h": 208.89
+      }
+    ],
+    "pageHeight": 1000,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/status-summary-nodata-light-1440.png"
+  },
+  "nodata-light-390": {
+    "summary": "过去 24 小时暂无采样",
+    "summaryY": 530.89,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 560.08,
+    "cardHeight": 344.19,
+    "overviewHeight": 341.89,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 16,
+        "y": 137,
+        "w": 358,
+        "h": 341.89
+      },
+      {
+        "slot": "detail-availability",
+        "x": 16,
+        "y": 494.89,
+        "w": 358,
+        "h": 344.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 16,
+        "y": 855.08,
+        "w": 358,
+        "h": 255.77
+      },
+      {
+        "slot": "detail-billing",
+        "x": 16,
+        "y": 1126.84,
+        "w": 358,
+        "h": 114.59
+      }
+    ],
+    "pageHeight": 1289,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/status-summary-nodata-light-390.png"
+  },
+  "nodata-dark-1440": {
+    "summary": "过去 24 小时暂无采样",
+    "summaryY": 177,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 206.19,
+    "cardHeight": 358.59,
+    "overviewHeight": 358.59,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 44,
+        "y": 137,
+        "w": 420,
+        "h": 358.59
+      },
+      {
+        "slot": "detail-availability",
+        "x": 480,
+        "y": 137,
+        "w": 916,
+        "h": 358.59
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 44,
+        "y": 511.59,
+        "w": 420,
+        "h": 208.89
+      },
+      {
+        "slot": "detail-billing",
+        "x": 480,
+        "y": 511.59,
+        "w": 916,
+        "h": 208.89
+      }
+    ],
+    "pageHeight": 1000,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/status-summary-nodata-dark-1440.png"
+  },
+  "nodata-dark-390": {
+    "summary": "过去 24 小时暂无采样",
+    "summaryY": 530.89,
+    "summaryFont": "12px",
+    "summaryHeight": 19.19,
+    "gridY": 560.08,
+    "cardHeight": 344.19,
+    "overviewHeight": 341.89,
+    "boxes": [
+      {
+        "slot": "detail-overview",
+        "x": 16,
+        "y": 137,
+        "w": 358,
+        "h": 341.89
+      },
+      {
+        "slot": "detail-availability",
+        "x": 16,
+        "y": 494.89,
+        "w": 358,
+        "h": 344.19
+      },
+      {
+        "slot": "detail-runtime",
+        "x": 16,
+        "y": 855.08,
+        "w": 358,
+        "h": 255.77
+      },
+      {
+        "slot": "detail-billing",
+        "x": 16,
+        "y": 1126.84,
+        "w": 358,
+        "h": 114.59
+      }
+    ],
+    "pageHeight": 1289,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/status-summary-nodata-dark-390.png"
+  }
+}

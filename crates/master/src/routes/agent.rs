@@ -3877,6 +3877,40 @@ mod ws_tests {
         wait_closed(&mut socket).await;
     }
 
+    /// R3：恢复应用时把所有服务器的 `config_version` 提升；Agent 重连后
+    /// 握手 Ack 与紧接着补发的期望态都必须使用这个更大的版本。
+    #[tokio::test]
+    async fn reconnect_after_restore_receives_bumped_desired_version() {
+        let (state, server_id, token) = state_with_server().await;
+        // 模拟恢复启动阶段：按 max(旧库, 备份库)+1 统一提升。
+        let bumped = repo::servers::set_all_config_versions(&state.db.pool, 6)
+            .await
+            .unwrap();
+        assert_eq!(bumped, 1);
+
+        let server = TestServer::start(state.clone(), Duration::from_secs(5)).await;
+        let mut socket = server.connect().await;
+        socket
+            .send(ClientMessage::Text(hello_json(&token, "hk-1", "0.14.2")))
+            .await
+            .unwrap();
+
+        match next_message(&mut socket).await {
+            Some(MasterMessage::Ack(ack)) => {
+                assert_eq!(ack.server_id, server_id);
+                assert_eq!(ack.config_version, 6, "Ack 必须带恢复后的版本");
+            }
+            other => panic!("expected ack, got {other:?}"),
+        }
+        match next_message(&mut socket).await {
+            Some(MasterMessage::Desired(desired)) => assert_eq!(
+                desired.version, 6,
+                "恢复后连接必须收到新版本期望态，否则 Agent 不会重新 apply"
+            ),
+            other => panic!("expected desired state, got {other:?}"),
+        }
+    }
+
     /// 广播积压（`Lagged`）时必须主动补发完整期望态，而不是只记一条 warn。
     ///
     /// 连接建立后才推进 `config_version`：握手时的快照还是 0，处理 `Lagged`

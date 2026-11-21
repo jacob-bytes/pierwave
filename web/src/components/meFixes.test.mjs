@@ -127,10 +127,15 @@ test("forward switches expand their hit area and the format select is 40px", () 
 // ---------------------------------------------------------------------------
 // U6：空态与数量单位
 // ---------------------------------------------------------------------------
-test("packages page merges the two empty cards and pluralizes counts", () => {
+test("packages page keeps one page-level empty state", () => {
   const source = read("pages/me/Packages.tsx");
-  assert.match(source, /instances\.length === 0 \? \(/);
-  assert.match(source, /history\.length > 0 \? \(/);
+  // 无任何套餐时只渲染页面级空态；历史与事件区都不出现。
+  assert.match(source, /hasInstances \? \(/);
+  assert.match(source, /<EventsCard events=\{events\} \/>/);
+  assert.match(source, /useMeEvents\(hasInstances \? EVENTS_LIMIT : 0\)/);
+  // 有套餐但历史为空时，历史区只给一行提示，不再用大空态。
+  assert.match(source, /historyEmptyLine/);
+  assert.equal(source.includes("history.length > 0 ? ("), true);
   assert.match(source, /packagesValueOne/);
 });
 

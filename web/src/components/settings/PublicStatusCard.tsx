@@ -53,11 +53,14 @@ export function PublicStatusCard({
   form,
   saving,
   billingSupported,
+  className,
 }: {
   form: UseFormReturn<SettingsGeneralValues>;
   saving: boolean;
   /** 后端是否已返回 `public_billing_visible`；旧后端不支持时不提交该键。 */
   billingSupported: boolean;
+  /** 由常规 tab 的卡片网格决定跨列；卡内自己的双列保持不变。 */
+  className?: string;
 }) {
   useI18n();
   const servers = usePublicStatusServers();
@@ -147,6 +150,7 @@ export function PublicStatusCard({
       title={t("settings.publicStatus.title")}
       description={t("settings.publicStatus.desc")}
       contentClassName="md:grid-cols-2"
+      className={className}
     >
       {/* 左列：总开关。关闭后公开页对所有人返回 404，是整张卡的前置条件。 */}
       <div className="space-y-2">

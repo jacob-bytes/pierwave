@@ -1316,3 +1316,85 @@ export function summarizeAvailability(
     outagePeriods: sampled === 0 ? null : outagePeriods,
   };
 }
+
+/** 结论式摘要只依赖这三个字段，便于单测直接构造。 */
+export type AvailabilityConclusionInput = Pick<
+  AvailabilitySummary,
+  "sampled" | "outageCount" | "outageHours"
+>;
+
+export interface AvailabilityConclusion {
+  key: string;
+  values?: Record<string, number>;
+}
+
+function outageConclusionKey(base: string, count: number): string {
+  return `publicStatus.detail.summary.${base}${count === 1 ? "One" : ""}`;
+}
+
+/**
+ * ② 卡顶部的一句话结论。**不新增接口**，只把已有的 24h 桶与
+ * `outage_minutes_24h` 翻译成访客能直接读懂的一句话：
+ *
+ * - 无采样 → 「过去 24 小时暂无采样」；
+ * - 有采样、0 次中断 → 「过去 24 小时持续在线，无中断」；
+ * - 有中断 → 次数 + 累计时长（精确分钟优先，缺失时回落到整小时近似）；
+ * - 时长也未知 → 只报次数，绝不编造 0 分钟。
+ */
+export function availabilityConclusion(
+  summary: AvailabilityConclusionInput,
+  outageMinutes?: number | null,
+): AvailabilityConclusion | null {
+  if (summary.sampled === 0) {
+    return { key: "publicStatus.detail.summary.noSamples" };
+  }
+  if (summary.outageCount === null) return null;
+  if (summary.outageCount === 0) {
+    return { key: "publicStatus.detail.summary.healthy" };
+  }
+
+  // `null` 是后端明确说「没有精确值」，不能拿整小时近似冒充；
+  // `undefined` 才是旧后端缺字段，可以用小时桶兜底。
+  const exact =
+    outageMinutes === null ? null : outageMinutesParts(outageMinutes);
+  const duration =
+    outageMinutes === null
+      ? null
+      : (exact ??
+        (summary.outageHours === null
+          ? null
+          : { hours: summary.outageHours, minutes: 0 }));
+
+  if (duration === null) {
+    return {
+      key: outageConclusionKey("outageUnknown", summary.outageCount),
+      values: { count: summary.outageCount },
+    };
+  }
+  if (duration.hours === 0 && duration.minutes === 0) {
+    return {
+      key: outageConclusionKey("outageLessThanMinute", summary.outageCount),
+      values: { count: summary.outageCount },
+    };
+  }
+  if (duration.hours > 0 && duration.minutes > 0) {
+    return {
+      key: outageConclusionKey("outage", summary.outageCount),
+      values: {
+        count: summary.outageCount,
+        hours: duration.hours,
+        minutes: duration.minutes,
+      },
+    };
+  }
+  if (duration.hours > 0) {
+    return {
+      key: outageConclusionKey("outageHours", summary.outageCount),
+      values: { count: summary.outageCount, hours: duration.hours },
+    };
+  }
+  return {
+    key: outageConclusionKey("outageMinutes", summary.outageCount),
+    values: { count: summary.outageCount, minutes: duration.minutes },
+  };
+}

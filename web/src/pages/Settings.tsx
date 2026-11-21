@@ -282,10 +282,18 @@ function SettingsPanelState({
 }
 
 /** 每个 tab 自己的保存条；提交键只由所在表单决定。 */
-function SaveBar({ pending, dirty }: { pending: boolean; dirty: boolean }) {
+function SaveBar({
+  pending,
+  dirty,
+  className,
+}: {
+  pending: boolean;
+  dirty: boolean;
+  className?: string;
+}) {
   return (
     /*
-     * 吸底：设置页有 5 张卡 + 公开状态卡，保存按钮原本在整页最底部，
+     * 吸底：常规 tab 有 5 张卡，保存按钮原本在整页最底部，
      * 改一个字段要滚到底才能提交。sticky bottom 让它在滚动全程贴在
      * 视口底部；滚动到底时又回到正常流里，不遮挡最后一张卡。
      * 卡片标题不做吸顶：同一滚动容器里会有多个 sticky 标题互相顶替，
@@ -293,7 +301,10 @@ function SaveBar({ pending, dirty }: { pending: boolean; dirty: boolean }) {
      */
     <div
       data-slot="settings-savebar"
-      className="sticky bottom-0 z-20 flex flex-wrap items-center justify-end gap-3 border-t border-border bg-card/95 py-3 backdrop-blur-sm"
+      className={cn(
+        "sticky bottom-0 z-20 flex flex-wrap items-center justify-end gap-3 border-t border-border bg-card/95 py-3 backdrop-blur-sm",
+        className,
+      )}
     >
       <p className="text-xs text-muted-foreground">{t("settings.saveHint")}</p>
       <Button type="submit" disabled={pending || !dirty}>
@@ -374,17 +385,24 @@ function GeneralForm({ initial }: { initial: Settings }) {
     : t("settings.agentUpgrade.concurrencyHintDefault");
 
   return (
-    <form className="space-y-6" onSubmit={onSubmit}>
+    <form
+      className="grid grid-cols-1 gap-6 md:grid-cols-2 md:items-stretch"
+      onSubmit={onSubmit}
+    >
       {/*
-        卡片顺序：面板 → 版本更新 → 对外地址 → Agent 升级。
-        每个分组一张独立卡片（标题 + 说明 + 内容），卡片之间用纵向间距分隔；
-        组内仍是「标签在上、控件在下」的两列网格：≥1024px 两列，窄屏单列。
+        顺序固定为：面板 → 版本更新 → 对外地址 → Agent 升级 → 公开状态页，
+        桌面端与 390 单列完全一致，不为并排调整卡片顺序。
+        ≥768px 时只把语义相邻、高度接近的「版本更新 + 对外地址」并排
+        （正文 222/221px < 260px；整卡 316/311px，并排后等高，差 5px）；
+        其余卡片保持整宽：面板、Agent 升级各占一行，公开状态页内部已经是
+        双列，外层再并排会过窄。
         版本更新的两个设置项也在这里，由底部同一条保存栏统一提交。
       */}
       <SettingsGroup
         icon={SlidersHorizontalIcon}
         title={t("settings.panel.title")}
         description={t("settings.panel.desc")}
+        className="md:col-span-2"
       >
         <FormField
           label={t("settings.panel.name")}
@@ -404,12 +422,17 @@ function GeneralForm({ initial }: { initial: Settings }) {
         </FormField>
       </SettingsGroup>
 
-      <UpdatesSection form={form} saving={updateSettings.isPending} />
+      <UpdatesSection
+        form={form}
+        saving={updateSettings.isPending}
+        className="h-full md:col-start-1 md:row-start-2"
+      />
 
       <SettingsGroup
         icon={Link2Icon}
         title={t("settings.publicBase.title")}
         description={t("settings.publicBase.desc")}
+        className="h-full md:col-start-2 md:row-start-2"
       >
         <FormField
           label={t("settings.publicBase.agent")}
@@ -477,6 +500,7 @@ function GeneralForm({ initial }: { initial: Settings }) {
         icon={ArrowUpCircleIcon}
         title={t("settings.agentUpgrade.title")}
         description={t("settings.agentUpgrade.desc")}
+        className="md:col-span-2"
       >
         <FormField
           label={t("settings.agentUpgrade.concurrency")}
@@ -506,13 +530,19 @@ function GeneralForm({ initial }: { initial: Settings }) {
         form={form}
         saving={updateSettings.isPending}
         billingSupported={billingSupported}
+        className="md:col-span-2"
       />
 
-      <FormRootError message={form.formState.errors.root?.message} />
+      {form.formState.errors.root?.message ? (
+        <div className="md:col-span-2">
+          <FormRootError message={form.formState.errors.root.message} />
+        </div>
+      ) : null}
 
       <SaveBar
         pending={updateSettings.isPending}
         dirty={form.formState.isDirty}
+        className="md:col-span-2"
       />
     </form>
   );

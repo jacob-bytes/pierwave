@@ -248,28 +248,18 @@ function EventsCard({
 export default function MePackagesPage() {
   useI18n();
   const summary = useMeShellSummary();
-  const events = useMeEvents(EVENTS_LIMIT);
 
   // 后端 `packages` 含生效中与已结束的实例；过期才算历史。
   const instances = summary.packages ?? [];
   const current = instances.filter((item) => item.status !== "expired");
   const history = instances.filter((item) => item.status === "expired");
+  const hasInstances = instances.length > 0;
+  // 没有任何套餐时，事件区整块不渲染；也就不必为它发请求。
+  const events = useMeEvents(hasInstances ? EVENTS_LIMIT : 0);
 
   return (
     <div className="space-y-4">
-      {instances.length === 0 ? (
-        // 从未开通过套餐：两张空卡（已开通 / 历史）合并为一张页面级空态，
-        // 不再让「暂无历史套餐」占据半屏。
-        <Card>
-          <CardContent>
-            <EmptyState
-              icon={PackageIcon}
-              title={t("me.emptyPackages")}
-              description={t("me.emptyPackagesDesc")}
-            />
-          </CardContent>
-        </Card>
-      ) : (
+      {hasInstances ? (
         <>
           <PackageListCard
             titleKey="me.packagesPage.current"
@@ -283,7 +273,10 @@ export default function MePackagesPage() {
               />
             }
           />
-          {/* 历史区只在真的有过历史套餐时出现；没有就不占一屏。 */}
+          {/*
+           * 历史区永远保留，但空的时候只给一行提示：
+           * 「暂无历史套餐」不值得占用一张卡片的高度。
+           */}
           {history.length > 0 ? (
             <PackageListCard
               titleKey="me.packagesPage.history"
@@ -291,10 +284,37 @@ export default function MePackagesPage() {
               instances={history}
               empty={null}
             />
-          ) : null}
+          ) : (
+            <Card className="gap-0 py-2.5">
+              <CardContent className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+                <HistoryIcon
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <span className="font-medium">
+                  {t("me.packagesPage.history")}
+                </span>
+                <span className="text-muted-foreground">
+                  {t("me.packagesPage.historyEmptyLine")}
+                </span>
+              </CardContent>
+            </Card>
+          )}
+          <EventsCard events={events} />
         </>
+      ) : (
+        // 从未开通过套餐：只留一张页面级空态（含联系管理员指引），
+        // 历史与事件区都不渲染，避免连续空卡占掉半屏。
+        <Card>
+          <CardContent>
+            <EmptyState
+              icon={PackageIcon}
+              title={t("me.emptyPackages")}
+              description={t("me.emptyPackagesDesc")}
+            />
+          </CardContent>
+        </Card>
       )}
-      <EventsCard events={events} />
     </div>
   );
 }

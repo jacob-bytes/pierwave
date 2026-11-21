@@ -59,7 +59,7 @@ const COVERED_SURFACES = [
   "components/me/MyChainsCard.tsx",
   "components/me/MyForwardsCard.tsx",
   "components/me/MyForwardUsageCard.tsx",
-  "components/me/LoginDevicesCard.tsx",
+  "components/sessions/SessionList.tsx",
   "components/nodes/NodeTrafficSheet.tsx",
   "components/servers/AgentUpgradeHistoryDialog.tsx",
   "components/servers/AgentBatchUpgradeProgressDialog.tsx",

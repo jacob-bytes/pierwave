@@ -155,6 +155,7 @@ be used for the size limit.
 | `backup.restore_invalid` | 备份文件校验失败 | — |
 | `backup.restore_bad_gzip` | gzip 解压失败 | — |
 | `backup.restore_read_failed` | 读取上传内容失败 | — |
+| `backup.restore_sync_failed` | 恢复文件落位后同步父目录失败（500）；本次恢复未生效 | path |
 | `backup.remote_busy` | 已有备份正在上传，请稍后重试 | — |
 | `backup.remote_not_configured` | 尚未配置 WebDAV 地址或密码 | — |
 | `backup.remote_upload_failed` | 异地备份传输/认证/磁盘写入失败（502）：{detail} | detail |

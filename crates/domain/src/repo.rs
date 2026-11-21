@@ -1696,6 +1696,18 @@ pub mod servers {
         Ok((visible, hidden))
     }
 
+    /// 公开状态页白名单里的服务器数量（`public_visible = 1`）。
+    ///
+    /// 恢复预览只需要数量，不下发 id 列表：恢复后的白名单经常与当前不同，
+    /// 但把一长串 id 塞进响应既难读、也没必要暴露。
+    pub async fn public_visible_count(pool: &SqlitePool) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE public_visible = 1")
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+
     /// 按列更新「费用与到期」四列（迁移 0061 / 0062）。
     ///
     /// 每个参数是三态：[`Patch::Missing`] = 不改；[`Patch::Null`] = 清空为 NULL；
@@ -2115,6 +2127,29 @@ pub mod servers {
         .fetch_one(pool)
         .await?;
         Ok(version)
+    }
+
+    /// 当前库里所有服务器的最大 `config_version`；没有服务器时返回 `None`。
+    ///
+    /// 恢复备份时用来计算「严格大于恢复前任何版本」的新版本号。
+    pub async fn max_config_version(pool: &SqlitePool) -> anyhow::Result<Option<i64>> {
+        let max: Option<i64> = sqlx::query_scalar("SELECT MAX(config_version) FROM servers")
+            .fetch_one(pool)
+            .await?;
+        Ok(max)
+    }
+
+    /// 把所有服务器的 `config_version` 统一写成 `version`，返回受影响行数。
+    ///
+    /// 只用于恢复备份后的版本提升：Agent 只接受**更大**的版本，恢复旧库后
+    /// 必须让每台服务器的新版本都严格大于现场 Agent 已应用的版本。
+    pub async fn set_all_config_versions(pool: &SqlitePool, version: i64) -> anyhow::Result<u64> {
+        let affected = sqlx::query("UPDATE servers SET config_version = ?")
+            .bind(version)
+            .execute(pool)
+            .await?
+            .rows_affected();
+        Ok(affected)
     }
 
     #[cfg(test)]
@@ -12660,6 +12695,21 @@ pub mod backup {
         Ok(sqlx::query_scalar("PRAGMA quick_check")
             .fetch_all(pool)
             .await?)
+    }
+
+    /// 把日志模式切回回滚日志（DELETE），并确认切换成功。
+    ///
+    /// 恢复应用前会短暂写一次待恢复文件（提升 `config_version`）；如果它仍处于
+    /// WAL 模式，换库时只 rename 主文件会把 `-wal` / `-shm` 丢在原文件名上，
+    /// 恢复后的库就少了最后那次提交。切到 DELETE 后提交直接落在主文件里。
+    pub async fn use_rollback_journal(pool: &SqlitePool) -> anyhow::Result<()> {
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode = DELETE")
+            .fetch_one(pool)
+            .await?;
+        if !mode.eq_ignore_ascii_case("delete") {
+            anyhow::bail!("切换回滚日志模式失败（当前 {mode}）");
+        }
+        Ok(())
     }
 
     /// 备份里最高的迁移版本；表为空时返回 `None`。

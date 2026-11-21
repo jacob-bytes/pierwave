@@ -5,6 +5,7 @@
 //! `<db>.restore-pending`，真正替换发生在下次启动、打开连接池之前
 //! （见 `pierwave_domain::backup::apply_pending_restore`）。
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
@@ -293,10 +294,22 @@ pub async fn restore(
         debug_assert_eq!(discarded, unreadable);
     }
 
-    // 原子写：校验通过的完整文件已经写盘并 sync，落位只做同目录 rename。
-    std::fs::rename(&raw_path, &pending).map_err(|error| AppError::Internal(error.into()))?;
-    // 待恢复文件里是完整业务数据；上传临时文件已是 0600，这里再兜底一次。
-    fs_security::ensure_private_file(&pending)?;
+    // 恢复会整体替换 settings / servers。在落位前算好「会回退到什么」：
+    // 响应只提示秘密远远不够，管理员需要知道备份加密、公开页、Bot 等开关
+    // 也会被旧库覆盖；现场 Agent 的 token 也可能与恢复后的哈希不一致。
+    let preview = restore_preview(&state, &raw_path).await?;
+
+    // 原子写：校验通过的完整文件已经写盘并 sync，落位只做同目录 rename，
+    // 随后 fsync 父目录；同步失败会撤销落位并返回可读错误。
+    backup::land_pending_restore_with_sync(&raw_path, &pending, &*state.restore_fsync).map_err(
+        |error| {
+            AppError::internal_coded(
+                "backup.restore_sync_failed",
+                Some(json!({ "path": dir.display().to_string() })),
+                format!("{error:#}"),
+            )
+        },
+    )?;
     // 恢复要重启才真正替换数据库；先清掉概览短缓存，避免管理员在重启前
     // 看到旧流量数字。
     state.overview_traffic.clear();
@@ -312,6 +325,8 @@ pub async fn restore(
             "encrypted": format == UploadFormat::Encrypted,
             "forced": options.force,
             "unreadable_secrets": unreadable,
+            "settings_changed": preview.settings_diff.len(),
+            "servers_needing_token_refresh": preview.servers_needing_token_refresh.len(),
         }),
     )
     .await;
@@ -321,6 +336,13 @@ pub async fn restore(
         "pending": {
             "uploaded_at": uploaded_at(&pending),
             "bytes": raw_bytes,
+        },
+        // 只列值不同（或秘密键名不同）的设置；无差异时是空数组。
+        "settings_diff": preview.settings_diff,
+        // 只给数量与名称，绝不返回 token_hash。
+        "servers_needing_token_refresh": {
+            "count": preview.servers_needing_token_refresh.len(),
+            "names": preview.servers_needing_token_refresh,
         },
     });
     if options.force {
@@ -341,6 +363,71 @@ pub async fn restore(
         };
     }
     Ok(Json(response))
+}
+
+/// 恢复前预览：会回退的设置项 + token 与当前库不一致的服务器。
+struct RestorePreview {
+    settings_diff: Vec<Value>,
+    servers_needing_token_refresh: Vec<String>,
+}
+
+/// 在落位 pending 之前读取候选库，算出恢复后会变化的设置与需要刷新 token 的服务器。
+///
+/// 只读打开候选库；任何失败都让恢复请求失败（此时还没落位，管理员可以重新上传），
+/// 而不是先落位、再因为预览失败返回 500。
+async fn restore_preview(state: &AppState, raw_path: &Path) -> AppResult<RestorePreview> {
+    let restored = backup::open_readonly_pool(raw_path).await?;
+    let result = async {
+        let before = crate::routes::settings::load(&state.db).await;
+        let after = crate::routes::settings::load_from_pool(&restored, state.db.secret_key()).await;
+        let mut settings_diff = crate::routes::settings::restore_diff(&before, &after);
+
+        // 公开状态白名单不是 settings 表里的键：只比数量，并用「公开 N 台」展示，
+        // 不把服务器 id 列表塞进响应。
+        let visible_before = repo::servers::public_visible_count(&state.db.pool).await?;
+        let visible_after = repo::servers::public_visible_count(&restored).await?;
+        if visible_before != visible_after {
+            settings_diff.push(json!({
+                "key": "public_status_servers",
+                "before": public_visible_label(visible_before),
+                "after": public_visible_label(visible_after),
+            }));
+        }
+
+        // 当前库里的 token_hash 就是现场 Agent 正在使用的 token 的哈希
+        // （重置 token 会主动断开旧连接）。恢复后哈希变了，现场 Agent 就无法
+        // 再注册；只报名称与数量，不报 hash。
+        let current_servers = repo::servers::list(&state.db.pool).await?;
+        let restored_servers = repo::servers::list(&restored).await?;
+        let current_hashes: HashMap<&str, &str> = current_servers
+            .iter()
+            .map(|server| (server.id.as_str(), server.token_hash.as_str()))
+            .collect();
+        let mut names: Vec<String> = restored_servers
+            .iter()
+            .filter(|server| {
+                current_hashes
+                    .get(server.id.as_str())
+                    .is_some_and(|hash| *hash != server.token_hash)
+            })
+            .map(|server| server.name.clone())
+            .collect();
+        names.sort();
+        names.dedup();
+
+        Ok::<RestorePreview, anyhow::Error>(RestorePreview {
+            settings_diff,
+            servers_needing_token_refresh: names,
+        })
+    }
+    .await;
+    restored.close().await;
+    Ok(result?)
+}
+
+/// 白名单数量的展示文案（中英双语）。
+fn public_visible_label(count: i64) -> String {
+    format!("公开 {count} 台 / {count} public")
 }
 
 /// `GET /api/v1/backup/info`：当前库大小与待恢复状态。
@@ -1538,6 +1625,237 @@ mod tests {
             String::from_utf8_lossy(&response)
         );
         assert!(backup::pending_path(&dir.db_path()).exists());
+    }
+
+    /// R2/R3：恢复响应必须给出设置回退摘要（秘密只出键名）和需要刷新 token
+    /// 的服务器数量/名称（不含 hash）。
+    #[tokio::test]
+    async fn restore_response_reports_settings_rollback_and_token_refresh() {
+        let (dir, app, state, cookie) = setup("restore-preview").await;
+
+        let (hk1, _) = repo::servers::create(&state.db.pool, "hk-1", "1.1.1.1", "external")
+            .await
+            .unwrap();
+        let (hk2, _) = repo::servers::create(&state.db.pool, "hk-2", "2.2.2.2", "external")
+            .await
+            .unwrap();
+        // 备份里的白名单：只公开 1 台。
+        repo::servers::replace_public_visible(&state.db.pool, std::slice::from_ref(&hk1.id))
+            .await
+            .unwrap();
+        // 备份里的设置（故意与当前值不同）。
+        for (key, value) in [
+            ("panel_name", "BeforeRestore"),
+            ("public_status_enabled", "0"),
+            ("public_billing_visible", "0"),
+            ("telegram_bot_enabled", "1"),
+            ("backup_webdav_enabled", "1"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+        repo::settings::set(
+            &state.db.pool,
+            "telegram_bot_token",
+            &secret_box::encrypt_setting(state.db.secret_key(), "old-secret-canary"),
+        )
+        .await
+        .unwrap();
+
+        let backup = export_bytes(&app, &cookie).await;
+
+        // 导出后把当前库改成另一套值：恢复这份备份就会把它们回退。
+        for (key, value) in [
+            ("panel_name", "AfterRestore"),
+            ("backup_encrypt", "0"),
+            ("public_status_enabled", "1"),
+            ("public_billing_visible", "1"),
+            ("telegram_bot_enabled", "0"),
+            ("backup_webdav_enabled", "0"),
+        ] {
+            repo::settings::set(&state.db.pool, key, value)
+                .await
+                .unwrap();
+        }
+        // hk-1 的 token 轮换过：现场 Agent 用的新 token 在备份里不存在。
+        repo::servers::rotate_token(&state.db.pool, &hk1.id)
+            .await
+            .unwrap();
+        repo::servers::replace_public_visible(&state.db.pool, &[hk1.id.clone(), hk2.id.clone()])
+            .await
+            .unwrap();
+        repo::settings::set(
+            &state.db.pool,
+            "telegram_bot_token",
+            &secret_box::encrypt_setting(state.db.secret_key(), "new-secret-canary"),
+        )
+        .await
+        .unwrap();
+
+        let (status, _, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            backup,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        let payload = json(&response);
+        let diff = payload["settings_diff"]
+            .as_array()
+            .unwrap_or_else(|| panic!("settings_diff 必须是数组：{payload}"));
+        let find = |key: &str| {
+            diff.iter()
+                .find(|entry| entry["key"] == key)
+                .unwrap_or_else(|| panic!("缺少 {key}：{payload}"))
+        };
+
+        // before = 当前值，after = 恢复后将生效的值（备份里的值）。
+        assert_eq!(find("backup_encrypt")["before"], false);
+        assert_eq!(find("backup_encrypt")["after"], true);
+        assert_eq!(find("public_status_enabled")["before"], 1);
+        assert_eq!(find("public_status_enabled")["after"], 0);
+        assert_eq!(find("public_billing_visible")["before"], 1);
+        assert_eq!(find("public_billing_visible")["after"], 0);
+        assert_eq!(find("telegram_bot_enabled")["before"], false);
+        assert_eq!(find("telegram_bot_enabled")["after"], true);
+        assert_eq!(find("backup_webdav_enabled")["before"], false);
+        assert_eq!(find("backup_webdav_enabled")["after"], true);
+        assert_eq!(find("panel_name")["before"], "AfterRestore");
+        assert_eq!(find("panel_name")["after"], "BeforeRestore");
+
+        let whitelist = find("public_status_servers");
+        assert_eq!(whitelist["before"], "公开 2 台 / 2 public");
+        assert_eq!(whitelist["after"], "公开 1 台 / 1 public");
+        assert!(
+            !whitelist.to_string().contains(&hk1.id) && !whitelist.to_string().contains(&hk2.id),
+            "白名单只能报数量，不能出现 id：{whitelist}"
+        );
+
+        let secret = find("telegram_bot_token");
+        assert_eq!(secret["secret"], true);
+        assert!(secret["before"].is_null() && secret["after"].is_null());
+        let rendered = String::from_utf8_lossy(&response);
+        assert!(!rendered.contains("old-secret-canary"));
+        assert!(!rendered.contains("new-secret-canary"));
+
+        let refresh = &payload["servers_needing_token_refresh"];
+        assert_eq!(refresh["count"], 1, "{payload}");
+        assert_eq!(refresh["names"], json!(["hk-1"]), "{payload}");
+        assert!(
+            !refresh.to_string().contains(&hk1.token_hash),
+            "响应不能出现 token_hash：{refresh}"
+        );
+        assert!(backup::pending_path(&dir.db_path()).exists());
+    }
+
+    /// R2：恢复同一份备份、设置完全没变时 `settings_diff` 必须是空数组。
+    #[tokio::test]
+    async fn restore_response_settings_diff_is_empty_when_nothing_changed() {
+        let (dir, app, state, cookie) = setup("restore-no-diff").await;
+        // 有一台 token 未变化的服务器：它不能被误报成需要刷新 token。
+        repo::servers::create(&state.db.pool, "hk-1", "1.1.1.1", "external")
+            .await
+            .unwrap();
+        let backup = export_bytes(&app, &cookie).await;
+
+        let (status, _, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            backup,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        let payload = json(&response);
+        assert_eq!(payload["settings_diff"], json!([]));
+        assert_eq!(payload["servers_needing_token_refresh"]["count"], 0);
+        assert_eq!(payload["servers_needing_token_refresh"]["names"], json!([]));
+        assert!(backup::pending_path(&dir.db_path()).exists());
+    }
+
+    /// R1：落位阶段的目录 fsync 失败必须返回可读错误且不留下 pending；
+    /// 成功路径恰好调用一次注入的 sync。
+    #[tokio::test]
+    async fn restore_fsync_failure_is_reported_and_success_calls_sync_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let (dir, app, mut state, cookie) = setup("restore-fsync").await;
+        let backup = export_bytes(&app, &cookie).await;
+        let pending = backup::pending_path(&dir.db_path());
+
+        let failed_calls = Arc::new(AtomicUsize::new(0));
+        let calls = failed_calls.clone();
+        state.restore_fsync = Arc::new(move |_: &Path| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(std::io::Error::other("injected fsync failure"))
+        });
+        let failing_app = crate::app::router(state.clone());
+        let (status, _, response) = request(
+            &failing_app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            backup.clone(),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        let payload = json(&response);
+        assert_eq!(payload["code"], "backup.restore_sync_failed");
+        let message = payload["error"].as_str().unwrap();
+        assert!(
+            message.contains("同步目录") || message.contains("fsync"),
+            "错误要可读并指出同步失败：{message}"
+        );
+        assert!(!pending.exists(), "fsync 失败不能留下 pending");
+        assert!(
+            failed_calls.load(Ordering::SeqCst) >= 1,
+            "失败路径必须真的尝试过 fsync"
+        );
+
+        // 成功路径：注入计数 + 真实 sync，断言恰好一次。
+        let ok_calls = Arc::new(AtomicUsize::new(0));
+        let calls = ok_calls.clone();
+        state.restore_fsync = Arc::new(move |path: &Path| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            fs_security::sync_dir(path)
+        });
+        let ok_app = crate::app::router(state);
+        let (status, _, response) = request(
+            &ok_app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            backup,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+        assert_eq!(ok_calls.load(Ordering::SeqCst), 1);
+        assert!(pending.exists());
     }
 
     /// 默认导出再原样上传：加密往返成功，落位文件是明文 SQLite。

@@ -1,0 +1,630 @@
+{
+  "light-1440": {
+    "scrollHeight": 1000,
+    "clientHeight": 1000,
+    "mainScroll": 1573,
+    "mainClient": 944,
+    "mainHeight": 944,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "cards": [
+      {
+        "title": "面板",
+        "x": 264,
+        "y": 237,
+        "width": 1152,
+        "height": 173,
+        "bottom": 410
+      },
+      {
+        "title": "版本更新",
+        "x": 264,
+        "y": 434,
+        "width": 1152,
+        "height": 316,
+        "bottom": 750
+      },
+      {
+        "title": "对外地址",
+        "x": 264,
+        "y": 774,
+        "width": 1152,
+        "height": 311,
+        "bottom": 1085
+      },
+      {
+        "title": "Agent 升级",
+        "x": 264,
+        "y": 1109,
+        "width": 1152,
+        "height": 173,
+        "bottom": 1282
+      },
+      {
+        "title": "公开状态页",
+        "x": 264,
+        "y": 1306,
+        "width": 1152,
+        "height": 218,
+        "bottom": 1524
+      },
+      {
+        "title": "安全",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "API 访问0",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "Telegram",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "Webhook",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "事件",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "发送测试消息",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "当前数据库大小",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "恢复数据",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "备份加密",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "异地备份",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "规则模板列表1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "订阅模板列表0 个模板",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "证书列表0",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      }
+    ],
+    "formScroll": 1368,
+    "file": "web/screenshots/agent119/before-settings-light-1440.png"
+  },
+  "light-390": {
+    "scrollHeight": 844,
+    "clientHeight": 844,
+    "mainScroll": 2141,
+    "mainClient": 788,
+    "mainHeight": 788,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "cards": [
+      {
+        "title": "面板",
+        "x": 24,
+        "y": 276,
+        "width": 342,
+        "height": 173,
+        "bottom": 449
+      },
+      {
+        "title": "版本更新",
+        "x": 24,
+        "y": 473,
+        "width": 342,
+        "height": 517,
+        "bottom": 990
+      },
+      {
+        "title": "对外地址",
+        "x": 24,
+        "y": 1014,
+        "width": 342,
+        "height": 462,
+        "bottom": 1476
+      },
+      {
+        "title": "Agent 升级",
+        "x": 24,
+        "y": 1500,
+        "width": 342,
+        "height": 189,
+        "bottom": 1689
+      },
+      {
+        "title": "公开状态页",
+        "x": 24,
+        "y": 1713,
+        "width": 342,
+        "height": 371,
+        "bottom": 2084
+      },
+      {
+        "title": "安全",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "API 访问0",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "Telegram",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "Webhook",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "事件",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "发送测试消息",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "当前数据库大小",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "恢复数据",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "备份加密",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "异地备份",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "规则模板列表1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "订阅模板列表0 个模板",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "证书列表0",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      }
+    ],
+    "formScroll": 1897,
+    "file": "web/screenshots/agent119/before-settings-light-390.png"
+  },
+  "dark-1440": {
+    "scrollHeight": 1000,
+    "clientHeight": 1000,
+    "mainScroll": 1573,
+    "mainClient": 944,
+    "mainHeight": 944,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "cards": [
+      {
+        "title": "面板",
+        "x": 264,
+        "y": 237,
+        "width": 1152,
+        "height": 173,
+        "bottom": 410
+      },
+      {
+        "title": "版本更新",
+        "x": 264,
+        "y": 434,
+        "width": 1152,
+        "height": 316,
+        "bottom": 750
+      },
+      {
+        "title": "对外地址",
+        "x": 264,
+        "y": 774,
+        "width": 1152,
+        "height": 311,
+        "bottom": 1085
+      },
+      {
+        "title": "Agent 升级",
+        "x": 264,
+        "y": 1109,
+        "width": 1152,
+        "height": 173,
+        "bottom": 1282
+      },
+      {
+        "title": "公开状态页",
+        "x": 264,
+        "y": 1306,
+        "width": 1152,
+        "height": 218,
+        "bottom": 1524
+      },
+      {
+        "title": "安全",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "API 访问0",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "Telegram",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "Webhook",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "事件",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "发送测试消息",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "当前数据库大小",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "恢复数据",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "备份加密",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "异地备份",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "规则模板列表1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "订阅模板列表0 个模板",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "证书列表0",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      }
+    ],
+    "formScroll": 1368,
+    "file": "web/screenshots/agent119/before-settings-dark-1440.png"
+  },
+  "dark-390": {
+    "scrollHeight": 844,
+    "clientHeight": 844,
+    "mainScroll": 2141,
+    "mainClient": 788,
+    "mainHeight": 788,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "cards": [
+      {
+        "title": "面板",
+        "x": 24,
+        "y": 276,
+        "width": 342,
+        "height": 173,
+        "bottom": 449
+      },
+      {
+        "title": "版本更新",
+        "x": 24,
+        "y": 473,
+        "width": 342,
+        "height": 517,
+        "bottom": 990
+      },
+      {
+        "title": "对外地址",
+        "x": 24,
+        "y": 1014,
+        "width": 342,
+        "height": 462,
+        "bottom": 1476
+      },
+      {
+        "title": "Agent 升级",
+        "x": 24,
+        "y": 1500,
+        "width": 342,
+        "height": 189,
+        "bottom": 1689
+      },
+      {
+        "title": "公开状态页",
+        "x": 24,
+        "y": 1713,
+        "width": 342,
+        "height": 371,
+        "bottom": 2084
+      },
+      {
+        "title": "安全",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "API 访问0",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "Telegram",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "Webhook",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "事件",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "发送测试消息",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "当前数据库大小",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "恢复数据",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "备份加密",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "异地备份",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "规则模板列表1",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "订阅模板列表0 个模板",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      },
+      {
+        "title": "证书列表0",
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "bottom": 0
+      }
+    ],
+    "formScroll": 1897,
+    "file": "web/screenshots/agent119/before-settings-dark-390.png"
+  }
+}

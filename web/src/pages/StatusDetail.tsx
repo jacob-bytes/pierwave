@@ -36,6 +36,7 @@ import { isNotFound } from "@/lib/errors";
 import { formatBytePair, formatBytes } from "@/lib/format";
 import { compactRatePair, formatRatePairText } from "@/lib/netRate";
 import {
+  availabilityConclusion,
   availabilityPercentText,
   availabilityTone,
   expiryLabel,
@@ -442,6 +443,18 @@ function AvailabilityDetailsCard({
       ? (summary.outageHours ?? null)
       : null;
 
+  // 顶部结论：精确分钟优先；旧后端缺这个字段时用整小时近似，
+  // 两者都没有就只报中断次数（不把“不知道”写成 0）。
+  const conclusionMinutes =
+    exactOutage !== null
+      ? server.outage_minutes_24h
+      : server.outage_minutes_24h === undefined
+        ? fallbackOutageHours === null
+          ? undefined
+          : fallbackOutageHours * 60
+        : null;
+  const conclusion = availabilityConclusion(summary, conclusionMinutes);
+
   const outageCount =
     summary.outageCount === null ? null : summary.outageCount;
   const coverage =
@@ -473,11 +486,18 @@ function AvailabilityDetailsCard({
       data-slot="detail-availability"
       className={cn(CARD_CLASS, "flex flex-col", className)}
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <SectionTitle>{t("publicStatus.detail.availabilityDetails")}</SectionTitle>
-        <span className="text-[11px] text-muted-foreground">
-          {hasData ? null : t("publicStatus.detail.noSample")}
-        </span>
+      <div className="flex flex-col gap-1">
+        <SectionTitle>
+          {t("publicStatus.detail.availabilityDetails")}
+        </SectionTitle>
+        {conclusion ? (
+          <p
+            data-slot="availability-summary"
+            className="text-xs leading-normal text-muted-foreground"
+          >
+            {t(conclusion.key, conclusion.values)}
+          </p>
+        ) : null}
       </div>
 
       <div

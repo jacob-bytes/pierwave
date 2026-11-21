@@ -73,7 +73,6 @@ import {
   type PublicStatus,
   type PublicStatusDetail,
   type PublicStatusServerChoice,
-  type RecentLogin,
   type RevokeOtherSessionsResponse,
   type RevokeSessionResponse,
   type RoutingRule,
@@ -136,9 +135,8 @@ export const queryKeys = {
   /** 用户自己的转发日表（近 N 天，只读）。 */
   meForwardUsage: (days: number) => ["me", "forward-traffic", days] as const,
   meEvents: (limit: number) => ["me", "events", limit] as const,
-  /** 登录设备：用户自己的会话列表与最近登录。 */
+  /** 登录设备：用户自己的会话列表。 */
   sessions: ["sessions"] as const,
-  recentLogins: ["me", "logins"] as const,
   /** 管理员查看某用户的会话。 */
   userSessions: (userId: string) => ["user", userId, "sessions"] as const,
   /** 用户自助转发：列表响应里同时带配额与可用服务器。 */
@@ -517,24 +515,12 @@ export function useMeEvents(limit: number) {
   });
 }
 
-/**
- * 登录设备（会话）列表：`["sessions"]` 与「最近登录」分开失效，
- * 踢设备不会让登录历史闪一下空态。
- */
+/** 登录设备（会话）列表；踢设备后只失效这一份数据。 */
 export function useSessions() {
   return useQuery<LoginSession[]>({
     queryKey: queryKeys.sessions,
     queryFn: async () => (await api.sessions.list()).items,
     staleTime: 15_000,
-  });
-}
-
-/** 自己的最近 5 条成功登录。 */
-export function useRecentLogins() {
-  return useQuery<RecentLogin[]>({
-    queryKey: queryKeys.recentLogins,
-    queryFn: async () => (await api.sessions.recentLogins()).items,
-    staleTime: 30_000,
   });
 }
 

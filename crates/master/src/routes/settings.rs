@@ -310,6 +310,78 @@ pub async fn load(db: &Db) -> Settings {
     load_inner(&db.pool, db.secret_key()).await
 }
 
+/// 用调用方给的主密钥从任意连接池读设置。
+///
+/// 恢复预览要在**不替换当前库**的前提下读取候选备份的设置，所以不能走
+/// [`load`]（它固定使用主控当前的库）。解密失败仍然只标记键名。
+pub async fn load_from_pool(pool: &SqlitePool, key: &SecretKey) -> Settings {
+    load_inner(pool, key).await
+}
+
+/// 恢复预览：列出恢复后会变化的设置键（只列值不同的键）。
+///
+/// 秘密键（`telegram_bot_token` / `backup_webdav_password` / `webhook_url`）只
+/// 出键名并把 `before` / `after` 置为 `null`，绝不把明文或密文写进响应。
+/// `before` = 当前生效值，`after` = 恢复后将生效的值。
+pub fn restore_diff(before: &Settings, after: &Settings) -> Vec<Value> {
+    let mut changes: Vec<Value> = Vec::new();
+
+    macro_rules! value_change {
+        ($key:literal, $field:ident) => {
+            if before.$field != after.$field {
+                changes.push(json!({
+                    "key": $key,
+                    "before": before.$field,
+                    "after": after.$field,
+                }));
+            }
+        };
+    }
+
+    macro_rules! secret_change {
+        ($key:literal, $field:ident) => {
+            if before.$field != after.$field {
+                changes.push(json!({
+                    "key": $key,
+                    "before": Value::Null,
+                    "after": Value::Null,
+                    "secret": true,
+                }));
+            }
+        };
+    }
+
+    value_change!("panel_name", panel_name);
+    value_change!("login_max_attempts", login_max_attempts);
+    value_change!("login_lock_secs", login_lock_secs);
+    value_change!("session_ttl_hours", session_ttl_hours);
+    value_change!("agent_upgrade_concurrency", agent_upgrade_concurrency);
+    value_change!("public_status_enabled", public_status_enabled);
+    value_change!("public_billing_visible", public_billing_visible);
+    value_change!("agent_base_url", agent_base_url);
+    value_change!("subscription_base_url", subscription_base_url);
+    value_change!("telegram_chat_id", telegram_chat_id);
+    value_change!("telegram_admin_chat_ids", telegram_admin_chat_ids);
+    value_change!("telegram_bot_enabled", telegram_bot_enabled);
+    value_change!("alert_events", alert_events);
+    value_change!("alert_cooldown_secs", alert_cooldown_secs);
+    value_change!("update_check_enabled", update_check_enabled);
+    value_change!("update_check_interval_hours", update_check_interval_hours);
+    value_change!("update_check_notify", update_check_notify);
+    value_change!("backup_webdav_enabled", backup_webdav_enabled);
+    value_change!("backup_webdav_url", backup_webdav_url);
+    value_change!("backup_webdav_username", backup_webdav_username);
+    value_change!("backup_webdav_interval_hours", backup_webdav_interval_hours);
+    value_change!("backup_webdav_keep", backup_webdav_keep);
+    value_change!("backup_encrypt", backup_encrypt);
+
+    secret_change!("telegram_bot_token", telegram_bot_token);
+    secret_change!("backup_webdav_password", backup_webdav_password);
+    secret_change!("webhook_url", webhook_url);
+
+    changes
+}
+
 /// 后台路径的秘密解密错误：带可读文案与**键名**（不含值）。
 ///
 /// 定时备份、告警、Telegram Bot、手动异地备份都统一用它，避免每条路径
@@ -1363,6 +1435,61 @@ mod tests {
     use tower::ServiceExt;
 
     use pierwave_domain::Db;
+
+    /// R2：只列值不同的非秘密键；秘密键只出键名，值一律为 null。
+    #[test]
+    fn restore_diff_lists_changed_keys_and_redacts_secrets() {
+        let mut before = Settings::default();
+        let mut after = Settings::default();
+        assert!(
+            restore_diff(&before, &after).is_empty(),
+            "设置完全一致时必须返回空数组"
+        );
+
+        before.backup_encrypt = false;
+        before.public_status_enabled = 1;
+        before.public_billing_visible = 1;
+        before.telegram_bot_enabled = false;
+        before.backup_webdav_enabled = false;
+        before.telegram_bot_token = "new-secret-canary".into();
+
+        after.backup_encrypt = true;
+        after.public_status_enabled = 0;
+        after.public_billing_visible = 0;
+        after.telegram_bot_enabled = true;
+        after.backup_webdav_enabled = true;
+        after.telegram_bot_token = "old-secret-canary".into();
+
+        let diff = restore_diff(&before, &after);
+        let find = |key: &str| {
+            diff.iter()
+                .find(|entry| entry["key"] == key)
+                .unwrap_or_else(|| panic!("缺少 {key}：{diff:?}"))
+        };
+
+        assert_eq!(find("backup_encrypt")["before"], false);
+        assert_eq!(find("backup_encrypt")["after"], true);
+        assert_eq!(find("public_status_enabled")["before"], 1);
+        assert_eq!(find("public_status_enabled")["after"], 0);
+        assert_eq!(find("public_billing_visible")["before"], 1);
+        assert_eq!(find("public_billing_visible")["after"], 0);
+        assert_eq!(find("telegram_bot_enabled")["before"], false);
+        assert_eq!(find("telegram_bot_enabled")["after"], true);
+        assert_eq!(find("backup_webdav_enabled")["before"], false);
+        assert_eq!(find("backup_webdav_enabled")["after"], true);
+
+        let token = find("telegram_bot_token");
+        assert_eq!(token["secret"], true);
+        assert!(token["before"].is_null() && token["after"].is_null());
+
+        let rendered = serde_json::to_string(&diff).unwrap();
+        assert!(!rendered.contains("new-secret-canary"));
+        assert!(!rendered.contains("old-secret-canary"));
+        assert!(
+            diff.iter().all(|entry| entry["key"] != "panel_name"),
+            "值没变的键不能出现：{diff:?}"
+        );
+    }
 
     async fn setup() -> (Router, AppState, String, String) {
         let db = Db::connect("sqlite::memory:").await.unwrap();

@@ -89,9 +89,12 @@ function AgentsSkeleton() {
 export function UpdatesSection({
   form,
   saving,
+  className,
 }: {
   form: UseFormReturn<SettingsGeneralValues>;
   saving: boolean;
+  /** 由常规 tab 的卡片网格决定列位与跨列。 */
+  className?: string;
 }) {
   useI18n();
   const updates = useUpdates(true);
@@ -109,6 +112,7 @@ export function UpdatesSection({
       icon={ArrowUpCircleIcon}
       title={t("settings.updates.title")}
       description={t("settings.updates.desc")}
+      className={className}
     >
       {updates.isPending ? (
         <>

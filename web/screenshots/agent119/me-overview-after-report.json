@@ -1,0 +1,290 @@
+{
+  "after-light-1440": {
+    "cardTitles": [
+      null,
+      "近 7 天用量",
+      "登录设备"
+    ],
+    "cards": [
+      {
+        "title": null,
+        "x": 264,
+        "y": 221.78,
+        "width": 1152,
+        "height": 293.78,
+        "bottom": 515.56,
+        "contentBottom": 499.56,
+        "innerBlank": 0
+      },
+      {
+        "title": "近 7 天用量",
+        "x": 264,
+        "y": 531.56,
+        "width": 1152,
+        "height": 314.08,
+        "bottom": 845.64,
+        "contentBottom": 829.64,
+        "innerBlank": 0
+      },
+      {
+        "title": "登录设备",
+        "x": 264,
+        "y": 861.64,
+        "width": 1152,
+        "height": 269.7,
+        "bottom": 1131.34,
+        "contentBottom": 1115.34,
+        "innerBlank": 0
+      }
+    ],
+    "devices": {
+      "title": "登录设备",
+      "x": 264,
+      "y": 861.64,
+      "width": 1152,
+      "height": 269.7,
+      "bottom": 1131.34,
+      "contentBottom": 1115.34,
+      "innerBlank": 0
+    },
+    "hasRecentLoginText": false,
+    "loginRequests": 0,
+    "exitButtons": [
+      {
+        "text": "退出其他设备",
+        "width": 116.81,
+        "height": 28
+      },
+      {
+        "text": "退出登录",
+        "width": 91.2,
+        "height": 28
+      },
+      {
+        "text": "退出",
+        "width": 65.61,
+        "height": 28
+      }
+    ],
+    "pageHeight": 1099,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/me-overview-after-light-1440.png"
+  },
+  "after-light-390": {
+    "cardTitles": [
+      null,
+      "近 7 天用量",
+      "登录设备"
+    ],
+    "cards": [
+      {
+        "title": null,
+        "x": 24,
+        "y": 221.78,
+        "width": 342,
+        "height": 293.78,
+        "bottom": 515.56,
+        "contentBottom": 499.56,
+        "innerBlank": 0
+      },
+      {
+        "title": "近 7 天用量",
+        "x": 24,
+        "y": 531.56,
+        "width": 342,
+        "height": 365.11,
+        "bottom": 896.67,
+        "contentBottom": 880.67,
+        "innerBlank": 0
+      },
+      {
+        "title": "登录设备",
+        "x": 24,
+        "y": 912.67,
+        "width": 342,
+        "height": 385.7,
+        "bottom": 1298.38,
+        "contentBottom": 1282.38,
+        "innerBlank": 0
+      }
+    ],
+    "devices": {
+      "title": "登录设备",
+      "x": 24,
+      "y": 912.67,
+      "width": 342,
+      "height": 385.7,
+      "bottom": 1298.38,
+      "contentBottom": 1282.38,
+      "innerBlank": 0
+    },
+    "hasRecentLoginText": false,
+    "loginRequests": 0,
+    "exitButtons": [
+      {
+        "text": "退出其他设备",
+        "width": 116.81,
+        "height": 40
+      },
+      {
+        "text": "退出登录",
+        "width": 91.2,
+        "height": 40
+      },
+      {
+        "text": "退出",
+        "width": 65.61,
+        "height": 40
+      }
+    ],
+    "pageHeight": 1266,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/me-overview-after-light-390.png"
+  },
+  "after-dark-1440": {
+    "cardTitles": [
+      null,
+      "近 7 天用量",
+      "登录设备"
+    ],
+    "cards": [
+      {
+        "title": null,
+        "x": 264,
+        "y": 221.78,
+        "width": 1152,
+        "height": 293.78,
+        "bottom": 515.56,
+        "contentBottom": 499.56,
+        "innerBlank": 0
+      },
+      {
+        "title": "近 7 天用量",
+        "x": 264,
+        "y": 531.56,
+        "width": 1152,
+        "height": 314.08,
+        "bottom": 845.64,
+        "contentBottom": 829.64,
+        "innerBlank": 0
+      },
+      {
+        "title": "登录设备",
+        "x": 264,
+        "y": 861.64,
+        "width": 1152,
+        "height": 269.7,
+        "bottom": 1131.34,
+        "contentBottom": 1115.34,
+        "innerBlank": 0
+      }
+    ],
+    "devices": {
+      "title": "登录设备",
+      "x": 264,
+      "y": 861.64,
+      "width": 1152,
+      "height": 269.7,
+      "bottom": 1131.34,
+      "contentBottom": 1115.34,
+      "innerBlank": 0
+    },
+    "hasRecentLoginText": false,
+    "loginRequests": 0,
+    "exitButtons": [
+      {
+        "text": "退出其他设备",
+        "width": 116.81,
+        "height": 28
+      },
+      {
+        "text": "退出登录",
+        "width": 91.2,
+        "height": 28
+      },
+      {
+        "text": "退出",
+        "width": 65.61,
+        "height": 28
+      }
+    ],
+    "pageHeight": 1099,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/me-overview-after-dark-1440.png"
+  },
+  "after-dark-390": {
+    "cardTitles": [
+      null,
+      "近 7 天用量",
+      "登录设备"
+    ],
+    "cards": [
+      {
+        "title": null,
+        "x": 24,
+        "y": 221.78,
+        "width": 342,
+        "height": 293.78,
+        "bottom": 515.56,
+        "contentBottom": 499.56,
+        "innerBlank": 0
+      },
+      {
+        "title": "近 7 天用量",
+        "x": 24,
+        "y": 531.56,
+        "width": 342,
+        "height": 365.11,
+        "bottom": 896.67,
+        "contentBottom": 880.67,
+        "innerBlank": 0
+      },
+      {
+        "title": "登录设备",
+        "x": 24,
+        "y": 912.67,
+        "width": 342,
+        "height": 385.7,
+        "bottom": 1298.38,
+        "contentBottom": 1282.38,
+        "innerBlank": 0
+      }
+    ],
+    "devices": {
+      "title": "登录设备",
+      "x": 24,
+      "y": 912.67,
+      "width": 342,
+      "height": 385.7,
+      "bottom": 1298.38,
+      "contentBottom": 1282.38,
+      "innerBlank": 0
+    },
+    "hasRecentLoginText": false,
+    "loginRequests": 0,
+    "exitButtons": [
+      {
+        "text": "退出其他设备",
+        "width": 116.81,
+        "height": 40
+      },
+      {
+        "text": "退出登录",
+        "width": 91.2,
+        "height": 40
+      },
+      {
+        "text": "退出",
+        "width": 65.61,
+        "height": 40
+      }
+    ],
+    "pageHeight": 1266,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/me-overview-after-dark-390.png"
+  }
+}

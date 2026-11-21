@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import en from "../i18n/en.ts";
 import zh from "../i18n/zh-CN.ts";
 import {
+  availabilityConclusion,
   availabilityFill,
   availabilityPercent,
   availabilityPercentText,
@@ -1293,4 +1294,58 @@ test("summarizeAvailability derives outages, coverage and extremes", () => {
   assert.equal(empty.highest, null);
   assert.equal(empty.longestNormalHours, null);
   assert.equal(empty.outagePeriods, null);
+});
+
+test("availabilityConclusion speaks in whole sentences", () => {
+  const healthy = summarizeAvailability(
+    Array.from({ length: 24 }, (_, ts) => ({ ts, online_ratio: 1 })),
+  );
+  assert.deepEqual(availabilityConclusion(healthy), {
+    key: "publicStatus.detail.summary.healthy",
+  });
+
+  const empty = summarizeAvailability(Array.from({ length: 24 }, () => null));
+  assert.deepEqual(availabilityConclusion(empty), {
+    key: "publicStatus.detail.summary.noSamples",
+  });
+
+  const incident = summarizeAvailability(
+    Array.from({ length: 24 }, (_, ts) => ({
+      ts,
+      online_ratio: ts === 8 || ts === 9 || ts === 15 ? 0 : 1,
+    })),
+  );
+  // 8-9 与 15 是两段中断；精确分钟优先。
+  assert.deepEqual(availabilityConclusion(incident, 192), {
+    key: "publicStatus.detail.summary.outage",
+    values: { count: 2, hours: 3, minutes: 12 },
+  });
+  // 精确分钟缺失时回落到整小时近似（3 个 0% 桶 = 3 小时）。
+  assert.deepEqual(availabilityConclusion(incident, undefined), {
+    key: "publicStatus.detail.summary.outageHours",
+    values: { count: 2, hours: 3 },
+  });
+  // 后端明确 null：即便小时桶能算出近似值，也只报次数，不把未知写成具体时长。
+  assert.deepEqual(
+    availabilityConclusion({ sampled: 24, outageCount: 2, outageHours: 3 }, null),
+    {
+      key: "publicStatus.detail.summary.outageUnknown",
+      values: { count: 2 },
+    },
+  );
+  // 单数用 One 键，英文不会出现 "1 outages"。
+  assert.deepEqual(
+    availabilityConclusion({ sampled: 24, outageCount: 1, outageHours: 0 }, 0),
+    {
+      key: "publicStatus.detail.summary.outageLessThanMinuteOne",
+      values: { count: 1 },
+    },
+  );
+  assert.deepEqual(
+    availabilityConclusion({ sampled: 24, outageCount: 1, outageHours: 1 }, 90),
+    {
+      key: "publicStatus.detail.summary.outageOne",
+      values: { count: 1, hours: 1, minutes: 30 },
+    },
+  );
 });

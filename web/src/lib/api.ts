@@ -147,6 +147,21 @@ export interface BackupDownload {
   filename: string | null;
 }
 
+/** 恢复后会被旧库覆盖的一项设置（before = 当前值，after = 恢复后的值）。 */
+export interface RestoreSettingsDiff {
+  key: string;
+  before: string | number | boolean | null;
+  after: string | number | boolean | null;
+  /** 秘密设置：后端只给键名，before/after 为 null，前端也不展示值。 */
+  secret?: boolean;
+}
+
+/** token 与现场 Agent 不一致、恢复后需要重装 Agent 或重置 token 的服务器。 */
+export interface RestoreServerTokenRefresh {
+  count: number;
+  names: string[];
+}
+
 export interface RestoreBackupResponse {
   restart_required: boolean;
   /** 后端可能直接带回待恢复详情；没有时前端用文件大小兜底展示。 */
@@ -156,6 +171,10 @@ export interface RestoreBackupResponse {
    * 常驻显示在待恢复提示里。
    */
   warning?: string | null;
+  /** 恢复后会变化的设置；旧后端不返回（按空数组处理）。 */
+  settings_diff?: RestoreSettingsDiff[];
+  /** 恢复后 token 会失效的服务器；旧后端不返回（按 0 台处理）。 */
+  servers_needing_token_refresh?: RestoreServerTokenRefresh;
 }
 
 /** 异地备份（WebDAV）远端目录里的一个文件。 */
@@ -214,14 +233,6 @@ export interface LoginSession {
   last_seen_at: number | null;
   expires_at: number;
   current: boolean;
-}
-
-/** 用户端「最近登录」：只含自己的成功登录。 */
-export interface RecentLogin {
-  id: string;
-  ip: string | null;
-  user_agent: string | null;
-  created_at: number;
 }
 
 export interface RevokeSessionResponse {
@@ -2622,8 +2633,6 @@ export const api = {
       request<RevokeOtherSessionsResponse>("/api/v1/sessions?others=1", {
         method: "DELETE",
       }),
-    /** 自己的最近 5 条成功登录。 */
-    recentLogins: () => request<{ items: RecentLogin[] }>("/api/v1/me/logins"),
     adminList: (userId: string) =>
       request<{ user: { id: string; username: string }; items: LoginSession[] }>(
         `/api/v1/users/${encodeURIComponent(userId)}/sessions`,

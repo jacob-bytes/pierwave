@@ -1,0 +1,221 @@
+{
+  "public-light-1440": {
+    "path": "/status/no/such/path",
+    "root": 1000,
+    "card": 317,
+    "buttons": [
+      {
+        "text": "回控制台",
+        "href": "/",
+        "tag": "A"
+      },
+      {
+        "text": "查看公开状态",
+        "href": "/status",
+        "tag": "A"
+      },
+      {
+        "text": "返回上一页",
+        "href": null,
+        "tag": "BUTTON"
+      }
+    ],
+    "has404": true,
+    "hasShell": false,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/notfound-public-light-1440.png"
+  },
+  "public-light-390": {
+    "path": "/status/no/such/path",
+    "root": 844,
+    "card": 373,
+    "buttons": [
+      {
+        "text": "回控制台",
+        "href": "/",
+        "tag": "A"
+      },
+      {
+        "text": "查看公开状态",
+        "href": "/status",
+        "tag": "A"
+      },
+      {
+        "text": "返回上一页",
+        "href": null,
+        "tag": "BUTTON"
+      }
+    ],
+    "has404": true,
+    "hasShell": false,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/notfound-public-light-390.png"
+  },
+  "public-dark-1440": {
+    "path": "/status/no/such/path",
+    "root": 1000,
+    "card": 317,
+    "buttons": [
+      {
+        "text": "回控制台",
+        "href": "/",
+        "tag": "A"
+      },
+      {
+        "text": "查看公开状态",
+        "href": "/status",
+        "tag": "A"
+      },
+      {
+        "text": "返回上一页",
+        "href": null,
+        "tag": "BUTTON"
+      }
+    ],
+    "has404": true,
+    "hasShell": false,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/notfound-public-dark-1440.png"
+  },
+  "public-dark-390": {
+    "path": "/status/no/such/path",
+    "root": 844,
+    "card": 373,
+    "buttons": [
+      {
+        "text": "回控制台",
+        "href": "/",
+        "tag": "A"
+      },
+      {
+        "text": "查看公开状态",
+        "href": "/status",
+        "tag": "A"
+      },
+      {
+        "text": "返回上一页",
+        "href": null,
+        "tag": "BUTTON"
+      }
+    ],
+    "has404": true,
+    "hasShell": false,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/notfound-public-dark-390.png"
+  },
+  "console-light-1440": {
+    "path": "/no-such-page",
+    "root": 896,
+    "card": 317,
+    "buttons": [
+      {
+        "text": "回控制台",
+        "href": "/",
+        "tag": "A"
+      },
+      {
+        "text": "查看公开状态",
+        "href": "/status",
+        "tag": "A"
+      },
+      {
+        "text": "返回上一页",
+        "href": null,
+        "tag": "BUTTON"
+      }
+    ],
+    "has404": true,
+    "hasShell": false,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/notfound-console-light-1440.png"
+  },
+  "console-light-390": {
+    "path": "/no-such-page",
+    "root": 740,
+    "card": 373,
+    "buttons": [
+      {
+        "text": "回控制台",
+        "href": "/",
+        "tag": "A"
+      },
+      {
+        "text": "查看公开状态",
+        "href": "/status",
+        "tag": "A"
+      },
+      {
+        "text": "返回上一页",
+        "href": null,
+        "tag": "BUTTON"
+      }
+    ],
+    "has404": true,
+    "hasShell": false,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/notfound-console-light-390.png"
+  },
+  "console-dark-1440": {
+    "path": "/no-such-page",
+    "root": 896,
+    "card": 317,
+    "buttons": [
+      {
+        "text": "回控制台",
+        "href": "/",
+        "tag": "A"
+      },
+      {
+        "text": "查看公开状态",
+        "href": "/status",
+        "tag": "A"
+      },
+      {
+        "text": "返回上一页",
+        "href": null,
+        "tag": "BUTTON"
+      }
+    ],
+    "has404": true,
+    "hasShell": false,
+    "scrollWidth": 1440,
+    "clientWidth": 1440,
+    "file": "web/screenshots/agent119/notfound-console-dark-1440.png"
+  },
+  "console-dark-390": {
+    "path": "/no-such-page",
+    "root": 740,
+    "card": 373,
+    "buttons": [
+      {
+        "text": "回控制台",
+        "href": "/",
+        "tag": "A"
+      },
+      {
+        "text": "查看公开状态",
+        "href": "/status",
+        "tag": "A"
+      },
+      {
+        "text": "返回上一页",
+        "href": null,
+        "tag": "BUTTON"
+      }
+    ],
+    "has404": true,
+    "hasShell": false,
+    "scrollWidth": 390,
+    "clientWidth": 390,
+    "file": "web/screenshots/agent119/notfound-console-dark-390.png"
+  },
+  "loggedOutProtected": {
+    "url": "http://localhost:5173/login?next=%2Fno-such-page"
+  }
+}

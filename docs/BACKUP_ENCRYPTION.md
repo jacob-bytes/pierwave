@@ -374,8 +374,161 @@ ls -l data/pierwave.db.pre-restore-*
 rm -f data/pierwave.db.pre-restore-*
 ```
 
-## 5. 迁移 / Migrations
+### 4.4 恢复落盘的持久性 / Durability of the restore rename
 
+恢复路径上有两次关键 `rename`：上传文件落位成 `<db>.restore-pending`，以及
+启动时把 pending 换成正式库。`rename` 只保证「同一时刻看到一个名字」，**不保证
+目录项在崩溃/断电后仍然存在**，所以两次之后都会 `fsync` 父目录
+（`fs_security::sync_dir`）：
+
+- 落位后同步失败：删除刚落位的 pending、再尝试同步目录，接口返回
+  **500 `backup.restore_sync_failed`**，文案包含目录路径与 IO 原因；不会出现
+  「接口报失败、重启却真的恢复了」。
+- 换库后同步失败：把候选库改回 pending、旧库搬回原位，返回可读的
+  `Rejected` 原因，主控继续用旧库启动；pending 保留供人工处理。
+- 成功路径：每次关键 `rename` 之后恰好一次目录 `fsync`（测试用注入计数器断言）。
+
+There are two critical `rename`s on the restore path: the upload becomes
+`<db>.restore-pending`, and startup swaps pending into the live database.
+`rename` only guarantees which name is visible at a given moment; it does **not**
+guarantee the directory entry survives a crash or power loss. Both renames are
+therefore followed by a parent-directory `fsync` (`fs_security::sync_dir`):
+
+- landing sync failure: the just-landed pending file is removed and the
+  directory is synced again; the endpoint returns **500
+  `backup.restore_sync_failed`** with the path and IO reason. The endpoint never
+  reports failure while the restore would actually be applied after a restart.
+- swap sync failure: the candidate is moved back to pending and the old database
+  is restored; startup returns a readable `Rejected` reason and continues with
+  the old database. The pending file is kept for manual inspection.
+- success path: exactly one directory `fsync` after each critical `rename`
+  (tests inject a counter to assert this).
+
+### 4.5 恢复后的设置回退摘要 / Settings rollback summary
+
+恢复旧库会**整体替换** `settings` 与 `servers`。成功响应当中除 `warning` 外还
+返回 `settings_diff`，只列**值不同**的键：
+
+```json
+{
+  "restart_required": true,
+  "settings_diff": [
+    {"key": "backup_encrypt", "before": false, "after": true},
+    {"key": "public_status_enabled", "before": 1, "after": 0},
+    {"key": "public_billing_visible", "before": 1, "after": 0},
+    {"key": "public_status_servers", "before": "公开 2 台 / 2 public", "after": "公开 1 台 / 1 public"},
+    {"key": "telegram_bot_enabled", "before": false, "after": true},
+    {"key": "backup_webdav_enabled", "before": false, "after": true},
+    {"key": "telegram_bot_token", "before": null, "after": null, "secret": true}
+  ],
+  "servers_needing_token_refresh": {"count": 1, "names": ["hk-1"]}
+}
+```
+
+- `before` = 当前生效值，`after` = 恢复后将生效的值；没有差异时
+  `settings_diff` 是空数组。
+- 秘密键（`telegram_bot_token` / `backup_webdav_password` / `webhook_url`）只出
+  键名，`before` / `after` 恒为 `null`，并带 `secret: true`；响应里不会出现明文
+  或密文。
+- 公开状态页白名单不是 `settings` 表中的键：只比较数量，用「公开 N 台 / N
+  public」展示，不返回服务器 id 列表。
+- 概览缓存 TTL 来自进程环境变量 `PIERWAVE_OVERVIEW_CACHE_SECS`，不在数据库里，
+  恢复不会改变它，因此不进入 `settings_diff`。
+
+A restore **replaces all of `settings` and `servers`**. Besides `warning`, a
+successful response returns `settings_diff`, listing only keys whose values
+differ:
+
+- `before` is the currently effective value, `after` is the value that takes
+  effect after the restore; with no differences `settings_diff` is an empty
+  array.
+- Secret keys (`telegram_bot_token` / `backup_webdav_password` / `webhook_url`)
+  expose only the key name with `before` / `after` set to `null` and
+  `secret: true`; neither plaintext nor ciphertext appears in the response.
+- The public-status whitelist is not a `settings` row: only the count is
+  compared and rendered as "公开 N 台 / N public". Server ids are never returned.
+- The overview cache TTL comes from the process environment variable
+  `PIERWAVE_OVERVIEW_CACHE_SECS`, not the database, so a restore does not change
+  it and it is not part of `settings_diff`.
+
+### 4.6 恢复后的配置版本 / Config versions after restore
+
+`servers` 表没有 `applied_version` 列：Agent 已应用的版本就是最近一次成功下发
+的 `config_version`（主控先推送、再 bump）。恢复旧库后该值可能**变小**，而
+Agent 只接受更大的版本，长连接不会重新 apply。
+
+因此恢复应用时（打开连接池之前）会把**所有**服务器的 `config_version` 统一
+提升到：
+
+```text
+max(恢复前主库的最大版本, 备份库的最大版本) + 1
+```
+
+取两者最大值而不是只看备份库：现场 Agent 可能已经应用过恢复前主库的更高版本，
+只用「备份库最大值 + 1」仍可能不大于它。统一提升后：
+
+- 每台恢复后的服务器版本都严格大于恢复前的任何版本；
+- Agent 重启后重连，握手 Ack 与紧接着补发的 `DesiredState` 都带新版本，
+  会重新收敛一次（日志 `config_version` 与审计 `backup.restore.apply` 的
+  `config_version` / `servers_bumped` 可核对）。
+
+The `servers` table has no `applied_version` column: the version an Agent has
+applied is the `config_version` of the last successful push (the master pushes,
+then bumps). Restoring an older database can lower that value, and Agents only
+accept **larger** versions, so a long-lived connection would not re-apply.
+
+When the restore is applied (before the pool opens) every server's
+`config_version` is therefore set to:
+
+```text
+max(max version in the pre-restore database, max version in the backup) + 1
+```
+
+Taking the max of both — not just the backup — matters because the live Agent may
+already have applied a higher version from the pre-restore database. After the
+bump every restored server's version is strictly greater than any pre-restore
+version, and a reconnecting Agent receives it in the handshake Ack and the
+immediately resent `DesiredState`, so it converges again. The audit entry
+`backup.restore.apply` records `config_version` / `servers_bumped`.
+
+### 4.7 恢复后的 Agent token / Agent tokens after restore
+
+`servers.token_hash` 也会跟着备份回退。恢复预览会把「当前库里的 `token_hash`」
+视为现场 Agent 正在使用的 token（重置 token 会主动断开旧连接），与候选库逐台
+比较；不一致的服务器列在响应的：
+
+```json
+"servers_needing_token_refresh": {"count": 1, "names": ["hk-1"]}
+```
+
+只包含**数量与名称**，不包含 `token_hash`、token 明文或服务器 id。处理方式二选一：
+
+1. 用旧 token 重新安装/重配该服务器的 Agent（备份里保存的是旧 token 的哈希）；
+2. 在主控里重置该服务器的 token，然后用新 token 重新安装。
+
+即使服务器当前离线也会被列出：它的 Agent 下次启动时同样会因 token 不匹配而
+无法注册。
+
+`servers.token_hash` rolls back with the backup as well. The restore preview
+treats the current database's `token_hash` as the token the on-site Agent is
+using (resetting a token actively disconnects the old connection) and compares it
+with the candidate database per server. Mismatches are reported as:
+
+```json
+"servers_needing_token_refresh": {"count": 1, "names": ["hk-1"]}
+```
+
+Only the **count and names** are included — never the `token_hash`, the token
+plaintext, or server ids. Remedy either by:
+
+1. re-installing/reconfiguring that server's Agent with the old token (the backup
+   holds the old token's hash), or
+2. resetting the server's token in the master and re-installing with the new one.
+
+Offline servers are listed too: their Agent will fail to register for the same
+reason on its next start.
+
+## 5. 迁移 / Migrations
 `crates/domain/migrations/0058_secret_settings.sql`：
 
 - 写入 `backup_encrypt` 的默认值 `1`（`WHERE NOT EXISTS`，重跑不覆盖用户选择）；

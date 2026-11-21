@@ -111,6 +111,18 @@ impl AppError {
         Self::with_status(StatusCode::BAD_GATEWAY, code, params, message)
     }
 
+    /// 500 + 稳定错误码：需要让管理员看到可读原因的**服务端**失败。
+    ///
+    /// 与 [`AppError::Internal`] 的区别只在响应：`Internal` 统一回「服务器内部
+    /// 错误」，适合不该暴露细节的 bug；磁盘同步失败这类需要排查线索的故障用这个。
+    pub fn internal_coded(
+        code: &'static str,
+        params: Option<Value>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::with_status(StatusCode::INTERNAL_SERVER_ERROR, code, params, message)
+    }
+
     fn with_status(
         status: StatusCode,
         code: &'static str,

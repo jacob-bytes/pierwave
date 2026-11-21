@@ -1,5 +1,11 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useParams,
+} from "react-router-dom";
 import { Loader2Icon } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { ListError, PageSkeleton } from "@/components/common";
@@ -7,10 +13,14 @@ import { StatusRouteSkeleton } from "@/components/status/StatusSkeleton";
 import { StatusDetailRouteSkeleton } from "@/components/status/StatusDetailSkeleton";
 import { Card, CardContent } from "@/components/ui/card";
 import { isUnauthorized, useMe } from "@/lib/queries";
-import { isPublicStatusPath, publicStatusServerId } from "@/lib/publicStatus";
+import {
+  isPublicStatusPath,
+  publicStatusServerId,
+} from "@/lib/publicStatus";
 import { safeNextPath } from "@/lib/auth";
 import { errorText } from "@/lib/errors";
 import { useI18n } from "@/i18n";
+import NotFoundPage from "@/pages/NotFound";
 // 登录页是静态导入：它的依赖（queries / i18n / 表单组件）本来就随入口加载，
 // 单独切 chunk 只会让 /login 先闪一帧路由骨架。静态引入后表单随首帧渲染，
 // 不再有「骨架 → 表单」的形态跳变。
@@ -67,16 +77,28 @@ function LoginRedirect({ landing }: { landing: string }) {
   return <Navigate to={next === "/" ? landing : next} replace />;
 }
 
+/** 公开详情路由：id 从 URL 取，页面本身仍只接收字符串。 */
+function StatusDetailRoute() {
+  const { id } = useParams<{ id: string }>();
+  return <StatusDetailPage id={id ?? ""} />;
+}
+
 /**
- * `/status` 公开路由在调用 `useMe` 之前分流：未登录访问时不会发
+ * `/status` 公开区在调用 `useMe` 之前分流：未登录访问时不会发
  * `/api/v1/auth/me`，也就不会触发下面的 401 → /login 重定向；页面本身
  * 仍保留「进入管理面板」链接。其余路径交给 `AuthenticatedApp` 做会话守卫。
+ *
+ * 公开区也有自己的 `*`：`/status/xxx` 之外的子路径（例如多段地址）显示
+ * 404，而不是把人送进登录页。登录后的控制台另有 `*`，两处不再静默重定向。
  */
 export default function App() {
   const { t } = useI18n();
   const { pathname } = useLocation();
+  // 已知公开路由 + 它们的未知子路径；`/statuses` 这类别的路径仍走登录守卫。
+  const publicArea =
+    isPublicStatusPath(pathname) || pathname.startsWith("/status/");
 
-  if (isPublicStatusPath(pathname)) {
+  if (publicArea) {
     const serverId = publicStatusServerId(pathname);
     return (
       <Suspense
@@ -88,7 +110,14 @@ export default function App() {
           )
         }
       >
-        {serverId ? <StatusDetailPage id={serverId} /> : <StatusPage />}
+        <Routes>
+          <Route path="/status" element={<StatusPage />} />
+          <Route path="/status/:id" element={<StatusDetailRoute />} />
+          <Route
+            path="*"
+            element={<NotFoundPage homePath="/" standalone />}
+          />
+        </Routes>
       </Suspense>
     );
   }
@@ -197,7 +226,8 @@ function AuthenticatedApp() {
               <Route path="forwards" element={<MeForwardsPage />} />
               <Route path="packages" element={<MePackagesPage />} />
             </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
+            {/* 未知路径不再静默回首页：告诉用户走错了，并给出三个出口。 */}
+            <Route path="*" element={<NotFoundPage homePath="/" />} />
           </Route>
         ) : (
           // 普通用户只有自助视图：管理路由一律回 /me，避免看到 403 报错。
@@ -209,7 +239,7 @@ function AuthenticatedApp() {
               <Route path="packages" element={<MePackagesPage />} />
             </Route>
             <Route index element={<Navigate to="/me" replace />} />
-            <Route path="*" element={<Navigate to="/me" replace />} />
+            <Route path="*" element={<NotFoundPage homePath="/me" />} />
           </Route>
         )}
       </Routes>

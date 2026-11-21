@@ -16,7 +16,8 @@ test("the detail page is wired as a public route and reads the detail endpoint",
   const app = read("../App.tsx");
   assert.match(app, /StatusDetailPage = lazy/);
   assert.match(app, /publicStatusServerId/);
-  assert.match(app, /<StatusDetailPage id=\{serverId\}/);
+  // 公开区改成 Routes 后，id 由 `/status/:id` 的 useParams 传给页面。
+  assert.match(app, /<StatusDetailPage id=\{id \?\? ""\}/);
   assert.match(app, /StatusDetailRouteSkeleton/);
 
   const page = read("../pages/StatusDetail.tsx");
