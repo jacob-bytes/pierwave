@@ -982,7 +982,7 @@ test("card selection is a thick primary ring plus a text badge, not status color
   assert.match(card, /ring-2 ring-primary shadow-sm/);
   assert.match(card, /bg-primary\/\[0\.04\]/);
   assert.match(card, /publicStatus\.selected/);
-  assert.match(card, /hover:ring-foreground\/20/);
+  assert.match(card, /hover:ring-primary\/50/);
   assert.match(card, /event\.key === "Enter"/);
   // 状态 chip / 状态点仍由 state 决定，选中态不参与。
   assert.match(card, /<StatusChip[\s\S]{0,80}state=\{state\}/);

@@ -359,7 +359,7 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
         }
       }}
       className={cn(
-        "h-full min-w-0 cursor-pointer gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-foreground/20 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
+        "h-full min-w-0 cursor-pointer gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-primary/50 hover:shadow-sm focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
         state !== "online" && "bg-muted/40",
         selected && "bg-primary/[0.04] ring-2 ring-primary shadow-sm hover:ring-2 hover:ring-primary",
       )}
