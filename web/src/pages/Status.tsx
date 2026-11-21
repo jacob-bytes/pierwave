@@ -1,16 +1,17 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import { Link } from "react-router-dom";
 import {
   ActivityIcon,
-  ArrowRightIcon,
+  CloudOffIcon,
   LayoutDashboardIcon,
   ListFilterIcon,
   MoonIcon,
+  RefreshCwIcon,
   ServerOffIcon,
   ShieldIcon,
   SunIcon,
 } from "lucide-react";
-import { EmptyState, ListError } from "@/components/common";
+import { EmptyState } from "@/components/common";
 import { ServerCard } from "@/components/status/ServerCard";
 import { ServerTable } from "@/components/status/ServerTable";
 import {
@@ -23,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useDocumentTitle, useI18n } from "@/i18n";
 import type { PublicStatus } from "@/lib/api";
-import { errorText, isNotFound } from "@/lib/errors";
+import { isNotFound } from "@/lib/errors";
 import {
   DEFAULT_STATUS_VIEW,
   filterPublicServers,
@@ -33,7 +34,9 @@ import {
   matchesServerQuery,
   persistStatusView,
   publicServerCounts,
+  publicStatusPhase,
   statusGroupTabs,
+  statusHeadline,
   type StatusFilter,
   type StatusGroupFilter,
   type StatusView,
@@ -61,9 +64,12 @@ import { cn } from "@/lib/utils";
 function LiveStatus({
   data,
   isError,
+  disabled,
 }: {
   data: PublicStatus | undefined;
   isError: boolean;
+  /** 404：公开页被关闭。这是管理员的设置，不是故障，不能画成告警。 */
+  disabled: boolean;
 }) {
   const { t } = useI18n();
   // 每 15 秒刷新一次“现在”，让「数据是否已经过期」自己会变；
@@ -78,15 +84,17 @@ function LiveStatus({
 
   const time = data ? formatClockTime(data.generated_at) : null;
   // 2 分钟没有新数据就不再算“实时”，点与文字一起转 muted；轮询失败则是另一回事，
-  // 仍然用警告色把「连接断了」和「数据旧了」分开。
+  // 仍然用警告色把「连接断了」和「数据旧了」分开。关闭态保持中性。
   const stale = data !== undefined && isStatusStale(now, data.generated_at);
-  const warn = isError;
-  const calm = data !== undefined && !warn && !stale;
-  const label = isError
-    ? t("publicStatus.header.disconnected")
-    : time
-      ? t("publicStatus.updatedAt", { time })
-      : t("publicStatus.header.connecting");
+  const warn = isError && !disabled;
+  const calm = data !== undefined && !warn && !disabled && !stale;
+  const label = disabled
+    ? t("publicStatus.header.disabled")
+    : isError
+      ? t("publicStatus.header.disconnected")
+      : time
+        ? t("publicStatus.updatedAt", { time })
+        : t("publicStatus.header.connecting");
 
   return (
     <span
@@ -94,13 +102,21 @@ function LiveStatus({
         "inline-flex shrink-0 items-center gap-1.5 text-xs whitespace-nowrap",
         warn ? "text-warning" : "text-muted-foreground",
       )}
-      title={warn || stale ? label : t("publicStatus.autoRefreshHint")}
+      title={
+        disabled || warn || stale
+          ? label
+          : t("publicStatus.autoRefreshHint")
+      }
     >
       <span
         aria-hidden="true"
         className={cn(
           "size-1.5 shrink-0 rounded-full",
-          warn ? "bg-warning" : stale ? "bg-muted-foreground" : "bg-primary",
+          warn
+            ? "bg-warning"
+            : stale || disabled
+              ? "bg-muted-foreground"
+              : "bg-primary",
           calm && "status-breathe",
         )}
       />
@@ -113,9 +129,11 @@ function LiveStatus({
 function StatusHeader({
   data,
   isError,
+  disabled,
 }: {
   data: PublicStatus | undefined;
   isError: boolean;
+  disabled: boolean;
 }) {
   const { t } = useI18n();
   const { resolvedTheme, setTheme } = useTheme();
@@ -146,7 +164,7 @@ function StatusHeader({
 
         {/* 顺序按参考实现：更新时间在最左，然后「进入后台」，主题切换最右。
             页面每 20 秒自己刷新（页签隐藏时暂停，切回立即补拉），页头不放刷新按钮。 */}
-        <LiveStatus data={data} isError={isError} />
+        <LiveStatus data={data} isError={isError} disabled={disabled} />
 
         <Button variant="ghost" asChild>
           <Link to="/login">
@@ -176,17 +194,14 @@ function StatusHeader({
 
 /**
  * 空态统一进站内的 `EmptyState`，外面套一张与卡片同材质的底，
- * 让「无数据 / 无结果 / 已关闭」三种情况在页面上是同一层视觉。
+ * 让「未接入 / 无匹配 / 未开放 / 暂时不可用」在页面上是同一层视觉。
+ *
+ * 角色与 `aria-live` 透传给 Card：关闭态是 `role="status"`（礼貌播报），
+ * 请求失败是 `role="alert"`（需要立刻告诉访客）。
  */
-function StatePanel({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+function StatePanel({ className, ...props }: ComponentProps<typeof Card>) {
   return (
-    <Card className={cn("rounded-xl py-0", className)}>{children}</Card>
+    <Card className={cn("rounded-xl py-0", className)} {...props} />
   );
 }
 
@@ -227,10 +242,23 @@ function StatusContent({ data }: { data: PublicStatus }) {
   const filtered = filterPublicServers(data.servers, filter, query, group);
   const narrowing =
     filter !== "all" || query.trim() !== "" || group !== null;
+  // 全部离线不是错误：hero 已给出结论，这里只补一条克制的时间说明，
+  // 不用红色、不弹告警，卡片仍按离线状态照常展示。
+  const allOffline =
+    data.servers.length > 0 &&
+    statusHeadline(data.servers).kind === "all-offline";
 
   return (
     <>
       <Hero summary={data.summary} servers={data.servers} />
+
+      {allOffline ? (
+        <p className="mt-3 px-1 text-xs text-muted-foreground tnum">
+          {t("publicStatus.allOfflineNote", {
+            time: formatClockTime(data.generated_at),
+          })}
+        </p>
+      ) : null}
 
       <h2 className="sr-only">{t("publicStatus.servers.title")}</h2>
       <div className="mt-4 space-y-4">
@@ -265,16 +293,10 @@ function StatusContent({ data }: { data: PublicStatus }) {
               <StatePanel>
                 <EmptyState
                   icon={ListFilterIcon}
-                  title={
-                    group !== null
-                      ? t("publicStatus.groups.emptyFilteredTitle")
-                      : t("publicStatus.servers.emptyFilteredTitle")
-                  }
-                  description={
-                    group === null
-                      ? t("publicStatus.servers.emptyFilteredDescription")
-                      : undefined
-                  }
+                  title={t("publicStatus.servers.emptyFilteredTitle")}
+                  description={t(
+                    "publicStatus.servers.emptyFilteredDescription",
+                  )}
                   action={
                     <Button variant="outline" size="sm" onClick={clear}>
                       {t("publicStatus.toolbar.clearFilters")}
@@ -306,54 +328,72 @@ export default function StatusPage() {
   useDocumentTitle(`${t("publicStatus.pageTitle")} · ${panelName}`);
 
   const disabled = status.isError && isNotFound(status.error);
+  const phase = publicStatusPhase({
+    hasData: status.data !== undefined,
+    isError: status.isError,
+    notFound: disabled,
+    serverCount: status.data?.servers.length ?? 0,
+  });
+  // 错误优先于旧数据：页面明确说「现在拿不到」，但仍告诉访客最后一次成功的时间。
+  const lastSuccessAt =
+    phase === "error" && status.dataUpdatedAt > 0
+      ? formatClockTime(status.dataUpdatedAt / 1_000)
+      : null;
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
-      <StatusHeader data={status.data} isError={status.isError} />
+      <StatusHeader
+        data={status.data}
+        isError={status.isError}
+        disabled={phase === "disabled"}
+      />
 
       <main className={cn(PAGE_CONTAINER, "flex-1 py-4")}>
-        {status.data ? (
-          <>
-            {status.isError ? (
-              <p role="alert" className="mb-4 text-sm text-destructive">
-                {errorText(
-                  status.error,
-                  t("publicStatus.error.description"),
-                )}
-              </p>
-            ) : null}
-            <StatusContent data={status.data} />
-          </>
-        ) : status.isPending ? (
+        {phase === "loading" ? (
           <StatusSkeleton label={t("publicStatus.loading")} />
-        ) : disabled ? (
-          <StatePanel>
+        ) : phase === "disabled" ? (
+          <StatePanel role="status" aria-live="polite">
             <EmptyState
               icon={ShieldIcon}
               title={t("publicStatus.disabled.title")}
               description={t("publicStatus.disabled.description")}
+            />
+          </StatePanel>
+        ) : phase === "error" ? (
+          <StatePanel role="alert" aria-live="assertive">
+            <EmptyState
+              icon={CloudOffIcon}
+              title={t("publicStatus.error.title")}
+              description={
+                lastSuccessAt
+                  ? t("publicStatus.error.lastSuccess", {
+                      time: lastSuccessAt,
+                    })
+                  : t("publicStatus.error.description")
+              }
               action={
-                <Button asChild variant="outline" size="sm">
-                  <Link to="/login">
-                    {t("publicStatus.header.admin")}
-                    <ArrowRightIcon className="icon-sm" aria-hidden="true" />
-                  </Link>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void status.refetch()}
+                  disabled={status.isFetching}
+                >
+                  <RefreshCwIcon
+                    className={cn(
+                      "icon-sm",
+                      status.isFetching && "animate-spin",
+                    )}
+                    aria-hidden="true"
+                  />
+                  {t("publicStatus.error.retry")}
                 </Button>
               }
             />
           </StatePanel>
+        ) : status.data ? (
+          <StatusContent data={status.data} />
         ) : (
-          <StatePanel>
-            <ListError
-              title={t("publicStatus.error.title")}
-              message={errorText(
-                status.error,
-                t("publicStatus.error.description"),
-              )}
-              retrying={status.isFetching}
-              onRetry={() => void status.refetch()}
-            />
-          </StatePanel>
+          <StatusSkeleton label={t("publicStatus.loading")} />
         )}
       </main>
     </div>

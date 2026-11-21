@@ -197,10 +197,12 @@ const en = {
     subtitle: "Live node status and availability, visible without signing in.",
     loading: "Loading status…",
     updatedAt: "Updated {time}",
-    autoRefreshHint: "Refreshes every 30 seconds",
+    autoRefreshHint: "Refreshes every 20 seconds",
+    allOfflineNote: "Last updated {time}",
     header: {
       connecting: "Connecting…",
       disconnected: "Disconnected",
+      disabled: "Not public",
       themeToggle: "Toggle theme",
       admin: "Admin",
     },
@@ -226,7 +228,7 @@ const en = {
         "{online} / {total} online, {offline} offline; {low} with low availability",
       allOffline: "No nodes online right now",
       allOfflineLow: "No nodes online right now; {low} with low availability",
-      onlineRate: "Online",
+      averageLatency: "Avg latency",
       averageUptime: "Avg 24h uptime",
       totalRate: "Total rate",
       load: "Load {value}",
@@ -251,10 +253,10 @@ const en = {
     servers: {
       title: "Nodes",
       count: "{n} total",
-      emptyTitle: "No nodes",
-      emptyDescription: "The controller has not connected any node yet.",
+      emptyTitle: "Status page is ready",
+      emptyDescription: "No nodes have been connected yet.",
       emptyFilteredTitle: "No matching nodes",
-      emptyFilteredDescription: "Try another keyword or switch back to All.",
+      emptyFilteredDescription: "Try another keyword, or clear the filters.",
     },
     server: {
       online: "Online",
@@ -280,10 +282,11 @@ const en = {
         "Cumulative non-loopback bytes since the agent booted (resets on reboot); not billing traffic",
       trafficRx: "Down",
       trafficTx: "Up",
-      /** Expiry and price: the whole group renders only when all four arrive. */
+      /** Expiry and price: the third column always renders; missing values say Not set. */
       billingGroup: "Expiry and price",
       expiry: "Expiry",
       price: "Price",
+      notSet: "Not set",
       expiresInDays: "{days} days left",
       expiresTomorrow: "Expires tomorrow",
       expiresToday: "Expires today",
@@ -333,13 +336,15 @@ const en = {
       lastHeartbeat: "Last heartbeat",
     },
     error: {
-      title: "Unable to load status",
-      description: "Check your network and try again.",
+      title: "Service status is temporarily unavailable",
+      description: "Please try again shortly.",
+      lastSuccess: "Last success {time}",
       retry: "Retry",
     },
     disabled: {
-      title: "Status page is disabled",
-      description: "The administrator has turned off the public status page.",
+      title: "This status page is not public",
+      description:
+        "Contact the service provider if you need the current status.",
     },
     footer: {
       admin: "Open admin panel",

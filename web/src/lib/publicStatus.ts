@@ -54,6 +54,104 @@ export const STATUS_STALE_SECONDS = 2 * 60;
 export const PUBLIC_STATUS_POLL_MS = 20_000;
 
 /**
+ * 失败后的退避重试：5s、10s、20s、40s，最高 60s。
+ *
+ * 正常态仍是 20 秒一次；只有连续失败才指数退避，避免主控短暂故障时
+ * 用固定高频轮询持续加压。服务端恢复后第一次成功会把失败计数清零，
+ * 间隔自动回到 `PUBLIC_STATUS_POLL_MS`。
+ */
+export const PUBLIC_STATUS_RETRY_BASE_MS = 5_000;
+export const PUBLIC_STATUS_RETRY_MAX_MS = 60_000;
+
+/**
+ * 第 `failureCount` 次连续失败之后等多久再试。
+ *
+ * 计数从 1 开始：1 → 5s、2 → 10s、3 → 20s、4 → 40s、5 及以后 → 60s。
+ * 非正数 / 非有限值按第一次失败处理，间隔不会退化成 0 或 NaN。
+ */
+export function publicStatusRetryDelay(failureCount: number): number {
+  const count =
+    Number.isFinite(failureCount) && failureCount > 0
+      ? Math.floor(failureCount)
+      : 1;
+  return Math.min(
+    PUBLIC_STATUS_RETRY_MAX_MS,
+    PUBLIC_STATUS_RETRY_BASE_MS * 2 ** (count - 1),
+  );
+}
+
+/**
+ * 连续失败计数器。React Query 的 `fetchFailureCount` 每次发起请求都会归零，
+ * 不能拿来算跨轮询的退避；`errorUpdateCount` 又是累计值，成功后不回落。
+ * 这里用成功 / 失败两个单调计数自己维护「当前这串失败」：
+ *
+ * - `dataUpdateCount` 变了 = 刚成功，连续失败清零；
+ * - `errorUpdateCount` 变了 = 刚失败，连续失败加一；
+ * - 两个都没变 = 状态没变化，返回原对象，避免无谓重渲染。
+ */
+export interface PublicStatusFailureStreak {
+  dataUpdateCount: number;
+  errorUpdateCount: number;
+  failures: number;
+}
+
+export function nextPublicStatusFailureStreak(
+  previous: PublicStatusFailureStreak,
+  counts: Pick<
+    PublicStatusFailureStreak,
+    "dataUpdateCount" | "errorUpdateCount"
+  >,
+): PublicStatusFailureStreak {
+  const succeeded = counts.dataUpdateCount !== previous.dataUpdateCount;
+  const failed = counts.errorUpdateCount !== previous.errorUpdateCount;
+  if (!succeeded && !failed) return previous;
+  return {
+    dataUpdateCount: counts.dataUpdateCount,
+    errorUpdateCount: counts.errorUpdateCount,
+    failures: succeeded ? 0 : previous.failures + 1,
+  };
+}
+
+/**
+ * 公开页内容区的五种状态，判定顺序即优先级：
+ *
+ * 1. 请求失败：404 是「未开放」，其余（5xx / 网络错误）是「暂时不可用」；
+ * 2. 没有数据且请求未结束：首屏骨架；
+ * 3. 有数据但节点数为 0：从未接入节点；
+ * 4. 有数据且有节点：正常态（筛选后为空由工具栏内部处理，不改变页面状态）。
+ *
+ * 错误优先于旧数据：轮询失败时页面明确告诉访客「现在拿不到」，
+ * 而不是继续把一份可能过期的数据当成当前状态展示。
+ */
+export type PublicStatusPhase =
+  | "loading"
+  | "disabled"
+  | "error"
+  | "empty"
+  | "ready";
+
+export interface PublicStatusPhaseInput {
+  /** 查询里是否有成功返回过的数据（React Query 的 `data !== undefined`）。 */
+  hasData: boolean;
+  isError: boolean;
+  /** 404（或等价语义）：公开页被管理员关闭。 */
+  notFound: boolean;
+  /** 成功响应里的节点数；没有数据时传 0 或省略。 */
+  serverCount?: number | null;
+}
+
+export function publicStatusPhase({
+  hasData,
+  isError,
+  notFound,
+  serverCount,
+}: PublicStatusPhaseInput): PublicStatusPhase {
+  if (isError) return notFound ? "disabled" : "error";
+  if (!hasData) return "loading";
+  return (serverCount ?? 0) === 0 ? "empty" : "ready";
+}
+
+/**
  * 公开页数据是否已过期。
  *
  * `nowMs` 是浏览器时钟（毫秒），`generatedAtSeconds` 是主控下发的时间戳。
@@ -182,6 +280,40 @@ export function reportedLatency(
     return null;
   }
   return Math.round(latency_ms);
+}
+
+/**
+ * 在线节点的平均延迟（毫秒）。
+ *
+ * 离线机器的 `latency_ms` 是掉线前最后一次探测的残留，不能算进「当前平均」；
+ * 没有上报 / 探测失败 / 脏数据都跳过。没有任何在线节点有读数时返回 null，
+ * 英雄区显示 `—`，而不是 `0 ms`。
+ */
+export function averageLatency(
+  servers: readonly {
+    online: boolean;
+    latency_ms: number | null | undefined;
+  }[],
+): number | null {
+  let total = 0;
+  let sampled = 0;
+
+  for (const server of servers) {
+    if (!server.online) continue;
+    const latency = server.latency_ms;
+    if (
+      latency === null ||
+      latency === undefined ||
+      !Number.isFinite(latency) ||
+      latency < 0
+    ) {
+      continue;
+    }
+    total += latency;
+    sampled += 1;
+  }
+
+  return sampled === 0 ? null : Math.round(total / sampled);
 }
 
 /** 24 个桶里至少有一个采样，才画迷你条；全是 null 时整条显示空态。 */
@@ -608,8 +740,7 @@ export function persistStatusView(
  * 公开状态页新增的账期字段（由后端另一条 lane 提供）。
  *
  * 旧后端不返回整组字段，所以四个都可选；前端必须容忍 undefined。
- * 四个字段**任一**缺失或非法时整组不渲染——宁可少一组信息，也不画
- * 「— / —」这种看起来像坏数据的占位。
+ * 缺哪项就由渲染层把那项显示成「未配置」，第三列永远保留占位。
  */
 export interface PublicBillingFields {
   /** 到期日，`YYYY-MM-DD`（UTC+8 业务日）。 */
@@ -622,16 +753,21 @@ export interface PublicBillingFields {
   billing_cycle?: string | null;
 }
 
-/** 卡片底部「到期与价格」一组的渲染数据；整组要么完整，要么不出现。 */
+/**
+ * 卡片底部「到期与价格」一组的渲染数据。
+ *
+ * 四项各自独立：缺哪项就哪项是 null，由卡片显示「未配置」。现在不再整组
+ * 消失 —— 第三列要一直占位，否则三列网格会塌成两列、左右对不齐。
+ */
 export interface PublicBilling {
-  /** 规范化后的到期日 `YYYY-MM-DD`。 */
-  paidUntil: string;
-  /** 距今 UTC+8 业务日：`> 0` 未来、`0` 今天、`< 0` 已过期。 */
-  days: number;
-  /** 含币种符号的价格，如 `¥268.00`；其它币种显示代码，如 `JPY 268.00`。 */
-  price: string;
-  /** 计费周期的 i18n key，如 `publicStatus.server.cycle.monthly`。 */
-  cycleKey: string;
+  /** 规范化后的到期日 `YYYY-MM-DD`；缺失或非法为 null。 */
+  paidUntil: string | null;
+  /** 距今 UTC+8 业务日：`> 0` 未来、`0` 今天、`< 0` 已过期；无日期为 null。 */
+  days: number | null;
+  /** 含币种符号的价格，如 `¥268.00`；价格或币种缺失 / 非法为 null。 */
+  price: string | null;
+  /** 计费周期的 i18n key，如 `publicStatus.server.cycle.monthly`；缺失为 null。 */
+  cycleKey: string | null;
 }
 
 const UTC8_OFFSET_MS = 8 * 60 * 60 * 1_000;
@@ -758,22 +894,24 @@ export function billingCycleKey(
 }
 
 /**
- * 卡片第三组「到期与价格」的完整数据。四个字段任一缺失 / 非法 → null。
+ * 卡片第三组「到期与价格」的数据。
  *
- * 这是「整组显示或不显示」的唯一判定点：调用方拿到 null 就不渲染这一组，
- * 不去猜缺失字段的默认值。
+ * 四项独立解析，任何一项缺失或非法只让那一项为 null；返回对象永远非 null，
+ * 调用方据此保留第三列，并在对应行显示「未配置」。
  */
 export function publicBilling(
   fields: PublicBillingFields,
   nowMs: number = Date.now(),
-): PublicBilling | null {
-  if (typeof fields.paid_until !== "string") return null;
-  const paidUntil = fields.paid_until.trim();
-  const days = expiryDays(paidUntil, nowMs);
-  const price = formatPrice(fields.price_cents, fields.currency);
-  const cycleKey = billingCycleKey(fields.billing_cycle);
-  if (days === null || price === null || cycleKey === null) return null;
-  return { paidUntil, days, price, cycleKey };
+): PublicBilling {
+  const rawPaidUntil =
+    typeof fields.paid_until === "string" ? fields.paid_until.trim() : "";
+  const days = expiryDays(rawPaidUntil, nowMs);
+  return {
+    paidUntil: days === null ? null : rawPaidUntil,
+    days,
+    price: formatPrice(fields.price_cents, fields.currency),
+    cycleKey: billingCycleKey(fields.billing_cycle),
+  };
 }
 
 /**

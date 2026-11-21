@@ -1,0 +1,491 @@
+{
+  "baseUrl": "http://localhost:4174",
+  "results": [
+    {
+      "state": "empty",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "empty-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 39,
+      "heroStats": [
+        "平均延迟 —",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ]
+    },
+    {
+      "state": "empty",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "empty-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 844,
+      "kb": 31,
+      "heroStats": [
+        "平均延迟 —",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ]
+    },
+    {
+      "state": "empty",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "empty-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 36,
+      "heroStats": [
+        "平均延迟 —",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ]
+    },
+    {
+      "state": "empty",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "empty-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 844,
+      "kb": 28,
+      "heroStats": [
+        "平均延迟 —",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ]
+    },
+    {
+      "state": "empty",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "empty-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 36,
+      "heroStats": [
+        "Avg latency —",
+        "Avg 24h uptime —",
+        "Total rate —"
+      ]
+    },
+    {
+      "state": "filtered",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "filtered-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 65,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "filtered",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "filtered-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 844,
+      "kb": 53,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "filtered",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "filtered-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 62,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "filtered",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "filtered-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 844,
+      "kb": 50,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "filtered",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "filtered-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 59,
+      "heroStats": [
+        "Avg latency 44 ms",
+        "Avg 24h uptime 100%",
+        "Total rate Down 41 MB/s Up 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "all-offline-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1021,
+      "kb": 136,
+      "heroStats": [
+        "平均延迟 —",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "all-offline-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3401,
+      "kb": 231,
+      "heroStats": [
+        "平均延迟 —",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "all-offline-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1021,
+      "kb": 129,
+      "heroStats": [
+        "平均延迟 —",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "all-offline-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3401,
+      "kb": 218,
+      "heroStats": [
+        "平均延迟 —",
+        "平均 24h 可用率 —",
+        "当前总速率 —"
+      ]
+    },
+    {
+      "state": "all-offline",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "all-offline-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1021,
+      "kb": 126,
+      "heroStats": [
+        "Avg latency —",
+        "Avg 24h uptime —",
+        "Total rate —"
+      ]
+    },
+    {
+      "state": "ready",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "ready-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 172,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "ready",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "ready-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3399,
+      "kb": 280,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "ready",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "ready-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 165,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "ready",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "ready-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3399,
+      "kb": 264,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "ready",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "ready-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 159,
+      "heroStats": [
+        "Avg latency 44 ms",
+        "Avg 24h uptime 100%",
+        "Total rate Down 41 MB/s Up 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "selected",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "selected-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 173,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "selected",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "selected-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3399,
+      "kb": 280,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "selected",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "selected-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 166,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "selected",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "selected-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 3399,
+      "kb": 264,
+      "heroStats": [
+        "平均延迟 44 ms",
+        "平均 24h 可用率 100%",
+        "当前总速率 下行 41 MB/s 上行 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "selected",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "selected-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 160,
+      "heroStats": [
+        "Avg latency 44 ms",
+        "Avg 24h uptime 100%",
+        "Total rate Down 41 MB/s Up 5.26 MB/s"
+      ]
+    },
+    {
+      "state": "disabled",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "disabled-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 28,
+      "heroStats": null
+    },
+    {
+      "state": "disabled",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "disabled-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 844,
+      "kb": 21,
+      "heroStats": null
+    },
+    {
+      "state": "disabled",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "disabled-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 26,
+      "heroStats": null
+    },
+    {
+      "state": "disabled",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "disabled-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 844,
+      "kb": 19,
+      "heroStats": null
+    },
+    {
+      "state": "disabled",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "disabled-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 27,
+      "heroStats": null
+    },
+    {
+      "state": "error",
+      "theme": "light",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "error-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 29,
+      "heroStats": null
+    },
+    {
+      "state": "error",
+      "theme": "light",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "error-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 844,
+      "kb": 21,
+      "heroStats": null
+    },
+    {
+      "state": "error",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "zh-CN",
+      "file": "error-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 27,
+      "heroStats": null
+    },
+    {
+      "state": "error",
+      "theme": "dark",
+      "width": 390,
+      "locale": "zh-CN",
+      "file": "error-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 844,
+      "kb": 20,
+      "heroStats": null
+    },
+    {
+      "state": "error",
+      "theme": "dark",
+      "width": 1440,
+      "locale": "en",
+      "file": "error-dark-1440-en.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1000,
+      "kb": 27,
+      "heroStats": null
+    }
+  ],
+  "failures": []
+}

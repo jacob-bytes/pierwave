@@ -191,10 +191,12 @@ const zhCN = {
     subtitle: "实时服务状态与可用率，无需登录即可查看。",
     loading: "正在加载状态…",
     updatedAt: "更新于 {time}",
-    autoRefreshHint: "每 30 秒自动刷新",
+    autoRefreshHint: "每 20 秒自动刷新",
+    allOfflineNote: "最近一次更新 {time}",
     header: {
       connecting: "连接中…",
       disconnected: "连接中断",
+      disabled: "未开放",
       themeToggle: "切换主题",
       admin: "进入后台",
     },
@@ -220,7 +222,7 @@ const zhCN = {
         "{online} / {total} 台在线，{offline} 台离线；{low} 台可用率偏低",
       allOffline: "当前没有在线节点",
       allOfflineLow: "当前没有在线节点；{low} 台可用率偏低",
-      onlineRate: "在线率",
+      averageLatency: "平均延迟",
       averageUptime: "平均 24h 可用率",
       totalRate: "当前总速率",
       load: "负载 {value}",
@@ -245,10 +247,10 @@ const zhCN = {
     servers: {
       title: "节点",
       count: "{n} 台",
-      emptyTitle: "暂无节点",
-      emptyDescription: "主控还没有接入任何节点。",
+      emptyTitle: "状态页已就绪",
+      emptyDescription: "还没有接入任何节点。",
       emptyFilteredTitle: "没有匹配的节点",
-      emptyFilteredDescription: "换个关键词，或切回「全部」状态。",
+      emptyFilteredDescription: "换个关键词，或清除筛选。",
     },
     server: {
       online: "在线",
@@ -273,10 +275,11 @@ const zhCN = {
         "Agent 自开机以来的非 lo 网卡累计字节，重启后归零；不是计费流量",
       trafficRx: "下行",
       trafficTx: "上行",
-      /** 到期与价格：四个字段齐全才渲染整组（见 `publicBilling`）。 */
+      /** 到期与价格：第三列始终保留，缺项显示「未配置」。 */
       billingGroup: "到期与价格",
       expiry: "到期",
       price: "价格",
+      notSet: "未配置",
       expiresInDays: "{days} 天后到期",
       expiresTomorrow: "明天到期",
       expiresToday: "今天到期",
@@ -326,13 +329,14 @@ const zhCN = {
       lastHeartbeat: "最后心跳",
     },
     error: {
-      title: "无法加载状态",
-      description: "请检查网络后重试。",
+      title: "暂时无法获取服务状态",
+      description: "请稍后再试。",
+      lastSuccess: "上次成功 {time}",
       retry: "重试",
     },
     disabled: {
-      title: "状态页已关闭",
-      description: "管理员已关闭公开状态页。",
+      title: "状态页未开放",
+      description: "如需了解服务状态，请联系服务提供方。",
     },
     footer: {
       admin: "进入管理面板",

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ArrowDownIcon,
   ArrowDownToLineIcon,
@@ -155,20 +156,20 @@ function TrafficCell({
 }
 
 /**
- * 到期日：`27 天后到期`，已过期转 warning。
+ * 到期日：`27 天后到期`，已过期转 warning；没有日期显示「未配置」。
  *
  * hover 给出后端原始的 `YYYY-MM-DD`（UTC+8 业务日），不用相对天数猜日期。
  * 图标保持 muted，颜色只落在文字上 —— 一个染色的图标会把整格变成警报。
  */
 function BillingExpiry({ billing }: { billing: PublicBilling }) {
   const { t } = useI18n();
-  const label = expiryLabel(billing.days);
-  const expired = billing.days < 0;
+  const label = billing.days === null ? null : expiryLabel(billing.days);
+  const expired = billing.days !== null && billing.days < 0;
 
   return (
     <span
       className="inline-flex min-w-0 items-baseline gap-x-2 text-xs"
-      title={billing.paidUntil}
+      title={billing.paidUntil ?? undefined}
     >
       <CalendarClockIcon
         className="size-3 shrink-0 self-center text-muted-foreground"
@@ -176,18 +177,37 @@ function BillingExpiry({ billing }: { billing: PublicBilling }) {
       />
       <span className="sr-only">{t("publicStatus.server.expiry")}</span>
       <span
-        className={cn("truncate", expired ? "text-warning" : "text-muted-foreground")}
+        className={cn(
+          "truncate",
+          expired ? "text-warning" : "text-muted-foreground",
+        )}
       >
-        {t(label.key, label.values)}
+        {label
+          ? t(label.key, label.values)
+          : t("publicStatus.server.notSet")}
       </span>
     </span>
   );
 }
 
-/** 价格与周期：`¥268.00 / 月`；币种符号由 `formatPrice` 决定，这里只拼周期。 */
+/**
+ * 价格与周期：`¥268.00 / 月`；币种符号由 `formatPrice` 决定，这里只拼周期。
+ *
+ * 价格 / 周期各自缺失时只把那半边写成「未配置」，整行仍然占位；
+ * 两项都缺失时只写一个「未配置」，不重复两次。
+ */
 function BillingPrice({ billing }: { billing: PublicBilling }) {
   const { t } = useI18n();
-  const text = `${billing.price} / ${t(billing.cycleKey)}`;
+  const notSet = t("publicStatus.server.notSet");
+  const cycle = billing.cycleKey === null ? null : t(billing.cycleKey);
+  const text =
+    billing.price !== null && cycle !== null
+      ? `${billing.price} / ${cycle}`
+      : billing.price !== null
+        ? `${billing.price} / ${notSet}`
+        : cycle !== null
+          ? `${notSet} / ${cycle}`
+          : notSet;
 
   return (
     <span className="inline-flex min-w-0 items-baseline gap-x-2 text-xs" title={text}>
@@ -214,8 +234,8 @@ function BillingPrice({ billing }: { billing: PublicBilling }) {
  * 版式照参考卡片读下去是三列：速率、累计流量、到期与价格。md 以上三列并排，
  * 第三列略宽（`¥1,111.00 / 年` 是最长的内容）；`<md` 收敛成两列，到期与价格
  * 整组换到第三行并横跨两列，390 下不会把前两列挤扁。
- * 账期四字段任一缺失时 `publicBilling` 返回 null，第三列整组不存在 ——
- * 不留空列，也不画 `— / —`。
+ * 第三列**永远存在**：账期四项缺哪项就显示「未配置」，不整组消失 —— 否则
+ * 网格会从三列塌成两列，和上方标题、右侧内容都错位。
  */
 function TrafficFooter({ server }: { server: PublicStatusServer }) {
   const { t } = useI18n();
@@ -237,11 +257,7 @@ function TrafficFooter({ server }: { server: PublicStatusServer }) {
       <div
         role="group"
         aria-label={t("publicStatus.server.trafficGroup")}
-        className={cn(
-          "grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs",
-          billing &&
-            "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.35fr)] md:gap-y-2",
-        )}
+        className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.35fr)] md:gap-y-2"
       >
         <div className="flex min-w-0 flex-col gap-y-1.5">
           <TrafficCell
@@ -275,16 +291,14 @@ function TrafficFooter({ server }: { server: PublicStatusServer }) {
           />
         </div>
 
-        {billing ? (
-          <div
-            className="col-span-2 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 md:col-span-1 md:flex-col md:items-start md:gap-y-1.5"
-            role="group"
-            aria-label={t("publicStatus.server.billingGroup")}
-          >
-            <BillingExpiry billing={billing} />
-            <BillingPrice billing={billing} />
-          </div>
-        ) : null}
+        <div
+          className="col-span-2 flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 md:col-span-1 md:flex-col md:items-start md:gap-y-1.5"
+          role="group"
+          aria-label={t("publicStatus.server.billingGroup")}
+        >
+          <BillingExpiry billing={billing} />
+          <BillingPrice billing={billing} />
+        </div>
       </div>
     </div>
   );
@@ -293,6 +307,9 @@ function TrafficFooter({ server }: { server: PublicStatusServer }) {
 export function ServerCard({ server }: { server: PublicStatusServer }) {
   const { t, locale } = useI18n();
   const state = serverState(server);
+  // 单击 / Enter / 空格切换选中；选中只改变边框与阴影，不改变状态点与状态 chip。
+  const [selected, setSelected] = useState(false);
+  const toggleSelected = () => setSelected((value) => !value);
 
   // 在线（含异常）才有可展示的运行时长；离线时 pill 只留状态。
   const uptimeDuration = (() => {
@@ -331,9 +348,20 @@ export function ServerCard({ server }: { server: PublicStatusServer }) {
 
   return (
     <Card
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onClick={toggleSelected}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          toggleSelected();
+        }
+      }}
       className={cn(
-        "h-full min-w-0 gap-0 rounded-xl p-4 [--card-spacing:--spacing(4)]",
+        "h-full min-w-0 cursor-pointer gap-0 rounded-xl p-4 transition-[box-shadow,background-color] duration-150 [--card-spacing:--spacing(4)] hover:ring-foreground/20 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-sm focus-visible:outline-none",
         state !== "online" && "bg-muted/40",
+        selected && "ring-primary shadow-sm hover:ring-primary",
       )}
     >
       {/* 标题行：名称在左，状态 pill 在右。名称让位、pill 不换行，

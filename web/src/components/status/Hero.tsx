@@ -13,6 +13,7 @@ import {
   availabilityFill,
   availabilityPercent,
   availabilityTone,
+  averageLatency,
   averageUptime24h,
   busiestServer,
   onlineRateByDirection,
@@ -161,6 +162,9 @@ export function Hero({
       ? "bg-muted-foreground"
       : "bg-warning";
 
+  // 平均延迟只算在线机器；没有读数时是 null，大数字显示 —，不写成 0 ms。
+  const averageLatencyMs = averageLatency(servers);
+
   // 平均可用率：没有一台有采样时是 null，大数字显示 —，不写成 0%。
   const averageUptime = averageUptime24h(servers);
   const averagePercent = availabilityPercent(averageUptime);
@@ -200,14 +204,17 @@ export function Hero({
 
         {/* 三个大数字：手机上三等分（390 下每列约 100px），桌面靠右固定宽度。 */}
         <div className="grid min-w-0 grid-cols-3 gap-3 border-t border-border pt-4 sm:gap-5 lg:w-[34rem] lg:shrink-0 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
-          <Stat label={t("publicStatus.hero.onlineRate")}>
-            {headline.total === 0 ? (
+          <Stat label={t("publicStatus.hero.averageLatency")}>
+            {averageLatencyMs === null ? (
               <span className="text-xl leading-none font-semibold text-muted-foreground sm:text-3xl">
                 —
               </span>
             ) : (
-              <span className="tnum text-xl leading-none font-semibold sm:text-3xl">
-                {headline.online} / {headline.total}
+              <span className="tnum inline-flex items-baseline gap-1 text-xl leading-none font-semibold sm:text-3xl">
+                {averageLatencyMs}
+                <span className="text-xs font-normal text-muted-foreground">
+                  ms
+                </span>
               </span>
             )}
           </Stat>

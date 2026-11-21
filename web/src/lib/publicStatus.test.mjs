@@ -788,6 +788,7 @@ test("status page dynamic i18n keys exist in both locales", () => {
     "server.uptimeMinutes",
     "server.uptimeJustNow",
     "server.availability24hHint",
+    "server.notSet",
     "summary.busiest",
     "summary.busiestHint",
     "summary.averageUptime",
@@ -799,7 +800,7 @@ test("status page dynamic i18n keys exist in both locales", () => {
     "hero.partialLow",
     "hero.allOffline",
     "hero.allOfflineLow",
-    "hero.onlineRate",
+    "hero.averageLatency",
     "hero.averageUptime",
     "hero.totalRate",
     "hero.load",
@@ -913,8 +914,8 @@ test("the public status page polls every 20s and pauses while hidden", () => {
   const queries = read("./queries.ts");
   assert.match(
     queries,
-    /refetchInterval:\s*PUBLIC_STATUS_POLL_MS/,
-    "usePublicStatus 必须用 20 秒的共享常量轮询",
+    /return PUBLIC_STATUS_POLL_MS/,
+    "usePublicStatus 正常态必须用 20 秒的共享常量轮询",
   );
   assert.match(
     queries,
@@ -927,6 +928,14 @@ test("the public status page polls every 20s and pauses while hidden", () => {
     "恢复可见必须由 visibilitychange 触发一次补拉",
   );
   assert.match(queries, /document\.visibilityState === "visible"/);
+});
+
+test("the hero shows average latency instead of repeating the online count", () => {
+  const hero = read("../components/status/Hero.tsx");
+  assert.match(hero, /averageLatency\(servers\)/);
+  assert.match(hero, /hero\.averageLatency/);
+  assert.match(hero, />\s*ms\s*</);
+  assert.doesNotMatch(hero, /hero\.onlineRate/);
 });
 
 test("the hero splits the total rate into down/up with a settle pulse", () => {
@@ -957,6 +966,23 @@ test("card traffic row leads every figure with an icon and three columns", () =>
   );
   assert.match(card, /col-span-2/);
   assert.match(card, /publicBilling\(server\)/);
+  // 第三列永远存在：不再用 `billing ?` 条件渲染，缺项显示「未配置」。
+  assert.doesNotMatch(card, /billing\s*&&/);
+  assert.doesNotMatch(card, /\{billing\s*\?/);
+  assert.match(card, /server\.notSet/);
+  assert.match(card, /未配置|notSet/);
+});
+
+test("card selection uses a primary 1px ring and a soft shadow, not status color", () => {
+  const card = read("../components/status/ServerCard.tsx");
+  assert.match(card, /role="button"/);
+  assert.match(card, /tabIndex=\{0\}/);
+  assert.match(card, /aria-pressed=\{selected\}/);
+  assert.match(card, /ring-primary shadow-sm/);
+  assert.match(card, /hover:ring-foreground\/20/);
+  assert.match(card, /event\.key === "Enter"/);
+  // 状态 chip / 状态点仍由 state 决定，选中态不参与。
+  assert.match(card, /<StatusChip state=\{state\}/);
 });
 
 test("expiryDays counts UTC+8 business days", () => {
@@ -1038,7 +1064,7 @@ test("billingCycleKey maps the three cycles and rejects anything else", () => {
   assert.equal(billingCycleKey(undefined), null);
 });
 
-test("publicBilling needs all four fields and formats the group", () => {
+test("publicBilling keeps the third column and nulls only missing fields", () => {
   const now = Date.UTC(2026, 10, 20, 4, 0, 0);
   const full = {
     paid_until: "2026-12-17",
@@ -1053,21 +1079,68 @@ test("publicBilling needs all four fields and formats the group", () => {
     cycleKey: "publicStatus.server.cycle.monthly",
   });
 
-  // 任一字段缺失 → 整组不显示（不出现「— / —」占位）。
-  assert.equal(publicBilling({ ...full, paid_until: null }, now), null);
-  assert.equal(publicBilling({ ...full, paid_until: undefined }, now), null);
-  assert.equal(publicBilling({ ...full, price_cents: null }, now), null);
-  assert.equal(publicBilling({ ...full, currency: null }, now), null);
-  assert.equal(publicBilling({ ...full, billing_cycle: null }, now), null);
-  assert.equal(publicBilling({}, now), null);
+  // 缺哪项就哪项是 null；整个对象永远存在，第三列不会消失。
+  assert.deepEqual(publicBilling({ ...full, paid_until: null }, now), {
+    paidUntil: null,
+    days: null,
+    price: "¥268.00",
+    cycleKey: "publicStatus.server.cycle.monthly",
+  });
+  assert.deepEqual(publicBilling({ ...full, paid_until: undefined }, now), {
+    paidUntil: null,
+    days: null,
+    price: "¥268.00",
+    cycleKey: "publicStatus.server.cycle.monthly",
+  });
+  assert.deepEqual(publicBilling({ ...full, price_cents: null }, now), {
+    paidUntil: "2026-12-17",
+    days: 27,
+    price: null,
+    cycleKey: "publicStatus.server.cycle.monthly",
+  });
+  assert.deepEqual(publicBilling({ ...full, currency: null }, now), {
+    paidUntil: "2026-12-17",
+    days: 27,
+    price: null,
+    cycleKey: "publicStatus.server.cycle.monthly",
+  });
+  assert.deepEqual(publicBilling({ ...full, billing_cycle: null }, now), {
+    paidUntil: "2026-12-17",
+    days: 27,
+    price: "¥268.00",
+    cycleKey: null,
+  });
+  assert.deepEqual(publicBilling({}, now), {
+    paidUntil: null,
+    days: null,
+    price: null,
+    cycleKey: null,
+  });
 
-  // 字段在但值非法，同样整组不显示。
-  assert.equal(publicBilling({ ...full, paid_until: "2026-02-30" }, now), null);
-  assert.equal(publicBilling({ ...full, billing_cycle: "weekly" }, now), null);
-  assert.equal(publicBilling({ ...full, price_cents: -100 }, now), null);
+  // 字段在但值非法，只让对应项变成 null。
+  assert.deepEqual(publicBilling({ ...full, paid_until: "2026-02-30" }, now), {
+    paidUntil: null,
+    days: null,
+    price: "¥268.00",
+    cycleKey: "publicStatus.server.cycle.monthly",
+  });
+  assert.deepEqual(publicBilling({ ...full, billing_cycle: "weekly" }, now), {
+    paidUntil: "2026-12-17",
+    days: 27,
+    price: "¥268.00",
+    cycleKey: null,
+  });
+  assert.deepEqual(publicBilling({ ...full, price_cents: -100 }, now), {
+    paidUntil: "2026-12-17",
+    days: 27,
+    price: null,
+    cycleKey: "publicStatus.server.cycle.monthly",
+  });
 });
 
 test("billing copy is bilingual and the cycles stay short", () => {
+  assert.equal(zh.publicStatus.server.notSet, "未配置");
+  assert.equal(en.publicStatus.server.notSet, "Not set");
   assert.equal(zh.publicStatus.server.cycle.monthly, "月");
   assert.equal(zh.publicStatus.server.cycle.yearly, "年");
   assert.equal(zh.publicStatus.server.cycle.once, "一次性");
@@ -1078,4 +1151,11 @@ test("billing copy is bilingual and the cycles stay short", () => {
   assert.equal(zh.publicStatus.server.expired, "已过期");
   assert.equal(en.publicStatus.server.expiresToday, "Expires today");
   assert.equal(en.publicStatus.server.expired, "Expired");
+});
+
+test("the hero uses average latency as the first KPI in both languages", () => {
+  assert.equal(zh.publicStatus.hero.averageLatency, "平均延迟");
+  assert.equal(en.publicStatus.hero.averageLatency, "Avg latency");
+  assert.equal(zh.publicStatus.hero.averageUptime, "平均 24h 可用率");
+  assert.equal(zh.publicStatus.hero.totalRate, "当前总速率");
 });

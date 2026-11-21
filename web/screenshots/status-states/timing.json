@@ -1,0 +1,42 @@
+{
+  "baseUrl": "http://localhost:4174",
+  "measuredAt": "2026-11-21T02:21:27.051Z",
+  "elapsedMs": 136177,
+  "normal": {
+    "expectedMs": 20000,
+    "requests": 7,
+    "gapsMs": [
+      20005,
+      20006,
+      20007,
+      20005,
+      20006,
+      20006
+    ]
+  },
+  "failure": {
+    "expectedMs": [
+      5000,
+      10000,
+      20000,
+      40000,
+      60000
+    ],
+    "requests": 6,
+    "gapsMs": [
+      5006,
+      10024,
+      20029,
+      40015,
+      60016
+    ]
+  },
+  "checks": {
+    "normal20s": true,
+    "backoff5s": true,
+    "backoff10s": true,
+    "backoff20s": true,
+    "backoff40s": true,
+    "backoff60s": true
+  }
+}

@@ -5,7 +5,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   api,
   ApiError,
@@ -111,7 +111,12 @@ import type { UpdatesResponse } from "@/lib/updates";
 import { compareRoutingRules } from "@/lib/outbounds";
 import { hasPendingAgentUpgrade } from "@/lib/agentUpgrade";
 import { shouldPollAgentBatch } from "@/lib/agentUpgradeBatch";
-import { PUBLIC_STATUS_POLL_MS } from "@/lib/publicStatus";
+import {
+  nextPublicStatusFailureStreak,
+  PUBLIC_STATUS_POLL_MS,
+  publicStatusRetryDelay,
+  type PublicStatusFailureStreak,
+} from "@/lib/publicStatus";
 
 /** P4：有升级在途时，服务器列表与升级历史的轮询间隔。 */
 const AGENT_UPGRADE_POLL_MS = 15_000;
@@ -245,19 +250,49 @@ export function useHealth() {
 /**
  * P10：公开状态页数据。
  *
- * 每 20 秒自动刷新（`PUBLIC_STATUS_POLL_MS`），与页面「更新于 HH:MM:SS」同步；
- * 页签隐藏时暂停，恢复可见时 `useRefetchWhenVisible` 立刻补拉一次。
- * `retry: false` 让「开关关闭」的 404 立刻落到「状态页已关闭」空态，
+ * 正常态每 20 秒自动刷新（`PUBLIC_STATUS_POLL_MS`），与页面「更新于 HH:MM:SS」
+ * 同步；页签隐藏时暂停，恢复可见时 `useRefetchWhenVisible` 立刻补拉一次。
+ *
+ * 失败态不再继续固定 20 秒轮询：按 5s / 10s / 20s / 40s / 60s 退避，
+ * 减少主控故障期间的无谓请求。404 表示公开页被关闭，重试没有意义，
+ * 直接停止轮询；访客刷新页面才会重新检查。
+ *
+ * `retry: false` 让「开关关闭」的 404 立刻落到「状态页未开放」，
  * 而不是先转一圈重试。
  */
 export function usePublicStatus() {
+  // 跨轮询的连续失败次数：React Query 的 fetchFailureCount 每次请求都会归零，
+  // 自己用成功 / 失败计数维护，成功后清零。
+  const failureStreak = useRef<PublicStatusFailureStreak>({
+    dataUpdateCount: 0,
+    errorUpdateCount: 0,
+    failures: 0,
+  });
+
   const query = useQuery<PublicStatus>({
     queryKey: queryKeys.publicStatus,
     queryFn: api.publicStatus,
     retry: false,
     // 比轮询间隔短：切回页签时 15 秒前的数据已经算旧，不会拿着它当权威值。
     staleTime: 15_000,
-    refetchInterval: PUBLIC_STATUS_POLL_MS,
+    refetchInterval: (query) => {
+      // 关闭是管理员的选择，不是故障：停止轮询，别在后台继续打 404。
+      if (
+        query.state.error instanceof ApiError &&
+        query.state.error.status === 404
+      ) {
+        return false;
+      }
+
+      failureStreak.current = nextPublicStatusFailureStreak(
+        failureStreak.current,
+        query.state,
+      );
+      if (query.state.status === "error") {
+        return publicStatusRetryDelay(failureStreak.current.failures);
+      }
+      return PUBLIC_STATUS_POLL_MS;
+    },
     // 页签隐藏时 React Query 本身就跳过这个 interval；显式写出来，
     // 避免以后有人把全局默认改成 true 时悄悄恢复后台轮询。
     refetchIntervalInBackground: false,
