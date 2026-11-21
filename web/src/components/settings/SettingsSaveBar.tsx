@@ -1,59 +1,39 @@
 import type { ReactNode } from "react";
 import { Loader2Icon, SaveIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 
 /**
  * 设置页三个表单 tab（常规 / 安全 / 通知）共用的页面级保存条。
  *
- * 它只是内容流里的最后一个普通块：卡片结束后出现，随页面一起滚动。
- * 不 sticky / fixed，所以页面中部看不到它；只有滚到最底部才出现。
+ * 只有一行：左侧弱化提示，右侧主按钮。没有边框、背景、圆角、阴影或
+ * 额外的 padding 盒，直接融进页面背景；作为表单后的普通块随页面滚动，
+ * 不 sticky / fixed，只有滚到最底部才可见。
  */
 export function SettingsSaveBar({
   formId,
   pending,
   dirty,
-  hint,
-  dirtyHint,
-  saveLabel,
-  savingLabel,
 }: {
   formId: string;
   pending: boolean;
   dirty: boolean;
-  hint: string;
-  dirtyHint: string;
-  saveLabel: string;
-  savingLabel: string;
 }) {
-  const message = dirty ? dirtyHint : hint;
+  const { t } = useI18n();
 
   return (
     <div
       data-slot="settings-savebar"
-      className="flex w-full items-center justify-end gap-3 border-t border-border bg-background py-3"
+      className="flex w-full items-center justify-between gap-3"
     >
-      <p
-        className={cn(
-          "min-w-0 flex-1 truncate text-xs",
-          dirty ? "text-warning" : "text-muted-foreground",
-        )}
-        title={message}
-      >
-        {message}
-      </p>
-      <Button
-        type="submit"
-        form={formId}
-        className="shrink-0"
-        disabled={pending || !dirty}
-      >
+      <p className="text-xs text-muted-foreground">{t("settings.saveHint")}</p>
+      <Button type="submit" form={formId} disabled={pending || !dirty}>
         {pending ? (
           <Loader2Icon className="animate-spin" />
         ) : (
           <SaveIcon />
         )}
-        {pending ? savingLabel : saveLabel}
+        {pending ? t("settings.saving") : t("common.save")}
       </Button>
     </div>
   );

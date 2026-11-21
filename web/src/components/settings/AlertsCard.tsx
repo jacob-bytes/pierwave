@@ -358,10 +358,6 @@ function AlertsForm({ initial }: { initial: Settings }) {
           formId="settings-alerts-form"
           pending={updateSettings.isPending}
           dirty={dirty}
-          hint={t("settings.alerts.saveHint")}
-          dirtyHint={t("settings.alerts.dirtyHint")}
-          saveLabel={t("settings.alerts.save")}
-          savingLabel={t("settings.alerts.saving")}
         />
       }
     >

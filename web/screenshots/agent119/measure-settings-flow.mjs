@@ -123,6 +123,13 @@ function flowInfo(page) {
       barPosition: style?.position ?? null,
       barBackground: style?.backgroundColor ?? null,
       barBorderTop: style ? `${style.borderTopWidth} ${style.borderTopStyle} ${style.borderTopColor}` : null,
+      barBorderWidth: style?.borderWidth ?? null,
+      barBorderStyle: style?.borderStyle ?? null,
+      barBoxShadow: style?.boxShadow ?? null,
+      barBorderRadius: style?.borderRadius ?? null,
+      barPadding: style
+        ? `${style.paddingTop} ${style.paddingRight} ${style.paddingBottom} ${style.paddingLeft}`
+        : null,
       barInsideCard: bar ? Boolean(bar.closest('[data-slot="card"]')) : null,
       buttonHeight: buttonRect ? round(buttonRect.height) : null,
       lastCardTitle:

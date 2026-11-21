@@ -193,42 +193,57 @@ API access now precedes the security card; measured y positions are above.
 ### 保存条 / Save bar
 
 三个表单 tab（常规 / 安全 / 通知）共用
-`components/settings/SettingsSaveBar.tsx`。结构就是「表单 → 保存条」的
-普通文档流：保存条是 `SettingsFormShell` 的最后一个块级兄弟，不 sticky、
-不 fixed，随页面一起滚动。只有滚到页面底部才会看到/点击它。
+`components/settings/SettingsSaveBar.tsx`。它只有一行 flex：左侧
+`text-xs text-muted-foreground` 的「修改后点击保存才会生效。」，右侧
+primary「保存」按钮。没有边框、背景、圆角、阴影或额外 padding，直接
+融进页面背景；作为 `SettingsFormShell` 表单之后的普通块随页面滚动，
+不 sticky / fixed，只有滚到最底部才可见。
 
-All three form tabs use the shared `SettingsSaveBar`. It is a normal block
-after the form in `SettingsFormShell` — not sticky, not fixed — so it scrolls
-with the page and is visible only at the bottom.
+All three form tabs use the shared `SettingsSaveBar`: one flex row with a
+muted hint on the left and a primary Save button on the right. No border,
+background, rounded corners, shadow or extra padding — it blends into the page
+background. It is a normal block after the form, not sticky or fixed, visible
+only at the bottom.
 
 | 指标 / Metric | 常规 1440 | 安全 1440 | 通知 1440 | 常规 390 | 安全 390 | 通知 390 |
 |---|---:|---:|---:|---:|---:|---:|
 | position | static | static | static | static | static | static |
-| 中部 barTop / mid barTop | 1065.94 | 952.33* | 1099.94 | 1431.83 | 969.8 | 1342.34 |
-| 中部可见 / visible at mid | 否 / no | 是 / yes* | 否 / no | 否 / no | 否 / no | 否 / no |
-| 底部 barTop | 918.94 | 919.33 | 918.94 | 754.83 | 754.8 | 755.34 |
+| 中部 barTop | 1078.94 | 964.33* | 1111.94 | 1443.83 | 982.8 | 1354.34 |
+| 中部可见 | 否 | 是* | 否 | 否 | 否 | 否 |
+| 底部 barTop | 943.94 | 944.33 | 943.94 | 779.83 | 779.8 | 780.34 |
 | 底部 barBottom | 975.94 | 976.33 | 975.94 | 819.83 | 819.8 | 820.34 |
-| bar 高 / height | 57 | 57 | 57 | 65 | 65 | 65 |
-| bar 宽 / width | 1152 | 1152 | 1152 | 342 | 342 | 342 |
+| 行高 / row height | 32 | 32 | 32 | 40 | 40 | 40 |
+| 行宽 / row width | 1152 | 1152 | 1152 | 342 | 342 | 342 |
 | 卡→条 / card→bar | 24 | 24 | 24 | 24 | 24 | 24 |
 | 距页面底 / page-bottom gap | 24.06 | 23.67 | 24.06 | 24.17 | 24.2 | 23.66 |
 | 按钮高 / button height | 32 | 32 | 32 | **40** | **40** | **40** |
 | 在 Card 内 / inside Card | false | false | false | false | false | false |
 
-- 亮色条背景 `oklch(0.979 0.003 264.5)`，暗色 `oklch(0.145 0.004 285)`；
-  顶部 1px 分隔线（亮色 `oklch(0.94 0.009 264.5)`，暗色 `oklch(1 0 0 / 0.08)`）。
-- 无圆角、无阴影、无 blur、无 `sticky/fixed/bottom-0`；条是全宽实色块。
-- 页面不再额外留“底条高度”的 padding；条在文档流里，滚到底卡与条间距 24px。
-- 390 按钮 40px；四个 tab 均无横向溢出（scrollWidth=clientWidth=390）。
+样式 / Style（computed）：
 
-\* 安全页 1440 的内容高 1009px、视口 1000px，只多 9px，滚到“中部”时
-条仍在视口内；这是短页面的必然结果，没有为了隐藏它额外加空白。390 安全页
-内容高 1218px，中部滚动时条已在视口外。
+| 属性 | 值 |
+|---|---|
+| `background-color` | `rgba(0, 0, 0, 0)` |
+| `border-width` / `border-top-width` | `0px` |
+| `box-shadow` | `none` |
+| `border-radius` | `0px` |
+| `padding` | `0px 0px 0px 0px` |
+| `position` | `static` |
 
-\* The 1440 security page is only 9px taller than the viewport, so the bar is
-still visible at the middle scroll position; no artificial blank was added to
-hide it. At 390 the security page is 1218px tall and the bar is below the
-viewport at mid-scroll.
+- 用截图取样对比：亮色条区域 `(250, 251, 252)` 与页面背景
+  `(250, 251, 252)` 相同；暗色均为 `(12, 12, 15)`，差值 `(0, 0, 0)`。
+- 卡与条之间只有 24px 间距，没有分隔线；390 按钮 40px，四个 tab 无横向溢出。
+
+Pixel sampling: light bar area `(250, 251, 252)` equals page background
+`(250, 251, 252)`; dark both `(12, 12, 15)` — difference `(0, 0, 0)`.
+
+\* 安全页 1440 内容高 984px、视口 1000px，只多 40px，滚到“中部”时条仍在
+视口内；这是短页面的必然结果，没有为了隐藏它额外加空白。390 安全页内容高
+1193px，中部时条已在视口外。
+
+\* The 1440 security page is only 40px taller than the viewport, so the bar is
+still visible at mid-scroll; no artificial blank was added. At 390 it is below
+the viewport at mid-scroll.
 
 Screenshots:
 `settings-backup-{on,off}-{light,dark}-{1440,390}.png`、

@@ -76,12 +76,23 @@ test("backup encryption is in the size card and save bars are page-level", () =>
     "API access must come before the security form",
   );
 
-  // 三个 tab 共用 SettingsSaveBar；条在滚动区之外，不是 Card，也没有圆角/阴影。
+  // 三个 tab 共用 SettingsSaveBar；条是透明的一行 flex，不是 Card。
   const saveBar = read("components/settings/SettingsSaveBar.tsx");
   assert.match(saveBar, /data-slot="settings-savebar"/);
-  assert.match(saveBar, /border-t border-border bg-background/);
+  assert.match(
+    saveBar,
+    /className="flex w-full items-center justify-between gap-3"/,
+  );
   assert.match(saveBar, /form=\{formId\}/);
-  assert.doesNotMatch(saveBar, /<Card|CardContent|rounded-|shadow/);
+  assert.match(saveBar, /text-xs text-muted-foreground/);
+  assert.match(saveBar, /settings\.saveHint/);
+  assert.match(saveBar, /common\.save/);
+  // 无边框、背景、圆角、阴影、padding / 额外容器。
+  assert.doesNotMatch(
+    saveBar,
+    /className="[^"]*(border|bg-|ring-|shadow|rounded)/,
+  );
+  assert.doesNotMatch(saveBar, /<Card|CardContent/);
   // 普通文档流：不能 sticky / fixed / 贴底。
   assert.doesNotMatch(saveBar, /className="[^"]*(sticky|fixed|bottom-0)/);
   const shell = read("components/settings/SettingsSaveBar.tsx");

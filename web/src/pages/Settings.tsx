@@ -354,10 +354,6 @@ function GeneralForm({ initial }: { initial: Settings }) {
           formId="settings-general-form"
           pending={updateSettings.isPending}
           dirty={form.formState.isDirty}
-          hint={t("settings.saveHint")}
-          dirtyHint={t("settings.saveHint")}
-          saveLabel={t("common.save")}
-          savingLabel={t("settings.saving")}
         />
       }
     >
@@ -588,10 +584,6 @@ function SecurityForm({
           formId="settings-security-form"
           pending={updateSettings.isPending}
           dirty={form.formState.isDirty}
-          hint={t("settings.saveHint")}
-          dirtyHint={t("settings.saveHint")}
-          saveLabel={t("common.save")}
-          savingLabel={t("settings.saving")}
         />
       }
     >
