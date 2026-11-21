@@ -221,6 +221,9 @@ export function settingsGeneralSchema(t: TFunction) {
         (value) => parseUpdateInterval(value) !== null,
         t("settings.updates.intervalInvalid"),
       ),
+    /** 公开状态页总开关；与账期隐私开关都由页面底部保存栏统一提交。 */
+    public_status_enabled: z.boolean(),
+    public_billing_visible: z.boolean(),
   });
 }
 

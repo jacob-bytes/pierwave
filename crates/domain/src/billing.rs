@@ -320,6 +320,7 @@ mod tests {
             realm_transport: None,
             nftables_available: None,
             tunnel_available: None,
+            public_visible: true,
             country_code: None,
             group_name: None,
             paid_until: paid_until.map(str::to_owned),

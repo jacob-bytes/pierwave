@@ -6,6 +6,7 @@ import {
   ArrowUpIcon,
   ArrowUpToLineIcon,
   CloudOffIcon,
+  EyeOffIcon,
   FolderIcon,
   GlobeIcon,
   RefreshCwIcon,
@@ -52,6 +53,7 @@ import {
   uptimeParts,
   type OutageMinutesParts,
 } from "@/lib/publicStatus";
+import { billingHidden } from "@/lib/publicStatusSettings";
 import { normalizeGroupName } from "@/lib/serverGroups";
 import {
   formatAbsoluteTime,
@@ -833,7 +835,9 @@ function BillingTrafficCard({
 }) {
   const { t } = useI18n();
   const billing = publicBilling(server);
+  const hiddenBilling = billingHidden(server);
   const hasBilling =
+    hiddenBilling ||
     billing.paidUntil !== null ||
     billing.price !== null ||
     billing.cycleKey !== null;
@@ -920,62 +924,71 @@ function BillingTrafficCard({
             <div className="text-[11px] text-muted-foreground">
               {t("publicStatus.detail.sections.billing")}
             </div>
-            <div className="flex min-w-0 items-baseline gap-1">
-              {billing.price === null ? (
-                <Dash className="text-[22px] leading-none font-semibold sm:text-2xl" />
-              ) : (
-                <span className="tnum text-[22px] leading-none font-semibold sm:text-2xl">
-                  {billing.price}
-                </span>
-              )}
-              {cycle === null ? null : (
-                <span className={cn(UNIT_CLASS, "shrink-0")}>/ {cycle}</span>
-              )}
-            </div>
-            {expiryText === null ? null : (
-              <p
-                className={cn(
-                  "tnum flex min-w-0 flex-wrap items-baseline gap-x-2 text-base leading-tight font-semibold sm:text-[17px]",
-                  expired ? "text-warning" : "text-foreground",
-                )}
-                title={billing.paidUntil ?? undefined}
-              >
-                <span>{expiryText}</span>
-                {billing.paidUntil === null ? null : (
-                  <span className="text-[11px] font-normal text-muted-foreground">
-                    {billing.paidUntil}
-                  </span>
-                )}
+            {hiddenBilling ? (
+              <p className="flex min-w-0 items-center gap-1.5 text-base leading-tight font-semibold text-muted-foreground">
+                <EyeOffIcon className="size-4 shrink-0" aria-hidden="true" />
+                {t("publicStatus.server.notPublic")}
               </p>
-            )}
-            {remainingDays !== null && remainingPercent !== null ? (
-              <div className="mt-0.5">
-                <div
-                  aria-hidden="true"
-                  className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
-                >
-                  <div
+            ) : (
+              <>
+                <div className="flex min-w-0 items-baseline gap-1">
+                  {billing.price === null ? (
+                    <Dash className="text-[22px] leading-none font-semibold sm:text-2xl" />
+                  ) : (
+                    <span className="tnum text-[22px] leading-none font-semibold sm:text-2xl">
+                      {billing.price}
+                    </span>
+                  )}
+                  {cycle === null ? null : (
+                    <span className={cn(UNIT_CLASS, "shrink-0")}>/ {cycle}</span>
+                  )}
+                </div>
+                {expiryText === null ? null : (
+                  <p
                     className={cn(
-                      "h-full rounded-full",
-                      expired ? "bg-warning" : "bg-primary",
+                      "tnum flex min-w-0 flex-wrap items-baseline gap-x-2 text-base leading-tight font-semibold sm:text-[17px]",
+                      expired ? "text-warning" : "text-foreground",
                     )}
-                    style={{ width: `${remainingPercent}%` }}
-                  />
-                </div>
-                <div
-                  data-slot="billing-meta"
-                  className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground"
-                >
-                  <span className="tnum">
-                    {t("publicStatus.detail.remainingDays", {
-                      remaining: remainingDays,
-                      total: cycleDays ?? 0,
-                    })}
-                  </span>
-                  {cycleEstimate === null ? null : <span>{cycleEstimate}</span>}
-                </div>
-              </div>
-            ) : null}
+                    title={billing.paidUntil ?? undefined}
+                  >
+                    <span>{expiryText}</span>
+                    {billing.paidUntil === null ? null : (
+                      <span className="text-[11px] font-normal text-muted-foreground">
+                        {billing.paidUntil}
+                      </span>
+                    )}
+                  </p>
+                )}
+                {remainingDays !== null && remainingPercent !== null ? (
+                  <div className="mt-0.5">
+                    <div
+                      aria-hidden="true"
+                      className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                    >
+                      <div
+                        className={cn(
+                          "h-full rounded-full",
+                          expired ? "bg-warning" : "bg-primary",
+                        )}
+                        style={{ width: `${remainingPercent}%` }}
+                      />
+                    </div>
+                    <div
+                      data-slot="billing-meta"
+                      className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground"
+                    >
+                      <span className="tnum">
+                        {t("publicStatus.detail.remainingDays", {
+                          remaining: remainingDays,
+                          total: cycleDays ?? 0,
+                        })}
+                      </span>
+                      {cycleEstimate === null ? null : <span>{cycleEstimate}</span>}
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            )}
           </section>
         ) : null}
 

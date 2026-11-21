@@ -1,0 +1,340 @@
+{
+  "desktop": {
+    "theme": "dark",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "cards": {
+      "publicStatus": {
+        "cardWidth": 1152,
+        "borderRadius": "16.8px",
+        "paddingTop": "16px",
+        "paddingBottom": "16px",
+        "backgroundColor": "oklch(0.175 0.005 285)",
+        "title": {
+          "fontSize": "14px",
+          "fontWeight": "500",
+          "lineHeight": "18.9px",
+          "height": 18.89
+        },
+        "description": {
+          "fontSize": "12px",
+          "lineHeight": "19.2px",
+          "height": 19.19
+        },
+        "header": {
+          "paddingLeft": "16px",
+          "rowGap": "4px"
+        },
+        "content": {
+          "paddingLeft": "16px"
+        },
+        "grid": {
+          "rowGap": "20px",
+          "columnGap": "20px",
+          "columns": "550px 550px"
+        }
+      },
+      "panel": {
+        "cardWidth": 1152,
+        "borderRadius": "16.8px",
+        "paddingTop": "16px",
+        "paddingBottom": "16px",
+        "backgroundColor": "oklch(0.175 0.005 285)",
+        "title": {
+          "fontSize": "14px",
+          "fontWeight": "500",
+          "lineHeight": "18.9px",
+          "height": 18.89
+        },
+        "description": {
+          "fontSize": "12px",
+          "lineHeight": "19.2px",
+          "height": 19.19
+        },
+        "header": {
+          "paddingLeft": "16px",
+          "rowGap": "4px"
+        },
+        "content": {
+          "paddingLeft": "16px"
+        },
+        "grid": {
+          "rowGap": "20px",
+          "columnGap": "20px",
+          "columns": "550px 550px"
+        }
+      },
+      "updates": {
+        "cardWidth": 1152,
+        "borderRadius": "16.8px",
+        "paddingTop": "16px",
+        "paddingBottom": "16px",
+        "backgroundColor": "oklch(0.175 0.005 285)",
+        "title": {
+          "fontSize": "14px",
+          "fontWeight": "500",
+          "lineHeight": "18.9px",
+          "height": 18.89
+        },
+        "description": {
+          "fontSize": "12px",
+          "lineHeight": "19.2px",
+          "height": 19.19
+        },
+        "header": {
+          "paddingLeft": "16px",
+          "rowGap": "4px"
+        },
+        "content": {
+          "paddingLeft": "16px"
+        },
+        "grid": {
+          "rowGap": "20px",
+          "columnGap": "20px",
+          "columns": "550px 550px"
+        }
+      },
+      "agentUpgrade": {
+        "cardWidth": 1152,
+        "borderRadius": "16.8px",
+        "paddingTop": "16px",
+        "paddingBottom": "16px",
+        "backgroundColor": "oklch(0.175 0.005 285)",
+        "title": {
+          "fontSize": "14px",
+          "fontWeight": "500",
+          "lineHeight": "18.9px",
+          "height": 18.89
+        },
+        "description": {
+          "fontSize": "12px",
+          "lineHeight": "19.2px",
+          "height": 19.19
+        },
+        "header": {
+          "paddingLeft": "16px",
+          "rowGap": "4px"
+        },
+        "content": {
+          "paddingLeft": "16px"
+        },
+        "grid": {
+          "rowGap": "20px",
+          "columnGap": "20px",
+          "columns": "550px 550px"
+        }
+      }
+    },
+    "publicStatusSwitchRows": [
+      {
+        "controlWidth": 32,
+        "controlHeight": 18.39,
+        "controlRight": 1400,
+        "rowWidth": 1120,
+        "rowHeight": 18.89,
+        "rowJustify": "space-between",
+        "rowGap": "12px",
+        "labelToControlGap": 1018,
+        "labelBaselineOffset": 0,
+        "controlBackground": "oklch(0.662 0.179 264.6)"
+      },
+      {
+        "controlWidth": 32,
+        "controlHeight": 18.39,
+        "controlRight": 1400,
+        "rowWidth": 1120,
+        "rowHeight": 18.89,
+        "rowJustify": "space-between",
+        "rowGap": "12px",
+        "labelToControlGap": 990,
+        "labelBaselineOffset": 0,
+        "controlBackground": "oklch(0.662 0.179 264.6)"
+      }
+    ],
+    "updatesSwitch": [
+      {
+        "controlWidth": 32,
+        "controlHeight": 18.39,
+        "controlRight": 882,
+        "rowWidth": 550,
+        "rowHeight": 32,
+        "rowJustify": "normal",
+        "rowGap": "normal",
+        "labelToControlGap": null,
+        "labelBaselineOffset": null,
+        "controlBackground": "oklch(0.662 0.179 264.6)"
+      }
+    ]
+  },
+  "mobile": {
+    "theme": "dark",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "cards": {
+      "publicStatus": {
+        "cardWidth": 342,
+        "borderRadius": "16.8px",
+        "paddingTop": "16px",
+        "paddingBottom": "16px",
+        "backgroundColor": "oklch(0.175 0.005 285)",
+        "title": {
+          "fontSize": "14px",
+          "fontWeight": "500",
+          "lineHeight": "18.9px",
+          "height": 18.89
+        },
+        "description": {
+          "fontSize": "12px",
+          "lineHeight": "19.2px",
+          "height": 19.19
+        },
+        "header": {
+          "paddingLeft": "16px",
+          "rowGap": "4px"
+        },
+        "content": {
+          "paddingLeft": "16px"
+        },
+        "grid": {
+          "rowGap": "20px",
+          "columnGap": "20px",
+          "columns": "310px"
+        }
+      },
+      "panel": {
+        "cardWidth": 342,
+        "borderRadius": "16.8px",
+        "paddingTop": "16px",
+        "paddingBottom": "16px",
+        "backgroundColor": "oklch(0.175 0.005 285)",
+        "title": {
+          "fontSize": "14px",
+          "fontWeight": "500",
+          "lineHeight": "18.9px",
+          "height": 18.89
+        },
+        "description": {
+          "fontSize": "12px",
+          "lineHeight": "19.2px",
+          "height": 19.19
+        },
+        "header": {
+          "paddingLeft": "16px",
+          "rowGap": "4px"
+        },
+        "content": {
+          "paddingLeft": "16px"
+        },
+        "grid": {
+          "rowGap": "20px",
+          "columnGap": "20px",
+          "columns": "310px"
+        }
+      },
+      "updates": {
+        "cardWidth": 342,
+        "borderRadius": "16.8px",
+        "paddingTop": "16px",
+        "paddingBottom": "16px",
+        "backgroundColor": "oklch(0.175 0.005 285)",
+        "title": {
+          "fontSize": "14px",
+          "fontWeight": "500",
+          "lineHeight": "18.9px",
+          "height": 18.89
+        },
+        "description": {
+          "fontSize": "12px",
+          "lineHeight": "19.2px",
+          "height": 38.38
+        },
+        "header": {
+          "paddingLeft": "16px",
+          "rowGap": "4px"
+        },
+        "content": {
+          "paddingLeft": "16px"
+        },
+        "grid": {
+          "rowGap": "20px",
+          "columnGap": "20px",
+          "columns": "310px"
+        }
+      },
+      "agentUpgrade": {
+        "cardWidth": 342,
+        "borderRadius": "16.8px",
+        "paddingTop": "16px",
+        "paddingBottom": "16px",
+        "backgroundColor": "oklch(0.175 0.005 285)",
+        "title": {
+          "fontSize": "14px",
+          "fontWeight": "500",
+          "lineHeight": "18.9px",
+          "height": 18.89
+        },
+        "description": {
+          "fontSize": "12px",
+          "lineHeight": "19.2px",
+          "height": 19.19
+        },
+        "header": {
+          "paddingLeft": "16px",
+          "rowGap": "4px"
+        },
+        "content": {
+          "paddingLeft": "16px"
+        },
+        "grid": {
+          "rowGap": "20px",
+          "columnGap": "20px",
+          "columns": "310px"
+        }
+      }
+    },
+    "publicStatusSwitchRows": [
+      {
+        "controlWidth": 32,
+        "controlHeight": 18.39,
+        "controlRight": 350,
+        "rowWidth": 310,
+        "rowHeight": 18.89,
+        "rowJustify": "space-between",
+        "rowGap": "12px",
+        "labelToControlGap": 208,
+        "labelBaselineOffset": 0,
+        "controlBackground": "oklch(0.662 0.179 264.6)"
+      },
+      {
+        "controlWidth": 32,
+        "controlHeight": 18.39,
+        "controlRight": 350,
+        "rowWidth": 310,
+        "rowHeight": 18.89,
+        "rowJustify": "space-between",
+        "rowGap": "12px",
+        "labelToControlGap": 180,
+        "labelBaselineOffset": 0,
+        "controlBackground": "oklch(0.662 0.179 264.6)"
+      }
+    ],
+    "updatesSwitch": [
+      {
+        "controlWidth": 32,
+        "controlHeight": 18.39,
+        "controlRight": 72,
+        "rowWidth": 310,
+        "rowHeight": 32,
+        "rowJustify": "normal",
+        "rowGap": "normal",
+        "labelToControlGap": null,
+        "labelBaselineOffset": null,
+        "controlBackground": "oklch(0.662 0.179 264.6)"
+      }
+    ]
+  }
+}

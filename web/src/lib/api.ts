@@ -339,6 +339,11 @@ export interface PublicStatusServer {
   currency?: string | null;
   /** 计费周期：`monthly` / `yearly` / `once`；旧后端可能缺失。 */
   billing_cycle?: string | null;
+  /**
+   * 管理员关闭了「公开到期与价格」。`true` 时卡片显示「未公开」，
+   * 与「未配置」不同；旧后端不返回该字段，按未隐藏处理。
+   */
+  billing_hidden?: boolean | null;
 }
 
 /** 公开状态页的分组聚合；`name = null` 是未分组。 */
@@ -350,11 +355,41 @@ export interface PublicStatusGroup {
   uptime_24h: number | null;
 }
 
+/**
+ * 管理端「公开节点」白名单里的一台服务器。
+ *
+ * 与公开页的 `PublicStatusServer` 不同：这里包含**未公开**的节点，
+ * 只用于设置页勾选，不含 token / 地址等敏感字段。
+ */
+export interface PublicStatusServerChoice {
+  id: string;
+  name: string;
+  online: boolean;
+  /** 当前是否出现在公开页；旧后端可能不返回，按未公开处理。 */
+  public_visible: boolean;
+}
+
+export interface PublicStatusServersResponse {
+  items: PublicStatusServerChoice[];
+}
+
+/** `PUT /api/v1/public-status/servers` 的结果：公开 / 隐藏的台数。 */
+export interface UpdatePublicStatusServersResponse {
+  visible: number;
+  hidden: number;
+}
+
 /** P10：`GET /api/v1/public/status`，无需登录。 */
 export interface PublicStatus {
   panel_name: string;
   /** 生成时间（Unix 秒）。 */
   generated_at: number;
+  /**
+   * 管理员是否整体隐藏了到期与价格。后端实际把该字段放在顶层（一个全局设置），
+   * 任务契约也允许每台服务器各带一份；查询层会把顶层值合并到每台服务器，
+   * 页面只认 `PublicStatusServer.billing_hidden`。旧后端不返回。
+   */
+  billing_hidden?: boolean;
   summary: PublicStatusSummary;
   servers: PublicStatusServer[];
   /** 旧后端可能不返回；页面据此决定是否画分组聚合。 */
@@ -2244,6 +2279,17 @@ export interface Settings {
    */
   agent_upgrade_concurrency: number;
   /**
+   * 公开状态页总开关，0/1；后端缺省为 1（开启）。
+   * 契约是数字，旧后端 / 旧数据可能给 boolean 或字符串，读取时统一归一化。
+   */
+  public_status_enabled?: number | boolean | string | null;
+  /**
+   * 是否在公开页显示到期与价格，0/1，默认 1。
+   * 新设置项，旧后端完全不返回该键；前端按默认开启处理，
+   * 保存时也只在后端已支持（GET 返回了该键）时才提交，避免整份 PATCH 被拒。
+   */
+  public_billing_visible?: number | boolean | string | null;
+  /**
    * 对外地址：Agent 纳管（安装/升级）与订阅链接。空 = 按当前请求地址推导；
    * 订阅为空时回退到 `agent_base_url`。旧版后端可能不返回这两个键。
    */
@@ -2686,6 +2732,23 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(input),
       }),
+  },
+
+  /**
+   * 管理端「公开节点」白名单。后端可能尚未上线：GET 404 时设置页只把
+   * 白名单组降级成「当前后端不支持该功能」，不影响同卡其它开关。
+   */
+  publicStatusServers: {
+    list: () =>
+      request<PublicStatusServersResponse>("/api/v1/public-status/servers"),
+    update: (ids: string[]) =>
+      request<UpdatePublicStatusServersResponse>(
+        "/api/v1/public-status/servers",
+        {
+          method: "PUT",
+          body: JSON.stringify({ ids }),
+        },
+      ),
   },
 
   /**

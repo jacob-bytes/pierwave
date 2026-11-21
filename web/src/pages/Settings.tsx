@@ -29,6 +29,7 @@ import { BackupCard } from "@/components/settings/BackupCard";
 import { BackupEncryptionCard } from "@/components/settings/BackupEncryptionCard";
 import { RemoteBackupCard } from "@/components/settings/RemoteBackupCard";
 import { CertificatesPanel } from "@/components/settings/CertificatesPanel";
+import { PublicStatusCard } from "@/components/settings/PublicStatusCard";
 import { RuleTemplatesPanel } from "@/components/settings/RuleTemplatesPanel";
 import { SettingsSecretRecovery } from "@/components/settings/SettingsSecretRecovery";
 import { SubscriptionTemplatesPanel } from "@/components/settings/SubscriptionTemplatesPanel";
@@ -49,6 +50,10 @@ import {
 import { ApiError, type Settings } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import { exampleUrls } from "@/lib/publicBase";
+import {
+  flagSettingValue,
+  settingsFlag,
+} from "@/lib/publicStatusSettings";
 import { useSettings, useUpdateSettings } from "@/lib/queries";
 import { secretRecoveryFromSettings } from "@/lib/settingsSecrets";
 import {
@@ -96,6 +101,10 @@ function toGeneralFormValues(items: Settings): SettingsGeneralValues {
       items.update_check_interval_hours == null
         ? String(DEFAULT_UPDATE_INTERVAL_HOURS)
         : String(items.update_check_interval_hours),
+    // 公开状态页：总开关默认开启（与后端默认一致）；账期隐私开关是新增键，
+    // 旧后端不返回时也按默认开启展示，但保存时不会提交（见 onSubmit）。
+    public_status_enabled: settingsFlag(items.public_status_enabled, true),
+    public_billing_visible: settingsFlag(items.public_billing_visible, true),
   };
 }
 
@@ -315,11 +324,15 @@ function GeneralForm({ initial }: { initial: Settings }) {
   const subscriptionBaseInput = form.watch("subscription_base_url");
   const examples = exampleUrls(agentBaseInput, subscriptionBaseInput);
 
+  // 新设置项只有后端 GET 已经返回时才提交：旧后端会把未知键整单拒绝
+  // （settings.unknown_key），不能让「公开状态页」卡拖垮常规表单的保存。
+  const billingSupported = initial.public_billing_visible !== undefined;
+
   const onSubmit = form.handleSubmit(async (values) => {
     form.clearErrors("root");
     try {
       // 只 PATCH 常规 tab 的键：不提交整份对象，避免覆盖安全 tab 刚存的值。
-      // 版本更新的两个设置项也并在这里，由底部同一条保存栏一次提交。
+      // 版本更新与公开状态页的设置项也并在这里，由底部同一条保存栏一次提交。
       const items = await updateSettings.mutateAsync({
         panel_name: values.panel_name.trim(),
         agent_upgrade_concurrency: Number(values.agent_upgrade_concurrency),
@@ -327,6 +340,14 @@ function GeneralForm({ initial }: { initial: Settings }) {
         subscription_base_url: values.subscription_base_url.trim(),
         update_check_enabled: values.update_check_enabled,
         update_check_interval_hours: Number(values.update_check_interval_hours),
+        public_status_enabled: flagSettingValue(values.public_status_enabled),
+        ...(billingSupported
+          ? {
+              public_billing_visible: flagSettingValue(
+                values.public_billing_visible,
+              ),
+            }
+          : {}),
       });
       // PATCH 返回的 items 是权威值：回填表单（同时清掉脏标记），缓存已由 hook 更新。
       form.reset(toGeneralFormValues(items));
@@ -466,6 +487,16 @@ function GeneralForm({ initial }: { initial: Settings }) {
           />
         </FormField>
       </SettingsGroup>
+
+      {/*
+        公开状态页：总开关、公开节点白名单、账期隐私开关。后两组只在总开关
+        开启时可编辑；白名单有独立对话框与 PUT，其余两项随底部保存栏提交。
+      */}
+      <PublicStatusCard
+        form={form}
+        saving={updateSettings.isPending}
+        billingSupported={billingSupported}
+      />
 
       <FormRootError message={form.formState.errors.root?.message} />
 

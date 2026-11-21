@@ -865,7 +865,7 @@ CREATE TABLE server_samples (
 
 ```
 GET /api/v1/public/status
--> { panel_name, generated_at,
+-> { panel_name, generated_at, billing_hidden,
      summary: { servers_total, servers_online, nodes_total, traffic_today, traffic_month },
      servers: [ { id, name, online, xray_running, load1, mem_used, mem_total,
                   disk_used, disk_total, uptime_secs, last_seen,
@@ -880,12 +880,20 @@ GET /api/v1/public/status
 - 速率与累计字节都是**只读展示**：速率来自相邻两次心跳的累计字节差；
   累计字节是 Agent 自开机以来的非 `lo` 网卡计数（重启归零），不参与计费；
   没有数据时一律 `null`（前端 `—`），绝不写 0；
-- **费用与到期是管理员主动填写的公开字段**（迁移 0061）：
-  `paid_until` / `price_cents` / `currency` / `billing_cycle` 填了就对所有访客可见，
-  没填或存量值非法时为 `null`。填之前必须知道：**这是公开页面，价格与到期对所有人可见**；
-  不想公开就不要填。详见 [DEPLOY.md](DEPLOY.md#服务器费用与到期--server-cost-and-expiry)。
+- **费用与到期是管理员主动填写的展示字段**（迁移 0061）：
+  `paid_until` / `price_cents` / `currency` / `billing_cycle` 在
+  `public_billing_visible = 1`（默认）时对所有访客可见，没填或存量值非法时为 `null`；
+  全部隐藏时返回 `null` 且顶层 `billing_hidden = true`。填之前必须知道：
+  **公开页面默认会显示价格与到期**，不想公开可以关闭 `public_billing_visible`。
+  详见 [DEPLOY.md](DEPLOY.md#服务器费用与到期--server-cost-and-expiry)。
 - 设置项 `public_status_enabled`（默认 1）可整体关闭，关闭时 404；
-- 结果缓存 30 秒，避免被打爆。
+- 每台服务器另有 `public_visible`（迁移 0064，默认 1）：为 0 时该服务器从
+  `servers` / `groups` / `summary` / `series` 一起消失；管理端用
+  `GET|PUT /api/v1/public-status/servers` 批量维护白名单；
+- 设置项 `public_billing_visible`（默认 1）控制费用与到期是否公开：为 0 时
+  `paid_until` / `price_cents` / `currency` / `billing_cycle` 全部为 `null`，
+  响应顶层 `billing_hidden = true`；为 1 时是 `false`；
+- 结果缓存 30 秒，避免被打爆（白名单与费用可见性变更会立即失效缓存）。
 
 ### 前端
 

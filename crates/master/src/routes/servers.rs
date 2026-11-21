@@ -396,6 +396,12 @@ pub struct PatchServer {
     /// 计费周期：缺省 = 不改，`null` / 空串 = 清空。
     #[serde(default)]
     pub billing_cycle: Patch<String>,
+    /// 是否在公开状态页显示（迁移 0064）：缺省 / `null` = 不改，布尔值 = 设置。
+    ///
+    /// 与 `allow_agent_upgrade` 同一形态：`Option<bool>` 让「没传」保持原值，
+    /// 避免一次只改名字的 PATCH 把服务器意外隐藏或公开。
+    #[serde(default)]
+    pub public_visible: Option<bool>,
 }
 
 fn deserialize_present_group_name<'de, D>(
@@ -466,11 +472,12 @@ pub async fn update(
         && !req.price_cents.is_set()
         && !req.currency.is_set()
         && !req.billing_cycle.is_set()
+        && req.public_visible.is_none()
     {
         return Err(AppError::coded(
             "request.no_update_fields",
             None,
-            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name / port_start / port_end / port_allow / internal_address / nic_name / paid_until / price_cents / currency / billing_cycle 之一",
+            "至少需要提供 name / address / xray_mode / allow_agent_upgrade / country_code / group_name / port_start / port_end / port_allow / internal_address / nic_name / paid_until / price_cents / currency / billing_cycle / public_visible 之一",
         ));
     }
 
@@ -648,6 +655,12 @@ pub async fn update(
         )
         .await?;
     }
+    if let Some(public_visible) = req.public_visible {
+        repo::servers::set_public_visible(&state.db.pool, &id, public_visible).await?;
+        server.public_visible = public_visible;
+        // 公开页缓存 30 秒：可见性变化必须立刻生效，不能等缓存过期。
+        state.public_status.clear();
+    }
 
     let changes = crate::audit::diff(vec![
         (
@@ -741,6 +754,11 @@ pub async fn update(
                 .as_ref()
                 .and_then(|server| server.billing_cycle.as_deref())),
             json!(server.billing_cycle.as_deref()),
+        ),
+        (
+            "public_visible",
+            json!(before.as_ref().map(|server| server.public_visible)),
+            json!(server.public_visible),
         ),
     ]);
     crate::audit::record(
@@ -1685,6 +1703,93 @@ mod tests {
             "必须是 JSON boolean：{server}"
         );
         assert!(server["agent_target_version"].is_null());
+    }
+
+    /// 公开可见性（迁移 0064）：默认 true、列表返回 boolean；PATCH 三态里
+    /// 「不传」必须保持原值，传 true / false 才改。
+    #[tokio::test]
+    async fn server_public_visible_is_boolean_and_patch_is_partial() {
+        let (app, state, cookie) = setup().await;
+        let (status, created) = send(
+            &app,
+            &cookie,
+            Method::POST,
+            "/api/v1/servers",
+            serde_json::json!({"name":"hk-1","address":"1.2.3.4"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{created}");
+        let id = created["server"]["id"].as_str().unwrap().to_string();
+        assert_eq!(
+            created["server"]["public_visible"].as_bool(),
+            Some(true),
+            "新服务器默认公开：{created}"
+        );
+
+        // 只改名字：可见性不变。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"name":"hk-renamed"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            body["server"]["public_visible"].as_bool(),
+            Some(true),
+            "没传 public_visible 不能改它：{body}"
+        );
+
+        // 显式隐藏：响应 + 列表 + 库都必须一致。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"public_visible": false}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["server"]["public_visible"].as_bool(), Some(false));
+        assert!(
+            !repo::servers::find_by_id(&state.db.pool, &id)
+                .await
+                .unwrap()
+                .public_visible
+        );
+        let (status, listed) =
+            send(&app, &cookie, Method::GET, "/api/v1/servers", Value::Null).await;
+        assert_eq!(status, StatusCode::OK, "{listed}");
+        assert_eq!(
+            listed["items"][0]["public_visible"].as_bool(),
+            Some(false),
+            "列表必须以 boolean 返回：{listed}"
+        );
+
+        // 再公开。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"public_visible": true}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["server"]["public_visible"].as_bool(), Some(true));
+
+        // 类型错误仍然 400，而不是把字符串 "false" 当成 false。
+        let (status, body) = send(
+            &app,
+            &cookie,
+            Method::PATCH,
+            &format!("/api/v1/servers/{id}"),
+            serde_json::json!({"public_visible": "false"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     }
 
     /// 管理端列表必须带出新增的 OS / 虚拟化 / 国家字段：

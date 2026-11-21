@@ -1643,6 +1643,59 @@ pub mod servers {
         Ok(())
     }
 
+    /// 设置单台服务器是否出现在公开状态页（迁移 0064）。
+    ///
+    /// 该列 `NOT NULL`：调用方必须给出明确的 true / false，没有「清空」语义。
+    pub async fn set_public_visible(
+        pool: &SqlitePool,
+        id: &str,
+        public_visible: bool,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE servers SET public_visible = ? WHERE id = ?")
+            .bind(public_visible)
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    /// 用白名单整体替换公开可见集合：`ids` 里的设为可见，其余全部隐藏。
+    ///
+    /// 单事务两条 UPDATE，避免中间态（先全藏、再逐个放开）被公开页读到；
+    /// `ids` 为空时就是「全部隐藏」。返回事务提交后的 `(visible, hidden)`
+    /// 实际计数，而不是 `ids.len()`——并发删除服务器时以库里的结果为准。
+    ///
+    /// 未知 id 由调用方先校验：本函数只落库，不做半成功。
+    pub async fn replace_public_visible(
+        pool: &SqlitePool,
+        ids: &[String],
+    ) -> anyhow::Result<(i64, i64)> {
+        let mut tx = pool.begin().await?;
+        sqlx::query("UPDATE servers SET public_visible = 0")
+            .execute(&mut *tx)
+            .await?;
+        if !ids.is_empty() {
+            let mut builder =
+                QueryBuilder::new("UPDATE servers SET public_visible = 1 WHERE id IN (");
+            let mut separated = builder.separated(", ");
+            for id in ids {
+                separated.push_bind(id.clone());
+            }
+            separated.push_unseparated(")");
+            builder.build().execute(&mut *tx).await?;
+        }
+        let visible: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE public_visible = 1")
+                .fetch_one(&mut *tx)
+                .await?;
+        let hidden: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM servers WHERE public_visible = 0")
+                .fetch_one(&mut *tx)
+                .await?;
+        tx.commit().await?;
+        Ok((visible, hidden))
+    }
+
     /// 按列更新「费用与到期」四列（迁移 0061 / 0062）。
     ///
     /// 每个参数是三态：[`Patch::Missing`] = 不改；[`Patch::Null`] = 清空为 NULL；
@@ -3172,7 +3225,8 @@ pub mod nodes {
         .await?)
     }
 
-    /// 节点总数；公开状态页的 `nodes_total` 用它（不分启用/停用）。
+    /// 节点总数（含停用）。管理端口径；公开状态页只统计可见服务器的节点，
+    /// 见 [`super::stats::public_summary`] 内的 JOIN。
     pub async fn count(pool: &SqlitePool) -> anyhow::Result<i64> {
         Ok(sqlx::query_scalar("SELECT COUNT(*) FROM nodes")
             .fetch_one(pool)
@@ -9600,6 +9654,8 @@ pub mod server_samples {
 
     /// `[since, until)` 内按 5 分钟桶聚合的公开迷你图数据，只返回有在线采样的桶。
     ///
+    /// * 只统计 `servers.public_visible = 1` 的服务器：白名单之外的服务器
+    ///   不能通过“全站汇总”泄漏速率或延迟；
     /// * 速率：桶内所有 `online = 1` 采样的 `SUM`；全部为 NULL（旧 Agent、首次
     ///   心跳、回绕被丢弃）时 SQLite 的 `SUM` 本身就是 NULL，接口层按「无数据」处理；
     /// * 延迟：桶内在线采样的 `AVG`，NULL 不参与平均，四舍五入成整数毫秒；
@@ -9619,6 +9675,7 @@ pub mod server_samples {
                     CAST(ROUND(AVG(latency_ms)) AS INTEGER) AS latency_ms
              FROM server_samples
              WHERE ts >= ? AND ts < ? AND online = 1
+               AND server_id IN (SELECT id FROM servers WHERE public_visible = 1)
              GROUP BY ts
              ORDER BY ts ASC",
         )
@@ -9696,16 +9753,29 @@ pub mod stats {
     use super::*;
 
     /// 公开状态页的汇总：只查可公开的数字，不触碰用户/套餐/证书表。
+    ///
+    /// 服务器数、在线数与节点数只统计 `servers.public_visible = 1` 的服务器，
+    /// 与公开页的 `servers` / `groups` 是同一个集合——否则会出现「汇总 5 台、
+    /// 列表只有 3 台」的错位。流量是账号维度的全局数字（`traffic_daily` 没有
+    /// 服务器列），无法按服务器拆分，因此保持全站口径，不受白名单影响。
     pub async fn public_summary(pool: &SqlitePool, now: i64) -> anyhow::Result<PublicSummary> {
         let (servers_total, servers_online): (i64, i64) = sqlx::query_as(
             "SELECT COUNT(*),
                     COALESCE(SUM(CASE WHEN status = 'online' THEN 1 ELSE 0 END), 0)
-             FROM servers",
+             FROM servers
+             WHERE public_visible = 1",
         )
         .fetch_one(pool)
         .await?;
 
-        let nodes_total = super::nodes::count(pool).await?;
+        let nodes_total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)
+             FROM nodes n
+             JOIN servers s ON s.id = n.server_id
+             WHERE s.public_visible = 1",
+        )
+        .fetch_one(pool)
+        .await?;
 
         let today = crate::time::business_date(now);
         let (month_start, month_end) = crate::time::business_month_bounds(now);

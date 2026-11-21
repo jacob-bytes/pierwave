@@ -360,6 +360,8 @@ const zhCN = {
       expiry: "到期",
       price: "价格",
       notSet: "未配置",
+      /** 管理员关闭「公开到期与价格」：与「未配置」不同，是主动隐藏。 */
+      notPublic: "未公开",
       expiresInDays: "{days} 天后到期",
       expiresTomorrow: "明天到期",
       expiresToday: "今天到期",
@@ -2068,6 +2070,34 @@ const zhCN = {
       concurrencyHintDefault: "并发越大，同时中断的节点越多；默认一次一台。",
       concurrencyHintWith:
         "当前一次最多 {n} 台；并发越大，同时中断的节点越多；默认一次一台。",
+    },
+    publicStatus: {
+      title: "公开状态页",
+      desc: "访客无需登录即可在 /status 查看这里公开的节点。",
+      enabled: "对访客可见",
+      offWarning: "关闭后 /status 对所有人不可见。",
+      whitelist: {
+        label: "公开节点",
+        summary: "公开 {visible} / 共 {total} 台",
+        choose: "选择节点",
+        unsupported: "当前后端不支持该功能",
+        dialogTitle: "选择公开节点",
+        dialogDesc:
+          "未选中的节点不会出现在公开页，也不计入公开页的在线率。",
+        search: "搜索节点",
+        selectAll: "全选",
+        clear: "清空",
+        selected: "已选 {selected} / {total}",
+        empty: "还没有节点",
+        noMatch: "没有匹配的节点",
+        save: "保存",
+        saving: "保存中…",
+        saved: "公开节点已保存",
+        saveError: "保存公开节点失败，请稍后重试",
+      },
+      billing: "公开到期与价格",
+      billingWarning:
+        "关闭后公开页统一显示「未公开」；该设置对所有节点生效，暂不支持按节点单独设置。",
     },
     updates: {
       title: "版本更新",

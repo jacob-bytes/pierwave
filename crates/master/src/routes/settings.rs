@@ -29,6 +29,11 @@ pub const MIN_AGENT_UPGRADE_CONCURRENCY: i64 = 1;
 pub const MAX_AGENT_UPGRADE_CONCURRENCY: i64 = 5;
 /// 公开状态页总开关：默认开启；0 = 关闭（接口返回 404）。
 pub const DEFAULT_PUBLIC_STATUS_ENABLED: i64 = 1;
+/// 公开状态页是否显示费用与到期：默认公开（兼容旧行为）。
+///
+/// 0 = 四个费用字段一律返回 `null`，并用 `billing_hidden: true` 标明
+/// 「不是没配置，而是不公开」；1 = 正常返回（没配置时仍是 `null`）。
+pub const DEFAULT_PUBLIC_BILLING_VISIBLE: i64 = 1;
 /// 默认开启的七类告警；升级失败默认关闭（噪音较大，且升级本身有 UI 状态）。
 /// `update_available` 默认开启，与旧的 `update_check_notify` 默认值一致；
 /// `backup_failed`（异地备份连续 3 次失败）默认开启——备份是数据安全底线。
@@ -77,6 +82,7 @@ const LOGIN_LOCK_SECS_KEY: &str = "login_lock_secs";
 const SESSION_TTL_HOURS_KEY: &str = "session_ttl_hours";
 const AGENT_UPGRADE_CONCURRENCY_KEY: &str = "agent_upgrade_concurrency";
 const PUBLIC_STATUS_ENABLED_KEY: &str = "public_status_enabled";
+const PUBLIC_BILLING_VISIBLE_KEY: &str = "public_billing_visible";
 const AGENT_BASE_URL_KEY: &str = "agent_base_url";
 const SUBSCRIPTION_BASE_URL_KEY: &str = "subscription_base_url";
 pub const TELEGRAM_BOT_TOKEN_KEY: &str = "telegram_bot_token";
@@ -109,6 +115,8 @@ pub struct Settings {
     pub agent_upgrade_concurrency: i64,
     /// 0 = 关闭公开状态页；1 = 开启。
     pub public_status_enabled: i64,
+    /// 0 = 公开页隐藏费用与到期；1 = 公开（默认）。
+    pub public_billing_visible: i64,
     /// Agent 纳管地址（安装命令、升级包 URL）；空 = 按请求头推导。
     pub agent_base_url: String,
     /// 订阅地址（订阅链接、二维码）；空 = 回退到 `agent_base_url`，再为空才看请求头。
@@ -174,6 +182,7 @@ impl Default for Settings {
             session_ttl_hours: DEFAULT_SESSION_TTL_HOURS,
             agent_upgrade_concurrency: DEFAULT_AGENT_UPGRADE_CONCURRENCY,
             public_status_enabled: DEFAULT_PUBLIC_STATUS_ENABLED,
+            public_billing_visible: DEFAULT_PUBLIC_BILLING_VISIBLE,
             agent_base_url: String::new(),
             subscription_base_url: String::new(),
             telegram_bot_token: String::new(),
@@ -211,6 +220,7 @@ impl fmt::Debug for Settings {
             .field("session_ttl_hours", &self.session_ttl_hours)
             .field("agent_upgrade_concurrency", &self.agent_upgrade_concurrency)
             .field("public_status_enabled", &self.public_status_enabled)
+            .field("public_billing_visible", &self.public_billing_visible)
             .field("agent_base_url", &self.agent_base_url)
             .field("subscription_base_url", &self.subscription_base_url)
             // 四个秘密/授权字段：Token、WebDAV 密码、Webhook 地址（常带 token）、
@@ -257,6 +267,7 @@ impl Settings {
             "session_ttl_hours": self.session_ttl_hours,
             "agent_upgrade_concurrency": self.agent_upgrade_concurrency,
             "public_status_enabled": self.public_status_enabled,
+            "public_billing_visible": self.public_billing_visible,
             "agent_base_url": self.agent_base_url,
             "subscription_base_url": self.subscription_base_url,
             // Token 与 WebDAV 密码同一语义：永远不回显，只告诉前端「已保存」。
@@ -408,6 +419,14 @@ async fn load_inner(pool: &SqlitePool, master: &SecretKey) -> Settings {
             0,
             1,
             defaults.public_status_enabled,
+        )
+        .await,
+        public_billing_visible: read_int(
+            pool,
+            PUBLIC_BILLING_VISIBLE_KEY,
+            0,
+            1,
+            defaults.public_billing_visible,
         )
         .await,
         agent_base_url: read_text(pool, AGENT_BASE_URL_KEY, "", normalize_public_base_url).await,
@@ -694,6 +713,10 @@ pub async fn update(
                 PUBLIC_STATUS_ENABLED_KEY,
                 validate_int("公开状态页开关（0 关闭 / 1 开启）", value, 0, 1)?.to_string(),
             )),
+            PUBLIC_BILLING_VISIBLE_KEY => updates.push((
+                PUBLIC_BILLING_VISIBLE_KEY,
+                validate_int("公开费用可见开关（0 隐藏 / 1 公开）", value, 0, 1)?.to_string(),
+            )),
             AGENT_BASE_URL_KEY => {
                 updates.push((AGENT_BASE_URL_KEY, validate_public_base_url(value)?))
             }
@@ -940,6 +963,15 @@ pub async fn update(
         json!({ "keys": changed_keys }),
     )
     .await;
+
+    // 公开页缓存 30 秒：这两项直接改变公开响应，保存后立刻失效，
+    // 避免管理员刚关掉费用展示、公开页还能看到旧值。
+    if changed_keys
+        .iter()
+        .any(|key| matches!(*key, PUBLIC_STATUS_ENABLED_KEY | PUBLIC_BILLING_VISIBLE_KEY))
+    {
+        state.public_status.clear();
+    }
 
     // 秘密仍解不开时也返回 200：非秘密键已经保存成功，前端可以用 warning
     // 提示管理员「哪些键需要重填」，而不是把整次保存吞成 400。
@@ -1924,6 +1956,53 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(load(&state.db).await.public_status_enabled, 1);
+    }
+
+    /// 公开费用可见性：默认 1（兼容旧行为）；只接受 0 / 1；手工改坏回落默认。
+    #[tokio::test]
+    async fn public_billing_visible_accepts_only_zero_or_one() {
+        let (app, state, admin, _bob) = setup().await;
+
+        let (_, _, body) = request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(
+            body["items"]["public_billing_visible"], 1,
+            "费用默认公开，保持升级前的行为"
+        );
+
+        for ok in [0, 1] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({"public_billing_visible": ok})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            assert_eq!(body["items"]["public_billing_visible"], ok);
+        }
+
+        for bad in [json!(2), json!(-1), json!("0"), json!(true), json!(null)] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(json!({"public_billing_visible": bad.clone()})),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "payload: {bad}");
+            assert!(
+                body["error"].as_str().unwrap().contains("公开费用"),
+                "错误信息要指出字段：{body}"
+            );
+        }
+
+        // 手工改坏：读取回落默认 1，不能因为一个坏键让设置页整体打不开。
+        repo::settings::set(&state.db.pool, "public_billing_visible", "9")
+            .await
+            .unwrap();
+        assert_eq!(load(&state.db).await.public_billing_visible, 1);
     }
 
     /// 异地备份：默认值、地址规范化、密码不回显、留空保持不变。

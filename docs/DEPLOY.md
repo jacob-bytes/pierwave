@@ -212,6 +212,10 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
   `server.currency_invalid` / `server.billing_cycle_invalid` /
   `server.billing_pair_incomplete`，`params` 带 `field` 与允许范围（完整表见
   [ERRORS.md](ERRORS.md)）。管理员服务器列表与公开探针页都返回这四个字段。
+- 公开页是否展示它们由设置项 `public_billing_visible`（默认 `"1"`）整体控制：设为
+  `"0"` 时四个字段一律返回 `null`，响应顶层 `billing_hidden = true`，前端据此显示
+  「未公开」而不是「未填写」。单个服务器是否出现在公开页由 `servers.public_visible`
+  （迁移 `0064`，默认 `1`）控制，详见 [PUBLIC-STATUS.md](PUBLIC-STATUS.md)。
 
 **脏数据承诺 / Dirty-data contract：值域非法按 `null` 处理；列类型被写坏由 `0062` 迁移
 一次性修复。** 读路径（公开页、管理端列表）始终容错：非法值逐字段降级为 `null`，不会让
@@ -232,18 +236,23 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
 > concurrent partial updates do not overwrite each other and untouched legacy dirty columns
 > are not nulled as a side effect. Invalid values return 400 (codes and params in
 > [ERRORS.md](ERRORS.md)). Admin lists and the public probe return all four fields.
+> Whether the public page shows them is controlled globally by
+> `public_billing_visible` (default `"1"`): when `"0"`, all four fields are `null`
+> and the top-level `billing_hidden` is `true`, so the UI can say "not public"
+> instead of "not set". Per-server page visibility is `servers.public_visible`
+> (migration `0064`, default `1`); see [PUBLIC-STATUS.md](PUBLIC-STATUS.md).
 >
 > **Dirty-data contract: out-of-domain values read as `null`; wrong column storage classes
 > are repaired once by migration `0062`.** Reads never 500 on dirty values; `0062` resets
 > both wrong storage classes and out-of-domain values to `NULL` (idempotent, only these four
 > columns). The normal write path cannot produce such values.
 
-> **⚠️ 公开可见：探针页 `/status` 不需要登录。填写后价格与到期对所有人可见。
-> 不想公开就不要填。**
+> **⚠️ 公开可见：探针页 `/status` 不需要登录。填写后价格与到期对所有人可见
+> （除非管理员关闭 `public_billing_visible`）。不想公开就不要填。**
 >
 > **⚠️ Public by design: the probe page `/status` needs no login. Once filled in,
-> the price and expiry date are visible to everyone. If you do not want them public,
-> leave them empty.**
+> the price and expiry date are visible to everyone unless the admin turns off
+> `public_billing_visible`. If you do not want them public, leave them empty.**
 
 ## 日志与备份
 

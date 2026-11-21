@@ -7,6 +7,7 @@ import {
   CalendarClockIcon,
   ChevronRightIcon,
   CoinsIcon,
+  EyeOffIcon,
   GlobeIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -39,6 +40,7 @@ import {
   type PublicBilling,
   type ServerState,
 } from "@/lib/publicStatus";
+import { billingHidden } from "@/lib/publicStatusSettings";
 import { cn } from "@/lib/utils";
 
 /**
@@ -224,6 +226,28 @@ function BillingPrice({ billing }: { billing: PublicBilling }) {
 }
 
 /**
+ * 管理员关闭「公开到期与价格」时的第三列。
+ *
+ * 不重复写两行「未公开」：只占一行，用眼睛被划掉的图标说明这是主动隐藏，
+ * 与「未配置」（确实没填）区分开。颜色仍走 muted，不把隐私设置画成告警。
+ */
+function BillingHidden() {
+  const { t } = useI18n();
+  return (
+    <span className="inline-flex min-w-0 items-baseline gap-x-2 text-xs">
+      <EyeOffIcon
+        className="size-3 shrink-0 self-center text-muted-foreground"
+        aria-hidden="true"
+      />
+      <span className="sr-only">{t("publicStatus.server.billingGroup")}</span>
+      <span className="truncate text-muted-foreground">
+        {t("publicStatus.server.notPublic")}
+      </span>
+    </span>
+  );
+}
+
+/**
  * 实时速率、累计流量与到期/价格（`↓ 速率 ↓ 累计 / ↑ 速率 ↑ 累计 / 到期 · 价格`）。
  *
  * 数据来源见 `docs/TELEMETRY.md`：速率是两次心跳的累计字节差 / 时间差；
@@ -236,8 +260,9 @@ function BillingPrice({ billing }: { billing: PublicBilling }) {
  * 版式照参考卡片读下去是三列：速率、累计流量、到期与价格。md 以上三列并排，
  * 第三列略宽（`¥1,111.00 / 年` 是最长的内容）；`<md` 收敛成两列，到期与价格
  * 整组换到第三行并横跨两列，390 下不会把前两列挤扁。
- * 第三列**永远存在**：账期四项缺哪项就显示「未配置」，不整组消失 —— 否则
- * 网格会从三列塌成两列，和上方标题、右侧内容都错位。
+ * 第三列**永远存在**：账期四项缺哪项就显示「未配置」，管理员关闭「公开
+ * 到期与价格」时显示「未公开」，都不整组消失 —— 否则网格会从三列塌成
+ * 两列，和上方标题、右侧内容都错位。
  */
 function TrafficFooter({ server }: { server: PublicStatusServer }) {
   const { t } = useI18n();
@@ -249,6 +274,7 @@ function TrafficFooter({ server }: { server: PublicStatusServer }) {
   const rxTotal = formatTrafficTotal(server.net_rx_bytes);
   const txTotal = formatTrafficTotal(server.net_tx_bytes);
   const billing = publicBilling(server);
+  const hiddenBilling = billingHidden(server);
 
   const rxLabel = t("publicStatus.server.trafficRx");
   const txLabel = t("publicStatus.server.trafficTx");
@@ -298,8 +324,14 @@ function TrafficFooter({ server }: { server: PublicStatusServer }) {
           role="group"
           aria-label={t("publicStatus.server.billingGroup")}
         >
-          <BillingExpiry billing={billing} />
-          <BillingPrice billing={billing} />
+          {hiddenBilling ? (
+            <BillingHidden />
+          ) : (
+            <>
+              <BillingExpiry billing={billing} />
+              <BillingPrice billing={billing} />
+            </>
+          )}
         </div>
       </div>
     </div>

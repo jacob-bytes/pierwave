@@ -71,6 +71,7 @@ import {
   type Package,
   type Paged,
   type PublicStatus,
+  type PublicStatusServerChoice,
   type RecentLogin,
   type RevokeOtherSessionsResponse,
   type RevokeSessionResponse,
@@ -97,6 +98,7 @@ import {
   type UpdateNodeInput,
   type UpdateOutboundInput,
   type UpdatePackageInput,
+  type UpdatePublicStatusServersResponse,
   type UpdateRoutingRuleInput,
   type UpdateRuleTemplateInput,
   type UpdateSubscriptionTemplateInput,
@@ -117,6 +119,7 @@ import {
   publicStatusRetryDelay,
   type PublicStatusFailureStreak,
 } from "@/lib/publicStatus";
+import { withBillingVisibility } from "@/lib/publicStatusSettings";
 
 /** P4：有升级在途时，服务器列表与升级历史的轮询间隔。 */
 const AGENT_UPGRADE_POLL_MS = 15_000;
@@ -147,6 +150,8 @@ export const queryKeys = {
   health: ["health"] as const,
   /** P10：公开状态页；不需要登录态，单独缓存。 */
   publicStatus: ["public-status"] as const,
+  /** 管理端「公开节点」白名单；与公开页数据分开缓存。 */
+  publicStatusServers: ["public-status", "servers"] as const,
   statsOverview: ["stats", "overview"] as const,
   /** 概览「超额用户」预检人数；对话框打开时才请求，和统计分开缓存。 */
   overQuotaUsers: ["users", "over-quota", "count"] as const,
@@ -271,7 +276,9 @@ export function usePublicStatus() {
 
   const query = useQuery<PublicStatus>({
     queryKey: queryKeys.publicStatus,
-    queryFn: api.publicStatus,
+    // 后端把 billing_hidden 放在顶层，契约也允许每台一份：查询层合并成
+    // 页面只读的 per-server 形状，两种后端都能正确显示「未公开」。
+    queryFn: async () => withBillingVisibility(await api.publicStatus()),
     retry: false,
     // 比轮询间隔短：切回页签时 15 秒前的数据已经算旧，不会拿着它当权威值。
     staleTime: 15_000,
@@ -319,6 +326,40 @@ function useRefetchWhenVisible(refetch: () => unknown) {
     return () =>
       document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [refetch]);
+}
+
+/**
+ * 管理端「公开节点」白名单。
+ *
+ * 后端可能尚未上线：`retry: false` 让 404 立刻落到设置页的「当前后端不支持
+ * 该功能」，不阻塞同卡其它开关。列表包含未公开节点，所以设置页才能勾选。
+ */
+export function usePublicStatusServers() {
+  return useQuery<PublicStatusServerChoice[]>({
+    queryKey: queryKeys.publicStatusServers,
+    queryFn: async () => (await api.publicStatusServers.list()).items,
+    retry: false,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * 保存公开页白名单：`PUT /api/v1/public-status/servers`。
+ *
+ * 成功后排空两份缓存：白名单本身要重新拉（`public_visible` 变了），
+ * 公开页数据也可能因为节点被隐藏而变化。
+ */
+export function useUpdatePublicStatusServers() {
+  const queryClient = useQueryClient();
+  return useMutation<UpdatePublicStatusServersResponse, Error, string[]>({
+    mutationFn: (ids) => api.publicStatusServers.update(ids),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.publicStatusServers,
+      });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.publicStatus });
+    },
+  });
 }
 
 /** 既有概览统计：第一行 KPI 与告警计数。后端接口可能尚未上线，页面自行处理 404 文案。 */

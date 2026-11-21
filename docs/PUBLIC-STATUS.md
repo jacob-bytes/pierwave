@@ -16,6 +16,112 @@ detail fields added for the node detail page. Every field is purely additive:
 old clients can ignore it, and no migration is required because all of them are
 read-only aggregations over existing columns.
 
+## 可见性与费用公开 / Visibility and billing visibility
+
+公开页有两层「看不看得见」的配置，互不影响：
+
+| 配置 | 位置 | 默认 | 语义 |
+|---|---|---|---|
+| `public_status_enabled` | `settings` 表（`"0"` / `"1"`） | `"1"` | 整页总开关；`"0"` 时接口 404（`public_status.disabled`）。 |
+| `servers.public_visible` | 每台服务器一列（迁移 `0064`） | `1` | 该服务器是否出现在公开页。 |
+| `public_billing_visible` | `settings` 表（`"0"` / `"1"`） | `"1"` | 费用与到期四列是否公开；`"0"` 时四列一律 `null`。 |
+
+两层配置都在**缓存之前**或写入时清缓存，改动立即生效，不会等 30 秒 TTL。
+
+English: two independent visibility layers. `public_status_enabled` is the
+whole-page switch (404 when `"0"`); `servers.public_visible` decides whether a
+single server appears; `public_billing_visible` hides the four billing columns
+globally. Both settings are applied before the 30s response cache (and writes
+flush it), so changes take effect immediately.
+
+### 每台服务器的白名单 / Per-server allow-list
+
+- `servers.public_visible = 0` 的服务器**同时**从 `servers`、`groups`、
+  `summary`（`servers_total` / `servers_online` / `nodes_total`）和全局
+  `series` 里消失。不存在「分组里还有 5 台、列表只显示 3 台」的错位：
+  `groups` 的 `servers` / `online` / `uptime_24h` 只按可见集合累加，全局
+  `series` 的 SQL 也只聚合 `public_visible = 1` 的采样。
+- `summary.traffic_today` / `traffic_month` 是**账号维度**的全局流量
+  （`traffic_daily` 没有服务器列），无法按服务器拆分，因此保持全站口径，
+  不受白名单影响。
+- 该列只影响公开读接口，不参与鉴权、期望态下发、计费或订阅。
+- 存量数据兼容：迁移 `0064` 的默认值是 `1`，升级前已有的服务器全部继续
+  公开，行为与升级前一致；管理员需要时再显式隐藏。
+
+English: a server with `public_visible = 0` disappears from `servers`,
+`groups`, `summary` (`servers_total` / `servers_online` / `nodes_total`) and
+the global `series` at the same time, so group counts can never disagree with
+the visible list. `summary.traffic_today` / `traffic_month` are account-level
+totals (`traffic_daily` has no server column) and stay global. The column never
+affects auth, desired state, billing or subscriptions. Migration `0064` defaults
+to `1`, so every existing server stays public after upgrading.
+
+### 管理端白名单接口 / Admin allow-list endpoints
+
+两个端点都要求管理员会话（`require_admin`，非管理员 403）：
+
+```http
+GET /api/v1/public-status/servers
+-> { "items": [ { "id": "...", "name": "香港-01", "online": true,
+                  "public_visible": true } ] }   // 按名称升序，同名的按 id
+
+PUT /api/v1/public-status/servers
+<- { "ids": ["...", "..."] }
+-> { "visible": 2, "hidden": 1 }
+```
+
+- `PUT` 是**整体替换**：列出的设为可见，其余全部隐藏；`{ "ids": [] }` 表示
+  全部隐藏（不是「不改」）。
+- 未知 id → `400`，错误码 `public_status.unknown_servers`，`params.ids` 里是
+  不存在的 id 列表；**整单失败，不做部分成功**，已有配置保持不变。
+  `ids` 不是字符串数组 → `400` / `public_status.ids_invalid`。
+- 审计动作 `settings.public_status_servers`，`detail.changes` 只记录可见 /
+  隐藏数量（`visible` / `hidden`）的 `from` / `to`，**不记录 id 列表**。
+
+English: both endpoints require an admin session. `PUT` replaces the whole
+allow-list (`{ "ids": [] }` hides everything). Unknown ids return `400`
+`public_status.unknown_servers` with `params.ids`, and the whole request fails
+without partial writes; a non-array `ids` is `400` `public_status.ids_invalid`.
+The audit action is `settings.public_status_servers`, recording only the before
+/ after visible and hidden counts — never the id list.
+
+### `billing_hidden` 与费用字段 / `billing_hidden` and billing fields
+
+公开响应顶层新增 `billing_hidden`：
+
+```jsonc
+{
+  "panel_name": "Pierwave",
+  "billing_hidden": true,
+  "servers": [{ "paid_until": null, "price_cents": null,
+                "currency": null, "billing_cycle": null, /* ... */ }]
+}
+```
+
+| `public_billing_visible` | `billing_hidden` | `paid_until` / `price_cents` / `currency` / `billing_cycle` |
+|---|---|---|
+| `"1"`（默认） | `false` | 管理员填了就返回真实值；没填 / 存量值非法是 `null`。 |
+| `"0"` | `true` | 一律 `null`，不看数据库里的实际值。 |
+
+- 它解决的是**歧义**：`paid_until: null` 既可能是「没有配置」，也可能是
+  「配置了但不公开」。`billing_hidden = true` 说明是后者，前端应显示
+  「未公开」而不是「未填写」。
+- 隐藏是**服务端**行为：四个字段在 JSON 里根本不会出现真实值，不是前端
+  不渲染。
+- 旧数据兼容：没有 `public_billing_visible` 键（升级前就存在的库）按默认
+  `"1"` 处理，`billing_hidden = false`，公开页行为与升级前完全一致。旧客户端
+  不认识这个新字段时直接忽略即可。
+- 迁移 `0061` 的存量脏值（越界价格、坏币种等）仍按 `null` 降级处理，与
+  `billing_hidden` 无关；迁移 `0062` 的修复逻辑不变。
+
+English: the top-level `billing_hidden` disambiguates `null`. With the default
+`"1"` it is `false` and the four fields carry real values when configured (or
+`null` when unset/invalid). With `"0"` it is `true` and all four are `null`
+regardless of the stored values — hiding happens on the server, not in the
+client. Databases without the `public_billing_visible` key behave exactly like
+before the upgrade (`billing_hidden: false`); old clients can ignore the new
+field. Dirty legacy billing values still degrade to `null` as before.
+
 ## 节点详情字段 / Node detail fields
 
 ```jsonc
@@ -289,6 +395,8 @@ on write; the public page only reads the last 60 minutes.
 
 - `server_samples` 由迁移 `0018` 创建，每 5 分钟一行，主键 `(server_id, ts)`；
   `idx_server_samples_ts` 覆盖本接口的时间窗查询。
+- `servers.public_visible` 由迁移 `0064` 加入（`INTEGER NOT NULL DEFAULT 1`）：
+  只追加一列，存量服务器默认公开；公开页在 SQL 与内存两处按它过滤。
 - `server_samples.latency_ms` 由迁移 `0020` 加入，`rx_bps` / `tx_bps` 由 `0053`
   加入；采样任务（`repo::server_samples::record_round`）每轮一起写入。
 - `series` 与 5 个详情字段**都不需要新迁移**：它们是对已有列的只读聚合。
@@ -299,6 +407,9 @@ on write; the public page only reads the last 60 minutes.
 
 English: `server_samples` was created by migration `0018`; `latency_ms` was added
 by `0020`, `rx_bps` / `tx_bps` by `0053`, and the sampler writes them together.
+`servers.public_visible` was added by migration `0064`
+(`INTEGER NOT NULL DEFAULT 1`): one additive column, existing servers stay
+public, and the public page filters by it both in SQL and in memory.
 Neither `series` nor the five detail fields need a migration — they are
 read-only aggregations over existing columns (`servers.created_at`,
 `nodes.enabled`). Legacy rows simply have `NULL`. Samples are retained for 7
@@ -310,6 +421,7 @@ days, enough for `buckets_7d`; older rows are pruned on write.
 {
   "panel_name": "Pierwave",
   "generated_at": 1763703499,
+  "billing_hidden": false,
   "summary": { "servers_total": 3, "servers_online": 2, "nodes_total": 7,
                "traffic_today": 123456789, "traffic_month": 9876543210 },
   "servers": [{

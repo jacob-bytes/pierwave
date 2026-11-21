@@ -90,6 +90,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/health", get(routes::system::health))
         // 公开状态页：无需登录；关闭开关由 handler 自身判断并返回 404。
         .route("/api/v1/public/status", get(routes::public_status::status))
+        // 公开状态页白名单（仅管理员）：读全量列表 / 用 id 列表整体替换。
+        .route(
+            "/api/v1/public-status/servers",
+            get(routes::public_status::admin_servers).put(routes::public_status::replace_servers),
+        )
         .route("/api/v1/backup", get(routes::backup::export))
         .route(
             "/api/v1/backup/restore",

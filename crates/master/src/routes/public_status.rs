@@ -9,18 +9,19 @@
 //! `first_seen_at` / `inbound_count` 也是纯增量字段，旧客户端忽略即可。
 //! 口径见 `docs/PUBLIC-STATUS.md`。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use axum::extract::State;
 use axum::Json;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use pierwave_domain::billing::BillingMeta;
 use pierwave_domain::models::{PublicSummary, ServerDailyBucket, ServerHourlySeriesBucket};
 use pierwave_domain::repo;
 use pierwave_domain::time;
 
+use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
@@ -154,6 +155,12 @@ struct PublicBucket {
 struct PublicStatus {
     panel_name: String,
     generated_at: i64,
+    /// 管理员是否整体隐藏了费用与到期（`settings.public_billing_visible = 0`）。
+    ///
+    /// `true` 时 `paid_until` / `price_cents` / `currency` / `billing_cycle`
+    /// 一律是 `null`，读者必须靠这个字段区分「不公开」与「没配置」；
+    /// `false` 时四字段的 `null` 只表示管理员没填。
+    billing_hidden: bool,
     summary: PublicSummary,
     servers: Vec<PublicServer>,
     /// 按 `servers.group_name` 聚合；未分组是 `name: null`，按名称升序。
@@ -257,8 +264,15 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
     }
 
     let now = repo::now();
+    let billing_hidden = settings.public_billing_visible == 0;
     let summary = repo::stats::public_summary(&state.db.pool, now).await?;
-    let servers = repo::servers::list(&state.db.pool).await?;
+    // 白名单：只有 public_visible = 1 的服务器进入公开响应。汇总与 series
+    // 在仓储层用同一个条件过滤，groups 由这里的可见集合累加，三处不会错位。
+    let servers = repo::servers::list(&state.db.pool)
+        .await?
+        .into_iter()
+        .filter(|server| server.public_visible)
+        .collect::<Vec<_>>();
 
     let uptimes: HashMap<String, _> = repo::server_samples::uptime_all(&state.db.pool, now)
         .await?
@@ -446,10 +460,26 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 latency_ms: server.latency_ms,
                 country_code: server.country_code.clone(),
                 group_name: server.group_name.clone(),
-                paid_until: billing.paid_until,
-                price_cents: billing.price_cents,
-                currency: billing.currency,
-                billing_cycle: billing.billing_cycle,
+                paid_until: if billing_hidden {
+                    None
+                } else {
+                    billing.paid_until
+                },
+                price_cents: if billing_hidden {
+                    None
+                } else {
+                    billing.price_cents
+                },
+                currency: if billing_hidden {
+                    None
+                } else {
+                    billing.currency
+                },
+                billing_cycle: if billing_hidden {
+                    None
+                } else {
+                    billing.billing_cycle
+                },
                 os_name: server.os_name,
                 os_version: server.os_version,
                 virt: server.virt,
@@ -487,6 +517,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
     let response = PublicStatus {
         panel_name: settings.panel_name,
         generated_at: now,
+        billing_hidden,
         summary,
         servers,
         groups,
@@ -498,12 +529,108 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
     Ok(Json(value))
 }
 
+/// 管理端：列出所有服务器及其公开可见性，供白名单面板做批量勾选。
+///
+/// `GET /api/v1/public-status/servers`，仅管理员。按名称升序，便于前端直接渲染。
+pub async fn admin_servers(
+    State(state): State<AppState>,
+    user: CurrentUser,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let mut servers = repo::servers::list(&state.db.pool).await?;
+    // 名称可能重复：再用 id 兜底，保证每次响应顺序稳定。
+    servers.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)));
+    let items = servers
+        .iter()
+        .map(|server| {
+            json!({
+                "id": server.id,
+                "name": server.name,
+                "online": server.status == "online",
+                "public_visible": server.public_visible,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(json!({ "items": items })))
+}
+
+/// 管理端：用白名单整体替换公开可见集合（仅管理员）。
+///
+/// body `{ "ids": ["..."] }`：列出的服务器设为可见，其余全部隐藏；空数组 =
+/// 全部隐藏。未知 id 整单 400，不做部分成功。审计只记可见/隐藏数量的前后值，
+/// 不落完整 id 列表（服务器多时会把审计表撑爆）。
+pub async fn replace_servers(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Json(body): Json<Value>,
+) -> AppResult<Json<Value>> {
+    user.require_admin()?;
+    let Some(raw_ids) = body.get("ids").and_then(Value::as_array) else {
+        return Err(AppError::coded(
+            "public_status.ids_invalid",
+            None,
+            "ids 必须是字符串数组 / ids must be an array of strings",
+        ));
+    };
+    let mut ids: Vec<String> = Vec::new();
+    for item in raw_ids {
+        let Some(raw) = item.as_str() else {
+            return Err(AppError::coded(
+                "public_status.ids_invalid",
+                None,
+                "ids 必须是字符串数组 / ids must be an array of strings",
+            ));
+        };
+        let id = raw.trim();
+        if !ids.iter().any(|existing| existing == id) {
+            ids.push(id.to_string());
+        }
+    }
+
+    let before = repo::servers::list(&state.db.pool).await?;
+    let before_visible = before.iter().filter(|server| server.public_visible).count() as i64;
+    let before_hidden = before.len() as i64 - before_visible;
+    let known: HashSet<&str> = before.iter().map(|server| server.id.as_str()).collect();
+    let unknown = ids
+        .iter()
+        .filter(|id| !known.contains(id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unknown.is_empty() {
+        return Err(AppError::coded(
+            "public_status.unknown_servers",
+            Some(json!({ "ids": unknown })),
+            format!(
+                "未知的服务器 id：{} / Unknown server id(s): {}",
+                unknown.join(", "),
+                unknown.join(", ")
+            ),
+        ));
+    }
+
+    let (visible, hidden) = repo::servers::replace_public_visible(&state.db.pool, &ids).await?;
+    state.public_status.clear();
+    let changes = crate::audit::diff(vec![
+        ("visible", json!(before_visible), json!(visible)),
+        ("hidden", json!(before_hidden), json!(hidden)),
+    ]);
+    crate::audit::record(
+        &state,
+        &user.0,
+        "settings.public_status_servers",
+        "settings",
+        json!({ "changes": changes }),
+    )
+    .await;
+    Ok(Json(json!({ "visible": visible, "hidden": hidden })))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
     use axum::Router;
-    use serde_json::Value;
+    use serde_json::{json, Value};
     use tower::ServiceExt;
 
     use pierwave_domain::models::Patch;
@@ -538,6 +665,74 @@ mod tests {
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
             String::from_utf8_lossy(&bytes).into_owned(),
         )
+    }
+
+    /// 管理端请求：带 Cookie，可选 JSON body；返回状态码与解析后的 JSON。
+    async fn send(
+        app: &Router,
+        cookie: Option<&str>,
+        method: Method,
+        uri: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(cookie) = cookie {
+            builder = builder.header("cookie", cookie);
+        }
+        let body = match body {
+            Some(body) => {
+                builder = builder.header("content-type", "application/json");
+                Body::from(body.to_string())
+            }
+            None => Body::empty(),
+        };
+        let response = app
+            .clone()
+            .oneshot(builder.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        (
+            status,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    /// 带一个管理员与一个普通用户 Cookie 的环境（白名单端点鉴权用）。
+    async fn admin_setup() -> (Router, AppState, String, String) {
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let mut cookies = Vec::new();
+        for (username, role, password) in [
+            ("admin", "admin", "devpass"),
+            ("bob", "user", "password123"),
+        ] {
+            let user = repo::users::create(
+                &db.pool,
+                repo::users::NewUser {
+                    username: username.into(),
+                    password: password.into(),
+                    role: role.into(),
+                    quota_bytes: None,
+                    rule_template_id: None,
+                    subscription_template_id: None,
+                },
+            )
+            .await
+            .unwrap();
+            let (token, _) = repo::sessions::create(&db.pool, &user.id, 3_600, None)
+                .await
+                .unwrap();
+            cookies.push(format!("{}={token}", crate::auth::SESSION_COOKIE));
+        }
+        let state = AppState::new(db, "web/dist");
+        let app = crate::app::router(state.clone());
+        let bob = cookies.pop().unwrap();
+        let admin = cookies.pop().unwrap();
+        (app, state, admin, bob)
     }
 
     /// 测试里整组写入四列（仓储层三态版本的便捷包装）。
@@ -2137,6 +2332,16 @@ mod tests {
                 .await
                 .unwrap_or_else(|error| panic!("执行迁移 {} 失败：{error}", migration.version));
         }
+        // 仓储层的 `Server` 现在包含 0064 的 `public_visible`；本测试只关心
+        // 费用列的修复，先把这一列补上，否则 `repo::servers::create` 读不回行。
+        let visibility = MIGRATOR
+            .iter()
+            .find(|migration| migration.version == 64)
+            .expect("必须存在 0064 公开可见性迁移");
+        sqlx::raw_sql(&visibility.sql)
+            .execute(&db.pool)
+            .await
+            .unwrap();
 
         let admin = repo::users::create(
             &db.pool,
@@ -2291,5 +2496,314 @@ mod tests {
             }
         }
         assert_eq!(by_name("edge-clean")["price_cents"], 4999, "{body}");
+    }
+
+    // ---- 公开状态页白名单 / 费用可见性（0064） ----
+
+    /// 默认公开：没有设置 `public_billing_visible` 时 `billing_hidden = false`，
+    /// 费用字段照常返回；设为 "0" 后四个字段全部 null 且 `billing_hidden = true`。
+    #[tokio::test]
+    async fn billing_visibility_hides_four_fields_and_sets_billing_hidden() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        set_billing(
+            &state.db.pool,
+            &id,
+            Some("2026-12-31"),
+            Some(4999),
+            Some("CNY"),
+            Some("monthly"),
+        )
+        .await
+        .unwrap();
+
+        // 兼容旧行为：没有这个键 = 公开。
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["billing_hidden"], false, "{body}");
+        assert_eq!(body["servers"][0]["price_cents"], 4999, "{body}");
+
+        // 隐藏：四个字段 null，billing_hidden 明确告诉读者「不是没配置」。
+        repo::settings::set(&state.db.pool, "public_billing_visible", "0")
+            .await
+            .unwrap();
+        state.public_status.clear();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["billing_hidden"], true, "{body}");
+        for key in ["paid_until", "price_cents", "currency", "billing_cycle"] {
+            assert!(body["servers"][0][key].is_null(), "{key} 必须隐藏：{body}");
+        }
+
+        // 改回公开：字段恢复，标记为 false。
+        repo::settings::set(&state.db.pool, "public_billing_visible", "1")
+            .await
+            .unwrap();
+        state.public_status.clear();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["billing_hidden"], false, "{body}");
+        assert_eq!(body["servers"][0]["paid_until"], "2026-12-31", "{body}");
+        assert_eq!(body["servers"][0]["price_cents"], 4999, "{body}");
+        assert_eq!(body["servers"][0]["currency"], "CNY", "{body}");
+        assert_eq!(body["servers"][0]["billing_cycle"], "monthly", "{body}");
+    }
+
+    /// 白名单必须同时作用于 servers / groups / summary / series，不能只藏列表：
+    /// 隐藏服务器的分组计数、汇总数字与全站速率都不能泄漏它的存在。
+    #[tokio::test]
+    async fn hidden_server_disappears_from_servers_groups_summary_and_series() {
+        let (app, state) = setup().await;
+        let a = seed_grouped_server(&state, "a-1", "203.0.113.1", Some("shared")).await;
+        let b = seed_grouped_server(&state, "b-1", "203.0.113.2", Some("shared")).await;
+        let c = seed_grouped_server(&state, "c-1", "203.0.113.3", Some("other")).await;
+        for (id, tag) in [(&a, "a"), (&b, "b"), (&c, "c")] {
+            seed_node(&state, id, tag, true).await;
+            repo::servers::mark_online(&state.db.pool, id)
+                .await
+                .unwrap();
+        }
+        repo::servers::set_public_visible(&state.db.pool, &b, false)
+            .await
+            .unwrap();
+
+        // 可见服务器 1000 B/s，隐藏服务器 5000 B/s：全站汇总只能算可见的。
+        let now = repo::now();
+        let current = now - now.rem_euclid(300);
+        for (id, rx_per_sec, tx_per_sec) in [(&a, 1_000, 500), (&b, 5_000, 2_500)] {
+            repo::servers::update_net_counters(
+                &state.db.pool,
+                id,
+                1_000,
+                2_000,
+                current.saturating_sub(60),
+            )
+            .await
+            .unwrap();
+            repo::servers::update_net_counters(
+                &state.db.pool,
+                id,
+                1_000 + rx_per_sec * 60,
+                2_000 + tx_per_sec * 60,
+                current,
+            )
+            .await
+            .unwrap();
+        }
+        repo::server_samples::record_round(&state.db.pool, now)
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let ids: Vec<&str> = body["servers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 2, "只返回可见服务器：{body}");
+        assert!(
+            ids.contains(&a.as_str()) && ids.contains(&c.as_str()),
+            "{body}"
+        );
+        assert!(!ids.contains(&b.as_str()), "隐藏服务器不能出现：{body}");
+
+        // groups：shared 组从 2 台变 1 台，不能出现「组里 2 台、列表 1 台」。
+        let groups = body["groups"].as_array().unwrap();
+        let shared = groups
+            .iter()
+            .find(|group| group["name"] == "shared")
+            .unwrap();
+        assert_eq!(shared["servers"], 1, "分组计数只算可见服务器：{body}");
+        assert_eq!(shared["online"], 1, "{body}");
+        let other = groups
+            .iter()
+            .find(|group| group["name"] == "other")
+            .unwrap();
+        assert_eq!(other["servers"], 1, "{body}");
+
+        // summary：服务器数 / 在线数 / 节点数都按可见集合重算。
+        assert_eq!(body["summary"]["servers_total"], 2, "{body}");
+        assert_eq!(body["summary"]["servers_online"], 2, "{body}");
+        assert_eq!(
+            body["summary"]["nodes_total"], 2,
+            "隐藏服务器的节点不能再计入：{body}"
+        );
+
+        // series：隐藏服务器的速率不能进入全站汇总（1000，不是 6000）。
+        assert_eq!(body["series"]["rate_rx_bps"][11], 1_000.0, "{body}");
+        assert_eq!(body["series"]["rate_tx_bps"][11], 500.0, "{body}");
+
+        // 隐藏到一台不剩：列表、分组、汇总都为「空」，不是报错。
+        repo::servers::set_public_visible(&state.db.pool, &a, false)
+            .await
+            .unwrap();
+        repo::servers::set_public_visible(&state.db.pool, &c, false)
+            .await
+            .unwrap();
+        state.public_status.clear();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["servers"].as_array().unwrap().len(), 0, "{body}");
+        assert_eq!(body["groups"].as_array().unwrap().len(), 0, "{body}");
+        assert_eq!(body["summary"]["servers_total"], 0, "{body}");
+        assert_eq!(body["summary"]["nodes_total"], 0, "{body}");
+        assert!(
+            body["series"]["rate_rx_bps"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(Value::is_null),
+            "没有任何可见服务器时 series 必须是 null：{body}"
+        );
+    }
+
+    /// 白名单批量端点：往返、空数组全部隐藏、未知 id 整单 400、非管理员 403、
+    /// 审计只记数量前后值（不落 id 列表）。
+    #[tokio::test]
+    async fn public_status_servers_endpoint_round_trips_and_validates() {
+        let (app, state, admin, bob) = admin_setup().await;
+        let a = seed_grouped_server(&state, "a-1", "203.0.113.1", Some("g")).await;
+        let b = seed_grouped_server(&state, "b-1", "203.0.113.2", None).await;
+        repo::servers::mark_online(&state.db.pool, &a)
+            .await
+            .unwrap();
+
+        // GET：按名称升序，字段形状固定，默认全部可见。
+        let (status, body) = send(
+            &app,
+            Some(&admin),
+            Method::GET,
+            "/api/v1/public-status/servers",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let items = body["items"].as_array().unwrap();
+        assert_eq!(items.len(), 2, "{body}");
+        assert_eq!(items[0]["name"], "a-1", "{body}");
+        assert_eq!(items[0]["id"], a, "{body}");
+        assert_eq!(items[0]["online"], true, "{body}");
+        assert_eq!(items[0]["public_visible"], true, "{body}");
+        assert_eq!(items[1]["name"], "b-1", "{body}");
+        assert_eq!(items[1]["online"], false, "{body}");
+
+        // PUT：只放开 a-1 → b-1 隐藏。
+        let (status, body) = send(
+            &app,
+            Some(&admin),
+            Method::PUT,
+            "/api/v1/public-status/servers",
+            Some(json!({ "ids": [a] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, json!({ "visible": 1, "hidden": 1 }), "{body}");
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["servers"].as_array().unwrap().len(), 1, "{body}");
+        assert_eq!(body["servers"][0]["id"], a, "{body}");
+
+        // 审计：只记可见 / 隐藏数量的前后值，不落完整 id 列表。
+        let page = repo::audit::page(
+            &state.db.pool,
+            &repo::audit::Filter {
+                action_prefixes: vec!["settings.public_status_servers".into()],
+                ..Default::default()
+            },
+            None,
+            10,
+        )
+        .await
+        .unwrap();
+        assert_eq!(page.items.len(), 1, "白名单变更必须写审计");
+        let detail = page.items[0].detail.as_ref().unwrap();
+        assert_eq!(detail["changes"]["visible"]["from"], 2, "{detail}");
+        assert_eq!(detail["changes"]["visible"]["to"], 1, "{detail}");
+        assert_eq!(detail["changes"]["hidden"]["from"], 0, "{detail}");
+        assert_eq!(detail["changes"]["hidden"]["to"], 1, "{detail}");
+        let rendered = detail.to_string();
+        assert!(
+            !rendered.contains(&a) && !rendered.contains(&b),
+            "审计不能记录 id 列表：{rendered}"
+        );
+
+        // 空数组 = 全部隐藏。
+        let (status, body) = send(
+            &app,
+            Some(&admin),
+            Method::PUT,
+            "/api/v1/public-status/servers",
+            Some(json!({ "ids": [] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body, json!({ "visible": 0, "hidden": 2 }), "{body}");
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["servers"].as_array().unwrap().len(), 0, "{body}");
+
+        // 未知 id：整单 400，且不做部分成功（a-1 仍然隐藏）。
+        let (status, body) = send(
+            &app,
+            Some(&admin),
+            Method::PUT,
+            "/api/v1/public-status/servers",
+            Some(json!({ "ids": [a, "does-not-exist"] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_eq!(body["code"], "public_status.unknown_servers", "{body}");
+        assert_eq!(body["params"]["ids"], json!(["does-not-exist"]), "{body}");
+        let (_, body) = send(
+            &app,
+            Some(&admin),
+            Method::GET,
+            "/api/v1/public-status/servers",
+            None,
+        )
+        .await;
+        assert!(
+            body["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["public_visible"] == false),
+            "未知 id 的请求不能部分生效：{body}"
+        );
+
+        // 非管理员：GET / PUT 都是 403，且不改数据。
+        for (method, payload) in [
+            (Method::GET, None),
+            (Method::PUT, Some(json!({ "ids": [a, b] }))),
+        ] {
+            let (status, body) = send(
+                &app,
+                Some(&bob),
+                method,
+                "/api/v1/public-status/servers",
+                payload,
+            )
+            .await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        }
+        let (_, body) = send(
+            &app,
+            Some(&admin),
+            Method::GET,
+            "/api/v1/public-status/servers",
+            None,
+        )
+        .await;
+        assert!(
+            body["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["public_visible"] == false),
+            "非管理员不能改白名单：{body}"
+        );
     }
 }

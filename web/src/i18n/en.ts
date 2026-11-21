@@ -367,6 +367,8 @@ const en = {
       expiry: "Expiry",
       price: "Price",
       notSet: "Not set",
+      /** The administrator turned off public pricing/expiry; distinct from "not set". */
+      notPublic: "Not public",
       expiresInDays: "{days} days left",
       expiresTomorrow: "Expires tomorrow",
       expiresToday: "Expires today",
@@ -2162,6 +2164,34 @@ const en = {
         "The higher the concurrency, the more nodes are interrupted at once; one at a time by default.",
       concurrencyHintWith:
         "Up to {n} at a time; the higher the concurrency, the more nodes are interrupted at once; one at a time by default.",
+    },
+    publicStatus: {
+      title: "Public status page",
+      desc: "Visitors can see the nodes published here at /status without signing in.",
+      enabled: "Visible to visitors",
+      offWarning: "When off, /status is not visible to anyone.",
+      whitelist: {
+        label: "Public nodes",
+        summary: "{visible} / {total} public",
+        choose: "Choose nodes",
+        unsupported: "This backend does not support this feature yet",
+        dialogTitle: "Choose public nodes",
+        dialogDesc:
+          "Unselected nodes do not appear on the public page and do not count toward its uptime.",
+        search: "Search nodes",
+        selectAll: "Select all",
+        clear: "Clear",
+        selected: "{selected} / {total} selected",
+        empty: "No nodes yet",
+        noMatch: "No matching nodes",
+        save: "Save",
+        saving: "Saving…",
+        saved: "Public nodes saved",
+        saveError: "Could not save the public nodes. Please try again.",
+      },
+      billing: "Show pricing and expiry",
+      billingWarning:
+        "When off, the public page shows “Not public” for every node; this applies to all nodes and cannot be set per node.",
     },
     updates: {
       title: "Updates",

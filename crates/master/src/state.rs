@@ -172,7 +172,7 @@ impl PublicStatusCache {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), value));
     }
 
-    #[cfg(test)]
+    /// 立刻失效缓存：公开页的开关 / 白名单 / 费用可见性变化后必须马上生效。
     pub fn clear(&self) {
         *self
             .inner

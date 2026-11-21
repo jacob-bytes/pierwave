@@ -153,6 +153,12 @@ pub struct Server {
     /// Agent 上报的 P16 隧道引擎是否可用。
     /// NULL = 旧 Agent 未上报 / 从未连过；只有 true 才允许保存 tunnel 链。
     pub tunnel_available: Option<bool>,
+    /// 是否出现在无需登录的公开状态页（迁移 0064）。
+    ///
+    /// 默认 `true`：升级前就存在的服务器全部继续公开，与旧行为一致。设为
+    /// `false` 后该服务器从公开接口的 `servers` / `groups` / `summary` /
+    /// `series` 里一起消失，而不是只藏起某一处；不参与鉴权或期望态下发。
+    pub public_visible: bool,
     /// 管理员填写的国家/地区代码（ISO 3166-1 alpha-2）；NULL = 未填写。
     pub country_code: Option<String>,
     /// 服务器分组名（最长 32 个字符）；NULL = 未分组。
