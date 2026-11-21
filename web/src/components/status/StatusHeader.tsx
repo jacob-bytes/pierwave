@@ -67,7 +67,9 @@ function LiveStatus({
       title={
         disabled || warn || stale
           ? label
-          : t("publicStatus.autoRefreshHint")
+          : // 手机上文字收进 sr-only，圆点的 title 必须同时给出「更新于」，
+            // 否则 390 宽度下访客只能看到状态色、看不到数据时间。
+            `${label} · ${t("publicStatus.autoRefreshHint")}`
       }
     >
       <span

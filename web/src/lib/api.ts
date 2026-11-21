@@ -401,6 +401,18 @@ export interface PublicStatus {
   series?: PublicStatusSeries | null;
 }
 
+/**
+ * `GET /api/v1/public/status/:id`：单机详情。
+ *
+ * 列表接口不再返回每台的 `series_24h`，详情页改为调用这里；`server` 与列表
+ * 里的 `PublicStatusServer` 同形，顶层 `series_24h` 是该机 24 小时序列。
+ * 旧后端还没有这个接口时会 404，详情页回落到列表数据，不视为错误。
+ */
+export interface PublicStatusDetail {
+  server: PublicStatusServer;
+  series_24h?: PublicStatusSeries | null;
+}
+
 /** 主控生成的 Agent 运维命令；`install` 只在创建/重置后返回一次。 */
 export interface ServerCommands {
   install: string | null;
@@ -2403,6 +2415,11 @@ export const api = {
    * （code `public_status.disabled`），页面按「状态页已关闭」处理。
    */
   publicStatus: () => request<PublicStatus>("/api/v1/public/status"),
+  /** 单机详情；旧后端会 404，调用方回落到列表数据。 */
+  publicStatusDetail: (id: string) =>
+    request<PublicStatusDetail>(
+      `/api/v1/public/status/${encodeURIComponent(id)}`,
+    ),
   /** 概览聚合（P14）：图表、协议分布、链路健康度与 Top 5。 */
   overview: {
     get: (days: number) =>

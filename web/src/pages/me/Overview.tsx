@@ -22,6 +22,7 @@ import {
   dailyAverage,
   daysTone,
   hasTrafficSamples,
+  planResetDay,
   trafficTone,
   trafficWindowTotal,
 } from "@/lib/meOverview";
@@ -142,6 +143,9 @@ export default function MeOverviewPage() {
     dailyAverageBytes: hasTrafficSamples(traffic.data?.days)
       ? dailyAverage(traffic.data?.days)
       : null,
+    // 顶层 `package` 不带实例 id / reset_day；从同一份 `packages` 明细里找
+    // 名称 + 到期时间匹配的那张，避免在多套餐用户上显示错的重置日。
+    resetDay: planResetDay(plan, summary.packages),
   };
 
   return (

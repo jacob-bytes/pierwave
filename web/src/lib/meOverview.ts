@@ -133,3 +133,47 @@ export function trafficWindowTotal(
   }
   return sum;
 }
+
+/** `/me/summary.packages` 里与概览卡相关的最小字段。 */
+export interface OverviewPackageInstance {
+  package_name: string;
+  expires_at: number | null;
+  /** 1..31 = 每月重置日；null = 该实例不自动重置。旧后端可能缺失。 */
+  reset_day?: number | null;
+}
+
+/**
+ * 概览卡主套餐的「重置日」。
+ *
+ * 顶层 `package`（`MePackageSummary`）只有名称 / 额度 / 到期时间，没有实例 id
+ * 或 `reset_day`；`packages` 是同一份查询的实例明细，所以按「名称 + 到期时间」
+ * 找到对应实例，多个匹配时取最后一张（与后端「最新的可用实例」口径一致）。
+ *
+ * 返回值三态：
+ * - `number`：该实例每月在这一天重置；
+ * - `null`：实例存在且明确不自动重置；
+ * - `undefined`：旧后端缺少 `packages` / 匹配不到实例，调用方整项隐藏，
+ *   不能把「不知道」画成「不重置」。
+ */
+export function planResetDay(
+  plan: { name: string; expires_at: number | null } | null | undefined,
+  packages: readonly OverviewPackageInstance[] | null | undefined,
+): number | null | undefined {
+  if (!plan || !packages?.length) return undefined;
+
+  let matched: OverviewPackageInstance | undefined;
+  for (const item of packages) {
+    if (
+      item?.package_name === plan.name &&
+      (item.expires_at ?? null) === (plan.expires_at ?? null)
+    ) {
+      matched = item;
+    }
+  }
+  if (!matched) return undefined;
+
+  const resetDay = matched.reset_day;
+  return typeof resetDay === "number" && Number.isFinite(resetDay)
+    ? resetDay
+    : null;
+}

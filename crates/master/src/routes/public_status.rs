@@ -1,17 +1,24 @@
-//! 探针公开页：`GET /api/v1/public/status`（无需登录）。
+//! 探针公开页（无需登录）：
+//!
+//! * `GET /api/v1/public/status`：列表 + 全站迷你图 + 分组；
+//! * `GET /api/v1/public/status/{id}`：单台服务器的完整行 + 24h 逐小时趋势。
 //!
 //! 响应形状与 `docs/PLAN.md`「P10：探针公开页」一致，只读、只暴露白名单字段。
 //! 采样聚合全部走 `pierwave_domain::repo::server_samples`，这里只负责把行拼成
 //! 24 个小时桶 / 12 个 5 分钟迷你图桶 / 7 个自然日桶并做 30 秒进程内缓存。
 //!
+//! **列表不返回 `series_24h`**：1000 台服务器时这项占列表体积近一半，趋势已经
+//! 拆到详情接口，列表只保留列表页真正渲染的字段。详情响应的 `server` 与列表行
+//! 完全同形，趋势放在顶层 `series_24h`；两者来自同一次聚合与同一份 30 秒缓存。
+//!
 //! `series` 是纯增量字段：窗口 60 分钟、12 个 5 分钟桶，缺桶补 `null`（不是 0）。
-//! 每台服务器上的 `outage_minutes_24h` / `buckets_7d` / `series_24h` /
-//! `first_seen_at` / `inbound_count` 也是纯增量字段，旧客户端忽略即可。
+//! 每台服务器上的 `outage_minutes_24h` / `buckets_7d` / `first_seen_at` /
+//! `inbound_count` 也是纯增量字段，旧客户端忽略即可。
 //! 口径见 `docs/PUBLIC-STATUS.md`。
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::Json;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -23,7 +30,7 @@ use pierwave_domain::time;
 
 use crate::auth::CurrentUser;
 use crate::error::{AppError, AppResult};
-use crate::state::AppState;
+use crate::state::{AppState, PublicStatusSnapshot};
 
 const HOUR_SECS: i64 = 3_600;
 const BUCKETS_24H: usize = 24;
@@ -108,9 +115,11 @@ struct PublicServer {
     /// 公开字段只暴露**数量**，不含协议 / 端口 / tag / 地址 / 配置。
     inbound_count: i64,
     /// 固定 7 个 UTC+8 自然日，从最早到最新；无样本的日 `online_ratio` 为 null。
+    ///
+    /// **不含** `series_24h`：逐小时趋势只出现在详情接口
+    /// `GET /api/v1/public/status/{id}`，列表接口返回它会让 1000 台规模下的
+    /// 响应体积接近翻倍。
     buckets_7d: Vec<PublicDailyBucket>,
-    /// 该服务器最近 24h 的逐小时趋势（纯增量字段）。
-    series_24h: PublicServerSeries,
 }
 
 /// 一个 UTC+8 自然日的公开可用率桶。
@@ -248,21 +257,91 @@ fn outage_minutes(samples: i64) -> i64 {
     samples * repo::server_samples::SAMPLE_INTERVAL_SECS / 60
 }
 
+/// 公开页总开关关闭时的统一 404：列表与详情语义一致。
+fn disabled_error() -> AppError {
+    AppError::not_found("public_status.disabled", None, "公开状态页已关闭")
+}
+
+/// 未知 id，或服务器存在但被白名单隐藏。
+///
+/// 两种情况**必须**返回同一个 404：否则读者可以用详情接口枚举出被隐藏服务器的
+/// id 是否存在，白名单就形同虚设。`params.id` 原样回传请求里的 id，便于客户端
+/// 定位自己请求了哪一台。
+fn not_found_error(id: &str) -> AppError {
+    AppError::not_found(
+        "public_status.not_found",
+        Some(json!({ "id": id })),
+        format!("公开状态页没有这台服务器 / No such server on the public status page: {id}"),
+    )
+}
+
 pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
     let settings = crate::routes::settings::load(&state.db).await;
     if settings.public_status_enabled == 0 {
-        return Err(AppError::not_found(
-            "public_status.disabled",
-            None,
-            "公开状态页已关闭",
-        ));
+        return Err(disabled_error());
     }
 
     // 开关判断必须在缓存之前：关闭后即使有旧缓存也必须立刻 404。
     if let Some(cached) = state.public_status.get() {
-        return Ok(Json(cached));
+        return Ok(Json(cached.list));
     }
 
+    let snapshot = build_snapshot(&state, &settings).await?;
+    // 先取列表再移动整个快照进缓存：缓存里同时留着每台服务器的趋势。
+    let list = snapshot.list.clone();
+    state.public_status.put(snapshot);
+    Ok(Json(list))
+}
+
+/// 单台服务器的公开详情：`{ server, series_24h }`。
+///
+/// `server` 与列表行**完全同形**（同一份 JSON），趋势单独放在顶层，方便前端把
+/// 详情页的列表字段与趋势分别复用。未知 id 与被隐藏的服务器一律 404
+/// `public_status.not_found`；页面关闭时是 404 `public_status.disabled`。
+///
+/// 缓存与列表共用：详情请求先看列表快照，未命中就做一次与列表相同的聚合再
+/// 缓存。详情不会单独维护一份会过期的趋势缓存。
+pub async fn detail(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<Json<Value>> {
+    let settings = crate::routes::settings::load(&state.db).await;
+    if settings.public_status_enabled == 0 {
+        return Err(disabled_error());
+    }
+
+    let snapshot = match state.public_status.get() {
+        Some(snapshot) => snapshot,
+        None => {
+            let snapshot = build_snapshot(&state, &settings).await?;
+            state.public_status.put(snapshot.clone());
+            snapshot
+        }
+    };
+
+    let server = snapshot
+        .list
+        .get("servers")
+        .and_then(Value::as_array)
+        .and_then(|rows| {
+            rows.iter()
+                .find(|row| row.get("id").and_then(Value::as_str) == Some(id.as_str()))
+        })
+        .cloned();
+    let (Some(server), Some(series)) = (server, snapshot.series.get(&id).cloned()) else {
+        return Err(not_found_error(&id));
+    };
+    Ok(Json(json!({ "server": server, "series_24h": series })))
+}
+
+/// 一次聚合出「列表响应 + 每台服务器的 24h 趋势」，两者一起缓存。
+///
+/// 除了 `series_24h` 的位置，聚合逻辑与拆分前完全一致：所有查询仍是跨服务器
+/// 的一条 SQL + 内存映射，没有 N+1。
+async fn build_snapshot(
+    state: &AppState,
+    settings: &crate::routes::settings::Settings,
+) -> AppResult<PublicStatusSnapshot> {
     let now = repo::now();
     let billing_hidden = settings.public_billing_visible == 0;
     let summary = repo::stats::public_summary(&state.db.pool, now).await?;
@@ -361,6 +440,8 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
             .collect();
 
     let mut group_accumulators: BTreeMap<Option<String>, GroupAccumulator> = BTreeMap::new();
+    // 趋势从列表行里拿出来，稍后单独序列化成详情接口的 `series_24h`。
+    let mut series_24h_rows: Vec<(String, PublicServerSeries)> = Vec::with_capacity(servers.len());
     let servers = servers
         .into_iter()
         .map(|server| {
@@ -435,6 +516,8 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                     })
                     .collect(),
             };
+            // 与列表分开返回：列表不再带 `series_24h`，这里把同一份聚合留给详情接口。
+            series_24h_rows.push((server.id.clone(), series_24h));
             // 没有任何采样 = null（未知）；有采样 = 实际中断分钟数（可能是 0）。
             let outage_minutes_24h = outage_samples
                 .get(&server.id)
@@ -491,7 +574,6 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
                 first_seen_at,
                 inbound_count,
                 buckets_7d,
-                series_24h,
             }
         })
         .collect();
@@ -515,7 +597,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
     });
 
     let response = PublicStatus {
-        panel_name: settings.panel_name,
+        panel_name: settings.panel_name.clone(),
         generated_at: now,
         billing_hidden,
         summary,
@@ -523,10 +605,18 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
         groups,
         series,
     };
-    let value = serde_json::to_value(response)
+    let list = serde_json::to_value(response)
         .map_err(|error| AppError::Internal(anyhow::Error::from(error)))?;
-    state.public_status.put(value.clone());
-    Ok(Json(value))
+    let mut series_by_server = HashMap::with_capacity(series_24h_rows.len());
+    for (server_id, value) in series_24h_rows {
+        let value = serde_json::to_value(value)
+            .map_err(|error| AppError::Internal(anyhow::Error::from(error)))?;
+        series_by_server.insert(server_id, value);
+    }
+    Ok(PublicStatusSnapshot {
+        list,
+        series: series_by_server,
+    })
 }
 
 /// 管理端：列出所有服务器及其公开可见性，供白名单面板做批量勾选。
@@ -665,6 +755,12 @@ mod tests {
             serde_json::from_slice(&bytes).unwrap_or(Value::Null),
             String::from_utf8_lossy(&bytes).into_owned(),
         )
+    }
+
+    /// 详情接口：`GET /api/v1/public/status/{id}`，返回状态码与解析后的 JSON。
+    async fn get_detail(app: &Router, id: &str) -> (StatusCode, Value) {
+        let (status, body, _) = get(app, &format!("/api/v1/public/status/{id}")).await;
+        (status, body)
     }
 
     /// 管理端请求：带 Cookie，可选 JSON body；返回状态码与解析后的 JSON。
@@ -1446,18 +1542,25 @@ mod tests {
             assert_eq!(day["samples"], 0, "{body}");
         }
 
-        let series = &server["series_24h"];
+        // 列表不再带趋势；详情接口固定 24 个 null 桶（不是 0）。
+        assert!(
+            server.get("series_24h").is_none(),
+            "列表不能返回 series_24h：{body}"
+        );
+        let (status, detail) = get_detail(&app, &id).await;
+        assert_eq!(status, StatusCode::OK, "{detail}");
+        let series = &detail["series_24h"];
         assert_detail_series_shape(series);
         let current = generated_at - generated_at.rem_euclid(3_600);
         assert_eq!(
             series["t"][23].as_i64().unwrap(),
             current,
-            "最后一个桶是当前小时：{body}"
+            "最后一个桶是当前小时：{detail}"
         );
         for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
             assert!(
                 series[key].as_array().unwrap().iter().all(Value::is_null),
-                "空数据时 {key} 必须全是 null：{body}"
+                "空数据时 {key} 必须全是 null：{detail}"
             );
         }
     }
@@ -1641,9 +1744,15 @@ mod tests {
             .await
             .unwrap();
 
-        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        let (status, list, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{list}");
+        assert!(
+            list["servers"][0].get("series_24h").is_none(),
+            "列表不能返回逐小时趋势：{list}"
+        );
+        let (status, body) = get_detail(&app, &id).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        let series = &body["servers"][0]["series_24h"];
+        let series = &body["series_24h"];
         assert_detail_series_shape(series);
         let t = series["t"].as_array().unwrap();
         assert_eq!(t[23].as_i64().unwrap(), current_hour);
@@ -1667,7 +1776,7 @@ mod tests {
                 );
             }
         }
-        assert_eq!(body["servers"][0]["outage_minutes_24h"], 0);
+        assert_eq!(list["servers"][0]["outage_minutes_24h"], 0);
     }
 
     /// 离线采样不参与 `series_24h` 的速率 / 延迟（与全局 `series` 同口径）：
@@ -1751,9 +1860,11 @@ mod tests {
             "测试前提：离线行带着掉线前的残留值：{stale:?}"
         );
 
-        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        let (status, list, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{list}");
+        let (status, body) = get_detail(&app, &id).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        let series = &body["servers"][0]["series_24h"];
+        let series = &body["series_24h"];
         assert_detail_series_shape(series);
         let t = series["t"].as_array().unwrap();
         assert_eq!(t[20].as_i64().unwrap(), mixed_hour);
@@ -1781,7 +1892,7 @@ mod tests {
         }
 
         // 中断口径不变：两条离线采样 × 5 分钟。
-        assert_eq!(body["servers"][0]["outage_minutes_24h"], 10);
+        assert_eq!(list["servers"][0]["outage_minutes_24h"], 10);
     }
 
     /// 旧 Agent 的采样没有速率 / 延迟（落库是 NULL）：24h 趋势必须是 null，
@@ -1805,9 +1916,11 @@ mod tests {
             .await
             .unwrap();
 
-        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        let (status, list, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{list}");
+        let (status, body) = get_detail(&app, &id).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        let series = &body["servers"][0]["series_24h"];
+        let series = &body["series_24h"];
         assert_detail_series_shape(series);
         for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
             for value in series[key].as_array().unwrap() {
@@ -1818,11 +1931,11 @@ mod tests {
             }
         }
         // 有采样且在线：中断是 0（不是 null），可与旧 Agent 的 null 趋势区分。
-        assert_eq!(body["servers"][0]["outage_minutes_24h"], 0);
+        assert_eq!(list["servers"][0]["outage_minutes_24h"], 0);
         // 当天的可用率来自同一条采样：1.0 / 1 条。
-        let today = &body["servers"][0]["buckets_7d"][6];
-        assert_eq!(today["online_ratio"], 1.0, "{body}");
-        assert_eq!(today["samples"], 1, "{body}");
+        let today = &list["servers"][0]["buckets_7d"][6];
+        assert_eq!(today["online_ratio"], 1.0, "{list}");
+        assert_eq!(today["samples"], 1, "{list}");
     }
 
     /// `inbound_count` 只数 `enabled = 1` 的节点，按服务器分别计数；
@@ -1864,9 +1977,35 @@ mod tests {
 
         let (_, first, _) = get(&app, "/api/v1/public/status").await;
         assert!(first["servers"][0]["outage_minutes_24h"].is_null());
+        let (status, first_detail) = get_detail(&app, &id).await;
+        assert_eq!(status, StatusCode::OK, "{first_detail}");
+        assert!(
+            first_detail["series_24h"]["latency_ms"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(Value::is_null),
+            "首次详情的趋势必须全是 null 缺口：{first_detail}"
+        );
 
-        // 缓存期内建节点 + 写离线采样：缓存命中必须原样返回首次结果。
+        // 缓存期内建节点 + 写采样：列表与详情命中同一份缓存，必须原样返回首次结果。
         seed_node(&state, &id, "edge-vless", true).await;
+        // 先写一条离线采样（服务器默认离线）：清缓存后 `outage_minutes_24h = 5`。
+        repo::server_samples::record_round(&state.db.pool, repo::now() - 600)
+            .await
+            .unwrap();
+        // 再上线并写当前小时：详情趋势拿到 33ms。
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(33),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
         repo::server_samples::record_round(&state.db.pool, repo::now())
             .await
             .unwrap();
@@ -1877,19 +2016,37 @@ mod tests {
             "first_seen_at",
             "inbound_count",
             "buckets_7d",
-            "series_24h",
         ] {
             assert_eq!(
                 cached["servers"][0][key], first["servers"][0][key],
                 "缓存命中时 {key} 必须与首次响应一致"
             );
         }
+        let (status, cached_detail) = get_detail(&app, &id).await;
+        assert_eq!(status, StatusCode::OK, "{cached_detail}");
+        assert_eq!(
+            cached_detail, first_detail,
+            "详情与列表共用 30 秒缓存：命中时必须与首次响应完全一致"
+        );
+        assert_eq!(
+            cached_detail["server"], cached["servers"][0],
+            "详情的 server 必须与列表行同形同值"
+        );
 
-        // 清缓存后读到新数据：离线采样 5 分钟、入站 1 个。
+        // 清缓存后读到新数据：离线采样 5 分钟、入站 1 个、趋势拿到 33ms。
         state.public_status.clear();
         let (_, fresh, _) = get(&app, "/api/v1/public/status").await;
         assert_eq!(fresh["servers"][0]["outage_minutes_24h"], 5);
         assert_eq!(fresh["servers"][0]["inbound_count"], 1);
+        let (_, fresh_detail) = get_detail(&app, &id).await;
+        assert!(
+            fresh_detail["series_24h"]["latency_ms"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value.as_i64() == Some(33)),
+            "清缓存后详情必须读到新采样：{fresh_detail}"
+        );
     }
 
     /// `first_seen_at`：0 / 负数（未知或手工改库）输出 null，不编造 1970 时间。
@@ -1995,7 +2152,6 @@ mod tests {
             "first_seen_at",
             "inbound_count",
             "buckets_7d",
-            "series_24h",
         ];
         expected.sort_unstable();
         let mut actual = server_keys.clone();
@@ -2003,7 +2159,7 @@ mod tests {
         assert_eq!(actual, expected, "服务器行必须严格是白名单字段");
         assert_eq!(body["summary"]["nodes_total"], 1);
 
-        // 新增的两个嵌套结构也必须是白名单：数量 + 趋势，不带任何拓扑细节。
+        // 新增的嵌套结构也必须是白名单：数量 + 趋势，不带任何拓扑细节。
         let mut daily_keys: Vec<&str> = body["servers"][0]["buckets_7d"][0]
             .as_object()
             .unwrap()
@@ -2016,7 +2172,20 @@ mod tests {
             vec!["day", "online_ratio", "samples"],
             "buckets_7d 只能暴露日期、可用率与样本数"
         );
-        let mut detail_keys: Vec<&str> = body["servers"][0]["series_24h"]
+
+        // 趋势只在详情接口出现；它的字段同样必须是白名单。
+        assert!(
+            body["servers"][0].get("series_24h").is_none(),
+            "列表不能返回 series_24h：{body}"
+        );
+        let (status, detail) = get_detail(&app, &server_id).await;
+        assert_eq!(status, StatusCode::OK, "{detail}");
+        assert!(
+            !detail.to_string().contains("203.0.113.9"),
+            "详情响应不应包含服务器地址：{detail}"
+        );
+        assert_no_forbidden_keys(&detail);
+        let mut detail_keys: Vec<&str> = detail["series_24h"]
             .as_object()
             .unwrap()
             .keys()
@@ -2152,6 +2321,60 @@ mod tests {
             .unwrap();
         let (status, body, _) = get(&app, "/api/v1/public/status").await;
         assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    /// 详情接口的 404 语义：未知 id、被隐藏的服务器、页面关闭，三者互不混淆。
+    ///
+    /// 「被隐藏」必须与「不存在」返回**完全一样的** 404：否则读者可以用详情
+    /// 接口枚举出隐藏服务器的 id，白名单就形同虚设。
+    #[tokio::test]
+    async fn detail_returns_404_for_unknown_and_hidden_servers() {
+        let (app, state) = setup().await;
+        let visible = seed_server(&state, "edge-1", "203.0.113.9").await;
+        let hidden = seed_server(&state, "edge-2", "203.0.113.10").await;
+        repo::servers::set_public_visible(&state.db.pool, &hidden, false)
+            .await
+            .unwrap();
+
+        // 可见服务器：`server`（与列表同形）+ 顶层 `series_24h`。
+        let (status, body) = get_detail(&app, &visible).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["server"]["id"], visible.as_str(), "{body}");
+        assert!(body["series_24h"].is_object(), "{body}");
+        assert_eq!(body["series_24h"]["window_secs"], 86_400, "{body}");
+
+        // 未知 id：404 + public_status.not_found + params.id。
+        let (status, body) = get_detail(&app, "does-not-exist").await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert_eq!(body["code"], "public_status.not_found", "{body}");
+        assert_eq!(body["params"]["id"], "does-not-exist", "{body}");
+
+        // 被隐藏的服务器：与未知 id 同一个错误码与形状，不泄漏它存在。
+        let (status, hidden_body) = get_detail(&app, &hidden).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{hidden_body}");
+        assert_eq!(
+            hidden_body["code"], "public_status.not_found",
+            "{hidden_body}"
+        );
+        assert_eq!(
+            hidden_body["params"]["id"],
+            hidden.as_str(),
+            "{hidden_body}"
+        );
+        assert!(
+            !hidden_body.to_string().contains("edge-2"),
+            "404 不能回显被隐藏服务器的名字：{hidden_body}"
+        );
+
+        // 页面关闭：与 id 是否存在无关，统一 public_status.disabled。
+        repo::settings::set(&state.db.pool, "public_status_enabled", "0")
+            .await
+            .unwrap();
+        for id in [&visible, &hidden, "does-not-exist"] {
+            let (status, body) = get_detail(&app, id).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+            assert_eq!(body["code"], "public_status.disabled", "{body}");
+        }
     }
 
     /// 这条单独测：不带任何 Cookie 也必须 200，公开接口不能被登录态依赖。
@@ -2498,6 +2721,131 @@ mod tests {
         assert_eq!(by_name("edge-clean")["price_cents"], 4999, "{body}");
     }
 
+    /// 迁移 0065：历史「只有价格没币种」/「只有币种没价格」的行。
+    ///
+    /// 0061 的四列没有成对约束，0062 只修类型 / 值域，也不管成对。单边行会让
+    /// 公开页显示「有价格没币种」或「有币种没价格」——读者既没法理解也没法
+    /// 校验。0065 把单边行整组清成 NULL，成对行原样保留，并且可以重复执行。
+    #[tokio::test]
+    async fn migration_0065_clears_unpaired_billing_rows() {
+        use pierwave_domain::{Db, MIGRATOR};
+
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        // 停在 0064：模拟「库里还留着历史单边行」的升级现场。
+        for migration in MIGRATOR.iter().filter(|m| m.version <= 64) {
+            sqlx::raw_sql(&migration.sql)
+                .execute(&db.pool)
+                .await
+                .unwrap_or_else(|error| panic!("执行迁移 {} 失败：{error}", migration.version));
+        }
+
+        let (price_only, _) =
+            repo::servers::create(&db.pool, "price-only", "203.0.113.1", "external")
+                .await
+                .unwrap();
+        let (currency_only, _) =
+            repo::servers::create(&db.pool, "currency-only", "203.0.113.2", "external")
+                .await
+                .unwrap();
+        let (paired, _) = repo::servers::create(&db.pool, "paired", "203.0.113.3", "external")
+            .await
+            .unwrap();
+        repo::servers::create(&db.pool, "neither", "203.0.113.4", "external")
+            .await
+            .unwrap();
+
+        // 写路径会拒绝单边组合（`server.billing_pair_incomplete`），所以这里用
+        // 直写 SQL 模拟旧版本 / 手工改库留下的历史行。到期日与周期是另外两列，
+        // 迁移 0065 不能顺手把它们也清掉。
+        sqlx::query(
+            "UPDATE servers SET price_cents = 4999, paid_until = '2026-06-30',
+                    billing_cycle = 'yearly'
+              WHERE id = ?",
+        )
+        .bind(&price_only.id)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE servers SET currency = 'CNY' WHERE id = ?")
+            .bind(&currency_only.id)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        set_billing(
+            &db.pool,
+            &paired.id,
+            Some("2026-12-31"),
+            Some(4999),
+            Some("CNY"),
+            Some("monthly"),
+        )
+        .await
+        .unwrap();
+
+        let state = AppState::new(db, "web/dist");
+        let app = crate::app::router(state.clone());
+        let by_name = |body: &Value, name: &str| -> Value {
+            body["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["name"] == name)
+                .unwrap_or_else(|| panic!("公开页缺少服务器 {name}：{body}"))
+                .clone()
+        };
+
+        // 修复前（这就是 bug）：单边行把「一半」原样暴露给公开页。
+        let (status, body, raw) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{raw}");
+        let before_price_only = by_name(&body, "price-only");
+        assert_eq!(before_price_only["price_cents"], 4999, "{body}");
+        assert!(
+            before_price_only["currency"].is_null(),
+            "修复前：只有价格没有币种：{body}"
+        );
+        let before_currency_only = by_name(&body, "currency-only");
+        assert_eq!(before_currency_only["currency"], "CNY", "{body}");
+        assert!(
+            before_currency_only["price_cents"].is_null(),
+            "修复前：只有币种没有价格：{body}"
+        );
+
+        // 修复：单边行整组清空；重复执行一次验证幂等。
+        let migration = MIGRATOR
+            .iter()
+            .find(|migration| migration.version == 65)
+            .expect("必须存在 0065 费用成对修复迁移");
+        for _ in 0..2 {
+            sqlx::raw_sql(&migration.sql)
+                .execute(&state.db.pool)
+                .await
+                .unwrap();
+        }
+        state.public_status.clear();
+
+        let (status, body, raw) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{raw}");
+        for name in ["price-only", "currency-only"] {
+            let row = by_name(&body, name);
+            assert!(row["price_cents"].is_null(), "{name}: {body}");
+            assert!(row["currency"].is_null(), "{name}: {body}");
+        }
+        // 只清价格与币种，同行的到期日 / 周期不受影响。
+        let price_only = by_name(&body, "price-only");
+        assert_eq!(price_only["paid_until"], "2026-06-30", "{body}");
+        assert_eq!(price_only["billing_cycle"], "yearly", "{body}");
+
+        // 成对的行原样保留；两列都为空的行保持为空。
+        let paired_row = by_name(&body, "paired");
+        assert_eq!(paired_row["price_cents"], 4999, "{body}");
+        assert_eq!(paired_row["currency"], "CNY", "{body}");
+        assert_eq!(paired_row["paid_until"], "2026-12-31", "{body}");
+        assert_eq!(paired_row["billing_cycle"], "monthly", "{body}");
+        let neither_row = by_name(&body, "neither");
+        assert!(neither_row["price_cents"].is_null(), "{body}");
+        assert!(neither_row["currency"].is_null(), "{body}");
+    }
+
     // ---- 公开状态页白名单 / 费用可见性（0064） ----
 
     /// 默认公开：没有设置 `public_billing_visible` 时 `billing_hidden = false`，
@@ -2659,6 +3007,57 @@ mod tests {
         );
     }
 
+    /// `summary.traffic_today` / `traffic_month` 是**账号级流量**：白名单隐藏
+    /// 服务器只影响服务器清单 / 分组 / 全站速率，**不会**让这两个数字变小。
+    ///
+    /// 这条口径写进了 `docs/PUBLIC-STATUS.md`，用测试钉住，防止有人把它「顺手
+    /// 修成」只算可见服务器——那会让管理员一隐藏服务器，历史总量就突然变小。
+    #[tokio::test]
+    async fn traffic_totals_are_account_level_and_ignore_the_whitelist() {
+        let (app, state) = setup().await;
+        let visible = seed_server(&state, "edge-visible", "203.0.113.1").await;
+        let hidden = seed_server(&state, "edge-hidden", "203.0.113.2").await;
+        let today = time::business_date(repo::now());
+
+        repo::traffic::accumulate_daily(&state.db.pool, &today, &visible, "alice", 10, 10, 100)
+            .await
+            .unwrap();
+        repo::traffic::accumulate_daily(&state.db.pool, &today, &hidden, "bob", 10, 10, 200)
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["summary"]["servers_total"], 2, "{body}");
+        assert_eq!(body["summary"]["traffic_today"], 300, "{body}");
+        assert_eq!(body["summary"]["traffic_month"], 300, "{body}");
+
+        // 隐藏其中一台：清单变小，但账号级流量保持 300。
+        repo::servers::set_public_visible(&state.db.pool, &hidden, false)
+            .await
+            .unwrap();
+        state.public_status.clear();
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["summary"]["servers_total"], 1, "{body}");
+        assert!(
+            !body["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["id"] == hidden.as_str()),
+            "隐藏的服务器不能出现在列表里：{body}"
+        );
+        assert_eq!(
+            body["summary"]["traffic_today"], 300,
+            "账号级流量不能因为隐藏服务器而变小：{body}"
+        );
+        assert_eq!(
+            body["summary"]["traffic_month"], 300,
+            "账号级流量不能因为隐藏服务器而变小：{body}"
+        );
+    }
+
     /// 白名单批量端点：往返、空数组全部隐藏、未知 id 整单 400、非管理员 403、
     /// 审计只记数量前后值（不落 id 列表）。
     #[tokio::test]
@@ -2807,3 +3206,7 @@ mod tests {
         );
     }
 }
+
+/// 1000 台规模下的响应体积 / 耗时回归（见文件头注释）。
+#[cfg(test)]
+mod payload;

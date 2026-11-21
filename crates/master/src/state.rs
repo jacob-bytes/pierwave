@@ -148,13 +148,26 @@ impl LatestVersionCache {
 /// 测试之间不会互相污染。
 pub const PUBLIC_STATUS_CACHE_TTL: Duration = Duration::from_secs(30);
 
+/// 一次聚合的完整结果：列表响应 + 每台服务器的 24h 趋势。
+///
+/// 列表接口不再返回 `series_24h`（1000 台时它接近列表体积的一半），趋势挪到
+/// `GET /api/v1/public/status/{id}`。两者必须是**同一次聚合**的产物：分开缓存
+/// 会让详情看到比列表更旧/更新的数据，所以放在一个快照里一起写、一起失效。
+#[derive(Clone, Default)]
+pub struct PublicStatusSnapshot {
+    /// `GET /api/v1/public/status` 的完整响应（不含 `series_24h`）。
+    pub list: Value,
+    /// `server_id` → 序列化后的 `series_24h`；只含公开可见的服务器。
+    pub series: HashMap<String, Value>,
+}
+
 #[derive(Clone, Default)]
 pub struct PublicStatusCache {
-    inner: Arc<Mutex<Option<(Instant, Value)>>>,
+    inner: Arc<Mutex<Option<(Instant, PublicStatusSnapshot)>>>,
 }
 
 impl PublicStatusCache {
-    pub fn get(&self) -> Option<Value> {
+    pub fn get(&self) -> Option<PublicStatusSnapshot> {
         let guard = self
             .inner
             .lock()
@@ -162,14 +175,14 @@ impl PublicStatusCache {
         guard
             .as_ref()
             .filter(|(at, _)| at.elapsed() < PUBLIC_STATUS_CACHE_TTL)
-            .map(|(_, value)| value.clone())
+            .map(|(_, snapshot)| snapshot.clone())
     }
 
-    pub fn put(&self, value: Value) {
+    pub fn put(&self, snapshot: PublicStatusSnapshot) {
         *self
             .inner
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), value));
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((Instant::now(), snapshot));
     }
 
     /// 立刻失效缓存：公开页的开关 / 白名单 / 费用可见性变化后必须马上生效。

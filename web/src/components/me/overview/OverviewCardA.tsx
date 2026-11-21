@@ -18,10 +18,10 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 /**
  * 概览卡：环形指标。
  *
- * 左侧环形按「剩余占比」填充，环心只放剩余流量；右侧三块次要信息
- * （到期 / 套餐名 / 今日与日均用量）只靠间距分组，与环形垂直居中。
- * 窄屏竖排，sm 起铺成三列填满右侧，避免卡片右侧留白。
- * 环下方是已用流量进度条；右下角只留账号与修改密码这类次要信息。
+ * 左侧环形按「剩余占比」填充，环心只放剩余流量；右侧三列次要信息
+ * （到期与套餐 / 已用总额度与今日 / 重置日与日均）只靠间距分组，与环形
+ * 垂直居中。窄屏竖排，sm 起铺成三列填满右侧，避免卡片右侧留白。
+ * 环下方不再重复进度条；右下角只留账号与修改密码这类次要信息。
  * 低于阈值时环和数字一起切换到 warning / destructive，颜色仍只用现有 token。
  */
 export default function OverviewCardA({
@@ -33,6 +33,7 @@ export default function OverviewCardA({
   expiryTone,
   todayBytes,
   dailyAverageBytes,
+  resetDay,
   username,
 }: OverviewCardProps) {
   const { t } = useI18n();
@@ -56,6 +57,8 @@ export default function OverviewCardA({
   }
 
   const days = usage.days_left;
+  const limit = plan.traffic_limit;
+  const unlimited = limit === null || limit <= 0;
   const remainingRatio =
     usedPercent === null ? 1 : Math.max(0, 100 - usedPercent) / 100;
   const ringTone =
@@ -155,11 +158,25 @@ export default function OverviewCardA({
               </p>
             </div>
 
-            {/*
-              未知与 0 分开：无采样时保留字段并显示 —（title 说明「暂无采样」），
-              不要让「没数据」看起来像「用量 0 B」。真实 0 仍由 formatBytes 显示 0 B。
-            */}
-            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 sm:contents">
+            <div className="flex flex-col gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  {t("me.overview.usedOfLimit")}
+                </p>
+                <p className="mt-1 flex flex-wrap items-baseline gap-x-1 font-mono text-sm tabular-nums">
+                  <span>{formatBytes(usage.used_bytes)}</span>
+                  <span aria-hidden="true" className="text-muted-foreground">
+                    /
+                  </span>
+                  <span className="text-muted-foreground">
+                    {unlimited
+                      ? t("me.overview.unlimited")
+                      : formatBytes(limit ?? 0)}
+                  </span>
+                </p>
+              </div>
+              {/* 未知与 0 分开：无采样时保留字段并显示 —（title 说明「暂无采样」），
+                  不要让「没数据」看起来像「用量 0 B」。 */}
               <div>
                 <p className="text-xs text-muted-foreground">
                   {t("me.overview.todayUsage")}
@@ -171,6 +188,21 @@ export default function OverviewCardA({
                   {todayBytes === null ? "—" : formatBytes(todayBytes)}
                 </p>
               </div>
+            </div>
+
+            <div className="flex flex-col gap-4">
+              {resetDay === undefined ? null : (
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    {t("me.overview.resetDay")}
+                  </p>
+                  <p className="mt-1 text-sm tabular-nums">
+                    {resetDay === null
+                      ? t("me.overview.noReset")
+                      : t("me.overview.resetDayValue", { day: resetDay })}
+                  </p>
+                </div>
+              )}
               <div>
                 <p className="text-xs text-muted-foreground">
                   {t("me.overview.dailyAverage")}

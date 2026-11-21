@@ -19,6 +19,11 @@ export interface OverviewCardProps {
   todayBytes: number | null;
   /** 近 7 天日均；趋势未就绪 / 无数据时为 null，不显示占位 0。 */
   dailyAverageBytes: number | null;
+  /**
+   * 主套餐的重置日：1..31 = 每月这一天；null = 明确不自动重置；
+   * undefined = 旧后端 / 匹配不到实例，整项隐藏。
+   */
+  resetDay: number | null | undefined;
   /** 卡片右下角的次要账号信息。 */
   username: string;
   /** 打开「修改密码」对话框；入口只保留在这个次要位置。 */

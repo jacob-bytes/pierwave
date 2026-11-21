@@ -1,0 +1,708 @@
+{
+  "f1-1440-light": {
+    "headerH": 65,
+    "rowW": 1400,
+    "docScrollW": 1440,
+    "clientW": 1440,
+    "rows": [
+      12,
+      32,
+      24,
+      16
+    ],
+    "kids": [
+      {
+        "tag": "DIV",
+        "text": "PierWave现在有一把钥匙，就在你面前",
+        "x": 44,
+        "y": 12,
+        "w": 206,
+        "h": 40,
+        "top": 12,
+        "bottom": 52
+      },
+      {
+        "tag": "DIV",
+        "text": "",
+        "x": 262,
+        "y": 32,
+        "w": 866.8,
+        "h": 0,
+        "top": 32,
+        "bottom": 32
+      },
+      {
+        "tag": "SPAN",
+        "text": "更新于 18:26:22",
+        "x": 1140.8,
+        "y": 24,
+        "w": 99.2,
+        "h": 16,
+        "top": 24,
+        "bottom": 40
+      },
+      {
+        "tag": "A",
+        "text": "进入后台",
+        "x": 1252,
+        "y": 16,
+        "w": 100,
+        "h": 32,
+        "top": 16,
+        "bottom": 48
+      },
+      {
+        "tag": "BUTTON",
+        "text": "切换主题",
+        "x": 1364,
+        "y": 16,
+        "w": 32,
+        "h": 32,
+        "top": 16,
+        "bottom": 48
+      }
+    ],
+    "brands": [
+      {
+        "text": "PierWave",
+        "w": 156,
+        "scrollW": 156
+      }
+    ],
+    "errors": []
+  },
+  "f1-390-light": {
+    "headerH": 65,
+    "rowW": 390,
+    "docScrollW": 390,
+    "clientW": 390,
+    "rows": [
+      12,
+      32,
+      29
+    ],
+    "kids": [
+      {
+        "tag": "DIV",
+        "text": "PierWave现在有一把钥匙，就在你面前",
+        "x": 16,
+        "y": 12,
+        "w": 180,
+        "h": 40,
+        "top": 12,
+        "bottom": 52
+      },
+      {
+        "tag": "DIV",
+        "text": "",
+        "x": 204,
+        "y": 32,
+        "w": 0,
+        "h": 0,
+        "top": 32,
+        "bottom": 32
+      },
+      {
+        "tag": "SPAN",
+        "text": "更新于 18:26:22",
+        "x": 212,
+        "y": 29,
+        "w": 6,
+        "h": 6,
+        "top": 29,
+        "bottom": 35
+      },
+      {
+        "tag": "A",
+        "text": "进入后台",
+        "x": 226,
+        "y": 12,
+        "w": 100,
+        "h": 40,
+        "top": 12,
+        "bottom": 52
+      },
+      {
+        "tag": "BUTTON",
+        "text": "切换主题",
+        "x": 334,
+        "y": 12,
+        "w": 40,
+        "h": 40,
+        "top": 12,
+        "bottom": 52
+      }
+    ],
+    "brands": [
+      {
+        "text": "PierWave",
+        "w": 130,
+        "scrollW": 130
+      }
+    ],
+    "errors": []
+  },
+  "f1-1440-dark": {
+    "headerH": 65,
+    "rowW": 1400,
+    "docScrollW": 1440,
+    "clientW": 1440,
+    "rows": [
+      12,
+      32,
+      24,
+      16
+    ],
+    "kids": [
+      {
+        "tag": "DIV",
+        "text": "PierWave现在有一把钥匙，就在你面前",
+        "x": 44,
+        "y": 12,
+        "w": 206,
+        "h": 40,
+        "top": 12,
+        "bottom": 52
+      },
+      {
+        "tag": "DIV",
+        "text": "",
+        "x": 262,
+        "y": 32,
+        "w": 866.8,
+        "h": 0,
+        "top": 32,
+        "bottom": 32
+      },
+      {
+        "tag": "SPAN",
+        "text": "更新于 18:26:22",
+        "x": 1140.8,
+        "y": 24,
+        "w": 99.2,
+        "h": 16,
+        "top": 24,
+        "bottom": 40
+      },
+      {
+        "tag": "A",
+        "text": "进入后台",
+        "x": 1252,
+        "y": 16,
+        "w": 100,
+        "h": 32,
+        "top": 16,
+        "bottom": 48
+      },
+      {
+        "tag": "BUTTON",
+        "text": "切换主题",
+        "x": 1364,
+        "y": 16,
+        "w": 32,
+        "h": 32,
+        "top": 16,
+        "bottom": 48
+      }
+    ],
+    "brands": [
+      {
+        "text": "PierWave",
+        "w": 156,
+        "scrollW": 156
+      }
+    ],
+    "errors": []
+  },
+  "f1-390-dark": {
+    "headerH": 65,
+    "rowW": 390,
+    "docScrollW": 390,
+    "clientW": 390,
+    "rows": [
+      12,
+      32,
+      29
+    ],
+    "kids": [
+      {
+        "tag": "DIV",
+        "text": "PierWave现在有一把钥匙，就在你面前",
+        "x": 16,
+        "y": 12,
+        "w": 180,
+        "h": 40,
+        "top": 12,
+        "bottom": 52
+      },
+      {
+        "tag": "DIV",
+        "text": "",
+        "x": 204,
+        "y": 32,
+        "w": 0,
+        "h": 0,
+        "top": 32,
+        "bottom": 32
+      },
+      {
+        "tag": "SPAN",
+        "text": "更新于 18:26:22",
+        "x": 212,
+        "y": 29,
+        "w": 6,
+        "h": 6,
+        "top": 29,
+        "bottom": 35
+      },
+      {
+        "tag": "A",
+        "text": "进入后台",
+        "x": 226,
+        "y": 12,
+        "w": 100,
+        "h": 40,
+        "top": 12,
+        "bottom": 52
+      },
+      {
+        "tag": "BUTTON",
+        "text": "切换主题",
+        "x": 334,
+        "y": 12,
+        "w": 40,
+        "h": 40,
+        "top": 12,
+        "bottom": 52
+      }
+    ],
+    "brands": [
+      {
+        "text": "PierWave",
+        "w": 130,
+        "scrollW": 130
+      }
+    ],
+    "errors": []
+  },
+  "f2-1440-light": {
+    "errors": [],
+    "card": {
+      "scrollW": 1440,
+      "clientW": 1440,
+      "svgW": 1120,
+      "legendLines": []
+    }
+  },
+  "f2-390-light": {
+    "errors": [],
+    "card": {
+      "scrollW": 390,
+      "clientW": 390,
+      "svgW": 310,
+      "legendLines": []
+    }
+  },
+  "f2-1440-dark": {
+    "errors": [],
+    "card": {
+      "scrollW": 1440,
+      "clientW": 1440,
+      "svgW": 1120,
+      "legendLines": []
+    }
+  },
+  "f2-390-dark": {
+    "errors": [],
+    "card": {
+      "scrollW": 390,
+      "clientW": 390,
+      "svgW": 310,
+      "legendLines": []
+    }
+  },
+  "f3-1440-light": {
+    "errors": [],
+    "ticks": {
+      "yTicks": [
+        "100%",
+        "50%",
+        "0%"
+      ],
+      "yTickRects": [
+        {
+          "text": "100%",
+          "y": 334.7,
+          "h": 16
+        },
+        {
+          "text": "50%",
+          "y": 393.6,
+          "h": 16
+        },
+        {
+          "text": "0%",
+          "y": 452.5,
+          "h": 16
+        }
+      ],
+      "timeLabels": [
+        {
+          "text": "19:00",
+          "x": 100,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "01:00",
+          "x": 181,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "07:00",
+          "x": 262,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "13:00",
+          "x": 343,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "现在",
+          "x": 424,
+          "w": 20,
+          "visible": true
+        }
+      ],
+      "plotW": 344,
+      "docScrollW": 1440,
+      "clientW": 1440
+    }
+  },
+  "f3-390-light": {
+    "errors": [],
+    "ticks": {
+      "yTicks": [
+        "100%",
+        "50%",
+        "0%"
+      ],
+      "yTickRects": [
+        {
+          "text": "100%",
+          "y": 326,
+          "h": 16
+        },
+        {
+          "text": "50%",
+          "y": 384.9,
+          "h": 16
+        },
+        {
+          "text": "0%",
+          "y": 443.8,
+          "h": 16
+        }
+      ],
+      "timeLabels": [
+        {
+          "text": "19:00",
+          "x": 68,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "01:00",
+          "x": 135.5,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "07:00",
+          "x": 203,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "13:00",
+          "x": 270.5,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "现在",
+          "x": 338,
+          "w": 20,
+          "visible": true
+        }
+      ],
+      "plotW": 290,
+      "docScrollW": 390,
+      "clientW": 390
+    }
+  },
+  "f3-1440-dark": {
+    "errors": [],
+    "ticks": {
+      "yTicks": [
+        "100%",
+        "50%",
+        "0%"
+      ],
+      "yTickRects": [
+        {
+          "text": "100%",
+          "y": 334.7,
+          "h": 16
+        },
+        {
+          "text": "50%",
+          "y": 393.6,
+          "h": 16
+        },
+        {
+          "text": "0%",
+          "y": 452.5,
+          "h": 16
+        }
+      ],
+      "timeLabels": [
+        {
+          "text": "19:00",
+          "x": 100,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "01:00",
+          "x": 181,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "07:00",
+          "x": 262,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "13:00",
+          "x": 343,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "现在",
+          "x": 424,
+          "w": 20,
+          "visible": true
+        }
+      ],
+      "plotW": 344,
+      "docScrollW": 1440,
+      "clientW": 1440
+    }
+  },
+  "f3-390-dark": {
+    "errors": [],
+    "ticks": {
+      "yTicks": [
+        "100%",
+        "50%",
+        "0%"
+      ],
+      "yTickRects": [
+        {
+          "text": "100%",
+          "y": 326,
+          "h": 16
+        },
+        {
+          "text": "50%",
+          "y": 384.9,
+          "h": 16
+        },
+        {
+          "text": "0%",
+          "y": 443.8,
+          "h": 16
+        }
+      ],
+      "timeLabels": [
+        {
+          "text": "19:00",
+          "x": 68,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "01:00",
+          "x": 135.5,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "07:00",
+          "x": 203,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "13:00",
+          "x": 270.5,
+          "w": 27,
+          "visible": true
+        },
+        {
+          "text": "现在",
+          "x": 338,
+          "w": 20,
+          "visible": true
+        }
+      ],
+      "plotW": 290,
+      "docScrollW": 390,
+      "clientW": 390
+    }
+  },
+  "f4-1440-light": {
+    "errors": [],
+    "card": {
+      "w": 1152,
+      "h": 176,
+      "scrollW": 1440,
+      "clientW": 1440,
+      "text": "27 GB | 剩余流量 | 到期时间 | 22 | 天 | 2026-12-12 | 轻量 · 50G | 当前账号 kenji | 今日用量 | — | 近 7 天日均 | —",
+      "gridCols": "298.656px 298.672px 298.656px"
+    }
+  },
+  "f4-390-light": {
+    "errors": [],
+    "card": {
+      "w": 342,
+      "h": 386.2,
+      "scrollW": 390,
+      "clientW": 390,
+      "text": "27 GB | 剩余流量 | 到期时间 | 22 | 天 | 2026-12-12 | 轻量 · 50G | 当前账号 kenji | 今日用量 | — | 近 7 天日均 | —",
+      "gridCols": "none"
+    }
+  },
+  "f4-1440-dark": {
+    "errors": [],
+    "card": {
+      "w": 1152,
+      "h": 176,
+      "scrollW": 1440,
+      "clientW": 1440,
+      "text": "27 GB | 剩余流量 | 到期时间 | 22 | 天 | 2026-12-12 | 轻量 · 50G | 当前账号 kenji | 今日用量 | — | 近 7 天日均 | —",
+      "gridCols": "298.656px 298.672px 298.656px"
+    }
+  },
+  "f4-390-dark": {
+    "errors": [],
+    "card": {
+      "w": 342,
+      "h": 386.2,
+      "scrollW": 390,
+      "clientW": 390,
+      "text": "27 GB | 剩余流量 | 到期时间 | 22 | 天 | 2026-12-12 | 轻量 · 50G | 当前账号 kenji | 今日用量 | — | 近 7 天日均 | —",
+      "gridCols": "none"
+    }
+  },
+  "f5-1440-light": {
+    "errors": [],
+    "before": {
+      "mainScrollH": 1548,
+      "mainClientH": 844,
+      "scrollTop": 0,
+      "save": {
+        "top": 1547.9,
+        "bottom": 1579.9,
+        "inView": false
+      }
+    },
+    "mid": {
+      "mainScrollH": 1548,
+      "mainClientH": 844,
+      "scrollTop": 697,
+      "save": {
+        "top": 850.9,
+        "bottom": 882.9,
+        "inView": true
+      }
+    }
+  },
+  "f5-390-light": {
+    "errors": [],
+    "before": {
+      "mainScrollH": 2116,
+      "mainClientH": 788,
+      "scrollTop": 0,
+      "save": {
+        "top": 2107.8,
+        "bottom": 2147.8,
+        "inView": false
+      }
+    },
+    "mid": {
+      "mainScrollH": 2116,
+      "mainClientH": 788,
+      "scrollTop": 952,
+      "save": {
+        "top": 1155.8,
+        "bottom": 1195.8,
+        "inView": false
+      }
+    }
+  },
+  "f5-1440-dark": {
+    "errors": [],
+    "before": {
+      "mainScrollH": 1548,
+      "mainClientH": 844,
+      "scrollTop": 0,
+      "save": {
+        "top": 1547.9,
+        "bottom": 1579.9,
+        "inView": false
+      }
+    },
+    "mid": {
+      "mainScrollH": 1548,
+      "mainClientH": 844,
+      "scrollTop": 697,
+      "save": {
+        "top": 850.9,
+        "bottom": 882.9,
+        "inView": true
+      }
+    }
+  },
+  "f5-390-dark": {
+    "errors": [],
+    "before": {
+      "mainScrollH": 2116,
+      "mainClientH": 788,
+      "scrollTop": 0,
+      "save": {
+        "top": 2107.8,
+        "bottom": 2147.8,
+        "inView": false
+      }
+    },
+    "mid": {
+      "mainScrollH": 2116,
+      "mainClientH": 788,
+      "scrollTop": 952,
+      "save": {
+        "top": 1155.8,
+        "bottom": 1195.8,
+        "inView": false
+      }
+    }
+  }
+}

@@ -3466,6 +3466,7 @@ const en = {
       usage: "Traffic used",
       overQuota: "You have exceeded the package quota; nodes are paused",
       used: "Used",
+      usedOfLimit: "Used / quota",
       unlimited: "Unlimited",
       longTerm: "No expiry",
       dayUnit: "days",
@@ -3473,6 +3474,9 @@ const en = {
       expiresAt: "Expires",
       todayUsage: "Today's usage",
       dailyAverage: "7-day average",
+      resetDay: "Reset day",
+      resetDayValue: "Day {day} monthly",
+      noReset: "No auto reset",
     },
     subscription: {
       title: "My subscription",

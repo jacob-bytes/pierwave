@@ -213,6 +213,31 @@ get_status_summary
 结果顶层带 `truncated` 布尔值：为 `true` 表示上述任一查询发生了截断，
 调用方不能把它当成完整清单。`get_user_traffic` 的 `days` 上限 90 天，不受此限制。
 
+#### `truncated`：客户端必须检查 / Clients must check `truncated`
+
+三个列表工具的结果顶层**总是**带 `truncated` 字段：
+
+```json
+{ "servers": [ /* 最多 500 行 */ ], "truncated": true }
+```
+
+- `false`：本次结果在 500 行上限内，可以当成完整清单处理；
+- `true`：至少一条底层查询被截断。返回的行可能不全，由这些行算出的分组数量 /
+  成员数量 / 健康状态计数同样可能偏小；
+- 这些工具**没有**分页、`offset` 或 `cursor` 参数：重试同一个请求不会拿到剩下的
+  行。客户端应把结果标记为「不完整」并告知用户，不要把它当成全量清单继续做统计
+  或破坏性操作；
+- `get_user_traffic` 没有这个字段：它用 `days`（≤ 90）限制范围，不做行截断。
+
+English: the three list tools always include a top-level `truncated` boolean.
+`false` means the result stayed under the 500-row cap and can be treated as
+complete. `true` means at least one underlying query was cut: rows may be
+missing, and counts derived from those rows (groups, members, health) may be
+low. There is no pagination / `offset` / `cursor` argument, so retrying the same
+call will not fetch the rest — mark the result as incomplete and tell the user
+instead of treating it as a full inventory. `get_user_traffic` has no such field
+because it is bounded by `days` (max 90), not row truncation.
+
 #### 1. `list_servers`
 
 输入：无参数。
@@ -676,6 +701,21 @@ single chain cannot blow up the whole topology response. Their top-level
 `truncated` boolean is `true` when any of those queries was cut, so callers must
 not treat such a result as the complete list. `get_user_traffic` is bounded by
 its `days` parameter (max 90) instead.
+
+#### `truncated`: clients must check it
+
+Every list result carries a top-level `truncated` field:
+
+```json
+{ "servers": [ /* at most 500 rows */ ], "truncated": true }
+```
+
+`false` means the response stayed under the cap and is complete. `true` means at
+least one underlying query was cut, so rows and any counts derived from them may
+be incomplete. There is no pagination, `offset` or `cursor` argument — retrying
+the same call does not fetch the remainder. Treat the result as partial, surface
+that to the user, and never base destructive actions on it. `get_user_traffic`
+does not have this field: it is bounded by `days` (max 90), not by row count.
 
 #### 1. `list_servers`
 

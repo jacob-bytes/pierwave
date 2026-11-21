@@ -284,7 +284,17 @@ function SettingsPanelState({
 /** 每个 tab 自己的保存条；提交键只由所在表单决定。 */
 function SaveBar({ pending, dirty }: { pending: boolean; dirty: boolean }) {
   return (
-    <div className="flex flex-wrap items-center justify-end gap-3">
+    /*
+     * 吸底：设置页有 5 张卡 + 公开状态卡，保存按钮原本在整页最底部，
+     * 改一个字段要滚到底才能提交。sticky bottom 让它在滚动全程贴在
+     * 视口底部；滚动到底时又回到正常流里，不遮挡最后一张卡。
+     * 卡片标题不做吸顶：同一滚动容器里会有多个 sticky 标题互相顶替，
+     * 小屏还会占掉本就紧张的高度。
+     */
+    <div
+      data-slot="settings-savebar"
+      className="sticky bottom-0 z-20 flex flex-wrap items-center justify-end gap-3 border-t border-border bg-card/95 py-3 backdrop-blur-sm"
+    >
       <p className="text-xs text-muted-foreground">{t("settings.saveHint")}</p>
       <Button type="submit" disabled={pending || !dirty}>
         {pending ? (

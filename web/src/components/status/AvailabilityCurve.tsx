@@ -33,6 +33,9 @@ const Y_BOTTOM = 96;
 /** 方案 1：曲线固定 112px，纵轴只保留 100 / 50 / 0 三档。 */
 const PLOT_HEIGHT_CLASS = "h-[112px]";
 const Y_TICKS = [100, 50, 0] as const;
+/** 时间刻度：0 / 6 / 12 / 18 小时；<sm 只显示 0 / 12 与「现在」。 */
+const TICK_INDICES = [0, 6, 12, 18] as const;
+const MOBILE_HIDDEN_TICKS: ReadonlySet<number> = new Set([6, 18]);
 
 const TONE_LINE: Record<AvailabilityTone, string> = {
   ok: "text-primary",
@@ -174,8 +177,9 @@ export function AvailabilityCurve({
   const indexFromPointer = (event: PointerEvent<HTMLDivElement>): number =>
     indexFromClientX(event.clientX, event.currentTarget);
 
-  const tickIndices = [0, 6, 12, 18];
-  const tickLabels = tickIndices.map((index) => {
+  // <sm 只保留首 / 中 / 现在三个时间刻度（5 → 3）：plot 不变，hover /
+  // 键盘读数仍按 24 个小时桶取，隐藏的只是刻度文字。
+  const tickLabels = TICK_INDICES.map((index) => {
     const ts = tsAt(index);
     const range = formatHourRange(ts);
     return range === "—" ? range : range.slice(0, 5);
@@ -431,9 +435,16 @@ export function AvailabilityCurve({
             aria-hidden="true"
             className="mt-1.5 flex justify-between text-[10px] leading-none text-muted-foreground"
           >
-            {tickLabels.map((label, index) => (
-              <span key={`tick-${index}`} className="tnum">
-                {label}
+            {TICK_INDICES.map((tick, index) => (
+              <span
+                key={`tick-${tick}`}
+                data-tick-index={tick}
+                className={cn(
+                  "tnum",
+                  MOBILE_HIDDEN_TICKS.has(tick) && "max-sm:hidden",
+                )}
+              >
+                {tickLabels[index]}
               </span>
             ))}
             <span>{t("publicStatus.detail.now")}</span>

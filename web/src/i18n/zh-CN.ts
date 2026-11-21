@@ -3278,6 +3278,7 @@ const zhCN = {
       usage: "已用流量",
       overQuota: "已超出套餐额度，节点将暂停使用",
       used: "已用",
+      usedOfLimit: "已用 / 总额度",
       unlimited: "不限",
       longTerm: "长期有效",
       dayUnit: "天",
@@ -3285,6 +3286,9 @@ const zhCN = {
       expiresAt: "到期时间",
       todayUsage: "今日用量",
       dailyAverage: "近 7 天日均",
+      resetDay: "重置日",
+      resetDayValue: "每月 {day} 日",
+      noReset: "不自动重置",
     },
     subscription: {
       title: "我的订阅",

@@ -13,7 +13,7 @@ import type {
   OverviewTopUser,
 } from "./api.ts";
 import { entryMember, formatMemberEndpoint } from "./chains.ts";
-import { lineDashArray, lineOpacity } from "./chainTopology.ts";
+import { lineDashArray } from "./chainTopology.ts";
 
 const GIB = 1024 ** 3;
 const TIB = 1024 ** 4;
@@ -176,9 +176,10 @@ export interface ProtocolTrendLine {
   /** recharts 的 dataKey；协议名不直接当 key，避免特殊字符影响取数。 */
   key: string;
   protocol: string;
-  /** 线型（实线 / 虚线 / 点线…），与延迟趋势图共用同一套。 */
+  /** 线型（实线 / 虚线 / 点线 / 点划线），与延迟趋势图共用同一套。 */
   dash: string | undefined;
-  opacity: number;
+  /** 主色的明度档位 0..3，对应 CSS 变量 `--series-1` … `--series-4`。 */
+  tone: number;
 }
 
 export interface ProtocolTrendPoint {
@@ -197,7 +198,8 @@ export interface ProtocolTrend {
  * 后端已经按下行降序、补齐日期、最多 4 + other；这里再防御一次：
  * - 丢弃非有限值 / 非正的字节与空的协议名，避免画出全 0 的噪音线；
  * - 日期取并集升序，某条线缺某天按 0 计；
- * - 超过 `limit` 条时把尾部协议合并进 `other`，保证最多 `limit + 1` 条线。
+ * - 最多返回 `limit` 条线（默认 4）；协议更多时预留最后一格给 `other`，
+ *   保证图例与配色永远不会超过四档明度。
  */
 export function protocolTrend(
   series: readonly OverviewProtocolSeries[] | null | undefined,
@@ -232,11 +234,15 @@ export function protocolTrend(
   ].sort();
   if (days.length === 0) return { lines: [], rows: [] };
 
-  const buckets = normalized.slice(0, max).map((row) => ({
+  // 协议数超过上限时，最后一格留给 other：例如 limit=4 + 5 个协议时，
+  // 展示前 3 个 + other，总数仍是 4，不出现第二梯队看不见的「幽灵线」。
+  const keep =
+    normalized.length > max ? Math.max(0, max - 1) : normalized.length;
+  const buckets = normalized.slice(0, keep).map((row) => ({
     protocol: row.protocol,
     byDay: row.byDay,
   }));
-  const overflow = normalized.slice(max);
+  const overflow = normalized.slice(keep);
   if (overflow.length > 0) {
     const other = new Map<string, number>();
     for (const row of overflow) {
@@ -251,7 +257,7 @@ export function protocolTrend(
     key: `p${index}`,
     protocol: bucket.protocol,
     dash: lineDashArray(index),
-    opacity: lineOpacity(index),
+    tone: index % 4,
   }));
 
   const rows: ProtocolTrendPoint[] = days.map((day) => {

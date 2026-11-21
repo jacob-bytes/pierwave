@@ -1,0 +1,35 @@
+{
+  "dark": {
+    "tokens": {
+      "series-1": 5.99,
+      "series-2": 7.41,
+      "series-3": 9.25,
+      "series-4": 11.48
+    },
+    "renderedLegendMarks": [
+      3.85,
+      4.63,
+      5.63,
+      6.84
+    ]
+  },
+  "light": {
+    "tokens": {
+      "series-1": 8.84,
+      "series-2": 7.13,
+      "series-3": 5.68,
+      "series-4": 4.96
+    },
+    "renderedLegendMarks": [
+      4.81,
+      4.03,
+      3.4,
+      3.1
+    ]
+  },
+  "background": {
+    "dark_card": "#101013",
+    "light_card": "#ffffff"
+  },
+  "note": "Token ratios computed from OKLCH -> linear sRGB (WCAG relative luminance); rendered ratios sampled from 1x screenshot pixels at legend line marks (antialiasing makes them lower than the token value)."
+}

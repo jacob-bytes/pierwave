@@ -5,11 +5,55 @@ use axum::middleware::Next;
 use axum::response::Response;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
+use tower_http::compression::predicate::{DefaultPredicate, Predicate};
+use tower_http::compression::CompressionLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
 use crate::routes;
 use crate::state::AppState;
+
+/// 哪些响应值得 gzip。
+///
+/// 默认谓词（[`DefaultPredicate`]）已经跳过图片、gRPC、SSE 与小于 32 字节的
+/// 响应；这里额外跳过**已经压缩过的二进制**：
+///
+/// * `/api/agent/download/{file}` 与 `/api/agent/release/{*rest}` 用
+///   `application/octet-stream` 下发 Agent 二进制，再 gzip 只会白烧 CPU、
+///   还会让客户端多一层解码；
+/// * `application/zip` / `application/gzip` 同理。
+///
+/// JSON（含公开状态页、订阅、MCP）与静态资源里的 HTML / JS / CSS 照常压缩。
+#[derive(Clone)]
+struct CompressibleResponse(DefaultPredicate);
+
+/// 已经压缩过、不值得再 gzip 的 Content-Type 前缀。
+const ALREADY_COMPRESSED: [&str; 4] = [
+    "application/octet-stream",
+    "application/zip",
+    "application/gzip",
+    "application/x-gzip",
+];
+
+impl Predicate for CompressibleResponse {
+    fn should_compress<B>(&self, response: &axum::http::Response<B>) -> bool
+    where
+        B: axum::body::HttpBody,
+    {
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default();
+        if ALREADY_COMPRESSED
+            .iter()
+            .any(|skip| content_type.starts_with(skip))
+        {
+            return false;
+        }
+        self.0.should_compress(response)
+    }
+}
 
 /// 所有响应都会带上的基础安全头。
 ///
@@ -90,6 +134,11 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v1/health", get(routes::system::health))
         // 公开状态页：无需登录；关闭开关由 handler 自身判断并返回 404。
         .route("/api/v1/public/status", get(routes::public_status::status))
+        // 单台服务器的详情（含 24h 趋势）：列表不再带上 `series_24h`。
+        .route(
+            "/api/v1/public/status/{id}",
+            get(routes::public_status::detail),
+        )
         // 公开状态页白名单（仅管理员）：读全量列表 / 用 id 列表整体替换。
         .route(
             "/api/v1/public-status/servers",
@@ -382,6 +431,10 @@ pub fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(crate::error::map_json_rejections))
         .layer(axum::middleware::from_fn(security_headers))
         .layer(TraceLayer::new_for_http().make_span_with(make_span))
+        // gzip 必须包在最外层：公开状态页、MCP、订阅等 JSON 体积大且重复度高，
+        // 压缩后通常只剩 5%–10%；二进制下载由谓词跳过（见 [`CompressibleResponse`]）。
+        // tower-http 会自动补 `Content-Encoding: gzip` 与 `Vary: Accept-Encoding`。
+        .layer(CompressionLayer::new().compress_when(CompressibleResponse(DefaultPredicate::new())))
 }
 
 #[cfg(test)]
@@ -538,6 +591,95 @@ mod tests {
                 .expect("HTTPS 访问必须带 HSTS"),
             "max-age=31536000"
         );
+    }
+
+    /// gzip 对全站 JSON 生效：`Content-Encoding: gzip` + `Vary: Accept-Encoding`，
+    /// 解压后与不压缩的响应完全一致。
+    #[tokio::test]
+    async fn json_responses_are_gzipped_when_the_client_accepts_it() {
+        use axum::response::IntoResponse;
+        use tower_http::compression::predicate::{DefaultPredicate, Predicate};
+
+        use pierwave_domain::repo;
+
+        let db = Db::connect("sqlite::memory:").await.unwrap();
+        db.migrate().await.unwrap();
+        let state = AppState::new(db, "web/dist");
+        // 一台服务器就足够让响应明显大于 32 字节的压缩阈值。
+        repo::servers::create(&state.db.pool, "edge-1", "203.0.113.9", "external")
+            .await
+            .unwrap();
+        let app = router(state);
+
+        let plain = get(&app, "/api/v1/public/status", None).await;
+        assert_eq!(plain.status(), StatusCode::OK);
+        assert!(
+            plain.headers().get(header::CONTENT_ENCODING).is_none(),
+            "客户端没有 Accept-Encoding 时不能压缩"
+        );
+        let plain_body = axum::body::to_bytes(plain.into_body(), 4 * 1024 * 1024)
+            .await
+            .unwrap();
+
+        let compressed = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/v1/public/status")
+                    .header(header::ACCEPT_ENCODING, "gzip")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(compressed.status(), StatusCode::OK);
+        assert_eq!(
+            compressed
+                .headers()
+                .get(header::CONTENT_ENCODING)
+                .expect("必须带 Content-Encoding"),
+            "gzip"
+        );
+        let vary = compressed
+            .headers()
+            .get(header::VARY)
+            .expect("压缩响应必须带 Vary")
+            .to_str()
+            .unwrap()
+            .to_ascii_lowercase();
+        assert!(vary.contains("accept-encoding"), "Vary = {vary}");
+        let bytes = axum::body::to_bytes(compressed.into_body(), 4 * 1024 * 1024)
+            .await
+            .unwrap();
+        assert!(bytes.len() < plain_body.len(), "gzip 应该更小");
+        let mut decoder = flate2::read::GzDecoder::new(&bytes[..]);
+        let mut decoded = Vec::new();
+        std::io::Read::read_to_end(&mut decoder, &mut decoded).unwrap();
+        assert_eq!(decoded, plain_body, "解压后必须与未压缩响应逐字节一致");
+
+        // 二进制下载（application/octet-stream）与图片不压缩：默认谓词负责
+        // 图片 / SSE / gRPC / 32 字节以下，[`CompressibleResponse`] 负责二进制。
+        let predicate = CompressibleResponse(DefaultPredicate::new());
+        for (content_type, expected) in [
+            ("application/octet-stream", false),
+            ("application/zip", false),
+            ("image/png", false),
+            ("application/json", true),
+            ("text/html; charset=utf-8", true),
+        ] {
+            let response = (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, content_type)],
+                Body::from(vec![b'x'; 1024]),
+            )
+                .into_response();
+            assert_eq!(
+                predicate.should_compress(&response),
+                expected,
+                "content-type = {content_type}"
+            );
+        }
     }
 
     #[test]

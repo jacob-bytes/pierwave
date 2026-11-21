@@ -286,10 +286,37 @@ test("protocolTrend sorts by downlink and merges the tail into other", () => {
 
   assert.deepEqual(
     trend.lines.map((line) => line.protocol),
-    ["vless", "vmess", "trojan", "ss", "other"],
+    ["vless", "vmess", "trojan", "other"],
+    "上限是 4 条（含 other），第 4 名之后的协议合并",
   );
+  assert.equal(trend.lines.length, 4);
   assert.equal(trend.rows[0].p0, 60);
-  assert.equal(trend.rows[0].p4, 30, "other = http 10 + socks 20");
+  assert.equal(trend.rows[0].p3, 60, "other = ss 30 + socks 20 + http 10");
+});
+
+test("protocolTrend keeps exactly four distinct lines when there are four protocols", () => {
+  const trend = protocolTrend([
+    protocolSeries("vless", [["2026-11-15", 4]]),
+    protocolSeries("vmess", [["2026-11-15", 3]]),
+    protocolSeries("trojan", [["2026-11-15", 2]]),
+    protocolSeries("ss", [["2026-11-15", 1]]),
+  ]);
+
+  assert.deepEqual(
+    trend.lines.map((line) => line.protocol),
+    ["vless", "vmess", "trojan", "ss"],
+    "正好 4 条时不需要 other",
+  );
+  assert.deepEqual(
+    trend.lines.map((line) => line.tone),
+    [0, 1, 2, 3],
+    "四条线各用一档主色明度",
+  );
+  assert.deepEqual(
+    trend.lines.map((line) => line.dash),
+    [undefined, "6 3", "2 3", "8 3 2 3"],
+    "明度之外仍有四种线型",
+  );
 });
 
 test("protocolTrend fills missing days and never draws all-zero lines", () => {

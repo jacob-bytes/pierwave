@@ -327,7 +327,8 @@ fn is_public_api_path(path: &str) -> bool {
     matches!(
         path,
         "/api/v1/health" | "/api/v1/public/status" | "/api/v1/auth/login"
-    ) || path.starts_with("/api/v1/sub/")
+    ) || path.starts_with("/api/v1/public/status/")
+        || path.starts_with("/api/v1/sub/")
 }
 
 /// 该路径是否受「按 IP 的认证失败锁定」保护。
@@ -936,6 +937,8 @@ mod tests {
         for path in [
             "/api/v1/health",
             "/api/v1/public/status",
+            // 公开详情是列表的延伸：同样不能被 IP 锁定挡在门外。
+            "/api/v1/public/status/6f1c2a9e-0000-4000-8000-000000000001",
             "/api/v1/auth/login",
             "/api/v1/sub/abc123",
             "/mcp",

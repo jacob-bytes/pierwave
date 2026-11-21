@@ -893,7 +893,21 @@ GET /api/v1/public/status
 - 设置项 `public_billing_visible`（默认 1）控制费用与到期是否公开：为 0 时
   `paid_until` / `price_cents` / `currency` / `billing_cycle` 全部为 `null`，
   响应顶层 `billing_hidden = true`；为 1 时是 `false`；
-- 结果缓存 30 秒，避免被打爆（白名单与费用可见性变更会立即失效缓存）。
+- 列表**不返回**逐台 `series_24h`：它拆到
+  `GET /api/v1/public/status/{id}`（`{ server, series_24h }`），未知 id 与被
+  隐藏服务器统一 404 `public_status.not_found`；1000 台时列表因此从 2.9 MB
+  降到 2.0 MB。详见 [PUBLIC-STATUS.md](PUBLIC-STATUS.md)；
+- 全站 JSON 响应启用 gzip（`Content-Encoding: gzip` + `Vary: Accept-Encoding`），
+  Agent 二进制下载等已压缩内容跳过；
+- 结果缓存 30 秒，避免被打爆（白名单与费用可见性变更会立即失效缓存；列表与
+  详情共用同一份快照）。
+
+English: the list no longer returns the per-server `series_24h`; it lives on
+`GET /api/v1/public/status/{id}` (`{ server, series_24h }`), with unknown ids and
+whitelist-hidden servers both returning `404 public_status.not_found`. At 1000
+servers the list drops from 2.9 MB to 2.0 MB. All JSON responses are gzipped
+(`Content-Encoding: gzip` + `Vary: Accept-Encoding`); already-compressed agent
+binaries are skipped. The list and detail share one 30-second snapshot cache.
 
 ### 前端
 

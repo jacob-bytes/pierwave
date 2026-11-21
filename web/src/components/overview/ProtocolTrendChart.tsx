@@ -44,13 +44,23 @@ function LineMark({ line }: { line: ProtocolTrendLine | undefined }) {
         y1="3"
         x2="16"
         y2="3"
-        stroke="var(--primary)"
-        strokeOpacity={line?.opacity ?? 1}
+        stroke={seriesColor(line?.tone ?? 0)}
         strokeWidth={1.5}
         strokeDasharray={line?.dash}
       />
     </svg>
   );
+}
+
+/**
+ * 四档同色明度的 stroke。
+ *
+ * 只引用 CSS 变量，不写死颜色：暗色四档都 ≥5.9:1，亮色四档都 ≥4.5:1；
+ * 线型仍由 `lineDashArray()` 提供，黑白截图 / 色盲下也能区分。
+ */
+function seriesColor(tone: number): string {
+  const index = Math.min(3, Math.max(0, Math.floor(tone)));
+  return `var(--series-${index + 1})`;
 }
 
 interface TooltipEntry {
@@ -128,11 +138,12 @@ function TrendCursor({
 /**
  * 协议趋势折线图：每种协议每天的下行流量。
  *
- * 区分方式以**线型**为主（实线 / 虚线 / 点线 / 点划线…），颜色统一用主色，
- * 透明度只做次级区分——与 `LatencyChart` 共用 `lineDashArray` / `lineOpacity`，
- * 色盲和黑白截图里也能看出是哪条线。
+ * 区分方式同时用**明度**和**线型**：颜色是 primary 的四档明度
+ * （`--series-1` … `--series-4`），线型是实线 / 虚线 / 点线 / 点划线。
+ * 不再靠透明度：低透明度会把最次要的一条压到 3:1 以下，深色底上几乎看不见。
+ * 色盲和黑白截图里也能靠线型分辨。
  *
- * 最多 5 条线（4 个协议 + other），由 `protocolTrend()` 兜底合并。
+ * 最多 4 条线（含 other），由 `protocolTrend()` 兜底合并。
  */
 export default function ProtocolTrendChart({
   series,
@@ -157,6 +168,7 @@ export default function ProtocolTrendChart({
         {trend.lines.map((line) => (
           <span
             key={line.key}
+            data-series={line.key}
             className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
           >
             <LineMark line={line} />
@@ -210,8 +222,7 @@ export default function ProtocolTrendChart({
                 type="monotone"
                 dataKey={line.key}
                 name={t(protocolLabel(line.protocol))}
-                stroke="var(--primary)"
-                strokeOpacity={line.opacity}
+                stroke={seriesColor(line.tone)}
                 strokeWidth={1.5}
                 strokeDasharray={line.dash}
                 dot={
@@ -219,14 +230,14 @@ export default function ProtocolTrendChart({
                     ? {
                         r: 2.5,
                         fill: "var(--card)",
-                        stroke: "var(--primary)",
+                        stroke: seriesColor(line.tone),
                         strokeWidth: 1.5,
                       }
                     : false
                 }
                 activeDot={{
                   r: 3,
-                  fill: "var(--primary)",
+                  fill: seriesColor(line.tone),
                   stroke: "var(--card)",
                   strokeWidth: 1.5,
                 }}

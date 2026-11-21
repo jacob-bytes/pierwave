@@ -61,7 +61,7 @@ import {
   formatHourRange,
   formatRelativeTime,
 } from "@/lib/time";
-import { usePublicStatus } from "@/lib/queries";
+import { usePublicStatus, usePublicStatusDetail } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 /**
@@ -75,7 +75,9 @@ import { cn } from "@/lib/utils";
  *    + 入站数量 / 延迟趋势。
  * ④ 费用与流量：58/42 分栏，去掉嵌套盒；390 堆叠且保留全部数值。
  *
- * 数据仍只来自 `GET /api/v1/public/status`；新增字段全部是可选，旧后端
+ * 数据来自 `GET /api/v1/public/status/:id`（单机详情，含 24h 序列）；
+ * 旧后端没有该接口时回落到列表 `GET /api/v1/public/status`，此时若列表
+ * 也不再返回 `series_24h`，迷你趋势整体隐藏而不是报错。新增字段全部可选，
  * 缺失时按 `—` 或整项隐藏处理（见各字段旁的注释）。
  */
 
@@ -1134,8 +1136,22 @@ function StatePanel({
 export default function StatusDetailPage({ id }: { id: string }) {
   const { t } = useI18n();
   const status = usePublicStatus();
+  // 详情接口与列表并行请求：列表负责页头 / 404 判定与兜底，详情负责
+  // `series_24h`（新后端已从列表里移除逐机序列）。旧后端没有该接口时
+  // 一直 404，页面照常用列表数据渲染，不进入错误态。
+  const detail = usePublicStatusDetail(id);
   const disabled = status.isError && isNotFound(status.error);
-  const server = status.data?.servers.find((item) => item.id === id) ?? null;
+  const listServer =
+    status.data?.servers.find((item) => item.id === id) ?? null;
+  const detailData = detail.data?.server?.id === id ? detail.data : undefined;
+  const server = detailData
+    ? {
+        ...detailData.server,
+        // 详情接口的顶层序列优先；列表兜底时沿用旧后端仍可能带上的字段。
+        series_24h:
+          detailData.series_24h ?? detailData.server.series_24h ?? null,
+      }
+    : listServer;
   const panelName =
     status.data?.panel_name?.trim() || t("publicStatus.headingFallback");
 

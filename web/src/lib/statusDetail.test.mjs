@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const read = (relative) => readFileSync(path.join(HERE, relative), "utf8");
 
-test("the detail page is wired as a public route without a new API", () => {
+test("the detail page is wired as a public route and reads the detail endpoint", () => {
   const app = read("../App.tsx");
   assert.match(app, /StatusDetailPage = lazy/);
   assert.match(app, /publicStatusServerId/);
@@ -21,6 +21,7 @@ test("the detail page is wired as a public route without a new API", () => {
 
   const page = read("../pages/StatusDetail.tsx");
   assert.match(page, /usePublicStatus\(\)/);
+  assert.match(page, /usePublicStatusDetail\(id\)/);
   assert.match(page, /buckets_24h/);
   assert.match(page, /summarizeAvailability/);
   assert.doesNotMatch(page, /\bfetch\(|api\.[a-zA-Z]+\(/);
@@ -185,4 +186,32 @@ test("P1 geometry: 112px curve with three y ticks, 82/70px rings, 58/42 split", 
   assert.match(page, /sm:basis-\[56%\]/);
   assert.match(page, /size-\[70px\] shrink-0 sm:size-\[82px\]/);
   assert.match(page, /sm:flex-row/);
+});
+
+test("the detail endpoint 404 falls back to list data and never errors the page", () => {
+  const page = read("../pages/StatusDetail.tsx");
+  const queries = read("./queries.ts");
+
+  // 详情接口必须按 id 调用，且只在 server.id 对得上时采用。
+  assert.match(page, /usePublicStatusDetail\(id\)/);
+  assert.match(page, /detail\.data\?\.server\?\.id === id/);
+  // 顶层 series_24h 优先，其次旧后端 server 上的字段；都没有时 null → 图表隐藏。
+  assert.match(
+    page,
+    /detailData\.series_24h \?\? detailData\.server\.series_24h \?\? null/,
+  );
+  assert.match(page, /: listServer/);
+  // 详情失败只落到 listServer，不能进入页面级错误态。
+  assert.doesNotMatch(page, /detail\.isError/);
+  assert.doesNotMatch(page, /detail\.error/);
+
+  // 查询层：404 不重试、不轮询；正常态仍 20 秒刷新。
+  const detailHook = queries.slice(
+    queries.indexOf("export function usePublicStatusDetail"),
+  );
+  assert.ok(detailHook.length > 0, "必须在 queries.ts 里提供详情查询");
+  assert.match(detailHook, /retry: false/);
+  assert.match(detailHook, /query\.state\.error\.status === 404/);
+  assert.match(detailHook, /return PUBLIC_STATUS_POLL_MS/);
+  assert.match(detailHook, /refetchIntervalInBackground:\s*false/);
 });

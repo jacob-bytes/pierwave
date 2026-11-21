@@ -71,6 +71,7 @@ import {
   type Package,
   type Paged,
   type PublicStatus,
+  type PublicStatusDetail,
   type PublicStatusServerChoice,
   type RecentLogin,
   type RevokeOtherSessionsResponse,
@@ -150,6 +151,8 @@ export const queryKeys = {
   health: ["health"] as const,
   /** P10：公开状态页；不需要登录态，单独缓存。 */
   publicStatus: ["public-status"] as const,
+  /** 单机详情；按 id 缓存，列表轮询与详情轮询互不覆盖。 */
+  publicStatusDetail: (id: string) => ["public-status", "detail", id] as const,
   /** 管理端「公开节点」白名单；与公开页数据分开缓存。 */
   publicStatusServers: ["public-status", "servers"] as const,
   statsOverview: ["stats", "overview"] as const,
@@ -302,6 +305,35 @@ export function usePublicStatus() {
     },
     // 页签隐藏时 React Query 本身就跳过这个 interval；显式写出来，
     // 避免以后有人把全局默认改成 true 时悄悄恢复后台轮询。
+    refetchIntervalInBackground: false,
+  });
+  useRefetchWhenVisible(query.refetch);
+  return query;
+}
+
+/**
+ * 公开状态页单机详情（`GET /api/v1/public/status/:id`）。
+ *
+ * 与列表查询同节奏：正常态 20 秒轮询、切回页签立即补拉；`retry: false` 让
+ * 旧后端的 404 立刻返回，调用方用列表数据兜底，而不是把详情页打成错误态。
+ * 404 表示接口还没上线或公开页被关闭，停止轮询；页面本身仍由列表查询驱动。
+ */
+export function usePublicStatusDetail(id: string) {
+  const query = useQuery<PublicStatusDetail>({
+    queryKey: queryKeys.publicStatusDetail(id),
+    queryFn: async () => api.publicStatusDetail(id),
+    enabled: Boolean(id),
+    retry: false,
+    staleTime: 15_000,
+    refetchInterval: (query) => {
+      if (
+        query.state.error instanceof ApiError &&
+        query.state.error.status === 404
+      ) {
+        return false;
+      }
+      return PUBLIC_STATUS_POLL_MS;
+    },
     refetchIntervalInBackground: false,
   });
   useRefetchWhenVisible(query.refetch);

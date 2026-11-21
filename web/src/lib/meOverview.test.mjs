@@ -7,6 +7,7 @@ import {
   dailyAverage,
   daysTone,
   hasTrafficSamples,
+  planResetDay,
   trafficWindowTotal,
   trafficTone,
 } from "./meOverview.ts";
@@ -154,5 +155,64 @@ test("trafficWindowTotal hides an empty window and sums a sampled one", () => {
       { weighted: 300 },
     ]),
     400,
+  );
+});
+
+test("planResetDay matches the primary instance by name and expiry", () => {
+  const plan = { name: "月卡", expires_at: 1_800_000_000 };
+  const packages = [
+    { package_name: "月卡", expires_at: 1_700_000_000, reset_day: 3 },
+    { package_name: "月卡", expires_at: 1_800_000_000, reset_day: 5 },
+    { package_name: "年卡", expires_at: 1_800_000_000, reset_day: 1 },
+  ];
+  assert.equal(planResetDay(plan, packages), 5, "同名旧实例不参与匹配");
+  // 同一份明细里两张完全匹配：取最后一张，和后端「最新可用」一致。
+  assert.equal(
+    planResetDay(plan, [
+      ...packages,
+      { package_name: "月卡", expires_at: 1_800_000_000, reset_day: 9 },
+    ]),
+    9,
+  );
+});
+
+test("planResetDay distinguishes no reset from unknown data", () => {
+  const plan = { name: "月卡", expires_at: 1_800_000_000 };
+  assert.equal(
+    planResetDay(plan, [
+      { package_name: "月卡", expires_at: 1_800_000_000, reset_day: null },
+    ]),
+    null,
+    "实例明确不重置",
+  );
+  assert.equal(
+    planResetDay(plan, [
+      { package_name: "月卡", expires_at: 1_800_000_000 },
+    ]),
+    null,
+    "字段缺失按「不重置」处理（与后端 null 同义）",
+  );
+  assert.equal(
+    planResetDay(plan, [
+      { package_name: "年卡", expires_at: 1_800_000_000, reset_day: 5 },
+    ]),
+    undefined,
+    "匹配不到实例时不能谎报重置日",
+  );
+  assert.equal(
+    planResetDay(null, [{ package_name: "月卡", expires_at: null }]),
+    undefined,
+  );
+  assert.equal(planResetDay(plan, null), undefined);
+  assert.equal(planResetDay(plan, []), undefined);
+});
+
+test("planResetDay ignores non-finite reset days", () => {
+  const plan = { name: "月卡", expires_at: null };
+  assert.equal(
+    planResetDay(plan, [
+      { package_name: "月卡", expires_at: null, reset_day: Number.NaN },
+    ]),
+    null,
   );
 });

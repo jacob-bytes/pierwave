@@ -1,0 +1,112 @@
+{
+  "list-fallback-detail-404-390-light": {
+    "mode": "404",
+    "file": "web/screenshots/f1-f5-fixes-1121/contract/list-fallback-detail-404-390-light.png",
+    "metrics": {
+      "rateTrend": 0,
+      "latencyTrendText": false,
+      "kpi": "延迟 | 28 | ms | 24h 可用率 | 100 | % | 当前速率 | MB/s | 下行 | 1.8 | · | 上行 | 0.5",
+      "name": "PierWave",
+      "errorPanel": false,
+      "docScrollW": 390,
+      "clientW": 390
+    },
+    "polling": null,
+    "pageErrors": []
+  },
+  "list-fallback-detail-404-390-dark": {
+    "mode": "404",
+    "file": "web/screenshots/f1-f5-fixes-1121/contract/list-fallback-detail-404-390-dark.png",
+    "metrics": {
+      "rateTrend": 0,
+      "latencyTrendText": false,
+      "kpi": "延迟 | 28 | ms | 24h 可用率 | 100 | % | 当前速率 | MB/s | 下行 | 1.8 | · | 上行 | 0.5",
+      "name": "PierWave",
+      "errorPanel": false,
+      "docScrollW": 390,
+      "clientW": 390
+    },
+    "polling": null,
+    "pageErrors": []
+  },
+  "detail-top-level-series-390-light": {
+    "mode": "ok",
+    "file": "web/screenshots/f1-f5-fixes-1121/contract/detail-top-level-series-390-light.png",
+    "metrics": {
+      "rateTrend": 1,
+      "latencyTrendText": true,
+      "kpi": "延迟 | 28 | ms | 24h 可用率 | 100 | % | 当前速率 | MB/s | 下行 | 1.8 | · | 上行 | 0.5",
+      "name": "PierWave",
+      "errorPanel": false,
+      "docScrollW": 390,
+      "clientW": 390
+    },
+    "polling": null,
+    "pageErrors": []
+  },
+  "detail-top-level-series-390-dark": {
+    "mode": "ok",
+    "file": "web/screenshots/f1-f5-fixes-1121/contract/detail-top-level-series-390-dark.png",
+    "metrics": {
+      "rateTrend": 1,
+      "latencyTrendText": true,
+      "kpi": "延迟 | 28 | ms | 24h 可用率 | 100 | % | 当前速率 | MB/s | 下行 | 1.8 | · | 上行 | 0.5",
+      "name": "PierWave",
+      "errorPanel": false,
+      "docScrollW": 390,
+      "clientW": 390
+    },
+    "polling": null,
+    "pageErrors": []
+  },
+  "detail-top-level-series-1440-light": {
+    "mode": "ok",
+    "file": "web/screenshots/f1-f5-fixes-1121/contract/detail-top-level-series-1440-light.png",
+    "metrics": {
+      "rateTrend": 1,
+      "latencyTrendText": true,
+      "kpi": "延迟 | 28 | ms | 24h 可用率 | 100 | % | 当前速率 | MB/s | 下行 | 1.8 | · | 上行 | 0.5",
+      "name": "PierWave",
+      "errorPanel": false,
+      "docScrollW": 1440,
+      "clientW": 1440
+    },
+    "polling": null,
+    "pageErrors": []
+  },
+  "detail-series-null-390-dark": {
+    "mode": "series-null",
+    "file": "web/screenshots/f1-f5-fixes-1121/contract/detail-series-null-390-dark.png",
+    "metrics": {
+      "rateTrend": 0,
+      "latencyTrendText": false,
+      "kpi": "延迟 | 28 | ms | 24h 可用率 | 100 | % | 当前速率 | MB/s | 下行 | 1.8 | · | 上行 | 0.5",
+      "name": "PierWave",
+      "errorPanel": false,
+      "docScrollW": 390,
+      "clientW": 390
+    },
+    "polling": null,
+    "pageErrors": []
+  },
+  "detail-poll-20s-390-light": {
+    "mode": "ok",
+    "file": "web/screenshots/f1-f5-fixes-1121/contract/detail-poll-20s-390-light.png",
+    "metrics": {
+      "rateTrend": 1,
+      "latencyTrendText": true,
+      "kpi": "延迟 | 28 | ms | 24h 可用率 | 100 | % | 当前速率 | MB/s | 下行 | 1.8 | · | 上行 | 0.5",
+      "name": "PierWave",
+      "errorPanel": false,
+      "docScrollW": 390,
+      "clientW": 390
+    },
+    "polling": {
+      "requests": 2,
+      "gapsMs": [
+        20014
+      ]
+    },
+    "pageErrors": []
+  }
+}
