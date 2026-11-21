@@ -236,7 +236,12 @@ test("an empty library leaves hero numbers unknown (—), never 0", () => {
 test("filtering only narrows the list, never the hero source", () => {
   const page = read("../pages/Status.tsx");
   // hero 始终接收完整数据；筛选结果只用于下方的表格 / 网格。
-  assert.match(page, /<Hero summary=\{data\.summary\} servers=\{data\.servers\} \/>/);
+  assert.match(
+    page,
+    /<Hero[\s\S]*?summary=\{data\.summary\}[\s\S]*?servers=\{data\.servers\}/,
+  );
+  // 趋势序列从根级读；旧后端没有该字段时是 undefined → 空态。
+  assert.match(page, /series=\{data\.series \?\? null\}/);
   assert.match(page, /const filtered = filterPublicServers\(/);
   // 全部离线的说明只读 generated_at，不引入新的红色告警块。
   assert.match(page, /allOfflineNote/);

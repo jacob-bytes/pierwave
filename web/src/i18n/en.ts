@@ -232,6 +232,10 @@ const en = {
       averageUptime: "Avg 24h uptime",
       totalRate: "Total rate",
       load: "Load {value}",
+      chartEmpty: "Collecting data",
+      rateChart: "Total rate over the last hour",
+      latencyChart: "Average latency over the last hour",
+      uptimeChart: "Average uptime over the last 24 hours",
     },
     toolbar: {
       filter: "Filter nodes",

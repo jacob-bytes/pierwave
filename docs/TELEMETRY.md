@@ -48,6 +48,8 @@ uses the Xray and per-forward cumulative counters.
   没有心跳数据时四个字段都是 `null`，前端显示 `—`，绝不写 0。
 - 离线服务器的速率不展示（`servers.net_rx_bps` 是掉线前最后一次算出的值，
   画在「离线」卡上会被读成实时读数）；累计值仍展示，因为那是历史计数。
+- 三张迷你图的历史序列在同接口的 `series` 里：12 个 5 分钟桶、缺桶补 `null`。
+  字段、窗口边界与聚合口径见 [PUBLIC-STATUS.md](PUBLIC-STATUS.md)。
 - 公开页**不显示**价格 / 续费 / 到期：主控没有这些字段，也不在公开白名单里。
 
 English: the public status endpoint exposes `net_rx_bps` / `net_tx_bps` (same
@@ -57,8 +59,10 @@ boot (non-`lo` only). No extra aggregation table is added: those columns already
 the latest cumulative counters used for the rate delta. The total is "since boot", not
 lifetime (a reboot resets the agent counters), and the card tooltip says so. Missing
 data is `null` (UI `—`), never 0. Offline servers hide the rate (the last value would be
-mistaken for a live reading) but keep the cumulative totals. The public page shows no
-price / renewal / expiry fields at all.
+mistaken for a live reading) but keep the cumulative totals. The three mini-chart series live
+in the same response as `series`: 12 five-minute buckets with `null` gaps; see
+[PUBLIC-STATUS.md](PUBLIC-STATUS.md) for fields, window boundaries, and aggregation. The
+public page shows no price / renewal / expiry fields at all.
 
 ### 1.2 Top 服务器 sparkline / Top-server sparkline
 

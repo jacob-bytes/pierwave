@@ -1305,6 +1305,22 @@ pub struct ServerHourlyBucket {
     pub online_ratio: f64,
 }
 
+/// 公开状态页迷你图的一个 5 分钟桶，**跨服务器**聚合（只含在线采样）。
+///
+/// 三个数值列都是 `Option`：桶里没有任何可用数据时是 `None`（接口序列化为
+/// `null`），不是 0。0 会被前端画成「完全没有流量 / 0 ms」，与「没有数据」混淆。
+#[derive(Debug, Clone, Copy, PartialEq, FromRow)]
+pub struct ServerSeriesBucket {
+    /// 桶起点（Unix 秒，已对齐到 300 秒）。
+    pub ts: i64,
+    /// 桶内所有在线服务器的接收速率之和（字节/秒）；全为 NULL 时是 `None`。
+    pub rate_rx_bps: Option<f64>,
+    /// 同 [`ServerSeriesBucket::rate_rx_bps`]，发送方向。
+    pub rate_tx_bps: Option<f64>,
+    /// 桶内在线服务器延迟的算术平均（毫秒，四舍五入为整数）；全为 NULL 时是 `None`。
+    pub latency_ms: Option<i64>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct UserStats {
     pub total: i64,

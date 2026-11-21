@@ -173,14 +173,16 @@ sudo systemctl daemon-reload && sudo systemctl restart pierwave-agent
 `group_name`：自动去首尾空白，空串清空为 `NULL`，最长 32 个字符，拒绝控制字符
 （错误码见 [ERRORS.md](ERRORS.md)）。公开状态页的 `GET /api/v1/public/status`
 增加 `groups` 数组，具名分组按名称升序、未分组用 `name: null` 放在最后；`uptime_24h` 是组内可用率
-的算术平均，无采样时为 `null`。
+的算术平均，无采样时为 `null`。同一接口的迷你图 `series`（窗口、桶、`null` 语义）见
+[PUBLIC-STATUS.md](PUBLIC-STATUS.md)。
 
 > **Server groups.** `servers.group_name` (migration `0039`, nullable) is presentation-only.
 > Create/PATCH accept `group_name`, trimming whitespace, turning an empty string into `NULL`,
 > limiting it to 32 characters, and rejecting control characters (see [ERRORS.md](ERRORS.md)).
 > The public `GET /api/v1/public/status` response gains a `groups` array with named groups sorted by
 > name and ungrouped servers (`name: null`) last; `uptime_24h` is the mean member uptime and is `null`
-> when no samples exist.
+> when no samples exist. The same response's mini-chart `series` (window, buckets, `null` semantics)
+> is documented in [PUBLIC-STATUS.md](PUBLIC-STATUS.md).
 
 ## 服务器费用与到期 / Server cost and expiry
 

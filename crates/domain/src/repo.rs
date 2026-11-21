@@ -9579,6 +9579,36 @@ pub mod server_samples {
         .fetch_all(pool)
         .await?)
     }
+
+    /// `[since, until)` 内按 5 分钟桶聚合的公开迷你图数据，只返回有在线采样的桶。
+    ///
+    /// * 速率：桶内所有 `online = 1` 采样的 `SUM`；全部为 NULL（旧 Agent、首次
+    ///   心跳、回绕被丢弃）时 SQLite 的 `SUM` 本身就是 NULL，接口层按「无数据」处理；
+    /// * 延迟：桶内在线采样的 `AVG`，NULL 不参与平均，四舍五入成整数毫秒；
+    /// * 离线采样不参与：它的 `rx_bps` 只是掉线前的最后一帧，算进去会画出一条
+    ///   不存在的「离线机器仍在跑流量」；
+    /// * 一次 `GROUP BY ts` 查完整个窗口，不按服务器循环（没有 N+1）。缺桶由
+    ///   接口层补 `null`，这里不伪造空桶。
+    pub async fn series_buckets(
+        pool: &SqlitePool,
+        since: i64,
+        until: i64,
+    ) -> anyhow::Result<Vec<ServerSeriesBucket>> {
+        Ok(sqlx::query_as::<_, ServerSeriesBucket>(
+            "SELECT ts,
+                    SUM(rx_bps) AS rate_rx_bps,
+                    SUM(tx_bps) AS rate_tx_bps,
+                    CAST(ROUND(AVG(latency_ms)) AS INTEGER) AS latency_ms
+             FROM server_samples
+             WHERE ts >= ? AND ts < ? AND online = 1
+             GROUP BY ts
+             ORDER BY ts ASC",
+        )
+        .bind(since)
+        .bind(until)
+        .fetch_all(pool)
+        .await?)
+    }
 }
 
 pub mod stats {

@@ -200,6 +200,30 @@ export interface Health {
   panel_name?: string;
 }
 
+/**
+ * 公开状态页的趋势序列（后端新字段；旧后端不返回）。
+ *
+ * 四个数组按 **index 对齐**：`t[i]` 对应 `rate_rx_bps[i]` / `rate_tx_bps[i]` /
+ * `latency_ms[i]`。`null` = 该采样点没有数据 —— 前端断线，绝不用 0 填补；
+ * 整组缺失或全是 null 时，迷你图显示「数据收集中」而不是一条 0 的平线。
+ *
+ * 字段全部可选：旧后端、或后端某条序列暂时算不出来时，前端按空态处理。
+ */
+export interface PublicStatusSeries {
+  /** 窗口长度（秒），契约里是 3600。 */
+  window_secs?: number;
+  /** 采样步长（秒），契约里是 300。 */
+  step_secs?: number;
+  /** 采样时间（Unix 秒，升序）。 */
+  t?: number[];
+  /** 全站在线机器下行的合计速率（字节/秒）；单点可缺。 */
+  rate_rx_bps?: (number | null)[];
+  /** 全站在线机器上行的合计速率（字节/秒）；单点可缺。 */
+  rate_tx_bps?: (number | null)[];
+  /** 全站在线机器的平均延迟（毫秒）；单点可缺。 */
+  latency_ms?: (number | null)[];
+}
+
 /** P10：公开状态页的汇总数字，字段本身即白名单。 */
 export interface PublicStatusSummary {
   servers_total: number;
@@ -305,6 +329,11 @@ export interface PublicStatus {
   servers: PublicStatusServer[];
   /** 旧后端可能不返回；页面据此决定是否画分组聚合。 */
   groups?: PublicStatusGroup[];
+  /**
+   * 最近一小时的趋势序列（hero 迷你图用）；旧后端不返回。
+   * 缺失时速率 / 延迟两张图进空态，可用率图仍可由 `buckets_24h` 现算。
+   */
+  series?: PublicStatusSeries | null;
 }
 
 /** 主控生成的 Agent 运维命令；`install` 只在创建/重置后返回一次。 */

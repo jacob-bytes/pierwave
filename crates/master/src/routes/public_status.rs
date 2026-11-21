@@ -2,7 +2,10 @@
 //!
 //! 响应形状与 `docs/PLAN.md`「P10：探针公开页」一致，只读、只暴露白名单字段。
 //! 采样聚合全部走 `pierwave_domain::repo::server_samples`，这里只负责把行拼成
-//! 24 个小时桶并做 30 秒进程内缓存。
+//! 24 个小时桶 / 12 个 5 分钟迷你图桶并做 30 秒进程内缓存。
+//!
+//! `series` 是纯增量字段：窗口 60 分钟、12 个 5 分钟桶，缺桶补 `null`（不是 0）。
+//! 口径见 `docs/PUBLIC-STATUS.md`。
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -20,6 +23,13 @@ use crate::state::AppState;
 
 const HOUR_SECS: i64 = 3_600;
 const BUCKETS_24H: usize = 24;
+
+/// 公开页迷你图窗口：60 分钟。
+const SERIES_WINDOW_SECS: i64 = 3_600;
+/// 迷你图桶宽：5 分钟，与采样粒度一致。
+const SERIES_STEP_SECS: i64 = 300;
+/// 12 个桶 × 5 分钟 = 60 分钟。
+const SERIES_BUCKETS: usize = 12;
 
 /// 单台服务器的公开行：字段即白名单，绝不包含地址、token、用户数、套餐、证书。
 #[derive(Debug, Serialize)]
@@ -94,6 +104,26 @@ struct PublicStatus {
     servers: Vec<PublicServer>,
     /// 按 `servers.group_name` 聚合；未分组是 `name: null`，按名称升序。
     groups: Vec<PublicGroup>,
+    /// 三张迷你图的历史序列（纯增量字段，旧客户端忽略）。
+    series: PublicSeries,
+}
+
+/// 公开页三张迷你图的数据：固定 12 个 5 分钟桶，缺桶补 `null`。
+#[derive(Debug, Serialize)]
+struct PublicSeries {
+    /// 窗口长度（秒），固定 3600。
+    window_secs: i64,
+    /// 桶宽（秒），固定 300，与 5 分钟采样一致。
+    step_secs: i64,
+    /// 桶起点，升序，长度固定 12。
+    t: Vec<i64>,
+    /// 每个桶内所有**在线**机器的接收速率之和（字节/秒）；
+    /// 该桶没有在线采样、或在线样本全都没有速率时是 `null`，不是 0。
+    rate_rx_bps: Vec<Option<f64>>,
+    /// 同 [`PublicSeries::rate_rx_bps`]，发送方向。
+    rate_tx_bps: Vec<Option<f64>>,
+    /// 每个桶内在线机器延迟的算术平均（整数毫秒）；没有有效延迟时是 `null`。
+    latency_ms: Vec<Option<i64>>,
 }
 
 /// 一个分组的公开聚合。`uptime_24h` 是组内各服务器可用率的算术平均；
@@ -120,6 +150,18 @@ fn hour_bucket_starts(now: i64) -> Vec<i64> {
     (0..BUCKETS_24H)
         .rev()
         .map(|back| current - back as i64 * HOUR_SECS)
+        .collect()
+}
+
+/// 12 个 5 分钟桶的起点，升序：`now` 所在桶及其之前 11 个桶。
+///
+/// 与 [`hour_bucket_starts`] 同一个约定：最后一个桶是**当前**桶（可能只过了一部分），
+/// 因此 `now - 3600` 这类「刚好 60 分钟前」的采样会落在窗口外，不会挤进第一个桶。
+fn series_bucket_starts(now: i64) -> Vec<i64> {
+    let current = now - now.rem_euclid(SERIES_STEP_SECS);
+    (0..SERIES_BUCKETS)
+        .rev()
+        .map(|back| current - back as i64 * SERIES_STEP_SECS)
         .collect()
 }
 
@@ -164,6 +206,37 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
     }
 
     let starts = hour_bucket_starts(now);
+
+    // 迷你图：一次 SQL 聚合整个 60 分钟窗口，缺桶补 null。
+    let series_starts = series_bucket_starts(now);
+    let mut series_rows: HashMap<i64, _> = HashMap::new();
+    for row in repo::server_samples::series_buckets(
+        &state.db.pool,
+        series_starts[0],
+        series_starts[SERIES_BUCKETS - 1] + SERIES_STEP_SECS,
+    )
+    .await?
+    {
+        series_rows.insert(row.ts, row);
+    }
+    let series = PublicSeries {
+        window_secs: SERIES_WINDOW_SECS,
+        step_secs: SERIES_STEP_SECS,
+        t: series_starts.clone(),
+        rate_rx_bps: series_starts
+            .iter()
+            .map(|ts| series_rows.get(ts).and_then(|row| row.rate_rx_bps))
+            .collect(),
+        rate_tx_bps: series_starts
+            .iter()
+            .map(|ts| series_rows.get(ts).and_then(|row| row.rate_tx_bps))
+            .collect(),
+        latency_ms: series_starts
+            .iter()
+            .map(|ts| series_rows.get(ts).and_then(|row| row.latency_ms))
+            .collect(),
+    };
+
     let mut group_accumulators: BTreeMap<Option<String>, GroupAccumulator> = BTreeMap::new();
     let servers = servers
         .into_iter()
@@ -253,6 +326,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<Value>> {
         summary,
         servers,
         groups,
+        series,
     };
     let value = serde_json::to_value(response)
         .map_err(|error| AppError::Internal(anyhow::Error::from(error)))?;
@@ -363,6 +437,28 @@ mod tests {
             repo::servers::mark_offline(&state.db.pool, &id)
                 .await
                 .unwrap();
+        }
+    }
+
+    /// 迷你图固定 12 个桶、3 条等长数组，`t` 升序且步长 300。
+    fn assert_series_shape(series: &Value) {
+        assert_eq!(series["window_secs"], 3_600, "{series}");
+        assert_eq!(series["step_secs"], 300, "{series}");
+        let t = series["t"].as_array().unwrap();
+        assert_eq!(t.len(), 12, "{series}");
+        for pair in t.windows(2) {
+            assert_eq!(
+                pair[1].as_i64().unwrap() - pair[0].as_i64().unwrap(),
+                300,
+                "桶起点必须升序且步长 300：{series}"
+            );
+        }
+        for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+            assert_eq!(
+                series[key].as_array().unwrap().len(),
+                12,
+                "{key} 的长度必须与 t 一致：{series}"
+            );
         }
     }
 
@@ -615,6 +711,290 @@ mod tests {
         }
     }
 
+    /// 空库：`series` 仍有 12 个升序桶起点，三条序列全是 null（不是 0）。
+    #[tokio::test]
+    async fn series_is_twelve_null_buckets_without_samples() {
+        let (app, state) = setup().await;
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let series = &body["series"];
+        assert_series_shape(series);
+        let generated_at = body["generated_at"].as_i64().unwrap();
+        let current = generated_at - generated_at.rem_euclid(300);
+        let t = series["t"].as_array().unwrap();
+        assert_eq!(
+            t[11].as_i64().unwrap(),
+            current,
+            "最后一个桶是当前 5 分钟桶"
+        );
+        assert_eq!(t[0].as_i64().unwrap(), current - 11 * 300);
+        for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+            assert!(
+                series[key].as_array().unwrap().iter().all(Value::is_null),
+                "空库时 {key} 必须全是 null：{body}"
+            );
+        }
+
+        // 有服务器但从未采样：同样是 null，不是 0。
+        state.public_status.clear();
+        seed_server(&state, "edge-1", "203.0.113.9").await;
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+            assert!(
+                body["series"][key]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(Value::is_null),
+                "从未采样时 {key} 必须全是 null：{body}"
+            );
+        }
+    }
+
+    /// 部分服务器有数据：速率只求和在线样本、NULL 不参与；延迟取在线均值；
+    /// 离线样本不计入（否则会画出「离线机器仍在跑流量」）。
+    #[tokio::test]
+    async fn series_sums_online_rates_and_averages_latency_with_null_gaps() {
+        let (app, state) = setup().await;
+        let a = seed_server(&state, "edge-a", "203.0.113.1").await;
+        let b = seed_server(&state, "edge-b", "203.0.113.2").await;
+        let now = repo::now();
+        let current = now - now.rem_euclid(300);
+
+        // A：两轮心跳算出 1000 B/s 接收、500 B/s 发送；延迟 20ms。
+        repo::servers::update_health(
+            &state.db.pool,
+            &a,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(20),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &a, 1_000, 2_000, current - 60)
+            .await
+            .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &a, 61_000, 32_000, current)
+            .await
+            .unwrap();
+
+        // B：只有第一份累计基线（没有速率，旧 Agent 式）+ 延迟 40ms。
+        repo::servers::update_health(
+            &state.db.pool,
+            &b,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(40),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::servers::update_net_counters(&state.db.pool, &b, 5_000, 6_000, current)
+            .await
+            .unwrap();
+
+        // 当前桶：两台都在线；A 有速率，B 没有 → SUM 忽略 B 的 NULL。
+        repo::server_samples::record_round(&state.db.pool, current)
+            .await
+            .unwrap();
+
+        // 上一个桶：B 已离线，只有 A 参与。
+        repo::servers::mark_offline(&state.db.pool, &b)
+            .await
+            .unwrap();
+        repo::server_samples::record_round(&state.db.pool, current - 300)
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let series = &body["series"];
+        assert_series_shape(series);
+        let t = series["t"].as_array().unwrap();
+        assert_eq!(t[11].as_i64().unwrap(), current);
+        assert_eq!(t[10].as_i64().unwrap(), current - 300);
+
+        assert_eq!(series["rate_rx_bps"][10].as_f64().unwrap(), 1_000.0);
+        assert_eq!(series["rate_tx_bps"][10].as_f64().unwrap(), 500.0);
+        assert_eq!(
+            series["latency_ms"][10].as_i64().unwrap(),
+            20,
+            "离线服务器不参与延迟均值：{body}"
+        );
+        assert_eq!(
+            series["rate_rx_bps"][11].as_f64().unwrap(),
+            1_000.0,
+            "B 没有速率时不应变成 0，也不应拉低总和：{body}"
+        );
+        assert_eq!(series["rate_tx_bps"][11].as_f64().unwrap(), 500.0);
+        assert_eq!(
+            series["latency_ms"][11].as_i64().unwrap(),
+            30,
+            "在线两台 (20 + 40) / 2 = 30：{body}"
+        );
+
+        for index in 0..10 {
+            for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+                assert!(
+                    series[key][index].is_null(),
+                    "第 {index} 个桶的 {key} 应补 null，不能补 0：{body}"
+                );
+            }
+        }
+    }
+
+    /// 窗口边界：刚好 60 分钟前的采样对齐后落在第一个桶之前，必须被排除。
+    #[tokio::test]
+    async fn series_window_excludes_a_sample_exactly_sixty_minutes_old() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        let now = repo::now();
+        let current = now - now.rem_euclid(300);
+
+        // 刚好 60 分钟前：对齐到 current - 3600，即 t[0] - 300，窗口外。
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(99),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::server_samples::record_round(&state.db.pool, now - 3_600)
+            .await
+            .unwrap();
+
+        // 窗口第一个桶（current - 3300）有数据。
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(10),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        repo::server_samples::record_round(&state.db.pool, current - 3_300)
+            .await
+            .unwrap();
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let series = &body["series"];
+        assert_eq!(series["t"][0].as_i64().unwrap(), current - 3_300);
+        assert_eq!(series["latency_ms"][0].as_i64().unwrap(), 10);
+        for (index, value) in series["latency_ms"].as_array().unwrap().iter().enumerate() {
+            assert_ne!(
+                value.as_i64(),
+                Some(99),
+                "第 {index} 个桶混进了刚好 60 分钟前的采样：{body}"
+            );
+        }
+        for index in 1..12 {
+            assert!(
+                series["latency_ms"][index].is_null(),
+                "第 {index} 个桶没有采样，必须是 null：{body}"
+            );
+        }
+    }
+
+    /// 30 秒缓存命中时 `series` 与首次响应完全一致（含长度与 null 缺口）。
+    #[tokio::test]
+    async fn series_is_cached_with_the_same_shape() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot {
+                latency_ms: Some(25),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let (_, first, _) = get(&app, "/api/v1/public/status").await;
+        assert!(first["series"]["latency_ms"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(Value::is_null));
+
+        // 缓存期内写入采样：命中缓存的响应必须原样带上首次的 series。
+        repo::server_samples::record_round(&state.db.pool, repo::now())
+            .await
+            .unwrap();
+        let (_, cached, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(cached["generated_at"], first["generated_at"]);
+        assert_eq!(
+            cached["series"], first["series"],
+            "缓存命中时 series 必须与首次响应完全一致"
+        );
+
+        state.public_status.clear();
+        let (_, fresh, _) = get(&app, "/api/v1/public/status").await;
+        assert!(
+            fresh["series"]["latency_ms"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value.as_i64() == Some(25)),
+            "清缓存后应读到新采样：{fresh}"
+        );
+    }
+
+    /// 旧 Agent / 无网卡计数：采样里的速率与延迟都是 NULL，序列必须是 null，绝不是 0。
+    #[tokio::test]
+    async fn old_agent_without_net_counters_writes_null_not_zero() {
+        let (app, state) = setup().await;
+        let id = seed_server(&state, "edge-1", "203.0.113.9").await;
+        repo::servers::update_health(
+            &state.db.pool,
+            &id,
+            "0.1.0",
+            &repo::servers::HealthSnapshot::default(),
+        )
+        .await
+        .unwrap();
+        repo::server_samples::record_round(&state.db.pool, repo::now())
+            .await
+            .unwrap();
+
+        // 先确认落库的就是 NULL（不是 0）——这是序列 null 的来源。
+        let samples = repo::server_samples::list(&state.db.pool, &id, repo::now() - 600)
+            .await
+            .unwrap();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].rx_bps, None);
+        assert_eq!(samples[0].tx_bps, None);
+        assert_eq!(samples[0].latency_ms, None);
+
+        let (status, body, _) = get(&app, "/api/v1/public/status").await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let series = &body["series"];
+        assert_series_shape(series);
+        for key in ["rate_rx_bps", "rate_tx_bps", "latency_ms"] {
+            for value in series[key].as_array().unwrap() {
+                assert!(
+                    value.is_null(),
+                    "旧 Agent 没有数据时 {key} 必须是 null，不能写 0：{body}"
+                );
+            }
+        }
+    }
+
     #[tokio::test]
     async fn response_never_contains_address_or_other_sensitive_keys() {
         let (app, state) = setup().await;
@@ -691,6 +1071,27 @@ mod tests {
         actual.sort_unstable();
         assert_eq!(actual, expected, "服务器行必须严格是白名单字段");
         assert_eq!(body["summary"]["nodes_total"], 1);
+
+        // 迷你图只暴露三条序列 + 窗口元数据，不能顺手带出别的东西。
+        let mut series_keys: Vec<&str> = body["series"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        series_keys.sort_unstable();
+        assert_eq!(
+            series_keys,
+            vec![
+                "latency_ms",
+                "rate_rx_bps",
+                "rate_tx_bps",
+                "step_secs",
+                "t",
+                "window_secs",
+            ],
+            "series 字段必须是白名单"
+        );
     }
 
     /// 分组聚合：未分组归到 `name: null`，分组按名称升序，可用率是组内均值。

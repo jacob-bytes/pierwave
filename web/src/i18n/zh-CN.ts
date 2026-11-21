@@ -226,6 +226,10 @@ const zhCN = {
       averageUptime: "平均 24h 可用率",
       totalRate: "当前总速率",
       load: "负载 {value}",
+      chartEmpty: "数据收集中",
+      rateChart: "最近一小时总速率趋势",
+      latencyChart: "最近一小时平均延迟趋势",
+      uptimeChart: "近 24 小时平均可用率趋势",
     },
     toolbar: {
       filter: "筛选节点",

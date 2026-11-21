@@ -102,3 +102,199 @@ export function sparklineGeometry(
 
   return { rx: path("rx"), tx: path("tx"), count };
 }
+
+/**
+ * hero 三张迷你图用的通用几何：支持 1–2 条线、零基线或自适应纵轴、面积填充。
+ *
+ * 与上面的 `sparklineGeometry` 刻意分开：那个函数服务于概览页 Top 服务器
+ * （固定零基线、双方向、没有面积），已经被现有页面与测试钉住；这里不复制
+ * 它的边界，而是补上 hero 需要的三种能力：
+ *
+ * - **单线**：延迟 / 可用率只画一条折线；
+ * - **自适应纵轴**（`zeroBased: false`）：延迟 18–62 ms、可用率 97–100%
+ *   这种窄区间，零基线会把变化压成一条直线，看不出趋势；
+ * - **面积**：速率图在线下方填一层淡渐变，面积从零基线闭合，不另造色相。
+ *
+ * 三条不变量：
+ * - null / 负数 / 非有限数是**缺口**，不是 0：不连线，但保留 x 位置；
+ * - 真实 0 是有效数据：零基线下贴底画线；
+ * - 一条线里没有任何**连续两个**有效点时，`path` 为 null（孤立点画不成趋势）。
+ */
+export interface MultiSparkSeriesInput {
+  values: readonly (number | null | undefined)[];
+  /** true 时额外输出闭合到底部的面积 path。 */
+  area?: boolean;
+}
+
+export interface MultiSparkSeriesGeometry {
+  /** 折线 path；没有连续两个有效点时为 null。 */
+  path: string | null;
+  /** 面积 path；每段独立闭合，没有可画线段时为 null。 */
+  area: string | null;
+  /** 每个采样位置的坐标；null = 该位置没有数据（tooltip 取数用）。 */
+  points: ({ x: number; y: number } | null)[];
+}
+
+export interface MultiSparkGeometry {
+  series: MultiSparkSeriesGeometry[];
+  /** 至少一条线有数据的采样位置数。 */
+  count: number;
+  /** 参与归一化的最小值（原始单位）。 */
+  min: number;
+  /** 参与归一化的最大值（原始单位）。 */
+  max: number;
+}
+
+export interface MultiSparkOptions {
+  /** true：纵轴底固定为 0（速率）；false：按 min–max 自适应（延迟）。 */
+  zeroBased?: boolean;
+  /**
+   * 固定纵轴范围，优先于 `zeroBased`。可用率用 `[0, 1]`：100% 永远在顶部，
+   * 99% 与 93% 的差别不会被自适应放大成满屏锯齿。
+   */
+  domain?: readonly [number, number];
+  /** 至少多少个有效位置才返回几何；默认 2。 */
+  minPoints?: number;
+}
+
+export function multiSparkGeometry(
+  series: readonly MultiSparkSeriesInput[],
+  width: number,
+  height: number,
+  options: MultiSparkOptions = {},
+): MultiSparkGeometry | null {
+  if (!series.length) return null;
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return null;
+  }
+
+  const minPoints = Math.max(
+    2,
+    Number.isFinite(options.minPoints)
+      ? Math.floor(options.minPoints as number)
+      : 2,
+  );
+  const length = series.reduce(
+    (longest, line) => Math.max(longest, line.values.length),
+    0,
+  );
+  if (length === 0) return null;
+
+  // 先对齐到同一组 x 位置：短数组缺的位置就是 null 缺口。
+  const values = series.map((line) =>
+    Array.from({ length }, (_, index) => valid(line.values[index])),
+  );
+
+  let count = 0;
+  let min = Number.POSITIVE_INFINITY;
+  let max = Number.NEGATIVE_INFINITY;
+  for (let index = 0; index < length; index += 1) {
+    let sampled = false;
+    for (const line of values) {
+      const value = line[index];
+      if (value === null) continue;
+      sampled = true;
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+    if (sampled) count += 1;
+  }
+  if (count < minPoints || !Number.isFinite(min) || !Number.isFinite(max)) {
+    return null;
+  }
+
+  // 纵轴：固定 domain > 零基线 0..max > 自适应（min–max 外各留 12%）。
+  // 自适应下所有值相等时按当前值上下各撑半格，画一条居中的平线。
+  let bottom = 0;
+  let top = 1;
+  const domain = options.domain;
+  const fixedDomain =
+    domain !== undefined &&
+    Number.isFinite(domain[0]) &&
+    Number.isFinite(domain[1]) &&
+    domain[1] > domain[0];
+
+  if (fixedDomain && domain) {
+    [bottom, top] = domain;
+  } else if (options.zeroBased) {
+    top = Math.max(1, max);
+  } else {
+    const span = max - min;
+    const padding =
+      span > 0 ? span * 0.12 : Math.max(Math.abs(max) * 0.05, 0.5);
+    bottom = min - padding;
+    top = max + padding;
+    if (!(top > bottom)) {
+      bottom = min - 0.5;
+      top = max + 0.5;
+    }
+  }
+
+  const innerHeight = Math.max(0, height - 2);
+  const x = (index: number) =>
+    length === 1 ? width / 2 : (index / (length - 1)) * width;
+  const y = (value: number) =>
+    Math.min(
+      height - 1,
+      Math.max(
+        1,
+        height - 1 - ((value - bottom) / (top - bottom)) * innerHeight,
+      ),
+    );
+  const round = (value: number) => value.toFixed(2);
+
+  const built = values.map((line, lineIndex) => {
+    const points: ({ x: number; y: number } | null)[] = line.map(
+      (value, index) => (value === null ? null : { x: x(index), y: y(value) }),
+    );
+    let path = "";
+    let area = "";
+
+    // 按连续有效段构建：null 处抬笔，面积每段单独闭合。
+    let index = 0;
+    while (index < length) {
+      if (line[index] === null) {
+        index += 1;
+        continue;
+      }
+      let end = index;
+      while (end < length && line[end] !== null) end += 1;
+      const run = line.slice(index, end) as number[];
+
+      if (run.length >= 2) {
+        const segment = run
+          .map(
+            (value, offset) =>
+              `${offset === 0 ? "M" : "L"}${round(x(index + offset))} ${round(y(value))}`,
+          )
+          .join(" ");
+        path += `${segment} `;
+
+        if (series[lineIndex].area) {
+          const areaSegment = run
+            .map(
+              (value, offset) =>
+                `L${round(x(index + offset))} ${round(y(value))}`,
+            )
+            .join(" ");
+          area += `M${round(x(index))} ${round(height)} ${areaSegment} L${round(x(end - 1))} ${round(height)} Z `;
+        }
+      }
+
+      index = end;
+    }
+
+    return {
+      path: path.trim() || null,
+      area: area.trim() || null,
+      points,
+    };
+  });
+
+  return { series: built, count, min, max };
+}

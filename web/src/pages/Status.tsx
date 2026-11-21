@@ -250,7 +250,11 @@ function StatusContent({ data }: { data: PublicStatus }) {
 
   return (
     <>
-      <Hero summary={data.summary} servers={data.servers} />
+      <Hero
+        summary={data.summary}
+        servers={data.servers}
+        series={data.series ?? null}
+      />
 
       {allOffline ? (
         <p className="mt-3 px-1 text-xs text-muted-foreground tnum">
