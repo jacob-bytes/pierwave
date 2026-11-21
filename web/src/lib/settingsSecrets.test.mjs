@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { t } from "../i18n/index.ts";
 import { setCurrentLocale } from "../i18n/locale.ts";
+import { ApiError } from "./apiError.ts";
 import {
   BACKUP_ENCRYPTION_DOC_URL,
   buildSecretPatch,
+  canResetSubscriptionSecret,
+  isSecretDecryptError,
   secretKeyText,
   secretRecoveryFromSettings,
   subscriptionSecretAtRisk,
+  subscriptionSecretResetUnsupported,
   SUBSCRIPTION_SECRET_KEY,
 } from "./settingsSecrets.ts";
 
@@ -110,6 +115,103 @@ test("buildSecretPatch trims values and only includes editable non-empty secrets
   assert.deepEqual(buildSecretPatch({}), {});
 });
 
+test("a card is still produced when hmac_secret_v1 is the only broken secret", () => {
+  // 新后端会把内部订阅派生 secret 也放进 secret_errors.keys。以前只有三个
+  // 用户可见键才会进这个数组，若前端再按「可编辑键」过滤，整张恢复卡会被
+  // 藏掉——只有 hmac 坏时用户就看不到任何下一步。
+  const recovery = secretRecoveryFromSettings({
+    secret_errors: { keys: [SUBSCRIPTION_SECRET_KEY] },
+  });
+  assert.ok(recovery, "只有 hmac 坏掉时也必须显示恢复卡");
+  assert.deepEqual(recovery.keys, [SUBSCRIPTION_SECRET_KEY]);
+  assert.deepEqual(recovery.editableKeys, []);
+  assert.deepEqual(recovery.internalKeys, [SUBSCRIPTION_SECRET_KEY]);
+  assert.equal(subscriptionSecretAtRisk(recovery), true);
+});
+
+test("canResetSubscriptionSecret only unlocks the explicit hmac failure", () => {
+  // 后端明确报告 hmac 坏了 → 提供在线重置。
+  const hmacOnly = secretRecoveryFromSettings({
+    secret_errors: { keys: [SUBSCRIPTION_SECRET_KEY] },
+  });
+  assert.equal(canResetSubscriptionSecret(hmacOnly), true);
+
+  const mixed = secretRecoveryFromSettings({
+    secret_errors: {
+      keys: ["telegram_bot_token", SUBSCRIPTION_SECRET_KEY],
+    },
+  });
+  assert.equal(canResetSubscriptionSecret(mixed), true);
+
+  // 只有用户可见秘密坏掉时，hmac 只是「可能同主密钥」的推断，不能凭推断
+  // 就给出会轮换所有凭据的破坏性入口。
+  const editableOnly = secretRecoveryFromSettings({
+    secret_errors: { keys: ["telegram_bot_token"] },
+  });
+  assert.deepEqual(editableOnly.internalKeys, [SUBSCRIPTION_SECRET_KEY]);
+  assert.equal(canResetSubscriptionSecret(editableOnly), false);
+});
+
+test("a missing reset endpoint is a safe 404/405 fallback, not an error", () => {
+  assert.equal(
+    subscriptionSecretResetUnsupported(new ApiError("not found", 404)),
+    true,
+  );
+  // 旧版 master 的 SPA 静态兜底只服务 GET/HEAD，POST 未注册路径会 405。
+  assert.equal(
+    subscriptionSecretResetUnsupported(new ApiError("method not allowed", 405)),
+    true,
+  );
+  assert.equal(
+    subscriptionSecretResetUnsupported(new ApiError("bad request", 400)),
+    false,
+  );
+  assert.equal(
+    subscriptionSecretResetUnsupported(new ApiError("forbidden", 403)),
+    false,
+  );
+  assert.equal(
+    subscriptionSecretResetUnsupported(new ApiError("unavailable", 503)),
+    false,
+    "503 是真实故障，必须留在弹窗里展示错误",
+  );
+  assert.equal(subscriptionSecretResetUnsupported(new Error("network")), false);
+  assert.equal(subscriptionSecretResetUnsupported(null), false);
+});
+
+test("the reset confirmation states both consequences in both languages", () => {
+  setCurrentLocale("zh-CN");
+  const zhDesc = t("settings.secretError.resetDesc");
+  assert.match(zhDesc, /所有客户端需重新拉取订阅/);
+  assert.match(zhDesc, /旧凭据立即失效/);
+  assert.match(t("settings.secretError.resetTitle"), /重置/);
+  assert.match(t("settings.secretError.resetAction"), /重置/);
+
+  setCurrentLocale("en");
+  const enDesc = t("settings.secretError.resetDesc");
+  assert.match(enDesc, /every client must fetch its subscription again/i);
+  assert.match(enDesc, /old credentials stop working immediately/i);
+  assert.match(t("settings.secretError.resetTitle"), /reset/i);
+  assert.match(t("settings.secretError.resetAction"), /reset/i);
+  setCurrentLocale("zh-CN");
+});
+
+test("the 503 secret_decrypt_failed code is recognized by code, not status", () => {
+  assert.equal(
+    isSecretDecryptError(
+      new ApiError("upstream", 503, "settings.secret_decrypt_failed", {
+        keys: [SUBSCRIPTION_SECRET_KEY],
+      }),
+    ),
+    true,
+  );
+  assert.equal(
+    isSecretDecryptError(new ApiError("other", 503, "request.busy")),
+    false,
+  );
+  assert.equal(isSecretDecryptError(new ApiError("not found", 404)), false);
+  assert.equal(isSecretDecryptError(new Error("network")), false);
+});
 
 test("the subscription secret is inferred when the master key is wrong", () => {
   // 后端 GET 只上报三个可见秘密；hmac_secret_v1 不在 keys 里，但它和它们

@@ -733,6 +733,9 @@ async fn record_traffic(
     if !removals.is_empty() {
         crate::enforcement::mark_removal_candidates(state, removals).await?;
     }
+    // 计费入账是概览流量数字的唯一来源：主动清一次短缓存。即使这里漏掉，
+    // 日汇总触发器也会递增 generation，让下一次请求按新代际重建。
+    state.overview_traffic.clear();
     Ok(())
 }
 

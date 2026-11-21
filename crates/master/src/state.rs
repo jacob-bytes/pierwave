@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
+use pierwave_domain::repo::overview::TrafficSnapshot;
 use pierwave_domain::Db;
 use pierwave_proto::MasterMessage;
 use serde_json::Value;
@@ -143,6 +144,123 @@ impl LatestVersionCache {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) =
             Some((Instant::now(), version.to_string()));
     }
+}
+
+/// 概览「流量快照」的短缓存：默认 12 秒，与前端轮询同一量级。
+///
+/// 只缓存由 `traffic_daily` / `traffic_node_daily` 派生的部分（趋势、协议、
+/// Top 用户/节点/套餐、KPI 流量）；服务器/节点计数、链路健康、24h 可用率
+/// 与带实时状态/网速采样的 Top 服务器每次现算，所以新建节点或链路状态变化
+/// 不会被缓存拖慢。
+///
+/// `PIERWAVE_OVERVIEW_CACHE_SECS=0` 可关闭缓存（基准脚本用它测冷查询）。
+pub const OVERVIEW_TRAFFIC_CACHE_TTL: Duration = Duration::from_secs(12);
+
+#[derive(Debug, Default)]
+struct OverviewTrafficStats {
+    hits: AtomicU64,
+    misses: AtomicU64,
+}
+
+/// 缓存 key：`(days, generation)`。
+type OverviewTrafficKey = (i64, i64);
+/// 缓存条目：写入时刻 + 流量快照。
+type OverviewTrafficEntry = (Instant, TrafficSnapshot);
+
+/// 概览流量快照缓存，按 `(days, generation)` 命中。
+///
+/// `generation` 来自 `traffic_rollup_meta`：日汇总的触发器每次写入都会 +1，
+/// 因此「计费入账」天然让旧缓存不再命中，不需要在每个写路径遍历缓存。
+/// 显式的 [`Self::clear`] 只是提前释放旧代际的内存。
+///
+/// 放在 `AppState` 里而不是全局静态变量：每个进程/测试实例各自独立，
+/// 测试之间不会互相污染。
+
+#[derive(Clone)]
+pub struct OverviewTrafficCache {
+    inner: Arc<Mutex<HashMap<OverviewTrafficKey, OverviewTrafficEntry>>>,
+    ttl: Duration,
+    stats: Arc<OverviewTrafficStats>,
+}
+
+impl Default for OverviewTrafficCache {
+    fn default() -> Self {
+        Self::with_ttl(OVERVIEW_TRAFFIC_CACHE_TTL)
+    }
+}
+
+impl OverviewTrafficCache {
+    pub fn with_ttl(ttl: Duration) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+            ttl,
+            stats: Arc::new(OverviewTrafficStats::default()),
+        }
+    }
+
+    /// 缓存有效期；`0` 表示禁用（不发缓存内容，直接走冷查询）。
+    #[cfg(test)]
+    pub fn ttl(&self) -> Duration {
+        self.ttl
+    }
+
+    /// 命中返回快照；代际 / days 不同或超过 TTL 都是 miss。
+    pub fn get(&self, days: i64, generation: i64) -> Option<TrafficSnapshot> {
+        let guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let hit = guard
+            .get(&(days, generation))
+            .filter(|(at, _)| at.elapsed() < self.ttl)
+            .map(|(_, snapshot)| snapshot.clone());
+        if hit.is_some() {
+            self.stats.hits.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.stats.misses.fetch_add(1, Ordering::Relaxed);
+        }
+        hit
+    }
+
+    /// 写入新代际；同时丢掉所有旧代际条目，避免每次写流量都留下垃圾。
+    pub fn put(&self, days: i64, generation: i64, snapshot: TrafficSnapshot) {
+        if self.ttl.is_zero() {
+            return;
+        }
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.retain(|(_, cached_generation), _| *cached_generation == generation);
+        guard.insert((days, generation), (Instant::now(), snapshot));
+    }
+
+    /// 立刻失效（计费入账路径调用；代际机制本身已经能挡住旧结果）。
+    pub fn clear(&self) {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+    }
+
+    /// (hits, misses)；只给测试断言用。
+    #[cfg(test)]
+    pub(crate) fn stats(&self) -> (u64, u64) {
+        (
+            self.stats.hits.load(Ordering::Relaxed),
+            self.stats.misses.load(Ordering::Relaxed),
+        )
+    }
+}
+
+/// `PIERWAVE_OVERVIEW_CACHE_SECS`：缺省用 [`OVERVIEW_TRAFFIC_CACHE_TTL`]，
+/// 显式 `0` 关闭缓存。非法值忽略，避免拼错环境变量把线上缓存意外关掉。
+fn overview_cache_ttl_from_env() -> Duration {
+    std::env::var("PIERWAVE_OVERVIEW_CACHE_SECS")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<u64>().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(OVERVIEW_TRAFFIC_CACHE_TTL)
 }
 
 /// 公开状态页的结果缓存：30 秒内重复请求直接复用，避免每次打库扫采样表。
@@ -489,6 +607,8 @@ pub struct AppState {
     pub latest_version: LatestVersionCache,
     /// 公开状态页结果缓存（30 秒）。
     pub public_status: PublicStatusCache,
+    /// 概览流量快照缓存（默认 12 秒，按日汇总代际失效）。
+    pub overview_traffic: OverviewTrafficCache,
     /// 告警去抖状态 + 投递器；未配置渠道时所有通知都是 no-op。
     pub alerts: Alerts,
     /// 版本更新检测：版本源（默认 GitHub Releases）+ 最近一次结果缓存。
@@ -518,6 +638,7 @@ impl AppState {
             agent_release: AgentReleaseConfig::from_env(),
             latest_version: LatestVersionCache::default(),
             public_status: PublicStatusCache::default(),
+            overview_traffic: OverviewTrafficCache::with_ttl(overview_cache_ttl_from_env()),
             alerts: Alerts::default(),
             updates: UpdateService::default(),
             tcping: TcpingRegistry::default(),
@@ -818,5 +939,55 @@ mod tests {
 
         assert!(leader.await.unwrap().is_ok());
         assert!(cache.get().is_some(), "leader 完成后缓存必须可用");
+    }
+
+    // ---- 概览流量快照缓存 ----
+
+    fn traffic_snapshot(today: i64) -> TrafficSnapshot {
+        TrafficSnapshot {
+            traffic_today: today,
+            ..Default::default()
+        }
+    }
+
+    /// 命中条件：同一个 days + 同一个日汇总代际，且在 TTL 内。
+    ///
+    /// `generation` 变化等价于「计费入账写入了新流量」，必须 miss；
+    /// 旧代际条目在写新代际时被清掉，不会无限增长。
+    #[tokio::test]
+    async fn overview_cache_hits_only_for_the_same_days_and_generation() {
+        let cache = OverviewTrafficCache::with_ttl(Duration::from_millis(60));
+        assert!(cache.get(7, 1).is_none(), "空缓存必须 miss");
+        cache.put(7, 1, traffic_snapshot(1));
+
+        assert_eq!(cache.get(7, 1).unwrap().traffic_today, 1);
+        assert_eq!(cache.get(7, 1).unwrap().traffic_today, 1);
+        assert!(cache.get(7, 2).is_none(), "代际变化必须 miss");
+        assert!(cache.get(30, 1).is_none(), "days 不同必须 miss");
+
+        cache.put(7, 2, traffic_snapshot(2));
+        assert_eq!(cache.get(7, 2).unwrap().traffic_today, 2);
+        assert!(cache.get(7, 1).is_none(), "写新代际后旧条目必须被清掉");
+
+        cache.clear();
+        assert!(cache.get(7, 2).is_none(), "clear 之后必须 miss");
+
+        cache.put(7, 2, traffic_snapshot(2));
+        tokio::time::sleep(Duration::from_millis(90)).await;
+        assert!(cache.get(7, 2).is_none(), "超过 TTL 必须 miss");
+        let (hits, misses) = cache.stats();
+        assert_eq!(hits, 3, "两次同代际命中 + 一次新代际命中");
+        assert!(misses >= 5, "其余请求都应记为 miss：{misses}");
+    }
+
+    /// `PIERWAVE_OVERVIEW_CACHE_SECS=0` 的禁用语义：永远不命中，也不占内存。
+    #[tokio::test]
+    async fn overview_cache_with_zero_ttl_never_hits() {
+        let cache = OverviewTrafficCache::with_ttl(Duration::ZERO);
+        assert!(cache.ttl().is_zero());
+        cache.put(7, 1, traffic_snapshot(1));
+        assert!(cache.get(7, 1).is_none());
+        let (hits, misses) = cache.stats();
+        assert_eq!((hits, misses), (0, 1));
     }
 }

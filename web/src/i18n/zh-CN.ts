@@ -1173,6 +1173,8 @@ const zhCN = {
     },
     loadFailed: "订阅列表加载失败",
     loadError: "加载订阅列表失败，请检查网络后重试",
+    secretDecryptFailed:
+      "订阅派生 secret 无法用当前主密钥解密，订阅暂时不可用。请管理员在「设置」页重置订阅派生 secret；重置后所有客户端需重新拉取订阅，旧凭据立即失效。",
     unavailable: "订阅接口尚未就绪（后端可能还在部署），请稍后重试",
     copied: "已复制「{username}」的订阅链接",
     copyError: "复制失败，请打开链接后手动复制",
@@ -1937,6 +1939,10 @@ const zhCN = {
       saveError: "保存新值失败，请稍后重试",
       hmacConsequence:
         "订阅派生 secret 与上面的秘密共用同一把主密钥：重置后所有客户端需重新拉取订阅，旧凭据失效。如需保留旧订阅，请从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY）；否则可以用下面的重置入口。",
+      hmacConsequenceNoReset:
+        "订阅派生 secret 与上面的秘密共用同一把主密钥：如果它也无法解密，所有订阅链接都会失效。请先重填上面的秘密，或从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY）。",
+      resetUnsupported:
+        "当前后端版本不支持在线重置。请从备份恢复 secret.key（或设置相同的 PIERWAVE_SECRET_KEY），或升级主控后重试。",
       hmacDoc: "查看备份加密与 secret.key 恢复步骤",
       internalUnknown:
         "这个内部密钥不能在设置页重填。请恢复写入时使用的主密钥（data/secret.key 或 PIERWAVE_SECRET_KEY）后重试。",
@@ -3518,6 +3524,11 @@ const zhCN = {
       "定期更换密码；修改后其它设备上的登录会立即下线，当前设备保持登录。",
     currentAccount: "当前账号",
     changePassword: "修改密码",
+    secretError: {
+      title: "订阅暂时不可用",
+      description:
+        "订阅派生 secret 无法用当前主密钥解密，订阅与账户摘要暂时不可用。请联系管理员在「设置」页重置订阅派生 secret；重置后所有客户端需重新拉取订阅，旧凭据立即失效。",
+    },
     loadFailed: "个人中心加载失败",
     loadError: "无法加载个人数据，请检查网络后重试",
     apiNotReady: "自助接口暂未就绪，后端上线后刷新即可",

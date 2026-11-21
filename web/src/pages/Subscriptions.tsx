@@ -70,6 +70,7 @@ import {
 } from "@/lib/subscriptionFormats";
 import { useRuleTemplates, useSubscriptions } from "@/lib/queries";
 import { ruleTemplateErrorText } from "@/lib/ruleTemplates";
+import { isSecretDecryptError } from "@/lib/settingsSecrets";
 import { subscriptionUsage } from "@/lib/subscriptionUsage";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
@@ -91,6 +92,11 @@ function effectiveRuleTemplateName(row: Subscription): string {
 function subscriptionListErrorText(error: unknown): string {
   if (error instanceof ApiError && error.status === 404) {
     return t("subscriptions.unavailable");
+  }
+  // 后端 503：订阅派生 secret 解不开。用户需要知道找谁修、重置的代价，
+  // 而不是「加载订阅列表失败」后无休止重试。
+  if (isSecretDecryptError(error)) {
+    return t("subscriptions.secretDecryptFailed");
   }
   return errorText(error, t("subscriptions.loadError"));
 }

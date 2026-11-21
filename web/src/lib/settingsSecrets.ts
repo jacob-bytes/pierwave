@@ -1,4 +1,5 @@
 import { t } from "../i18n/index.ts";
+import { ApiError } from "./apiError.ts";
 
 /**
  * 设置页「秘密解不开」的专用恢复逻辑。
@@ -62,6 +63,45 @@ export function subscriptionSecretAtRisk(
   return (
     failure.keys.length > 0 ||
     failure.internalKeys.includes(SUBSCRIPTION_SECRET_KEY)
+  );
+}
+
+/**
+ * 是否可以提供「在线重置订阅派生 secret」入口。
+ *
+ * 只在后端**明确报告** `hmac_secret_v1` 损坏时返回 true：重置会删除内部
+ * secret、让所有已派生凭据失效，不能仅凭「别的秘密坏了，hmac 可能也一样」
+ * 的推断就把破坏性入口摆到管理员面前。`internalKeys` 里的推断值仍用于警告，
+ * 但不足以授权重置。
+ */
+export function canResetSubscriptionSecret(
+  failure: SecretDecryptFailure,
+): boolean {
+  return failure.keys.includes(SUBSCRIPTION_SECRET_KEY);
+}
+
+/**
+ * 旧后端没有 `POST /api/v1/settings/reset-subscription-secret`。
+ *
+ * API 层直接返回 404；而旧版本的 SPA 静态兜底只服务 GET/HEAD，POST 到
+ * 未注册路径会得到 405。两者都表示「这个能力还没上线」，不是故障：
+ * 卡片应隐藏按钮、回落到备份恢复说明，不弹错误 toast。
+ */
+export function subscriptionSecretResetUnsupported(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 404 || error.status === 405)
+  );
+}
+
+/**
+ * `/me` 与订阅相关页面的 503：内部订阅派生 secret 解不开，订阅 / 摘要 /
+ * 期望态都会受影响。按稳定错误码判断，不把其它 503（例如数据库繁忙）
+ * 误当成秘密故障。
+ */
+export function isSecretDecryptError(error: unknown): boolean {
+  return (
+    error instanceof ApiError && error.code === "settings.secret_decrypt_failed"
   );
 }
 

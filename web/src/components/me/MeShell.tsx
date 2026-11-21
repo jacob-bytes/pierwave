@@ -14,6 +14,7 @@ import {
   meSections,
   sectionTitleKey,
 } from "@/lib/meSections";
+import { isSecretDecryptError } from "@/lib/settingsSecrets";
 import type { MeShellContext } from "@/lib/meShell";
 import { queryKeys, useMeSummary } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -107,20 +108,21 @@ function MeSkeleton() {
 }
 
 function MeError({
+  title,
   message,
   retrying,
   onRetry,
 }: {
+  title: string;
   message: string;
   retrying: boolean;
   onRetry: () => void;
 }) {
-  const { t } = useI18n();
   return (
     <Card>
       <CardContent>
         <ListError
-          title={t("me.loadFailed")}
+          title={title}
           message={message}
           retrying={retrying}
           onRetry={onRetry}
@@ -148,9 +150,17 @@ export default function MeShell() {
   if (summary.isPending) return <MeSkeleton />;
 
   if (summary.isError) {
+    // 503 的秘密故障不是网络问题：给出「谁能修、代价是什么」的可读提示，
+    // 而不是让用户对着通用错误文案反复重试。
+    const secretBroken = isSecretDecryptError(summary.error);
     return (
       <MeError
-        message={meErrorText(summary.error, t("me.loadError"))}
+        title={secretBroken ? t("me.secretError.title") : t("me.loadFailed")}
+        message={
+          secretBroken
+            ? t("me.secretError.description")
+            : meErrorText(summary.error, t("me.loadError"))
+        }
         retrying={summary.isFetching}
         onRetry={() => void summary.refetch()}
       />

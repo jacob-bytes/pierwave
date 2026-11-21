@@ -82,6 +82,7 @@ import {
   type SubscriptionTemplatePreview,
   type ResetServerTokenResponse,
   type ResetSubscriptionResponse,
+  type ResetSubscriptionSecretResponse,
   type RemoteBackupRunResult,
   type RemoteBackupStatus,
   type RemoteBackupTestResult,
@@ -877,6 +878,26 @@ export function useUpdateSettings() {
     onSuccess: (items) => {
       // PATCH 的返回值就是权威值：直接覆盖缓存，页面再用它 reset 表单。
       queryClient.setQueryData(queryKeys.settings, items);
+    },
+  });
+}
+
+/**
+ * 重置内部订阅派生 secret（仅管理员）。
+ *
+ * 代价是所有已派生凭据失效，所以成功后必须让设置页与 `/me` 的缓存一起
+ * 失效：设置页会重新 GET 并收起恢复卡；`/me` 摘要会触发后端「首次使用
+ * 重新生成」，从 503 恢复。旧后端 404 由调用方识别并降级，不在这里吞掉。
+ */
+export function useResetSubscriptionSecret() {
+  const queryClient = useQueryClient();
+
+  return useMutation<ResetSubscriptionSecretResponse, Error, void>({
+    mutationFn: () => api.settings.resetSubscriptionSecret(),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.settings });
+      // `["me"]` 前缀覆盖 summary / traffic / 订阅相关查询。
+      void queryClient.invalidateQueries({ queryKey: queryKeys.me });
     },
   });
 }

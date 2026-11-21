@@ -8,6 +8,7 @@
 //! `query.*` 风格，而不是像 `/stats/traffic` 那样夹到边界。
 
 use axum::extract::{Query, State};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue};
 use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
@@ -31,11 +32,36 @@ pub async fn overview(
     State(state): State<AppState>,
     user: CurrentUser,
     Query(query): Query<OverviewQuery>,
-) -> AppResult<Json<repo::overview::OverviewSnapshot>> {
+) -> AppResult<(HeaderMap, Json<repo::overview::OverviewSnapshot>)> {
     user.require_admin()?;
     let days = parse_days(query.days.as_deref())?;
-    let snapshot = repo::overview::snapshot(&state.db.pool, repo::now(), days).await?;
-    Ok(Json(snapshot))
+    let now = repo::now();
+    let pool = &state.db.pool;
+
+    // 流量派生的部分走 12 秒短缓存；`generation` 由日汇总触发器在每次计费
+    // 入账时 +1，所以写路径天然让旧结果失效，不需要遍历或主动失效。
+    let generation = repo::traffic_rollup::generation(pool).await?;
+    let (traffic, cache_hit) = match state.overview_traffic.get(days, generation) {
+        Some(traffic) => (traffic, true),
+        None => {
+            let traffic = repo::overview::traffic_snapshot(pool, now, days).await?;
+            state
+                .overview_traffic
+                .put(days, generation, traffic.clone());
+            (traffic, false)
+        }
+    };
+    let snapshot = repo::overview::compose(pool, now, days, traffic).await?;
+
+    let mut headers = HeaderMap::new();
+    // 响应是管理员专属且 /api/ 已带 no-store；`Vary: Cookie` 是给共享缓存
+    // 的防御性提示，避免将来去掉 no-store 后把某个管理员的响应发给别人。
+    headers.insert(header::VARY, HeaderValue::from_static("Cookie"));
+    headers.insert(
+        HeaderName::from_static("x-overview-cache"),
+        HeaderValue::from_static(if cache_hit { "hit" } else { "miss" }),
+    );
+    Ok((headers, Json(snapshot)))
 }
 
 fn parse_days(raw: Option<&str>) -> AppResult<i64> {
@@ -62,7 +88,7 @@ mod tests {
     use super::*;
 
     use axum::body::Body;
-    use axum::http::{header, Method, Request, StatusCode};
+    use axum::http::{header, HeaderMap, Method, Request, StatusCode};
     use axum::Router;
     use serde_json::Value;
     use tower::ServiceExt;
@@ -104,6 +130,17 @@ mod tests {
     }
 
     async fn request(app: &Router, cookie: Option<&str>, uri: &str) -> (StatusCode, Value) {
+        let (status, _headers, value) = request_full(app, cookie, uri).await;
+        (status, value)
+    }
+
+    /// 与 [`request`] 相同，但把响应头也带回来：缓存命中/失效测试要看
+    /// `X-Overview-Cache`，不能只看 body。
+    async fn request_full(
+        app: &Router,
+        cookie: Option<&str>,
+        uri: &str,
+    ) -> (StatusCode, HeaderMap, Value) {
         let mut builder = Request::builder().method(Method::GET).uri(uri);
         if let Some(cookie) = cookie {
             builder = builder.header(header::COOKIE, cookie);
@@ -114,6 +151,7 @@ mod tests {
             .await
             .unwrap();
         let status = response.status();
+        let headers = response.headers().clone();
         let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
             .await
             .unwrap();
@@ -122,7 +160,7 @@ mod tests {
         } else {
             serde_json::from_slice(&bytes).unwrap()
         };
-        (status, value)
+        (status, headers, value)
     }
 
     async fn add_node(
@@ -1058,5 +1096,76 @@ mod tests {
         assert!(nft_view["blocked_reason"]
             .as_str()
             .is_some_and(|reason| reason.contains("nft")));
+    }
+
+    /// 概览的流量快照短缓存：同代际命中，计费入账后立刻失效。
+    ///
+    /// 非流量部分（节点/链路/服务器计数）不经过缓存，因此这里只断言
+    /// `kpi.traffic_today` 与 `X-Overview-Cache`，避免把两条路径混在一起。
+    #[tokio::test]
+    async fn overview_traffic_snapshot_is_cached_and_invalidated_by_writes() {
+        let (app, state, admin) = setup().await;
+        let today = time::business_date(repo::now());
+
+        let (status, headers, body) =
+            request_full(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(
+            headers
+                .get("x-overview-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("miss"),
+            "第一次请求必须是冷查询"
+        );
+        assert_eq!(body["kpi"]["traffic_today"], 0);
+
+        let (status, headers, body) =
+            request_full(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(
+            headers
+                .get("x-overview-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("hit"),
+            "同代际第二次请求必须命中缓存"
+        );
+        assert_eq!(
+            headers
+                .get(axum::http::header::VARY)
+                .and_then(|value| value.to_str().ok()),
+            Some("Cookie"),
+            "响应必须带 Vary: Cookie"
+        );
+
+        // 计费入账：触发 traffic_daily 的触发器 → 日汇总代际 +1。
+        repo::traffic::accumulate_daily(&state.db.pool, &today, "server-1", "u-1", 10, 20, 30)
+            .await
+            .unwrap();
+
+        let (status, headers, body) =
+            request_full(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(
+            headers
+                .get("x-overview-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("miss"),
+            "写入流量后必须失效，不能返回旧数字"
+        );
+        assert_eq!(
+            body["kpi"]["traffic_today"], 30,
+            "新流量必须立刻计入：{body}"
+        );
+
+        // 不同 days 用不同的缓存 key，不能把 7 天的结果当成 90 天返回。
+        let (_, headers, body) = request_full(&app, Some(&admin), "/api/v1/overview?days=90").await;
+        assert_eq!(
+            headers
+                .get("x-overview-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("miss"),
+            "days 不同必须重建"
+        );
+        assert_eq!(body["series"].as_array().unwrap().len(), 90);
     }
 }

@@ -3061,6 +3061,624 @@ fn saturating_i64(value: u64) -> i64 {
     value.min(i64::MAX as u64) as i64
 }
 
+/// 流量日汇总（表 `traffic_daily_rollup`）的自愈与一致性校验。
+///
+/// 汇总由迁移 `0066` 的触发器在**同一条写语句**里维护：`traffic_daily` 的
+/// INSERT / UPDATE / DELETE 同步维护 `subject`、`server`、`legacy` 三个 scope，
+/// `traffic_node_daily` 维护 `node` scope。概览只读汇总，不再扫 30 天原始行。
+///
+/// 语义：
+/// * 正常上报只追加；显式修正 / 删除历史行时触发器按差值同步（负增量），
+///   所以「改一条历史流量」不需要手工重建；
+/// * 绕过触发器的大批量导入、或直接改原始表结构后，用 [`rebuild`] 全量重建；
+/// * [`ensure_backfilled`] 在主控启动时比较原始表与汇总表的三个字段总和，
+///   不一致就重建一次（幂等），因此升级老库、从备份恢复后都会自动补齐。
+///
+/// English: read model maintenance for the per-day traffic rollup. Triggers in
+/// migration 0066 keep it in sync in the same statement as the raw ledgers
+/// (including negative deltas for explicit UPDATE/DELETE). `ensure_backfilled`
+/// compares checksums at startup and rebuilds once when a bulk import or a
+/// manual edit bypassed the triggers.
+pub mod traffic_rollup {
+    use super::*;
+
+    /// `node` / `legacy` scope 的 key 分隔符：`server_id \x1f node_tag`。
+    ///
+    /// 控制字符不会出现在服务器 id 或节点 tag 里；查询侧用 `instr()` 拆开。
+    pub const KEY_SEP: char = '\u{1f}';
+
+    pub const SCOPE_SUBJECT: &str = "subject";
+    pub const SCOPE_SERVER: &str = "server";
+    pub const SCOPE_NODE: &str = "node";
+    pub const SCOPE_LEGACY: &str = "legacy";
+
+    /// 汇总代际：每次原始表写入（触发器）或全量重建都会 +1。
+    ///
+    /// 概览缓存用它当 key，所以写路径不需要遍历缓存，旧结果自然不再命中。
+    pub async fn generation(pool: &SqlitePool) -> anyhow::Result<i64> {
+        Ok(
+            sqlx::query_scalar("SELECT generation FROM traffic_rollup_meta WHERE id = 1")
+                .fetch_one(pool)
+                .await?,
+        )
+    }
+
+    /// 原始表与汇总表在 `uplink / downlink / weighted` 三个字段上是否逐项相等。
+    ///
+    /// 用三个方向的总和做校验和：既能发现漏写的行，也不会被「删除后归零但
+    /// 为了保留原始行存在性而留下的 0 行」误判（0 不影响总和）。
+    pub async fn is_consistent(pool: &SqlitePool) -> anyhow::Result<bool> {
+        let consistent: i64 = sqlx::query_scalar(
+            "SELECT
+                (SELECT COALESCE(SUM(uplink), 0) FROM traffic_daily)
+                  = (SELECT COALESCE(SUM(uplink), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'server')
+              AND (SELECT COALESCE(SUM(downlink), 0) FROM traffic_daily)
+                  = (SELECT COALESCE(SUM(downlink), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'server')
+              AND (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily)
+                  = (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'server')
+              AND (SELECT COALESCE(SUM(uplink), 0) FROM traffic_daily)
+                  = (SELECT COALESCE(SUM(uplink), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'subject')
+              AND (SELECT COALESCE(SUM(downlink), 0) FROM traffic_daily)
+                  = (SELECT COALESCE(SUM(downlink), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'subject')
+              AND (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily)
+                  = (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'subject')
+              AND (SELECT COALESCE(SUM(uplink), 0) FROM traffic_node_daily)
+                  = (SELECT COALESCE(SUM(uplink), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'node')
+              AND (SELECT COALESCE(SUM(downlink), 0) FROM traffic_node_daily)
+                  = (SELECT COALESCE(SUM(downlink), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'node')
+              AND (SELECT COALESCE(SUM(weighted), 0) FROM traffic_node_daily)
+                  = (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'node')
+              AND (SELECT COALESCE(SUM(uplink), 0) FROM traffic_daily
+                   WHERE instr(subject, '@') > 0)
+                  = (SELECT COALESCE(SUM(uplink), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'legacy')
+              AND (SELECT COALESCE(SUM(downlink), 0) FROM traffic_daily
+                   WHERE instr(subject, '@') > 0)
+                  = (SELECT COALESCE(SUM(downlink), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'legacy')
+              AND (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily
+                   WHERE instr(subject, '@') > 0)
+                  = (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+                     WHERE scope = 'legacy')",
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(consistent != 0)
+    }
+
+    /// 从两张原始日账本全量重建汇总（幂等：同一份原始数据重建结果相同）。
+    ///
+    /// 重建在一个事务里完成；成功后 `generation + 1`，正在用旧代际缓存的
+    /// 请求不会把旧结果写回。
+    pub async fn rebuild(pool: &SqlitePool) -> anyhow::Result<()> {
+        let mut tx = pool.begin().await?;
+        sqlx::query("DELETE FROM traffic_daily_rollup")
+            .execute(&mut *tx)
+            .await?;
+
+        // 用户维度：`subject` 就是 user_id（历史行可能是 user@tag）。
+        sqlx::query(
+            "INSERT INTO traffic_daily_rollup (scope, day, key, uplink, downlink, weighted)
+             SELECT 'subject', day, subject,
+                    COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                    COALESCE(SUM(weighted), 0)
+             FROM traffic_daily
+             GROUP BY day, subject",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // 服务器维度：Top 服务器卡与 KPI 的今日/本月都读这个 scope。
+        sqlx::query(
+            "INSERT INTO traffic_daily_rollup (scope, day, key, uplink, downlink, weighted)
+             SELECT 'server', day, server_id,
+                    COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                    COALESCE(SUM(weighted), 0)
+             FROM traffic_daily
+             GROUP BY day, server_id",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // 历史归因兜底：subject 里带 `@` 的行，按 `server_id\x1fnode_tag` 聚合，
+        // 与协议归属查询的 `legacy` scope 同一口径。
+        sqlx::query(
+            "INSERT INTO traffic_daily_rollup (scope, day, key, uplink, downlink, weighted)
+             SELECT 'legacy', day,
+                    server_id || char(31) || substr(subject, instr(subject, '@') + 1),
+                    COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                    COALESCE(SUM(weighted), 0)
+             FROM traffic_daily
+             WHERE instr(subject, '@') > 0
+             GROUP BY day, server_id, substr(subject, instr(subject, '@') + 1)",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        // 节点维度：同一节点下多个用户的切片先合并，Top 节点/协议归属再 JOIN nodes。
+        sqlx::query(
+            "INSERT INTO traffic_daily_rollup (scope, day, key, uplink, downlink, weighted)
+             SELECT 'node', day, server_id || char(31) || node_tag,
+                    COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                    COALESCE(SUM(weighted), 0)
+             FROM traffic_node_daily
+             GROUP BY day, server_id, node_tag",
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE traffic_rollup_meta
+             SET generation = generation + 1, rebuilt_at = ?
+             WHERE id = 1",
+        )
+        .bind(crate::time::now())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// 启动时调用：汇总一致返回 `false`，否则重建一次并返回 `true`。
+    ///
+    /// 重建后再校验一次，仍然不一致就报错让主控启动失败——概览宁可起不来，
+    /// 也不能长期展示错误的账单数字。
+    pub async fn ensure_backfilled(pool: &SqlitePool) -> anyhow::Result<bool> {
+        if is_consistent(pool).await? {
+            return Ok(false);
+        }
+        tracing::warn!(
+            "流量日汇总与原始账本不一致，执行全量重建 / traffic rollup is stale, rebuilding"
+        );
+        rebuild(pool).await?;
+        if !is_consistent(pool).await? {
+            anyhow::bail!(
+                "流量日汇总重建后仍与原始账本不一致 / traffic rollup still inconsistent after rebuild"
+            );
+        }
+        Ok(true)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        use crate::Db;
+
+        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, sqlx::FromRow)]
+        struct Totals {
+            uplink: i64,
+            downlink: i64,
+            weighted: i64,
+        }
+
+        async fn setup() -> SqlitePool {
+            let db = Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+            db.pool
+        }
+
+        async fn seed(
+            pool: &SqlitePool,
+            day: &str,
+            server: &str,
+            subject: &str,
+            bytes: (u64, u64, u64),
+        ) {
+            super::super::traffic::accumulate_daily(
+                pool, day, server, subject, bytes.0, bytes.1, bytes.2,
+            )
+            .await
+            .unwrap();
+        }
+
+        async fn seed_node(
+            pool: &SqlitePool,
+            day: &str,
+            server: &str,
+            tag: &str,
+            user_id: &str,
+            bytes: (u64, u64, u64),
+        ) {
+            super::super::traffic::accumulate_node_daily(
+                pool,
+                day,
+                server,
+                super::super::traffic::NodeTrafficDelta {
+                    node_tag: tag,
+                    user_id,
+                    uplink: bytes.0,
+                    downlink: bytes.1,
+                    weighted: bytes.2,
+                },
+            )
+            .await
+            .unwrap();
+        }
+
+        async fn raw_totals(pool: &SqlitePool, day: &str) -> Totals {
+            sqlx::query_as(
+                "SELECT COALESCE(SUM(uplink), 0) AS uplink,
+                        COALESCE(SUM(downlink), 0) AS downlink,
+                        COALESCE(SUM(weighted), 0) AS weighted
+                 FROM traffic_daily WHERE day = ?",
+            )
+            .bind(day)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+        }
+
+        async fn raw_node_totals(pool: &SqlitePool, day: &str) -> Totals {
+            sqlx::query_as(
+                "SELECT COALESCE(SUM(uplink), 0) AS uplink,
+                        COALESCE(SUM(downlink), 0) AS downlink,
+                        COALESCE(SUM(weighted), 0) AS weighted
+                 FROM traffic_node_daily WHERE day = ?",
+            )
+            .bind(day)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+        }
+
+        async fn raw_legacy_totals(pool: &SqlitePool, day: &str) -> Totals {
+            sqlx::query_as(
+                "SELECT COALESCE(SUM(uplink), 0) AS uplink,
+                        COALESCE(SUM(downlink), 0) AS downlink,
+                        COALESCE(SUM(weighted), 0) AS weighted
+                 FROM traffic_daily WHERE day = ? AND instr(subject, '@') > 0",
+            )
+            .bind(day)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+        }
+
+        async fn rollup_totals(pool: &SqlitePool, scope: &str, day: &str) -> Totals {
+            sqlx::query_as(
+                "SELECT COALESCE(SUM(uplink), 0) AS uplink,
+                        COALESCE(SUM(downlink), 0) AS downlink,
+                        COALESCE(SUM(weighted), 0) AS weighted
+                 FROM traffic_daily_rollup WHERE scope = ? AND day = ?",
+            )
+            .bind(scope)
+            .bind(day)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+        }
+
+        type RollupRow = (String, i64, i64, i64);
+
+        /// 汇总表里某个 scope 的逐行数据：`(key, uplink, downlink, weighted)`。
+        async fn rollup_rows(pool: &SqlitePool, scope: &str, day: &str) -> Vec<RollupRow> {
+            sqlx::query_as(
+                "SELECT key, uplink, downlink, weighted
+                 FROM traffic_daily_rollup
+                 WHERE scope = ? AND day = ?
+                 ORDER BY key",
+            )
+            .bind(scope)
+            .bind(day)
+            .fetch_all(pool)
+            .await
+            .unwrap()
+        }
+
+        /// 直接聚合 `traffic_daily`，key 就是 subject。
+        async fn raw_subject_rows(pool: &SqlitePool, day: &str) -> Vec<RollupRow> {
+            sqlx::query_as(
+                "SELECT subject AS key,
+                        COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                        COALESCE(SUM(weighted), 0)
+                 FROM traffic_daily WHERE day = ?
+                 GROUP BY subject ORDER BY subject",
+            )
+            .bind(day)
+            .fetch_all(pool)
+            .await
+            .unwrap()
+        }
+
+        /// 直接聚合 `traffic_daily`，key 就是 server_id。
+        async fn raw_server_rows(pool: &SqlitePool, day: &str) -> Vec<RollupRow> {
+            sqlx::query_as(
+                "SELECT server_id AS key,
+                        COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                        COALESCE(SUM(weighted), 0)
+                 FROM traffic_daily WHERE day = ?
+                 GROUP BY server_id ORDER BY server_id",
+            )
+            .bind(day)
+            .fetch_all(pool)
+            .await
+            .unwrap()
+        }
+
+        /// 直接聚合 `traffic_node_daily`，key 必须与触发器拼法一致。
+        async fn raw_node_rows(pool: &SqlitePool, day: &str) -> Vec<RollupRow> {
+            sqlx::query_as(
+                "SELECT server_id || char(31) || node_tag AS key,
+                        COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                        COALESCE(SUM(weighted), 0)
+                 FROM traffic_node_daily WHERE day = ?
+                 GROUP BY server_id, node_tag ORDER BY key",
+            )
+            .bind(day)
+            .fetch_all(pool)
+            .await
+            .unwrap()
+        }
+
+        /// 直接聚合带 `@` 的历史行，key 必须与 `legacy` scope 一致。
+        async fn raw_legacy_rows(pool: &SqlitePool, day: &str) -> Vec<RollupRow> {
+            sqlx::query_as(
+                "SELECT server_id || char(31) ||
+                        substr(subject, instr(subject, '@') + 1) AS key,
+                        COALESCE(SUM(uplink), 0), COALESCE(SUM(downlink), 0),
+                        COALESCE(SUM(weighted), 0)
+                 FROM traffic_daily
+                 WHERE day = ? AND instr(subject, '@') > 0
+                 GROUP BY server_id, substr(subject, instr(subject, '@') + 1)
+                 ORDER BY key",
+            )
+            .bind(day)
+            .fetch_all(pool)
+            .await
+            .unwrap()
+        }
+
+        async fn rollup_snapshot(
+            pool: &SqlitePool,
+        ) -> Vec<(String, String, String, i64, i64, i64)> {
+            sqlx::query_as(
+                "SELECT scope, day, key, uplink, downlink, weighted
+                 FROM traffic_daily_rollup ORDER BY scope, day, key",
+            )
+            .fetch_all(pool)
+            .await
+            .unwrap()
+        }
+
+        /// 随机 5 天：每个 scope 的逐字段总和必须与直接聚合原始表完全相等。
+        /// 同时覆盖历史 `user@tag` 行的 `legacy` 兜底口径。
+        #[tokio::test]
+        async fn rollup_matches_raw_aggregates_for_five_days() {
+            let pool = setup().await;
+            let days = [
+                "2026-10-01",
+                "2026-10-17",
+                "2026-11-08",
+                "2026-11-20",
+                "2026-11-21",
+            ];
+            for (index, day) in days.iter().enumerate() {
+                let base = index as u64;
+                seed(&pool, day, "s-1", "u-1", (10 + base, 20 + base, 30 + base)).await;
+                seed(&pool, day, "s-1", "u-2", (1, 2, 3)).await;
+                // 历史格式：subject 带 @，用于 legacy scope。
+                seed(
+                    &pool,
+                    day,
+                    "s-1",
+                    "legacy@node-a",
+                    (5 + base, 6 + base, 11 + base),
+                )
+                .await;
+                seed(&pool, day, "s-2", "u-1", (7, 8, 9)).await;
+                seed_node(&pool, day, "s-1", "node-a", "u-1", (3, 4, 5)).await;
+                seed_node(&pool, day, "s-1", "node-a", "", (6, 7, 8)).await;
+                seed_node(&pool, day, "s-2", "node-b", "u-1", (9, 10, 11)).await;
+            }
+
+            for day in days {
+                let raw = raw_totals(&pool, day).await;
+                assert_eq!(
+                    rollup_totals(&pool, SCOPE_SERVER, day).await,
+                    raw,
+                    "server scope 必须等于 traffic_daily 总和（{day}）"
+                );
+                assert_eq!(
+                    rollup_totals(&pool, SCOPE_SUBJECT, day).await,
+                    raw,
+                    "subject scope 必须等于 traffic_daily 总和（{day}）"
+                );
+                assert_eq!(
+                    rollup_totals(&pool, SCOPE_NODE, day).await,
+                    raw_node_totals(&pool, day).await,
+                    "node scope 必须等于 traffic_node_daily 总和（{day}）"
+                );
+                assert_eq!(
+                    rollup_totals(&pool, SCOPE_LEGACY, day).await,
+                    raw_legacy_totals(&pool, day).await,
+                    "legacy scope 必须等于带 @ 的历史行总和（{day}）"
+                );
+
+                // 「逐字段」不只是总和：逐个 key 的 3 个字段也要与直接聚合相等。
+                assert_eq!(
+                    rollup_rows(&pool, SCOPE_SUBJECT, day).await,
+                    raw_subject_rows(&pool, day).await,
+                    "subject scope 逐 key 必须相等（{day}）"
+                );
+                assert_eq!(
+                    rollup_rows(&pool, SCOPE_SERVER, day).await,
+                    raw_server_rows(&pool, day).await,
+                    "server scope 逐 key 必须相等（{day}）"
+                );
+                assert_eq!(
+                    rollup_rows(&pool, SCOPE_NODE, day).await,
+                    raw_node_rows(&pool, day).await,
+                    "node scope 逐 key 必须相等（{day}）"
+                );
+                assert_eq!(
+                    rollup_rows(&pool, SCOPE_LEGACY, day).await,
+                    raw_legacy_rows(&pool, day).await,
+                    "legacy scope 逐 key 必须相等（{day}）"
+                );
+            }
+            assert!(is_consistent(&pool).await.unwrap());
+        }
+
+        /// 显式修正 / 删除历史流量后，汇总用负增量跟上；不需要手工重建。
+        #[tokio::test]
+        async fn rollup_follows_explicit_history_updates_and_deletes() {
+            let pool = setup().await;
+            let day = "2026-11-21";
+            seed(&pool, day, "s-1", "u-1", (10, 20, 30)).await;
+            seed(&pool, day, "s-1", "legacy@node-a", (5, 6, 11)).await;
+            seed_node(&pool, day, "s-1", "node-a", "u-1", (3, 4, 5)).await;
+            seed_node(&pool, day, "s-1", "node-a", "", (6, 7, 8)).await;
+
+            // 修正一条历史用户流量。
+            sqlx::query(
+                "UPDATE traffic_daily
+                 SET uplink = 100, downlink = 200, weighted = 300
+                 WHERE day = ? AND server_id = 's-1' AND subject = 'u-1'",
+            )
+            .bind(day)
+            .execute(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                rollup_totals(&pool, SCOPE_SUBJECT, day).await,
+                raw_totals(&pool, day).await
+            );
+
+            // 删除节点切片：node 汇总行归零后必须被删除，否则协议归属的
+            // NOT EXISTS 会把历史 legacy 行误判成「已有节点切片」。
+            sqlx::query("DELETE FROM traffic_node_daily WHERE day = ?")
+                .bind(day)
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert_eq!(
+                rollup_totals(&pool, SCOPE_NODE, day).await,
+                Totals::default()
+            );
+            let node_rows: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM traffic_daily_rollup WHERE scope = 'node' AND day = ?",
+            )
+            .bind(day)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(node_rows, 0, "原始节点行全部删除后不能留下 0 汇总行");
+            assert_eq!(
+                rollup_totals(&pool, SCOPE_LEGACY, day).await,
+                raw_legacy_totals(&pool, day).await
+            );
+
+            // 删除用户日账本后，server/subject/legacy 三个 scope 都要随之回退。
+            sqlx::query("DELETE FROM traffic_daily WHERE day = ? AND subject = 'u-1'")
+                .bind(day)
+                .execute(&pool)
+                .await
+                .unwrap();
+            let raw = raw_totals(&pool, day).await;
+            assert_eq!(rollup_totals(&pool, SCOPE_SERVER, day).await, raw);
+            assert_eq!(rollup_totals(&pool, SCOPE_SUBJECT, day).await, raw);
+            assert_eq!(
+                rollup_totals(&pool, SCOPE_LEGACY, day).await,
+                raw_legacy_totals(&pool, day).await
+            );
+            assert!(is_consistent(&pool).await.unwrap());
+        }
+
+        /// 回填幂等：同一份原始数据重建两次，汇总逐行相同；损坏后能自动修复。
+        #[tokio::test]
+        async fn rebuild_is_idempotent_and_repairs_a_damaged_rollup() {
+            let pool = setup().await;
+            for (index, day) in ["2026-11-19", "2026-11-20", "2026-11-21"]
+                .iter()
+                .enumerate()
+            {
+                let base = index as u64;
+                seed(&pool, day, "s-1", "u-1", (10 + base, 20 + base, 30 + base)).await;
+                seed(&pool, day, "s-2", "legacy@node-b", (1, 2, 3)).await;
+                seed_node(&pool, day, "s-2", "node-b", "u-1", (4, 5, 6)).await;
+            }
+
+            let expected = rollup_snapshot(&pool).await;
+            let generation_before = generation(&pool).await.unwrap();
+            assert!(!ensure_backfilled(&pool).await.unwrap(), "一致时不应重建");
+            assert_eq!(rollup_snapshot(&pool).await, expected);
+
+            // 人为破坏汇总，模拟绕过触发器的大批量导入 / 恢复后缺数据。
+            sqlx::query("UPDATE traffic_daily_rollup SET uplink = 0, downlink = 0, weighted = 0")
+                .execute(&pool)
+                .await
+                .unwrap();
+            assert!(!is_consistent(&pool).await.unwrap());
+            assert!(ensure_backfilled(&pool).await.unwrap(), "不一致时必须重建");
+            assert!(is_consistent(&pool).await.unwrap());
+            assert_eq!(
+                rollup_snapshot(&pool).await,
+                expected,
+                "重建结果必须与触发器维护的结果逐行相等"
+            );
+            assert!(
+                generation(&pool).await.unwrap() > generation_before,
+                "重建必须递增代际，让旧缓存失效"
+            );
+
+            rebuild(&pool).await.unwrap();
+            assert_eq!(rollup_snapshot(&pool).await, expected, "重复重建必须幂等");
+        }
+
+        /// 跨日边界按 UTC+8 业务日切：UTC 15:59:59 仍算当天，16:00:00 进下一天。
+        #[tokio::test]
+        async fn rollup_days_follow_the_utc8_business_boundary() {
+            let pool = setup().await;
+            let before = chrono::DateTime::parse_from_rfc3339("2026-11-21T15:59:59Z")
+                .unwrap()
+                .timestamp();
+            let after = chrono::DateTime::parse_from_rfc3339("2026-11-21T16:00:00Z")
+                .unwrap()
+                .timestamp();
+            let before_day = crate::time::business_date(before);
+            let after_day = crate::time::business_date(after);
+            assert_eq!(before_day, "2026-11-21");
+            assert_eq!(after_day, "2026-11-22");
+
+            seed(&pool, &before_day, "s-1", "u-1", (1, 2, 3)).await;
+            seed(&pool, &after_day, "s-1", "u-1", (10, 20, 30)).await;
+
+            assert_eq!(
+                rollup_totals(&pool, SCOPE_SERVER, &before_day).await,
+                Totals {
+                    uplink: 1,
+                    downlink: 2,
+                    weighted: 3
+                }
+            );
+            assert_eq!(
+                rollup_totals(&pool, SCOPE_SERVER, &after_day).await,
+                Totals {
+                    uplink: 10,
+                    downlink: 20,
+                    weighted: 30
+                }
+            );
+            assert_eq!(
+                rollup_snapshot(&pool).await.len(),
+                4,
+                "两天 × (server + subject) 共 4 行，不能跨日串账"
+            );
+            assert!(is_consistent(&pool).await.unwrap());
+        }
+    }
+}
+
 pub mod nodes {
     use std::collections::HashSet;
 
@@ -10403,151 +11021,222 @@ pub mod overview {
     /// 只在这里拼一次「协议归属」的 SQL：`protocols` 与 `protocol_series`
     /// 都消费它，避免两张卡各写一套口径而在页面上对不上。
     #[derive(Debug, Clone, sqlx::FromRow)]
-    struct ProtocolTrafficRow {
-        day: String,
-        protocol: String,
-        uplink: i64,
-        downlink: i64,
+    pub struct ProtocolTrafficRow {
+        pub day: String,
+        pub protocol: String,
+        pub uplink: i64,
+        pub downlink: i64,
     }
 
-    /// 查询次数固定、与数据量无关（没有 N+1）：无链时概览主体 **9 条**，
-    /// 有链时 `count_blocked` 再追加链 / 组 / 成员 3 条与最多 1 条证书批量查询
-    /// （最多 12 条）。
+    /// 概览里**只由流量派生**的那部分结果（趋势、协议、Top 卡、KPI 流量）。
     ///
-    /// 合并方式（14 → 9）：
-    /// * KPI 的 5 个标量 + 24h 可用率（原来是 `uptime_all` 单独一条）→ 1 条；
-    /// * 链健康、转发总数 / 失败数、握手失败（原来 3 条）→ 1 条；
-    /// * Top 用户 / Top 节点 / 套餐分布（原来 3 条，窗口相同）→ 1 条 CTE，
-    ///   用 `kind` 区分后在 Rust 里拆回三个数组。
+    /// 拆出来是为了让 master 做短缓存：服务器/节点计数、链路健康、24h 可用率
+    /// 这些查询又便宜又与流量无关，不应该因为缓存而晚 10 秒生效。
     ///
-    /// 没有合并的：
-    /// * `traffic_trend`（按天一行）与 `protocol_traffic`（按天 × 协议）粒度
-    ///   不同，而且协议归属只覆盖 `traffic_node_daily` + 历史 `user@tag` 行，
-    ///   不能拿来替代总量趋势；
-    /// * `top_servers` 是「服务器驱动」的 LEFT JOIN（零流量服务器也要参与排序），
-    ///   与三个流量驱动的 Top 形状不同，且它要驱动随后按 server_id 批量取
-    ///   网速采样；
-    /// * `protocol_rows` 的节点数是多行 `GROUP BY protocol`，不能塞进标量 KPI；
-    /// * `count_blocked` 必须复用 `crate::chains::blocked_reason` 才算与链列表
-    ///   同口径，不改成 SQL 计数。
+    /// 所有查询都只读 `traffic_daily_rollup`（迁移 0066 的日汇总），不再扫
+    /// 30 天原始账本；`uplink/downlink` 是原始上下行之和，`weighted` 是计费口径。
+    #[derive(Debug, Clone, Default)]
+    pub struct TrafficSnapshot {
+        pub traffic_today: i64,
+        pub traffic_month: i64,
+        pub series: Vec<SeriesPoint>,
+        /// 按天 × 协议的原始流量；`protocols` 与 `protocol_series` 共用。
+        pub protocol_traffic: Vec<ProtocolTrafficRow>,
+        pub protocol_series: Vec<ProtocolSeriesRow>,
+        pub top_users: Vec<TopUserRow>,
+        pub top_nodes: Vec<TopNodeRow>,
+        pub package_split: Vec<PackageSplitRow>,
+    }
+
+    /// 完整的概览响应（无缓存路径；测试与内部调用用）。
+    ///
+    /// 请求路径见 `routes/overview.rs`：它把 [`traffic_snapshot`] 放进短缓存，
+    /// 再调用 [`compose`] 拼上非流量部分。
     pub async fn snapshot(
         pool: &SqlitePool,
         now: i64,
         days: i64,
     ) -> anyhow::Result<OverviewSnapshot> {
+        let traffic = traffic_snapshot(pool, now, days).await?;
+        compose(pool, now, days, traffic).await
+    }
+
+    /// 只聚合流量派生的部分：KPI 今日/本月、日趋势、协议分布/趋势、四张 Top 卡。
+    ///
+    /// 查询次数固定（与数据量无关）：KPI 标量 1 条、趋势 1 条、协议归属 1 条、
+    /// Top 卡 1 条，共 **4 条**；Top 服务器与网速采样在 [`compose`] 里现算。
+    pub async fn traffic_snapshot(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+    ) -> anyhow::Result<TrafficSnapshot> {
         let days = days.clamp(1, 90);
         let today = crate::time::business_date(now);
         let (month_start, month_end) = crate::time::business_month_bounds(now);
+        let (start_date, end_date) = super::stats::day_window(now, days);
 
-        // 一条 SQL 拿齐四张表的标量，顺带把 24h 可用率算出来：可用率 =
-        // 「每台有采样的服务器 24h 均值」再求平均，等价于原来的
-        // uptime_all + Rust 求和，空集合回落 0。
-        let (servers_total, servers_online, nodes, traffic_today, traffic_month, uptime_24h): (
-            i64,
-            i64,
-            i64,
-            i64,
-            i64,
-            f64,
-        ) = sqlx::query_as(
+        // 今日/本月只读 `server` scope：它的总和恒等于 `traffic_daily` 全表
+        // 同日总和（触发器与全量重建都保证这一点），但只有「服务器数 × 天数」行。
+        let (traffic_today, traffic_month): (i64, i64) = sqlx::query_as(
             "SELECT
-                (SELECT COUNT(*) FROM servers),
-                (SELECT COUNT(*) FROM servers WHERE status = 'online'),
-                (SELECT COUNT(*) FROM nodes),
-                (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily WHERE day = ?),
-                (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily
-                  WHERE day >= ? AND day <= ?),
-                (SELECT COALESCE(AVG(u), 0.0) FROM (
-                    SELECT AVG(CASE WHEN ts >= ? THEN online END) AS u
-                    FROM server_samples
-                    WHERE ts >= ? AND ts <= ?
-                    GROUP BY server_id
-                ))",
+                (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+                  WHERE scope = 'server' AND day = ?),
+                (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+                  WHERE scope = 'server' AND day >= ? AND day <= ?)",
         )
         .bind(&today)
         .bind(&month_start)
         .bind(&month_end)
-        .bind(now - 86_400)
-        .bind(now - super::server_samples::RETENTION_SECS)
-        .bind(now)
         .fetch_one(pool)
         .await?;
 
-        let series = super::stats::traffic_trend(pool, now, days)
-            .await?
+        // 日趋势：同一 scope 的日期区间是聚簇主键（scope, day, key）上的一段
+        // 连续区间，扫描行数 = 服务器数 × 天数，而不是用户数 × 天数。
+        let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+            "SELECT day,
+                    COALESCE(SUM(uplink), 0),
+                    COALESCE(SUM(downlink), 0)
+             FROM traffic_daily_rollup
+             WHERE scope = 'server' AND day >= ? AND day <= ?
+             GROUP BY day",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .fetch_all(pool)
+        .await?;
+        let mut by_day: HashMap<String, (i64, i64)> = rows
             .into_iter()
-            .map(|point| SeriesPoint {
-                day: point.date,
-                uplink: point.uplink,
-                downlink: point.downlink,
+            .map(|(day, uplink, downlink)| (day, (uplink, downlink)))
+            .collect();
+        let series = window_days(now, days)
+            .into_iter()
+            .map(|day| {
+                let (uplink, downlink) = by_day.remove(&day).unwrap_or((0, 0));
+                SeriesPoint {
+                    day,
+                    uplink,
+                    downlink,
+                }
             })
             .collect();
 
-        // 协议归属只聚合一次：分布卡（7 天合计）与趋势卡（按天）共用。
-        let protocol_traffic = protocol_traffic(pool, now, days).await?;
-        let (top_users, top_nodes, package_split) = top_cards(pool, now, days).await?;
+        // 协议归属只聚合一次：分布卡（窗口合计）与趋势卡（按天）共用。
+        let protocol_traffic = protocol_traffic(pool, &start_date, &end_date).await?;
+        let protocol_series = protocol_series(&protocol_traffic, now, days);
+        let (top_users, top_nodes, package_split) = top_cards(pool, &start_date, &end_date).await?;
 
-        Ok(OverviewSnapshot {
-            kpi: Kpi {
-                servers_online,
-                servers_total,
-                nodes,
-                traffic_today,
-                traffic_month,
-                uptime_24h,
-            },
+        Ok(TrafficSnapshot {
+            traffic_today,
+            traffic_month,
             series,
-            protocol_series: protocol_series(&protocol_traffic, now, days),
-            protocols: protocol_rows(pool, &protocol_traffic).await?,
-            chains: chain_row(pool, now).await?,
-            top: top_servers(pool, now, days).await?,
+            protocol_traffic,
+            protocol_series,
             top_users,
             top_nodes,
             package_split,
         })
     }
 
-    /// 窗口内「按天 × 协议」的原始流量，供协议分布与协议趋势共用。
+    /// 把缓存好的流量快照与非流量部分拼成完整响应。
     ///
-    /// 归属规则（重要）：
-    /// * 新数据：`traffic_node_daily` 带 `(server_id, node_tag)`，JOIN `nodes`
-    ///   得到协议。`traffic_daily.subject` 是纯 `user_id`，反推不出协议；
-    /// * 历史数据：迁移前写入的 `subject` 还是 `"{user_id}@{node_tag}"`，且没有
-    ///   对应的节点切片时，按 `@` 拆 tag 兜底；
-    /// * `NOT EXISTS` 防止「归因失败但带 @ 的原始 email」被算两次——那条路径
-    ///   同时写了 `traffic_daily` 和 `user_id = ''` 的节点切片。
-    async fn protocol_traffic(
+    /// 非流量部分每次现算：服务器/节点计数、24h 可用率、协议节点数、链路健康。
+    /// 它们不随流量写入变化，又都很便宜，缓存它们只会让「新建节点/链路状态」
+    /// 晚生效。
+    pub async fn compose(
         pool: &SqlitePool,
         now: i64,
         days: i64,
+        traffic: TrafficSnapshot,
+    ) -> anyhow::Result<OverviewSnapshot> {
+        // 一条 SQL 拿齐三张表的标量，顺带把 24h 可用率算出来：可用率 =
+        // 「每台有采样的服务器 24h 均值」再求平均，等价于原来的
+        // uptime_all + Rust 求和，空集合回落 0。
+        let (servers_total, servers_online, nodes, uptime_24h): (i64, i64, i64, f64) =
+            sqlx::query_as(
+                "SELECT
+                    (SELECT COUNT(*) FROM servers),
+                    (SELECT COUNT(*) FROM servers WHERE status = 'online'),
+                    (SELECT COUNT(*) FROM nodes),
+                    (SELECT COALESCE(AVG(u), 0.0) FROM (
+                        SELECT AVG(CASE WHEN ts >= ? THEN online END) AS u
+                        FROM server_samples
+                        WHERE ts >= ? AND ts <= ?
+                        GROUP BY server_id
+                    ))",
+            )
+            .bind(now - 86_400)
+            .bind(now - super::server_samples::RETENTION_SECS)
+            .bind(now)
+            .fetch_one(pool)
+            .await?;
+
+        let protocols = protocol_rows(pool, &traffic.protocol_traffic).await?;
+        let chains = chain_row(pool, now).await?;
+        // Top 服务器卡带实时在线状态与网速采样，不进缓存：日汇总让它变成
+        // 「服务器数 × 天数」行的聚合，现算成本可以忽略。
+        let (start_date, end_date) = super::stats::day_window(now, days.clamp(1, 90));
+        let top = top_servers(pool, &start_date, &end_date, now).await?;
+
+        Ok(OverviewSnapshot {
+            kpi: Kpi {
+                servers_online,
+                servers_total,
+                nodes,
+                traffic_today: traffic.traffic_today,
+                traffic_month: traffic.traffic_month,
+                uptime_24h,
+            },
+            series: traffic.series,
+            protocol_series: traffic.protocol_series,
+            protocols,
+            chains,
+            top,
+            top_users: traffic.top_users,
+            top_nodes: traffic.top_nodes,
+            package_split: traffic.package_split,
+        })
+    }
+
+    /// 窗口内「按天 × 协议」的原始流量，供协议分布与协议趋势共用。
+    ///
+    /// 归属规则（重要）：
+    /// * 新数据：`node` scope 的 key 是 `server_id\x1fnode_tag`，JOIN `nodes`
+    ///   得到协议。`traffic_daily.subject` 是纯 `user_id`，反推不出协议；
+    /// * 历史数据：迁移前写入的 `subject` 还是 `"{user_id}@{node_tag}"` 且没有
+    ///   对应的节点切片时，按 `@` 拆 tag 兜底，读的是 `legacy` scope；
+    /// * `NOT EXISTS` 防止「归因失败但带 @ 的原始 email」被算两次——那条路径
+    ///   同时写了 `traffic_daily` 和 `user_id = ''` 的节点切片；汇总侧用
+    ///   `node` scope 是否存在同一 key 来判断，语义与原始表完全一致（原始节点行
+    ///   被删时触发器会把归零的 node 汇总行一起删掉）。
+    async fn protocol_traffic(
+        pool: &SqlitePool,
+        start_date: &str,
+        end_date: &str,
     ) -> anyhow::Result<Vec<ProtocolTrafficRow>> {
-        let (start_date, end_date) = super::stats::day_window(now, days);
         Ok(sqlx::query_as::<_, ProtocolTrafficRow>(
             "WITH effective AS (
-                 SELECT t.day AS day,
+                 SELECT r.day AS day,
                         COALESCE(n.protocol, 'unknown') AS protocol,
-                        t.uplink AS uplink,
-                        t.downlink AS downlink
-                 FROM traffic_node_daily t
+                        r.uplink AS uplink,
+                        r.downlink AS downlink
+                 FROM traffic_daily_rollup r
                  LEFT JOIN nodes n
-                   ON n.server_id = t.server_id AND n.tag = t.node_tag
-                 WHERE t.day >= ? AND t.day <= ?
+                   ON n.server_id = substr(r.key, 1, instr(r.key, char(31)) - 1)
+                  AND n.tag = substr(r.key, instr(r.key, char(31)) + 1)
+                 WHERE r.scope = 'node' AND r.day >= ? AND r.day <= ?
                  UNION ALL
-                 SELECT t.day,
+                 SELECT r.day,
                         COALESCE(n.protocol, 'unknown'),
-                        t.uplink,
-                        t.downlink
-                 FROM traffic_daily t
+                        r.uplink,
+                        r.downlink
+                 FROM traffic_daily_rollup r
                  LEFT JOIN nodes n
-                   ON n.server_id = t.server_id
-                  AND n.tag = substr(t.subject, instr(t.subject, '@') + 1)
-                 WHERE t.day >= ? AND t.day <= ?
-                   AND instr(t.subject, '@') > 0
+                   ON n.server_id = substr(r.key, 1, instr(r.key, char(31)) - 1)
+                  AND n.tag = substr(r.key, instr(r.key, char(31)) + 1)
+                 WHERE r.scope = 'legacy' AND r.day >= ? AND r.day <= ?
                    AND NOT EXISTS (
-                     SELECT 1 FROM traffic_node_daily nd
-                     WHERE nd.day = t.day
-                       AND nd.server_id = t.server_id
-                       AND nd.node_tag = substr(t.subject, instr(t.subject, '@') + 1)
+                     SELECT 1 FROM traffic_daily_rollup nd
+                     WHERE nd.scope = 'node' AND nd.day = r.day AND nd.key = r.key
                    )
              )
              SELECT day, protocol,
@@ -10556,10 +11245,10 @@ pub mod overview {
              FROM effective
              GROUP BY day, protocol",
         )
-        .bind(&start_date)
-        .bind(&end_date)
-        .bind(&start_date)
-        .bind(&end_date)
+        .bind(start_date)
+        .bind(end_date)
+        .bind(start_date)
+        .bind(end_date)
         .fetch_all(pool)
         .await?)
     }
@@ -10698,23 +11387,24 @@ pub mod overview {
 
     /// Top 用户 / Top 节点 / 套餐分布：三者时间窗相同，合并成一条 CTE。
     ///
-    /// 每个分支各自聚合、各自 `ORDER BY ... LIMIT ?` 取前 N 条，再 UNION ALL；
-    /// Rust 侧按 `kind` 拆回三个数组。顺序 / 截断 / `HAVING > 0` 语义与拆开查
-    /// 时一致，且保留了单分支 top-N 排序的代价（不用窗口函数处理全部分组）。
+    /// 每个分支各自 `ORDER BY ... LIMIT ?` 取前 N 条，再 UNION ALL；Rust 侧按
+    /// `kind` 拆回三个数组。顺序 / 截断 / `HAVING > 0` 语义与拆开查时一致。
     ///
-    /// * user：`traffic_daily.subject` 就是用户 id（不是 `user@tag`），JOIN
+    /// * user：`subject` scope 的 key 就是用户 id（不是 `user@tag`），JOIN
     ///   `users`；归因失败的原始 email JOIN 不到，自然不参与排名；
-    /// * node：按 `(server_id, node_tag)` JOIN `nodes` / `servers`，已删除节点
-    ///   不进榜；
-    /// * package：先把每个用户归到「当前套餐实例」（同一用户多张卡只取最近
-    ///   一条生效实例），再按套餐汇总，保证同一份流量只归一个套餐。
+    /// * node：`node` scope 的 key 是 `server_id\x1fnode_tag`，JOIN `nodes` /
+    ///   `servers`，已删除节点不进榜；
+    /// * package：复用 `user_traffic`（用户合计只算一次），把每个用户归到
+    ///   「当前套餐实例」（同一用户多张卡只取最近一条生效实例）再按套餐汇总，
+    ///   保证同一份流量只归一个套餐。
+    ///
+    /// 用户合计与 Top 用户共用同一个 CTE：早期版本在 `top_user` 里又扫了一遍
+    /// 原始日账本，实测占概览冷查询的一半。
     async fn top_cards(
         pool: &SqlitePool,
-        now: i64,
-        days: i64,
+        start_date: &str,
+        end_date: &str,
     ) -> anyhow::Result<(Vec<TopUserRow>, Vec<TopNodeRow>, Vec<PackageSplitRow>)> {
-        let (start_date, end_date) = super::stats::day_window(now, days);
-
         #[derive(sqlx::FromRow)]
         struct Row {
             kind: String,
@@ -10730,7 +11420,15 @@ pub mod overview {
         // 小结果 UNION ALL。这样既只发一条 SQL，又保留原来「只排序前 5 条」
         // 的代价；用 `ROW_NUMBER()` 排名会强制窗口函数处理全部分组，实测慢 3 倍。
         let rows = sqlx::query_as::<_, Row>(
-            "WITH current_instance AS (
+            "WITH user_traffic AS (
+                 SELECT key AS user_id,
+                        COALESCE(SUM(uplink + downlink), 0) AS bytes
+                 FROM traffic_daily_rollup
+                 WHERE scope = 'subject' AND day >= ? AND day <= ?
+                 GROUP BY key
+                 HAVING SUM(uplink + downlink) > 0
+             ),
+             current_instance AS (
                  SELECT up.user_id AS user_id,
                         up.package_id AS package_id,
                         ROW_NUMBER() OVER (
@@ -10741,67 +11439,41 @@ pub mod overview {
                         ) AS rn
                  FROM user_packages up
              ),
-             user_traffic AS (
-                 SELECT subject AS user_id,
-                        COALESCE(SUM(uplink + downlink), 0) AS bytes
-                 FROM traffic_daily
-                 WHERE day >= ? AND day <= ?
-                 GROUP BY subject
-                 HAVING SUM(uplink + downlink) > 0
-             ),
              top_user AS (
-                 SELECT 'user' AS kind, id, name, '' AS sub, '' AS protocol,
-                        0 AS users, traffic
-                 FROM (
-                     SELECT u.id AS id,
-                            u.username AS name,
-                            COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic
-                     FROM traffic_daily t
-                     JOIN users u ON u.id = t.subject
-                     WHERE t.day >= ? AND t.day <= ?
-                     GROUP BY u.id, u.username
-                     HAVING SUM(t.uplink + t.downlink) > 0
-                     ORDER BY traffic DESC, u.id ASC
-                     LIMIT ?
-                 )
+                 SELECT 'user' AS kind, u.id AS id, u.username AS name,
+                        '' AS sub, '' AS protocol, 0 AS users, ut.bytes AS traffic
+                 FROM user_traffic ut
+                 JOIN users u ON u.id = ut.user_id
+                 ORDER BY ut.bytes DESC, u.id ASC
+                 LIMIT ?
              ),
              top_node AS (
-                 SELECT 'node' AS kind, id, name, sub, protocol,
-                        0 AS users, traffic
-                 FROM (
-                     SELECT n.id AS id,
-                            n.name AS name,
-                            s.name AS sub,
-                            n.protocol AS protocol,
-                            COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic
-                     FROM traffic_node_daily t
-                     JOIN nodes n
-                       ON n.server_id = t.server_id AND n.tag = t.node_tag
-                     JOIN servers s ON s.id = n.server_id
-                     WHERE t.day >= ? AND t.day <= ?
-                     GROUP BY n.id, n.name, n.protocol, s.name
-                     HAVING SUM(t.uplink + t.downlink) > 0
-                     ORDER BY traffic DESC, n.id ASC
-                     LIMIT ?
-                 )
+                 SELECT 'node' AS kind, n.id AS id, n.name AS name,
+                        s.name AS sub, n.protocol AS protocol, 0 AS users,
+                        COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic
+                 FROM traffic_daily_rollup t
+                 JOIN nodes n
+                   ON n.server_id = substr(t.key, 1, instr(t.key, char(31)) - 1)
+                  AND n.tag = substr(t.key, instr(t.key, char(31)) + 1)
+                 JOIN servers s ON s.id = n.server_id
+                 WHERE t.scope = 'node' AND t.day >= ? AND t.day <= ?
+                 GROUP BY n.id, n.name, n.protocol, s.name
+                 HAVING SUM(t.uplink + t.downlink) > 0
+                 ORDER BY traffic DESC, n.id ASC
+                 LIMIT ?
              ),
              top_package AS (
-                 SELECT 'package' AS kind, id, name, '' AS sub, '' AS protocol,
-                        users, traffic
-                 FROM (
-                     SELECT p.id AS id,
-                            p.name AS name,
-                            COUNT(*) AS users,
-                            COALESCE(SUM(ut.bytes), 0) AS traffic
-                     FROM packages p
-                     JOIN current_instance c
-                       ON c.package_id = p.id AND c.rn = 1
-                     JOIN user_traffic ut ON ut.user_id = c.user_id
-                     GROUP BY p.id, p.name
-                     HAVING SUM(ut.bytes) > 0
-                     ORDER BY traffic DESC, p.id ASC
-                     LIMIT ?
-                 )
+                 SELECT 'package' AS kind, p.id AS id, p.name AS name,
+                        '' AS sub, '' AS protocol, COUNT(*) AS users,
+                        COALESCE(SUM(ut.bytes), 0) AS traffic
+                 FROM packages p
+                 JOIN current_instance c
+                   ON c.package_id = p.id AND c.rn = 1
+                 JOIN user_traffic ut ON ut.user_id = c.user_id
+                 GROUP BY p.id, p.name
+                 HAVING SUM(ut.bytes) > 0
+                 ORDER BY traffic DESC, p.id ASC
+                 LIMIT ?
              )
              SELECT kind, id, name, sub, protocol, users, traffic FROM top_user
              UNION ALL
@@ -10810,13 +11482,11 @@ pub mod overview {
              SELECT kind, id, name, sub, protocol, users, traffic FROM top_package
              ORDER BY kind ASC, traffic DESC, id ASC",
         )
-        .bind(&start_date)
-        .bind(&end_date)
-        .bind(&start_date)
-        .bind(&end_date)
+        .bind(start_date)
+        .bind(end_date)
         .bind(TOP_USERS)
-        .bind(&start_date)
-        .bind(&end_date)
+        .bind(start_date)
+        .bind(end_date)
         .bind(TOP_NODES)
         .bind(TOP_PACKAGES)
         .fetch_all(pool)
@@ -10924,9 +11594,15 @@ pub mod overview {
     ///
     /// 每行附带最近 1 小时的网速采样（`rates`），供概览页的 mini 折线使用：
     /// 固定再加 1 条 SQL（按 top 的 server id 批量查），不做 N+1。
-    async fn top_servers(pool: &SqlitePool, now: i64, days: i64) -> anyhow::Result<Vec<TopRow>> {
-        let (start_date, end_date) = super::stats::day_window(now, days);
-
+    ///
+    /// 流量来自 `server` scope（每台服务器每天一行）；`idx_..._key_day` 让每台
+    /// 服务器只取窗口内的几十行，而不是 30 天的全部用户行。
+    async fn top_servers(
+        pool: &SqlitePool,
+        start_date: &str,
+        end_date: &str,
+        now: i64,
+    ) -> anyhow::Result<Vec<TopRow>> {
         #[derive(sqlx::FromRow)]
         struct Row {
             id: String,
@@ -10942,14 +11618,15 @@ pub mod overview {
                     s.load1 AS load1,
                     s.status = 'online' AS online
              FROM servers s
-             LEFT JOIN traffic_daily t
-               ON t.server_id = s.id AND t.day >= ? AND t.day <= ?
+             LEFT JOIN traffic_daily_rollup t
+               ON t.scope = 'server' AND t.key = s.id
+              AND t.day >= ? AND t.day <= ?
              GROUP BY s.id, s.name, s.load1, s.status, s.created_at
              ORDER BY traffic_7d DESC, s.created_at ASC, s.id ASC
              LIMIT ?",
         )
-        .bind(&start_date)
-        .bind(&end_date)
+        .bind(start_date)
+        .bind(end_date)
         .bind(TOP_SERVERS)
         .fetch_all(pool)
         .await?;

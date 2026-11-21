@@ -1225,6 +1225,8 @@ const en = {
     loadFailed: "Subscription list failed to load",
     loadError:
       "Could not load the subscription list. Check your network and try again.",
+    secretDecryptFailed:
+      "The subscription derivation secret cannot be decrypted with the current master key, so subscriptions are temporarily unavailable. Ask an administrator to reset it on the Settings page; after the reset every client must fetch its subscription again, and old credentials stop working immediately.",
     unavailable:
       "The subscriptions API is not ready yet (the backend may still be deploying). Please retry later.",
     copied: "Subscription link for “{username}” copied",
@@ -2022,6 +2024,10 @@ const en = {
       saveError: "Could not save the new values. Please try again later.",
       hmacConsequence:
         "The subscription derivation secret shares the master key with the secrets above: after a reset every client must fetch its subscription again, and old credentials no longer work. To keep the old subscription, restore secret.key from backup (or set the same PIERWAVE_SECRET_KEY); otherwise use the reset action below.",
+      hmacConsequenceNoReset:
+        "The subscription derivation secret shares the master key with the secrets above: if it is also unreadable, every subscription link stops working. Re-enter the secrets above, or restore the master key from secret.key in your backup (or the same PIERWAVE_SECRET_KEY).",
+      resetUnsupported:
+        "This backend version cannot reset it online. Restore secret.key from backup (or set the same PIERWAVE_SECRET_KEY), or upgrade the controller and try again.",
       hmacDoc: "Backup encryption and secret.key recovery steps",
       internalUnknown:
         "This internal secret cannot be re-entered here. Restore the master key used when it was written (data/secret.key or PIERWAVE_SECRET_KEY), then retry.",
@@ -3720,6 +3726,11 @@ const en = {
       "Change your password regularly; after a change other devices are signed out immediately while this device stays signed in.",
     currentAccount: "Current account",
     changePassword: "Change password",
+    secretError: {
+      title: "Subscription temporarily unavailable",
+      description:
+        "The subscription derivation secret cannot be decrypted with the current master key, so subscriptions and the account summary are unavailable. Ask an administrator to reset it on the Settings page; after the reset every client must fetch its subscription again, and old credentials stop working immediately.",
+    },
     loadFailed: "Account center failed to load",
     loadError: "Could not load your data. Check your network and try again.",
     apiNotReady:

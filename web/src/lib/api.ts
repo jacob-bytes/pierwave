@@ -2275,6 +2275,19 @@ export interface SettingsResponse {
   secret_errors?: SecretErrors | null;
 }
 
+/**
+ * `POST /api/v1/settings/reset-subscription-secret`：删除并让后端重新生成
+ * 订阅派生 secret。旧后端没有该端点（404），调用方按「不支持」降级。
+ *
+ * 成功响应带 `code` 与中英双语 `message`；文案由前端 i18n 负责，这里只把
+ * 它当可选调试信息，不直接渲染（避免中英混排 / 语言不跟随界面）。
+ */
+export interface ResetSubscriptionSecretResponse {
+  ok?: boolean;
+  code?: string;
+  message?: string;
+}
+
 /** P1：运维基础设置，见 docs/PLAN.md「P1：运维基础」。 */
 export interface Settings {
   /** 面板名称；后端缺失该键时会回落到默认值。 */
@@ -2749,6 +2762,15 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(input),
       }),
+    /**
+     * 内部订阅派生 secret 损坏时的唯一自助入口。旧后端 404，调用方按
+     * 「能力未上线」降级，不当作错误展示。
+     */
+    resetSubscriptionSecret: () =>
+      request<ResetSubscriptionSecretResponse>(
+        "/api/v1/settings/reset-subscription-secret",
+        { method: "POST" },
+      ),
   },
 
   /**

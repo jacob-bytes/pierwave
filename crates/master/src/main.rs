@@ -122,6 +122,15 @@ async fn main() -> anyhow::Result<()> {
     let db = Db::connect(&db_url).await?;
     db.migrate().await?;
 
+    // 流量日汇总（概览的读模型）：升级老库 / 恢复备份 / 绕过触发器批量导入后，
+    // 启动时校验一次；不一致就全量重建，一致则什么都不做（幂等）。
+    if pierwave_domain::repo::traffic_rollup::ensure_backfilled(&db.pool)
+        .await
+        .context("校验流量日汇总失败")?
+    {
+        tracing::info!("流量日汇总已全量回填 / traffic daily rollup rebuilt");
+    }
+
     // 启动时应用/拒绝恢复也要进审计；此时还没有登录用户，记系统审计。
     match restore_outcome {
         Some(RestoreOutcome::Applied { pending, previous }) => {
