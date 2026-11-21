@@ -160,8 +160,13 @@ test("new settings and billing copy exists in both locales", () => {
     en.settings.publicStatus.whitelist.dialogDesc,
     /do not appear on the public page/,
   );
-  assert.match(zh.settings.publicStatus.billingWarning, /未公开/);
-  assert.match(en.settings.publicStatus.billingWarning, /Not public/);
+  assert.equal(
+    zh.settings.publicStatus.whitelist.note,
+    "未选中的节点不会出现在公开页，也不计入在线率。",
+  );
+  assert.match(en.settings.publicStatus.whitelist.note, /do not appear on the public page/);
+  assert.match(zh.settings.publicStatus.billingNote, /未公开/);
+  assert.match(en.settings.publicStatus.billingNote, /Not public/);
   assert.equal(zh.settings.publicStatus.whitelist.unsupported, "当前后端不支持该功能");
   assert.equal(zh.publicStatus.server.notPublic, "未公开");
   assert.equal(en.publicStatus.server.notPublic, "Not public");

@@ -2078,6 +2078,7 @@ const zhCN = {
       offWarning: "关闭后 /status 对所有人不可见。",
       whitelist: {
         label: "公开节点",
+        note: "未选中的节点不会出现在公开页，也不计入在线率。",
         summary: "公开 {visible} / 共 {total} 台",
         choose: "选择节点",
         unsupported: "当前后端不支持该功能",
@@ -2096,8 +2097,8 @@ const zhCN = {
         saveError: "保存公开节点失败，请稍后重试",
       },
       billing: "公开到期与价格",
-      billingWarning:
-        "关闭后公开页统一显示「未公开」；该设置对所有节点生效，暂不支持按节点单独设置。",
+      billingNote:
+        "关闭后公开页统一显示『未公开』；对所有节点生效，暂不支持按节点设置。",
     },
     updates: {
       title: "版本更新",

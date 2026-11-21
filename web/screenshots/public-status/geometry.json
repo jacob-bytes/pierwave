@@ -1,340 +1,274 @@
 {
   "desktop": {
-    "theme": "dark",
     "viewport": {
       "width": 1440,
       "height": 900
     },
-    "cards": {
-      "publicStatus": {
-        "cardWidth": 1152,
-        "borderRadius": "16.8px",
-        "paddingTop": "16px",
-        "paddingBottom": "16px",
-        "backgroundColor": "oklch(0.175 0.005 285)",
-        "title": {
-          "fontSize": "14px",
-          "fontWeight": "500",
-          "lineHeight": "18.9px",
-          "height": 18.89
-        },
-        "description": {
-          "fontSize": "12px",
-          "lineHeight": "19.2px",
-          "height": 19.19
-        },
-        "header": {
-          "paddingLeft": "16px",
-          "rowGap": "4px"
-        },
-        "content": {
-          "paddingLeft": "16px"
-        },
-        "grid": {
-          "rowGap": "20px",
-          "columnGap": "20px",
-          "columns": "550px 550px"
-        }
+    "card": {
+      "width": 1152,
+      "height": 217.75,
+      "borderRadius": "16.8px",
+      "paddingTop": "16px",
+      "paddingBottom": "16px",
+      "headerPaddingLeft": "16px",
+      "contentPaddingLeft": "16px",
+      "title": {
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "lineHeight": "18.9px"
       },
-      "panel": {
-        "cardWidth": 1152,
-        "borderRadius": "16.8px",
-        "paddingTop": "16px",
-        "paddingBottom": "16px",
-        "backgroundColor": "oklch(0.175 0.005 285)",
-        "title": {
-          "fontSize": "14px",
-          "fontWeight": "500",
-          "lineHeight": "18.9px",
-          "height": 18.89
-        },
-        "description": {
-          "fontSize": "12px",
-          "lineHeight": "19.2px",
-          "height": 19.19
-        },
-        "header": {
-          "paddingLeft": "16px",
-          "rowGap": "4px"
-        },
-        "content": {
-          "paddingLeft": "16px"
-        },
-        "grid": {
-          "rowGap": "20px",
-          "columnGap": "20px",
-          "columns": "550px 550px"
-        }
+      "description": {
+        "fontSize": "12px",
+        "lineHeight": "19.2px"
       },
-      "updates": {
-        "cardWidth": 1152,
-        "borderRadius": "16.8px",
-        "paddingTop": "16px",
-        "paddingBottom": "16px",
-        "backgroundColor": "oklch(0.175 0.005 285)",
-        "title": {
-          "fontSize": "14px",
-          "fontWeight": "500",
-          "lineHeight": "18.9px",
-          "height": 18.89
-        },
-        "description": {
-          "fontSize": "12px",
-          "lineHeight": "19.2px",
-          "height": 19.19
-        },
-        "header": {
-          "paddingLeft": "16px",
-          "rowGap": "4px"
-        },
-        "content": {
-          "paddingLeft": "16px"
-        },
-        "grid": {
-          "rowGap": "20px",
-          "columnGap": "20px",
-          "columns": "550px 550px"
-        }
-      },
-      "agentUpgrade": {
-        "cardWidth": 1152,
-        "borderRadius": "16.8px",
-        "paddingTop": "16px",
-        "paddingBottom": "16px",
-        "backgroundColor": "oklch(0.175 0.005 285)",
-        "title": {
-          "fontSize": "14px",
-          "fontWeight": "500",
-          "lineHeight": "18.9px",
-          "height": 18.89
-        },
-        "description": {
-          "fontSize": "12px",
-          "lineHeight": "19.2px",
-          "height": 19.19
-        },
-        "header": {
-          "paddingLeft": "16px",
-          "rowGap": "4px"
-        },
-        "content": {
-          "paddingLeft": "16px"
-        },
-        "grid": {
-          "rowGap": "20px",
-          "columnGap": "20px",
-          "columns": "550px 550px"
-        }
+      "grid": {
+        "columnGap": "20px",
+        "rowGap": "20px",
+        "columns": "550px 550px"
       }
     },
-    "publicStatusSwitchRows": [
+    "updates": {
+      "width": 1152,
+      "height": 315.86,
+      "borderRadius": "16.8px",
+      "paddingTop": "16px",
+      "paddingBottom": "16px",
+      "headerPaddingLeft": "16px",
+      "contentPaddingLeft": "16px",
+      "title": {
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "lineHeight": "18.9px"
+      },
+      "description": {
+        "fontSize": "12px",
+        "lineHeight": "19.2px"
+      },
+      "grid": {
+        "columnGap": "20px",
+        "rowGap": "20px",
+        "columns": "550px 550px"
+      }
+    },
+    "grid": {
+      "columnGap": "20px",
+      "rowGap": "20px",
+      "columns": "550px 550px"
+    },
+    "gridChildren": [
       {
-        "controlWidth": 32,
-        "controlHeight": 18.39,
-        "controlRight": 1400,
-        "rowWidth": 1120,
-        "rowHeight": 18.89,
-        "rowJustify": "space-between",
-        "rowGap": "12px",
-        "labelToControlGap": 1018,
-        "labelBaselineOffset": 0,
-        "controlBackground": "oklch(0.662 0.179 264.6)"
+        "text": "对访客可见",
+        "x": 280,
+        "y": 1380.23,
+        "width": 550,
+        "height": 69.28
       },
       {
-        "controlWidth": 32,
-        "controlHeight": 18.39,
-        "controlRight": 1400,
-        "rowWidth": 1120,
-        "rowHeight": 18.89,
-        "rowJustify": "space-between",
-        "rowGap": "12px",
-        "labelToControlGap": 990,
-        "labelBaselineOffset": 0,
-        "controlBackground": "oklch(0.662 0.179 264.6)"
+        "text": "公开到期与价格",
+        "x": 850,
+        "y": 1380.23,
+        "width": 550,
+        "height": 69.28
+      },
+      {
+        "text": "公开节点",
+        "x": 280,
+        "y": 1469.52,
+        "width": 1120,
+        "height": 38.39
       }
     ],
-    "updatesSwitch": [
+    "columnWidthDelta": 0,
+    "columnTopDelta": 0,
+    "columnHeightDelta": 0,
+    "switchTopDelta": 0,
+    "switchRows": [
       {
-        "controlWidth": 32,
-        "controlHeight": 18.39,
-        "controlRight": 882,
-        "rowWidth": 550,
-        "rowHeight": 32,
-        "rowJustify": "normal",
-        "rowGap": "normal",
-        "labelToControlGap": null,
-        "labelBaselineOffset": null,
-        "controlBackground": "oklch(0.662 0.179 264.6)"
+        "x": 280,
+        "y": 1407.13,
+        "width": 32,
+        "height": 18.39
+      },
+      {
+        "x": 850,
+        "y": 1407.13,
+        "width": 32,
+        "height": 18.39
       }
+    ],
+    "noteGaps": [
+      8,
+      8
+    ],
+    "notes": [
+      {
+        "text": "关闭后 /status 对所有人不可见。",
+        "fontSize": "12px",
+        "color": "oklch(0.7 0.015 285)",
+        "height": 16
+      },
+      {
+        "text": "关闭后公开页统一显示『未公开』；对所有节点生效，暂不支持按节点设置。",
+        "fontSize": "12px",
+        "color": "oklch(0.7 0.015 285)",
+        "height": 16
+      },
+      {
+        "text": "未选中的节点不会出现在公开页，也不计入在线率。",
+        "fontSize": "12px",
+        "color": "oklch(0.7 0.015 285)",
+        "height": 16
+      }
+    ],
+    "whitelistRow": {
+      "text": "公开节点",
+      "x": 280,
+      "y": 1469.52,
+      "width": 1120,
+      "height": 38.39
+    },
+    "whitelistChooseButtonRightInset": 0,
+    "stacked": false,
+    "order": [
+      "对访客可见",
+      "公开到期与价格",
+      "公开节点"
     ]
   },
   "mobile": {
-    "theme": "dark",
     "viewport": {
       "width": 390,
       "height": 844
     },
-    "cards": {
-      "publicStatus": {
-        "cardWidth": 342,
-        "borderRadius": "16.8px",
-        "paddingTop": "16px",
-        "paddingBottom": "16px",
-        "backgroundColor": "oklch(0.175 0.005 285)",
-        "title": {
-          "fontSize": "14px",
-          "fontWeight": "500",
-          "lineHeight": "18.9px",
-          "height": 18.89
-        },
-        "description": {
-          "fontSize": "12px",
-          "lineHeight": "19.2px",
-          "height": 19.19
-        },
-        "header": {
-          "paddingLeft": "16px",
-          "rowGap": "4px"
-        },
-        "content": {
-          "paddingLeft": "16px"
-        },
-        "grid": {
-          "rowGap": "20px",
-          "columnGap": "20px",
-          "columns": "310px"
-        }
+    "card": {
+      "width": 342,
+      "height": 371.03,
+      "borderRadius": "16.8px",
+      "paddingTop": "16px",
+      "paddingBottom": "16px",
+      "headerPaddingLeft": "16px",
+      "contentPaddingLeft": "16px",
+      "title": {
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "lineHeight": "18.9px"
       },
-      "panel": {
-        "cardWidth": 342,
-        "borderRadius": "16.8px",
-        "paddingTop": "16px",
-        "paddingBottom": "16px",
-        "backgroundColor": "oklch(0.175 0.005 285)",
-        "title": {
-          "fontSize": "14px",
-          "fontWeight": "500",
-          "lineHeight": "18.9px",
-          "height": 18.89
-        },
-        "description": {
-          "fontSize": "12px",
-          "lineHeight": "19.2px",
-          "height": 19.19
-        },
-        "header": {
-          "paddingLeft": "16px",
-          "rowGap": "4px"
-        },
-        "content": {
-          "paddingLeft": "16px"
-        },
-        "grid": {
-          "rowGap": "20px",
-          "columnGap": "20px",
-          "columns": "310px"
-        }
+      "description": {
+        "fontSize": "12px",
+        "lineHeight": "19.2px"
       },
-      "updates": {
-        "cardWidth": 342,
-        "borderRadius": "16.8px",
-        "paddingTop": "16px",
-        "paddingBottom": "16px",
-        "backgroundColor": "oklch(0.175 0.005 285)",
-        "title": {
-          "fontSize": "14px",
-          "fontWeight": "500",
-          "lineHeight": "18.9px",
-          "height": 18.89
-        },
-        "description": {
-          "fontSize": "12px",
-          "lineHeight": "19.2px",
-          "height": 38.38
-        },
-        "header": {
-          "paddingLeft": "16px",
-          "rowGap": "4px"
-        },
-        "content": {
-          "paddingLeft": "16px"
-        },
-        "grid": {
-          "rowGap": "20px",
-          "columnGap": "20px",
-          "columns": "310px"
-        }
-      },
-      "agentUpgrade": {
-        "cardWidth": 342,
-        "borderRadius": "16.8px",
-        "paddingTop": "16px",
-        "paddingBottom": "16px",
-        "backgroundColor": "oklch(0.175 0.005 285)",
-        "title": {
-          "fontSize": "14px",
-          "fontWeight": "500",
-          "lineHeight": "18.9px",
-          "height": 18.89
-        },
-        "description": {
-          "fontSize": "12px",
-          "lineHeight": "19.2px",
-          "height": 19.19
-        },
-        "header": {
-          "paddingLeft": "16px",
-          "rowGap": "4px"
-        },
-        "content": {
-          "paddingLeft": "16px"
-        },
-        "grid": {
-          "rowGap": "20px",
-          "columnGap": "20px",
-          "columns": "310px"
-        }
+      "grid": {
+        "columnGap": "20px",
+        "rowGap": "20px",
+        "columns": "310px"
       }
     },
-    "publicStatusSwitchRows": [
+    "updates": {
+      "width": 342,
+      "height": 517.22,
+      "borderRadius": "16.8px",
+      "paddingTop": "16px",
+      "paddingBottom": "16px",
+      "headerPaddingLeft": "16px",
+      "contentPaddingLeft": "16px",
+      "title": {
+        "fontSize": "14px",
+        "fontWeight": "500",
+        "lineHeight": "18.9px"
+      },
+      "description": {
+        "fontSize": "12px",
+        "lineHeight": "19.2px"
+      },
+      "grid": {
+        "columnGap": "20px",
+        "rowGap": "20px",
+        "columns": "310px"
+      }
+    },
+    "grid": {
+      "columnGap": "20px",
+      "rowGap": "20px",
+      "columns": "310px"
+    },
+    "gridChildren": [
       {
-        "controlWidth": 32,
-        "controlHeight": 18.39,
-        "controlRight": 350,
-        "rowWidth": 310,
-        "rowHeight": 18.89,
-        "rowJustify": "space-between",
-        "rowGap": "12px",
-        "labelToControlGap": 208,
-        "labelBaselineOffset": 0,
-        "controlBackground": "oklch(0.662 0.179 264.6)"
+        "text": "对访客可见",
+        "x": 40,
+        "y": 1786.88,
+        "width": 310,
+        "height": 69.28
       },
       {
-        "controlWidth": 32,
-        "controlHeight": 18.39,
-        "controlRight": 350,
-        "rowWidth": 310,
-        "rowHeight": 18.89,
-        "rowJustify": "space-between",
-        "rowGap": "12px",
-        "labelToControlGap": 180,
-        "labelBaselineOffset": 0,
-        "controlBackground": "oklch(0.662 0.179 264.6)"
+        "text": "公开到期与价格",
+        "x": 40,
+        "y": 1876.16,
+        "width": 310,
+        "height": 85.28
+      },
+      {
+        "text": "公开节点",
+        "x": 40,
+        "y": 1981.44,
+        "width": 310,
+        "height": 86.39
       }
     ],
-    "updatesSwitch": [
+    "columnWidthDelta": 0,
+    "columnTopDelta": 89.27999999999997,
+    "columnHeightDelta": 16,
+    "switchTopDelta": 89.27999999999997,
+    "switchRows": [
       {
-        "controlWidth": 32,
-        "controlHeight": 18.39,
-        "controlRight": 72,
-        "rowWidth": 310,
-        "rowHeight": 32,
-        "rowJustify": "normal",
-        "rowGap": "normal",
-        "labelToControlGap": null,
-        "labelBaselineOffset": null,
-        "controlBackground": "oklch(0.662 0.179 264.6)"
+        "x": 40,
+        "y": 1813.77,
+        "width": 32,
+        "height": 18.39
+      },
+      {
+        "x": 40,
+        "y": 1903.05,
+        "width": 32,
+        "height": 18.39
       }
+    ],
+    "noteGaps": [
+      8,
+      8
+    ],
+    "notes": [
+      {
+        "text": "关闭后 /status 对所有人不可见。",
+        "fontSize": "12px",
+        "color": "oklch(0.7 0.015 285)",
+        "height": 16
+      },
+      {
+        "text": "关闭后公开页统一显示『未公开』；对所有节点生效，暂不支持按节点设置。",
+        "fontSize": "12px",
+        "color": "oklch(0.7 0.015 285)",
+        "height": 32
+      },
+      {
+        "text": "未选中的节点不会出现在公开页，也不计入在线率。",
+        "fontSize": "12px",
+        "color": "oklch(0.7 0.015 285)",
+        "height": 16
+      }
+    ],
+    "whitelistRow": {
+      "text": "公开节点",
+      "x": 40,
+      "y": 1981.44,
+      "width": 310,
+      "height": 86.39
+    },
+    "whitelistChooseButtonRightInset": 109.23,
+    "stacked": true,
+    "order": [
+      "对访客可见",
+      "公开到期与价格",
+      "公开节点"
     ]
   }
 }

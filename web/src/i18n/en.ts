@@ -2172,6 +2172,7 @@ const en = {
       offWarning: "When off, /status is not visible to anyone.",
       whitelist: {
         label: "Public nodes",
+        note: "Unselected nodes do not appear on the public page or count toward uptime.",
         summary: "{visible} / {total} public",
         choose: "Choose nodes",
         unsupported: "This backend does not support this feature yet",
@@ -2190,8 +2191,8 @@ const en = {
         saveError: "Could not save the public nodes. Please try again.",
       },
       billing: "Show pricing and expiry",
-      billingWarning:
-        "When off, the public page shows “Not public” for every node; this applies to all nodes and cannot be set per node.",
+      billingNote:
+        "When off, the public page shows “Not public” for every node; it applies to all nodes and cannot be set per node.",
     },
     updates: {
       title: "Updates",

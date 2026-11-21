@@ -7,10 +7,7 @@ import {
 } from "lucide-react";
 import type { UseFormReturn } from "react-hook-form";
 import { toast } from "sonner";
-import {
-  SettingsGroup,
-  SETTINGS_FULL_ROW,
-} from "@/components/settings/SettingsGroup";
+import { SettingsGroup } from "@/components/settings/SettingsGroup";
 import { StatusDot } from "@/components/status/ServerCard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -149,39 +146,77 @@ export function PublicStatusCard({
       icon={GlobeIcon}
       title={t("settings.publicStatus.title")}
       description={t("settings.publicStatus.desc")}
+      contentClassName="md:grid-cols-2"
     >
-      {/* 1. 总开关：关闭时状态页对所有人返回 404，是这张卡的前置条件。 */}
-      <div className={cn(SETTINGS_FULL_ROW, "space-y-2")}>
-        <div className="flex items-center justify-between gap-3">
-          <Label htmlFor="settings-public-status-enabled" className="cursor-pointer">
-            {t("settings.publicStatus.enabled")}
-          </Label>
-          <Switch
-            id="settings-public-status-enabled"
-            checked={statusEnabled}
-            disabled={saving}
-            onCheckedChange={(next) => {
-              form.setValue("public_status_enabled", next === true, {
-                shouldDirty: true,
-                shouldTouch: true,
-              });
-            }}
-          />
-        </div>
-        {statusEnabled ? null : (
+      {/* 左列：总开关。关闭后公开页对所有人返回 404，是整张卡的前置条件。 */}
+      <div className="space-y-2">
+        <Label htmlFor="settings-public-status-enabled" className="cursor-pointer">
+          {t("settings.publicStatus.enabled")}
+        </Label>
+        <Switch
+          id="settings-public-status-enabled"
+          checked={statusEnabled}
+          disabled={saving}
+          onCheckedChange={(next) => {
+            form.setValue("public_status_enabled", next === true, {
+              shouldDirty: true,
+              shouldTouch: true,
+            });
+          }}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t("settings.publicStatus.offWarning")}
+        </p>
+      </div>
+
+      {/* 右列：账期隐私。总开关关闭时置灰禁用，但注释保留。 */}
+      <div className={cn("space-y-2", !statusEnabled && "opacity-60")}>
+        <Label
+          htmlFor="settings-public-billing-visible"
+          className={cn(
+            billingSupported && statusEnabled && "cursor-pointer",
+          )}
+        >
+          {t("settings.publicStatus.billing")}
+        </Label>
+        <Switch
+          id="settings-public-billing-visible"
+          checked={billingVisible}
+          disabled={saving || !statusEnabled || !billingSupported}
+          onCheckedChange={(next) => {
+            form.setValue("public_billing_visible", next === true, {
+              shouldDirty: true,
+              shouldTouch: true,
+            });
+          }}
+        />
+        <p className="text-xs text-muted-foreground">
+          {t("settings.publicStatus.billingNote")}
+        </p>
+        {billingSupported ? null : (
           <p className="text-xs text-muted-foreground">
-            {t("settings.publicStatus.offWarning")}
+            {t("settings.publicStatus.whitelist.unsupported")}
           </p>
         )}
       </div>
 
-      {/* 2. 白名单：摘要 + 选择节点；总开关关闭时置灰。 */}
+      {/* 白名单整行跨两列：左侧标签 + 注释，右侧摘要 + 操作。 */}
       <div
-        className={cn(SETTINGS_FULL_ROW, "space-y-2", !statusEnabled && "opacity-60")}
+        className={cn(
+          "grid gap-2 md:col-span-2 md:grid-cols-2 md:items-start md:gap-x-5 md:gap-y-2",
+          !statusEnabled && "opacity-60",
+        )}
       >
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-          <span className="text-sm">{t("settings.publicStatus.whitelist.label")}</span>
+        <div className="space-y-2">
+          <span className="text-sm">
+            {t("settings.publicStatus.whitelist.label")}
+          </span>
+          <p className="text-xs text-muted-foreground">
+            {t("settings.publicStatus.whitelist.note")}
+          </p>
+        </div>
 
+        <div className="md:flex md:justify-end">
           {servers.isPending ? (
             <div className="flex items-center gap-2" aria-busy="true">
               <Skeleton className="h-4 w-32" />
@@ -212,43 +247,6 @@ export function PublicStatusCard({
             </div>
           )}
         </div>
-      </div>
-
-      {/* 3. 账期隐私开关：关闭后所有节点统一显示「未公开」。 */}
-      <div
-        className={cn(SETTINGS_FULL_ROW, "space-y-2", !statusEnabled && "opacity-60")}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <Label
-            htmlFor="settings-public-billing-visible"
-            className={cn(
-              billingSupported && statusEnabled && "cursor-pointer",
-            )}
-          >
-            {t("settings.publicStatus.billing")}
-          </Label>
-          <Switch
-            id="settings-public-billing-visible"
-            checked={billingVisible}
-            disabled={saving || !statusEnabled || !billingSupported}
-            onCheckedChange={(next) => {
-              form.setValue("public_billing_visible", next === true, {
-                shouldDirty: true,
-                shouldTouch: true,
-              });
-            }}
-          />
-        </div>
-        {billingSupported ? null : (
-          <p className="text-xs text-muted-foreground">
-            {t("settings.publicStatus.whitelist.unsupported")}
-          </p>
-        )}
-        {billingVisible ? null : (
-          <p className="text-xs text-muted-foreground">
-            {t("settings.publicStatus.billingWarning")}
-          </p>
-        )}
       </div>
 
       <Dialog
