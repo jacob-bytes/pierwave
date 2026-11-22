@@ -1172,6 +1172,27 @@ const SCENARIOS = [
   { id: "cost-bar-tooltip-left-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverLeft" },
   { id: "cost-bar-tooltip-middle-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverMiddle" },
   { id: "cost-bar-tooltip-right-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverRight" },
+  { id: "cost-renewal-dialog-single-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalDialogSingle" },
+  { id: "cost-renewal-dialog-single-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalDialogSingle" },
+  { id: "cost-renewal-dialog-single-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: "all", action: "renewalDialogSingle" },
+  { id: "cost-renewal-dialog-keyboard-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalDialogKeyboard" },
+  { id: "cost-renewal-dialog-multi-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalDialogMulti" },
+  { id: "cost-renewal-dialog-multi-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalDialogMulti" },
+  { id: "cost-renewal-dialog-multi-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: "all", action: "renewalDialogMulti" },
+  { id: "cost-pie-three-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
+  { id: "cost-pie-three-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
+  { id: "cost-pie-three-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
+  { id: "cost-pie-single-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: ["srv-hk-01"] },
+  { id: "cost-pie-single-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: ["srv-hk-01"] },
+  { id: "cost-pie-single-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: ["srv-hk-01"] },
+  { id: "cost-pie-many-1440", view: "cost", theme: "dark", width: 1440, mock: "costManyCurrencies", servers: "all" },
+  { id: "cost-pie-many-390", view: "cost", theme: "dark", width: 390, mock: "costManyCurrencies", servers: "all" },
+  { id: "cost-pie-many-light-1440", view: "cost", theme: "light", width: 1440, mock: "costManyCurrencies", servers: "all" },
+  { id: "cost-pie-other-hover-1440", view: "cost", theme: "dark", width: 1440, mock: "costManyCurrencies", servers: "all", action: "pieHoverOther" },
+  { id: "cost-onetime-empty-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01"] },
+  { id: "cost-onetime-empty-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01"] },
+  { id: "cost-onetime-empty-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01"] },
+  { id: "cost-onetime-empty-light-390", view: "cost", theme: "light", width: 390, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01"] },
   { id: "cost-renewal-single-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalHoverSingle" },
   { id: "cost-renewal-single-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalHoverSingle" },
   { id: "cost-renewal-multi-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalHoverMulti" },
@@ -1455,6 +1476,9 @@ for (const scenario of activeScenarios) {
   if (
     scenario.action === "renewalHoverSingle" ||
     scenario.action === "renewalHoverMulti" ||
+    scenario.action === "renewalDialogSingle" ||
+    scenario.action === "renewalDialogMulti" ||
+    scenario.action === "renewalDialogKeyboard" ||
     scenario.action === "renewalEmpty" ||
     scenario.action === "renewalFuture" ||
     scenario.action === "renewalBounds"
@@ -1486,7 +1510,8 @@ for (const scenario of activeScenarios) {
         const matched =
           scenario.action === "renewalEmpty"
             ? info.counts.length === 0
-            : scenario.action === "renewalHoverMulti"
+            : scenario.action === "renewalHoverMulti" ||
+                scenario.action === "renewalDialogMulti"
               ? info.max > 1
               : info.counts.some((count) => count === 1);
         if (matched) break;
@@ -1502,20 +1527,42 @@ for (const scenario of activeScenarios) {
           ),
         );
         const index =
-          scenario.action === "renewalHoverMulti"
+          scenario.action === "renewalHoverMulti" ||
+          scenario.action === "renewalDialogMulti"
             ? counts.reduce(
                 (best, value, i) => (value > counts[best] ? i : best),
                 0,
               )
             : counts.findIndex((count) => count === 1);
         if (index >= 0) {
-          await page
-            .locator("[data-renewal-day]")
-            .nth(index)
-            .hover();
-          await page.waitForTimeout(250);
+          const day = page.locator("[data-renewal-day]").nth(index);
+          if (
+            scenario.action === "renewalDialogSingle" ||
+            scenario.action === "renewalDialogMulti" ||
+            scenario.action === "renewalDialogKeyboard"
+          ) {
+            if (scenario.action === "renewalDialogKeyboard") {
+              await day.focus();
+              await page.keyboard.press("Enter");
+            } else {
+              await day.click();
+            }
+            await page.waitForSelector("[data-renewal-dialog]");
+            await page.waitForTimeout(200);
+          } else {
+            await day.hover();
+            await page.waitForTimeout(250);
+          }
         }
       }
+    }
+  }
+
+  if (scenario.action === "pieHoverOther") {
+    const sectors = page.locator("[data-pie-sector]");
+    if ((await sectors.count()) > 0) {
+      await sectors.last().dispatchEvent("mouseover");
+      await page.waitForTimeout(250);
     }
   }
 
@@ -1908,6 +1955,7 @@ for (const scenario of activeScenarios) {
           ),
           cellWidth: cell?.width ?? null,
           cellHeight: cell?.height ?? null,
+          cellText: days[0]?.textContent?.trim() ?? null,
           gridWidth: grid?.getBoundingClientRect().width ?? null,
           prevDisabled:
             card.querySelector("[data-renewal-prev]")?.hasAttribute(
@@ -1938,6 +1986,61 @@ for (const scenario of activeScenarios) {
             : null,
         };
       })(),
+      renewalDialog: (() => {
+        const dialog = document.querySelector("[data-renewal-dialog]");
+        if (!dialog) return null;
+        const rect = dialog.getBoundingClientRect();
+        return {
+          title:
+            dialog.querySelector("[data-slot=dialog-title]")?.textContent?.trim() ??
+            null,
+          rows: [...dialog.querySelectorAll("[data-renewal-dialog-row]")].map(
+            (row) => row.textContent?.trim() ?? "",
+          ),
+          total:
+            dialog
+              .querySelector("[data-renewal-dialog-total]")
+              ?.textContent?.trim() ?? null,
+          scrollHeight: dialog.scrollHeight,
+          clientHeight: dialog.clientHeight,
+          rect: {
+            left: rect.left,
+            right: rect.right,
+            top: rect.top,
+            bottom: rect.bottom,
+            width: rect.width,
+            height: rect.height,
+          },
+        };
+      })(),
+      currencyPie: (() => {
+        const chart = document.querySelector("[data-currency-pie]");
+        const legend = document.querySelector("[data-pie-legend]");
+        if (!chart || !legend) return null;
+        const chartRect = chart.getBoundingClientRect();
+        const legendRect = legend.getBoundingClientRect();
+        const tooltip = document.querySelector("[data-pie-tooltip]");
+        return {
+          sectors: document.querySelectorAll("[data-pie-sector]").length,
+          legendRows: [
+            ...document.querySelectorAll("[data-pie-legend-row]"),
+          ].map((row) => row.textContent?.trim() ?? ""),
+          center: chart.textContent?.trim() ?? "",
+          chartWidth: chartRect.width,
+          legendWidth: legendRect.width,
+          tooltip: tooltip
+            ? {
+                text: tooltip.textContent?.trim() ?? "",
+                items: tooltip.querySelectorAll("[data-pie-tooltip-item]")
+                  .length,
+              }
+            : null,
+        };
+      })(),
+      oneTimeText:
+        document
+          .querySelector('[data-cost-card="once"]')
+          ?.textContent?.trim() ?? null,
       hasScrollHint: document.body.innerText.includes("左右滑动"),
       theme: doc.dataset.theme ?? null,
       dom: {
@@ -2578,6 +2681,108 @@ for (const scenario of activeScenarios) {
       errors.push(
         `${scenario.id}: renewal tooltip overflows viewport (${JSON.stringify(renewal.tooltip.rect)})`,
       );
+    }
+  }
+
+  if (
+    (scenario.view ?? null) === "cost" &&
+    scenario.mock !== "costEmpty" &&
+    scenario.mock !== "costError" &&
+    !(Array.isArray(scenario.servers) && scenario.servers.length === 0)
+  ) {
+    if (metrics.renewal?.cellText?.includes("¥")) {
+      errors.push(`${scenario.id}: renewal cell still shows amount`);
+    }
+    if (
+      metrics.renewal?.cellHeight !== null &&
+      metrics.renewal?.cellHeight !== undefined &&
+      (metrics.renewal.cellHeight < 36 || metrics.renewal.cellHeight > 42)
+    ) {
+      errors.push(
+        `${scenario.id}: renewal cell height ${metrics.renewal.cellHeight}`,
+      );
+    }
+    if (!metrics.currencyPie) {
+      errors.push(`${scenario.id}: currency pie missing`);
+    } else {
+      const pie = metrics.currencyPie;
+      if (pie.sectors === 0 || pie.legendRows.length === 0) {
+        errors.push(`${scenario.id}: pie has no sectors/legend`);
+      }
+      if (!pie.center.includes("合计") && !pie.center.includes("Total")) {
+        errors.push(`${scenario.id}: pie center total missing`);
+      }
+      if (metrics.viewportWidth >= 1280) {
+        const ratio = pie.chartWidth / (pie.chartWidth + pie.legendWidth);
+        if (ratio < 0.3 || ratio > 0.5) {
+          errors.push(`${scenario.id}: pie split ratio ${ratio.toFixed(2)}`);
+        }
+      }
+    }
+    const oneTimeTitle =
+      (scenario.locale ?? "zh-CN") === "en"
+        ? "One-time costs"
+        : "一次性费用";
+    if (!metrics.oneTimeText?.includes(oneTimeTitle)) {
+      errors.push(`${scenario.id}: one-time card missing`);
+    }
+    if (
+      scenario.id.startsWith("cost-onetime-empty") &&
+      !metrics.oneTimeText?.includes("当前筛选范围内没有一次性费用的服务器")
+    ) {
+      errors.push(`${scenario.id}: one-time empty state missing`);
+    }
+    if (scenario.action === "pieHoverOther") {
+      if (!metrics.currencyPie?.tooltip?.text?.includes("其他")) {
+        errors.push(`${scenario.id}: pie other tooltip missing`);
+      }
+      if ((metrics.currencyPie?.tooltip?.items ?? 0) < 1) {
+        errors.push(`${scenario.id}: pie other tooltip has no currencies`);
+      }
+    }
+  }
+
+  if (
+    scenario.action === "renewalDialogSingle" ||
+    scenario.action === "renewalDialogMulti" ||
+    scenario.action === "renewalDialogKeyboard"
+  ) {
+    const dialog = metrics.renewalDialog;
+    if (!dialog) {
+      errors.push(`${scenario.id}: renewal dialog did not open`);
+    } else {
+      const expectedRows =
+        scenario.action === "renewalDialogSingle" ||
+        scenario.action === "renewalDialogKeyboard"
+          ? 1
+          : 3;
+      if (dialog.rows.length !== expectedRows) {
+        errors.push(
+          `${scenario.id}: dialog rows ${dialog.rows.length} != ${expectedRows}`,
+        );
+      }
+      if (
+        !dialog.title?.includes("台续费") &&
+        !dialog.title?.includes("renewals")
+      ) {
+        errors.push(`${scenario.id}: dialog title ${dialog.title}`);
+      }
+      if (!dialog.total?.includes("¥")) {
+        errors.push(`${scenario.id}: dialog total missing`);
+      }
+      if (
+        !dialog.rows.some((row) =>
+          /个月|年|一次性|month|year|one-time/.test(row),
+        )
+      ) {
+        errors.push(`${scenario.id}: dialog cycle label missing`);
+      }
+      if (!dialog.rows.every((row) => row.includes("¥"))) {
+        errors.push(`${scenario.id}: dialog amount missing`);
+      }
+      if (dialog.rect.width > metrics.viewportWidth + 1) {
+        errors.push(`${scenario.id}: dialog wider than viewport`);
+      }
     }
   }
 

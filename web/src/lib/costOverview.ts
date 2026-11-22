@@ -162,6 +162,10 @@ export interface RenewalEvent {
   paidUntil: string;
   day: number;
   currency: string | null;
+  /** 一个周期的原币金额（分）；没有价格时为 null。 */
+  amountOriginalCents: number | null;
+  cycleCount: number | null;
+  cycleUnit: "month" | "year" | "once" | null;
   /** 一个周期的 CNY 金额；没有价格 / 汇率时为 null，但仍计入台数。 */
   amountCnyCents: number | null;
 }
@@ -551,6 +555,29 @@ export function formatFxRateDisplay(
   }).format(rate);
 }
 
+function renewalCycle(server: Partial<Server>): {
+  count: number | null;
+  unit: "month" | "year" | "once" | null;
+} {
+  const unit =
+    server.billing_cycle_unit === "month" ||
+    server.billing_cycle_unit === "year" ||
+    server.billing_cycle_unit === "once"
+      ? server.billing_cycle_unit
+      : null;
+  const count =
+    typeof server.billing_cycle_count === "number" &&
+    Number.isFinite(server.billing_cycle_count) &&
+    server.billing_cycle_count > 0
+      ? Math.floor(server.billing_cycle_count)
+      : null;
+  if (unit) return { unit, count: unit === "once" ? 1 : count };
+  if (server.billing_cycle === "monthly") return { unit: "month", count: 1 };
+  if (server.billing_cycle === "yearly") return { unit: "year", count: 1 };
+  if (server.billing_cycle === "once") return { unit: "once", count: 1 };
+  return { unit: null, count: null };
+}
+
 /**
  * 续费日历：只统计传入服务器范围内填了 `paid_until` 的服务器。
  * 金额按一个周期价格折算成 CNY；缺价格 / 汇率时仍展示台数，金额显示为 —。
@@ -597,6 +624,7 @@ export function buildRenewalMonth(
       price !== null && price > 0 && rate !== undefined && rate > 0
         ? Math.round(price * rate)
         : null;
+    const cycle = renewalCycle(server);
     const event: RenewalEvent = {
       serverId: server.id ?? "",
       name:
@@ -606,6 +634,9 @@ export function buildRenewalMonth(
       paidUntil: raw.trim(),
       day: paidDay,
       currency,
+      amountOriginalCents: price !== null && price > 0 ? price : null,
+      cycleCount: cycle.count,
+      cycleUnit: cycle.unit,
       amountCnyCents,
     };
     const bucket = days[paidDay - 1];
