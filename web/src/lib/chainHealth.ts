@@ -577,6 +577,56 @@ export function chainDiagnosis(chain: ChainHealthChain): ChainDiagnosisView {
   return unknown;
 }
 
+/** 该链是否有可画的整体 P50 曲线（逐段数据不算）。 */
+export function chainHasTrend(chain: ChainHealthChain): boolean {
+  return chain.series.some(
+    (point) => point.p50 !== null && point.samples > 0,
+  );
+}
+
+/** 多序列折线的一行：`ts` + 每条有样本链的 P50（无样本为 null）。 */
+export interface ChainTrendRow {
+  ts: number;
+  [chainId: string]: number | null;
+}
+
+/**
+ * 把多条链的 `series` 合并成一张图的数据。
+ *
+ * 只把至少有一个有效 P50 的链放进 `series`；样本不足的链留在图例里灰显，
+ * 但不进折线图，也不伪造 0。时间轴取所有有样本链的时间戳并集，升序。
+ */
+export function buildChainTrendData(
+  chains: readonly ChainHealthChain[],
+): { rows: ChainTrendRow[]; series: ChainHealthChain[] } {
+  const series = chains.filter(chainHasTrend);
+  const timestamps = new Set<number>();
+  const values = new Map<string, Map<number, number | null>>();
+  for (const chain of series) {
+    const byTs = new Map<number, number | null>();
+    for (const point of chain.series) {
+      if (!Number.isFinite(point.ts)) continue;
+      timestamps.add(point.ts);
+      if (point.samples > 0 && point.p50 !== null) {
+        byTs.set(point.ts, point.p50);
+      } else if (!byTs.has(point.ts)) {
+        byTs.set(point.ts, null);
+      }
+    }
+    values.set(chain.id, byTs);
+  }
+  const rows = [...timestamps]
+    .sort((a, b) => a - b)
+    .map((ts) => {
+      const row = { ts } as ChainTrendRow;
+      for (const chain of series) {
+        row[chain.id] = values.get(chain.id)?.get(ts) ?? null;
+      }
+      return row;
+    });
+  return { rows, series };
+}
+
 /** 列表页一行链路的状态；正常 / 变慢 / 样本不足。 */
 export type ChainLatencyStatus = "normal" | "slow" | "insufficient";
 

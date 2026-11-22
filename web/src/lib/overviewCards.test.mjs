@@ -16,6 +16,7 @@ const cost = read("../components/overview/CostView.tsx");
 const chain = read("../components/overview/ChainLatencyView.tsx");
 const chainList = read("../components/overview/ChainLatencyList.tsx");
 const chainDetail = read("../components/overview/ChainLatencyDetail.tsx");
+const chainTrend = read("../components/overview/ChainLatencyTrendChart.tsx");
 const line = read("../components/overview/ResourceLineChart.tsx");
 const fxPopover = read("../components/overview/FxDetailsPopover.tsx");
 const scopeHook = read("../components/overview/useOverviewScope.ts");
@@ -268,17 +269,20 @@ test("链路 tab：列表只放整体 KPI / 整体趋势，逐段只在详情", 
       "overview.chainLatency.statusNormal",
       "overview.chainLatency.statusSlow",
       "overview.chainLatency.statusInsufficient",
-      "ChainLatencySparkline",
-      "showAnomalies={false}",
+      "ChainLatencyTrendChart",
+      "data-chain-trend-card",
       "data-chain-list",
       "data-chain-list-row",
+      "overview.chainLatency.listTitle",
     ],
     "ChainLatencyList",
   );
-  // 列表页绝对不能出现逐段明细 / 诊断 / 拓扑。
+  // 列表行不再放迷你图；列表页也不能出现逐段明细 / 诊断 / 拓扑。
   assertExcludes(
     chainList,
     [
+      "ChainLatencySparkline",
+      "data-chain-sparkline",
       "data-chain-segment",
       "data-chain-topology",
       "SegmentRow",
@@ -287,6 +291,23 @@ test("链路 tab：列表只放整体 KPI / 整体趋势，逐段只在详情", 
       "chain.segments",
     ],
     "ChainLatencyList",
+  );
+
+  assertIncludes(
+    chainTrend,
+    [
+      "buildChainTrendData",
+      "LineChart",
+      "<Line",
+      "data-chain-trend-chart",
+      "data-series-count",
+      "data-visible-count",
+      "data-chain-legend-item",
+      "overview.chainLatency.legendAria",
+      "overview.chainLatency.highest",
+      "overview.chainLatency.allHidden",
+    ],
+    "ChainLatencyTrendChart",
   );
 
   assertIncludes(

@@ -9,6 +9,8 @@ import {
   chainDiagnosisReason,
   chainLatencyWindow,
   chainSeriesMax,
+  buildChainTrendData,
+  chainHasTrend,
   chainStatus,
   chainTopology,
   formatChainTime,
@@ -368,6 +370,49 @@ test("diagnosis overall is kept; no samples is always unknown", () => {
     payload([chain({ series: [], segments: [] })]),
   );
   assert.equal(chainDiagnosis(empty.snapshot.chains[0]).kind, "unknown");
+});
+
+test("multi-series trend keeps only chains with samples and unions timestamps", () => {
+  const result = normalizeChainHealth(
+    payload([
+      chain({
+        id: "a",
+        name: "A",
+        series: [
+          point(300, 30),
+          point(100, 10),
+          point(200, 20),
+        ],
+      }),
+      chain({
+        id: "b",
+        name: "B",
+        series: [point(100, 5), point(300, null, null, null, 0)],
+      }),
+      chain({ id: "c", name: "C", series: [] }),
+    ]),
+  );
+  const { rows, series } = buildChainTrendData(result.snapshot.chains);
+  assert.deepEqual(
+    series.map((item) => item.id),
+    ["a", "b"],
+  );
+  assert.equal(chainHasTrend(result.snapshot.chains[2]), false);
+  assert.deepEqual(rows, [
+    { ts: 100, a: 10, b: 5 },
+    { ts: 200, a: 20, b: null },
+    { ts: 300, a: 30, b: null },
+  ]);
+});
+
+test("multi-series trend is empty when no chain has a curve", () => {
+  const result = normalizeChainHealth(
+    payload([chain({ series: [] }), chain({ id: "b", series: [] })]),
+  );
+  assert.deepEqual(buildChainTrendData(result.snapshot.chains), {
+    rows: [],
+    series: [],
+  });
 });
 
 test("list status is normal / slow / insufficient", () => {

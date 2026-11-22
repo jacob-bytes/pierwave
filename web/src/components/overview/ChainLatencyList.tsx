@@ -1,10 +1,11 @@
 import { ChevronRightIcon, WaypointsIcon } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ChainLatencySparkline } from "@/components/overview/ChainLatencyChart";
 import {
   ChainLatencyRangeTabs,
   ChainLatencyUpdatedBadge,
 } from "@/components/overview/ChainLatencyControls";
+import { ChainLatencyTrendChart } from "@/components/overview/ChainLatencyTrendChart";
 import {
   chainStatus,
   formatMs,
@@ -170,16 +171,11 @@ function ChainStatusText({ chain }: { chain: ChainHealthChain }) {
 
 function ChainListRow({
   chain,
-  bucket,
   onOpen,
 }: {
   chain: ChainHealthChain;
-  bucket: number;
   onOpen: () => void;
 }) {
-  const hasCurve = chain.series.some(
-    (point) => point.p50 !== null && point.samples > 0,
-  );
   const deltaTone =
     chain.deltaMs === null || chain.deltaMs === 0
       ? "text-muted-foreground"
@@ -197,28 +193,6 @@ function ChainListRow({
     p50: formatMs(chain.latestP50),
     delta: formatSignedMs(chain.deltaMs),
   });
-  const chartLabel = t("overview.chainLatency.rowAria", {
-    name: chain.name,
-    p50: formatMs(chain.latestP50),
-    delta: formatSignedMs(chain.deltaMs),
-  });
-
-  const trend = hasCurve ? (
-    <ChainLatencySparkline
-      points={chain.series}
-      bucketSecs={bucket}
-      tone={chain.slow ? "warning" : "primary"}
-      showAnomalies={false}
-      interactive={false}
-      label={chartLabel}
-      className="w-full"
-    />
-  ) : (
-    <span className="flex h-10 items-center text-[10px] text-muted-foreground">
-      {t("overview.chainLatency.noSamplesShort")}
-    </span>
-  );
-
   return (
     <li>
       <button
@@ -227,51 +201,45 @@ function ChainListRow({
         data-chain-id={chain.id}
         onClick={onOpen}
         aria-label={label}
-        className="group flex w-full flex-col gap-2 rounded-lg border border-transparent px-2.5 py-2.5 text-left outline-none transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="group flex w-full items-center gap-2 rounded-lg border border-transparent px-2.5 py-2.5 text-left outline-none transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
       >
-        <span className="flex min-w-0 items-start gap-2">
-          <span className="min-w-0 flex-1">
-            <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span
-                className="min-w-0 max-w-full truncate text-sm"
-                title={chain.name}
-              >
-                {chain.name}
-              </span>
-              <ChainStatusText chain={chain} />
-            </span>
-            <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-              {hopsLabel}
-            </span>
-          </span>
-
-          <span className="hidden w-40 shrink-0 sm:block">{trend}</span>
-
-          <span className="shrink-0 text-right">
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span
-              className="block text-[9px] text-muted-foreground"
-              title={t("overview.chainLatency.currentP50")}
+              className="min-w-0 max-w-full truncate text-sm"
+              title={chain.name}
             >
-              P50
+              {chain.name}
             </span>
-            <span className="block font-mono text-sm tabular-nums">
-              {formatMs(chain.latestP50)}
-            </span>
-            <span
-              className={cn(
-                "block font-mono text-[10px] tabular-nums",
-                deltaTone,
-              )}
-              title={t("overview.chainLatency.deltaVsBaseline")}
-            >
-              {formatSignedMs(chain.deltaMs)}
-            </span>
+            <ChainStatusText chain={chain} />
           </span>
-
-          <ChevronRightIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
+          <span className="mt-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            {hopsLabel}
+          </span>
         </span>
 
-        <span className="flex items-center gap-2 sm:hidden">{trend}</span>
+        <span className="shrink-0 text-right">
+          <span
+            className="block text-[9px] text-muted-foreground"
+            title={t("overview.chainLatency.currentP50")}
+          >
+            P50
+          </span>
+          <span className="block font-mono text-sm tabular-nums">
+            {formatMs(chain.latestP50)}
+          </span>
+          <span
+            className={cn(
+              "block font-mono text-[10px] tabular-nums",
+              deltaTone,
+            )}
+            title={t("overview.chainLatency.deltaVsBaseline")}
+          >
+            {formatSignedMs(chain.deltaMs)}
+          </span>
+        </span>
+
+        <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
       </button>
     </li>
   );
@@ -299,7 +267,8 @@ export function ChainLatencyList({
     <div className="space-y-4" data-chain-list>
       <ChainLatencyKpis summary={snapshot.summary} />
       {snapshot.hasSamples ? null : <NoSamplesBanner />}
-      <Card className="gap-0" data-chain-list-card>
+
+      <Card className="gap-0" data-chain-trend-card>
         <CardHeader className="border-b border-border pb-4">
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <CardTitle className="text-sm font-medium">
@@ -314,13 +283,36 @@ export function ChainLatencyList({
             </div>
           </div>
         </CardHeader>
+        <CardContent className="min-w-0 p-2 sm:p-4">
+          <ChainLatencyTrendChart
+            chains={snapshot.chains}
+            bucket={snapshot.bucket}
+          />
+        </CardContent>
+      </Card>
+
+      <Card className="gap-0" data-chain-list-card>
+        <CardHeader className="border-b border-border pb-4">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <CardTitle className="text-sm font-medium">
+              {t("overview.chainLatency.listTitle")}
+            </CardTitle>
+            <Badge
+              variant="outline"
+              className="shrink-0 font-mono font-normal text-muted-foreground"
+            >
+              {t("overview.chainLatency.listCount", {
+                n: snapshot.chains.length,
+              })}
+            </Badge>
+          </div>
+        </CardHeader>
         <CardContent className="p-2">
           <ul className="flex flex-col gap-0.5">
             {snapshot.chains.map((chain) => (
               <ChainListRow
                 key={chain.id}
                 chain={chain}
-                bucket={snapshot.bucket}
                 onOpen={() => onOpenChain(chain.id)}
               />
             ))}
