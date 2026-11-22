@@ -1086,7 +1086,7 @@ const EXPECTED_API = {
 const EXPECTED_CARD_TITLES = {
   server: ["服务器 × 时间", "当前资源", "异常窗口"],
   traffic: ["近 7 天趋势", "流量分布", "流量榜单", "告警"],
-  cost: ["未来 12 个月的开销", "开销大头", "币种构成", "一次性费用"],
+  cost: ["未来 12 个月的开销", "开销大头", "币种构成", "续费日历", "一次性费用"],
   chain: ["转发链健康", "链路时延"],
 };
 
@@ -1172,6 +1172,18 @@ const SCENARIOS = [
   { id: "cost-bar-tooltip-left-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverLeft" },
   { id: "cost-bar-tooltip-middle-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverMiddle" },
   { id: "cost-bar-tooltip-right-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverRight" },
+  { id: "cost-renewal-single-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalHoverSingle" },
+  { id: "cost-renewal-single-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalHoverSingle" },
+  { id: "cost-renewal-multi-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalHoverMulti" },
+  { id: "cost-renewal-multi-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalHoverMulti" },
+  { id: "cost-renewal-multi-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: "all", action: "renewalHoverMulti" },
+  { id: "cost-renewal-empty-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalEmpty" },
+  { id: "cost-renewal-empty-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalEmpty" },
+  { id: "cost-renewal-empty-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: "all", action: "renewalEmpty" },
+  { id: "cost-renewal-empty-light-390", view: "cost", theme: "light", width: 390, mock: "normal", servers: "all", action: "renewalEmpty" },
+  { id: "cost-renewal-future-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalFuture" },
+  { id: "cost-renewal-future-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalFuture" },
+  { id: "cost-renewal-bounds-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalBounds" },
   { id: "cost-bar-tooltip-multi-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "barHoverMulti" },
   { id: "cost-bar-tooltip-single-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverSingle" },
   { id: "cost-bar-tooltip-empty-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverEmpty" },
@@ -1437,6 +1449,73 @@ for (const scenario of activeScenarios) {
         await bar.hover();
       }
       await page.waitForTimeout(250);
+    }
+  }
+
+  if (
+    scenario.action === "renewalHoverSingle" ||
+    scenario.action === "renewalHoverMulti" ||
+    scenario.action === "renewalEmpty" ||
+    scenario.action === "renewalFuture" ||
+    scenario.action === "renewalBounds"
+  ) {
+    if (scenario.action === "renewalFuture") {
+      for (let index = 0; index < 2; index += 1) {
+        const next = page.locator("[data-renewal-next]");
+        if (await next.isDisabled()) break;
+        await next.click();
+        await page.waitForTimeout(80);
+      }
+    } else if (scenario.action === "renewalBounds") {
+      for (let index = 0; index < 20; index += 1) {
+        const next = page.locator("[data-renewal-next]");
+        if (await next.isDisabled()) break;
+        await next.click();
+        await page.waitForTimeout(40);
+      }
+    } else {
+      for (let index = 0; index < 12; index += 1) {
+        const info = await page.evaluate(() => {
+          const days = [
+            ...document.querySelectorAll("[data-renewal-day]"),
+          ].map((day) =>
+            Number(day.getAttribute("data-renewal-count") ?? 0),
+          );
+          return { counts: days, max: Math.max(0, ...days) };
+        });
+        const matched =
+          scenario.action === "renewalEmpty"
+            ? info.counts.length === 0
+            : scenario.action === "renewalHoverMulti"
+              ? info.max > 1
+              : info.counts.some((count) => count === 1);
+        if (matched) break;
+        const next = page.locator("[data-renewal-next]");
+        if (await next.isDisabled()) break;
+        await next.click();
+        await page.waitForTimeout(80);
+      }
+      if (scenario.action !== "renewalEmpty") {
+        const counts = await page.evaluate(() =>
+          [...document.querySelectorAll("[data-renewal-day]")].map((day) =>
+            Number(day.getAttribute("data-renewal-count") ?? 0),
+          ),
+        );
+        const index =
+          scenario.action === "renewalHoverMulti"
+            ? counts.reduce(
+                (best, value, i) => (value > counts[best] ? i : best),
+                0,
+              )
+            : counts.findIndex((count) => count === 1);
+        if (index >= 0) {
+          await page
+            .locator("[data-renewal-day]")
+            .nth(index)
+            .hover();
+          await page.waitForTimeout(250);
+        }
+      }
     }
   }
 
@@ -1796,6 +1875,66 @@ for (const scenario of activeScenarios) {
                   ).length,
                 };
               })()
+            : null,
+        };
+      })(),
+      renewal: (() => {
+        const card = document.querySelector('[data-cost-card="renewal"]');
+        if (!card) return null;
+        const grid = card.querySelector("[data-renewal-grid]");
+        const days = [...card.querySelectorAll("[data-renewal-day]")];
+        const cells = [...card.querySelectorAll("[data-renewal-cell]")];
+        const cell = cells[0]?.getBoundingClientRect() ?? null;
+        const tooltip = document.querySelector("[data-renewal-tooltip]");
+        const tooltipRect = tooltip?.getBoundingClientRect() ?? null;
+        return {
+          month:
+            card.querySelector("[data-renewal-month]")?.textContent?.trim() ??
+            null,
+          summary:
+            card.querySelector("[data-renewal-summary]")?.textContent?.trim() ??
+            null,
+          cells: cells.length,
+          eventDays: days.length,
+          totalCount: days.reduce(
+            (sum, day) =>
+              sum + Number(day.getAttribute("data-renewal-count") ?? 0),
+            0,
+          ),
+          badges: days.map(
+            (day) =>
+              day.querySelector("[data-renewal-badge]")?.textContent?.trim() ??
+              "",
+          ),
+          cellWidth: cell?.width ?? null,
+          cellHeight: cell?.height ?? null,
+          gridWidth: grid?.getBoundingClientRect().width ?? null,
+          prevDisabled:
+            card.querySelector("[data-renewal-prev]")?.hasAttribute(
+              "disabled",
+            ) ?? null,
+          nextDisabled:
+            card.querySelector("[data-renewal-next]")?.hasAttribute(
+              "disabled",
+            ) ?? null,
+          tooltip: tooltip
+            ? {
+                rows: tooltip.querySelectorAll("[data-renewal-tooltip-row]")
+                  .length,
+                more:
+                  tooltip
+                    .querySelector("[data-renewal-tooltip-more]")
+                    ?.textContent?.trim() ?? null,
+                text: tooltip.textContent?.trim() ?? "",
+                rect: tooltipRect
+                  ? {
+                      left: tooltipRect.left,
+                      right: tooltipRect.right,
+                      top: tooltipRect.top,
+                      bottom: tooltipRect.bottom,
+                    }
+                  : null,
+              }
             : null,
         };
       })(),
@@ -2218,6 +2357,7 @@ for (const scenario of activeScenarios) {
       const month = byKey.get("month");
       const top = byKey.get("top");
       const mix = byKey.get("mix");
+      const renewal = byKey.get("renewal");
       const once = byKey.get("once");
       if (
         month &&
@@ -2231,12 +2371,23 @@ for (const scenario of activeScenarios) {
       }
       if (
         mix &&
-        once &&
-        (Math.abs(mix.top - once.top) > 1.5 ||
-          Math.abs(mix.bottom - once.bottom) > 1.5)
+        renewal &&
+        (Math.abs(mix.top - renewal.top) > 1.5 ||
+          Math.abs(mix.bottom - renewal.bottom) > 1.5)
       ) {
         errors.push(
-          `${scenario.id}: mix/once cards not aligned (${JSON.stringify({ mix, once })})`,
+          `${scenario.id}: mix/renewal cards not aligned (${JSON.stringify({ mix, renewal })})`,
+        );
+      }
+      if (
+        once &&
+        month &&
+        top &&
+        (Math.abs(once.left - month.left) > 1.5 ||
+          Math.abs(once.right - top.right) > 1.5)
+      ) {
+        errors.push(
+          `${scenario.id}: one-time card is not full width (${JSON.stringify({ once, month })})`,
         );
       }
     }
@@ -2345,6 +2496,88 @@ for (const scenario of activeScenarios) {
           }
         }
       }
+    }
+  }
+
+  if (
+    (scenario.view ?? null) === "cost" &&
+    scenario.mock !== "costEmpty" &&
+    scenario.mock !== "costError" &&
+    metrics.renewal
+  ) {
+    const renewal = metrics.renewal;
+    if (renewal.cells < 28 || renewal.cells > 31) {
+      errors.push(`${scenario.id}: renewal cells ${renewal.cells}`);
+    }
+    if (renewal.badges.length !== renewal.eventDays) {
+      errors.push(`${scenario.id}: renewal badge count mismatch`);
+    }
+    if (
+      renewal.cellWidth !== null &&
+      renewal.cellHeight !== null &&
+      (renewal.cellWidth < 40 || renewal.cellHeight < 40)
+    ) {
+      errors.push(
+        `${scenario.id}: renewal cell ${renewal.cellWidth}x${renewal.cellHeight} < 40`,
+      );
+    }
+    if (renewal.eventDays > 0) {
+      const summaryPattern =
+        (scenario.locale ?? "zh-CN") === "en"
+          ? /Renewals this month: \d+ day\(s\), \d+ server\(s\)/
+          : /本月\s*\d+\s*天有到期，共\s*\d+\s*台/;
+      if (!summaryPattern.test(renewal.summary ?? "")) {
+        errors.push(
+          `${scenario.id}: renewal summary format (${renewal.summary})`,
+        );
+      }
+    } else if (!renewal.summary?.includes("本月没有需要续费的服务器")) {
+      errors.push(
+        `${scenario.id}: renewal empty summary (${renewal.summary})`,
+      );
+    }
+    if (scenario.action === "renewalHoverSingle") {
+      if (renewal.tooltip?.rows !== 1) {
+        errors.push(
+          `${scenario.id}: renewal single tooltip rows ${renewal.tooltip?.rows}`,
+        );
+      }
+    }
+    if (scenario.action === "renewalHoverMulti") {
+      if ((renewal.tooltip?.rows ?? 0) < 2) {
+        errors.push(
+          `${scenario.id}: renewal multi tooltip rows ${renewal.tooltip?.rows}`,
+        );
+      }
+    }
+    if (scenario.action === "renewalEmpty") {
+      if (renewal.eventDays !== 0) {
+        errors.push(`${scenario.id}: renewal empty has ${renewal.eventDays} days`);
+      }
+    }
+    if (scenario.action === "renewalFuture") {
+      if (!renewal.month?.includes("2027")) {
+        errors.push(`${scenario.id}: renewal future month ${renewal.month}`);
+      }
+      if (renewal.prevDisabled) {
+        errors.push(`${scenario.id}: renewal prev disabled after moving ahead`);
+      }
+    }
+    if (scenario.action === "renewalBounds") {
+      if (!renewal.nextDisabled) {
+        errors.push(`${scenario.id}: renewal next not disabled at last month`);
+      }
+    }
+    if (
+      renewal.tooltip?.rect &&
+      (renewal.tooltip.rect.left < -1 ||
+        renewal.tooltip.rect.right > metrics.viewportWidth + 1 ||
+        renewal.tooltip.rect.top < -1 ||
+        renewal.tooltip.rect.bottom > metrics.viewportHeight + 1)
+    ) {
+      errors.push(
+        `${scenario.id}: renewal tooltip overflows viewport (${JSON.stringify(renewal.tooltip.rect)})`,
+      );
     }
   }
 

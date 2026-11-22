@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T07:06:15.883Z",
+  "generatedAt": "2026-11-22T07:29:43.093Z",
   "base": "http://127.0.0.1:8787",
   "shots": [
     {
@@ -41,7 +41,7 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "35.0%",
+          "value": "34.4%",
           "hint": "7 天 74.3% · 10 台有采样"
         },
         {
@@ -106,7 +106,7 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "35.0%",
+          "value": "34.4%",
           "hint": "7 天 74.3% · 10 台有采样"
         },
         {
@@ -171,7 +171,7 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "35.0%",
+          "value": "34.4%",
           "hint": "7 天 74.3% · 10 台有采样"
         },
         {
@@ -236,7 +236,7 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "35.0%",
+          "value": "34.4%",
           "hint": "7 天 74.3% · 10 台有采样"
         },
         {
@@ -269,12 +269,12 @@
       "width": 1440,
       "file": "app-real-cost-dark-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 1125,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1181,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 849.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -297,6 +297,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -329,7 +330,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 269
+      "pageHeightDelta": 727
     },
     {
       "id": "real-cost-dark-390",
@@ -338,12 +339,12 @@
       "width": 390,
       "file": "app-real-cost-dark-390.png",
       "pageWidth": 390,
-      "pageHeight": 1888,
+      "pageHeight": 2399,
       "viewportWidth": 390,
-      "viewportHeight": 1944,
+      "viewportHeight": 2455,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1481.578125,
+      "sectionHeight": 1993.171875,
       "tabs": [
         {
           "text": "资源状态",
@@ -366,6 +367,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -398,7 +400,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 1032
+      "pageHeightDelta": 1543
     },
     {
       "id": "real-cost-light-1440",
@@ -407,12 +409,12 @@
       "width": 1440,
       "file": "app-real-cost-light-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 1125,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1181,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 849.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -435,6 +437,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -467,7 +470,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 269
+      "pageHeightDelta": 727
     },
     {
       "id": "real-cost-light-390",
@@ -476,12 +479,12 @@
       "width": 390,
       "file": "app-real-cost-light-390.png",
       "pageWidth": 390,
-      "pageHeight": 1888,
+      "pageHeight": 2399,
       "viewportWidth": 390,
-      "viewportHeight": 1944,
+      "viewportHeight": 2455,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1481.578125,
+      "sectionHeight": 1993.171875,
       "tabs": [
         {
           "text": "资源状态",
@@ -504,6 +507,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -536,7 +540,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 1032
+      "pageHeightDelta": 1543
     }
   ],
   "errors": []

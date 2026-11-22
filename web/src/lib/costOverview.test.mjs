@@ -4,6 +4,7 @@ import {
   buildCostOverview,
   buildFxDetails,
   buildMonthExpenses,
+  buildRenewalMonth,
   costCycleOf,
   formatCnyCompact,
   formatFxRateDisplay,
@@ -423,6 +424,40 @@ test("只有离线 / 未填费用时不显示正常视图；只有未知币种�
   assert.equal(unknownOnly.hasData, true);
   assert.equal(unknownOnly.totalCnyCents, 0);
   assert.equal(unknownOnly.unknownCurrency.length, 1);
+});
+
+test("buildRenewalMonth: 按 paid_until 归日、金额降序、摘要与空月", () => {
+  const month = 2026 * 12 + 11; // 2026-12
+  const result = buildRenewalMonth(
+    [
+      { id: "a", name: "alpha", paid_until: "2026-12-05", price_cents: 10000, currency: "CNY" },
+      { id: "b", name: "beta", paid_until: "2026-12-05", price_cents: 200, currency: "USD" },
+      { id: "c", name: "charlie", paid_until: "2026-12-05" },
+      { id: "d", name: "delta", paid_until: "2026-12-20", price_cents: 5000, currency: "CNY" },
+      { id: "e", name: "ignored", paid_until: "2026-12-32" },
+      { id: "f", name: "other-month", paid_until: "2027-01-02" },
+    ],
+    { USD: 7.2, CNY: 1 },
+    month,
+  );
+  assert.equal(result.daysInMonth, 31);
+  assert.equal(result.firstWeekday, 1); // 2026-12-01 是周二
+  assert.equal(result.activeDays, 2);
+  assert.equal(result.totalServers, 4);
+  assert.equal(result.busiestDay, 5);
+  assert.equal(result.busiestCount, 3);
+  assert.equal(result.days[4].count, 3);
+  assert.deepEqual(
+    result.days[4].events.map((event) => event.name),
+    ["alpha", "beta", "charlie"],
+  );
+  assert.equal(result.days[4].totalCnyCents, 10000 + 1440);
+  assert.equal(result.days[19].count, 1);
+
+  const empty = buildRenewalMonth([], {}, month);
+  assert.equal(empty.activeDays, 0);
+  assert.equal(empty.totalServers, 0);
+  assert.equal(empty.busiestDay, null);
 });
 
 test("buildMonthExpenses: 12 个月合计、服务器降序、>8 提示与空月", () => {

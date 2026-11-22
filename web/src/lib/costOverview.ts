@@ -155,6 +155,39 @@ export interface CostMonthExpense {
   oneTimeCount: number;
 }
 
+/** 续费日历的一台服务器（按 paid_until 当天到期）。 */
+export interface RenewalEvent {
+  serverId: string;
+  name: string;
+  paidUntil: string;
+  day: number;
+  currency: string | null;
+  /** 一个周期的 CNY 金额；没有价格 / 汇率时为 null，但仍计入台数。 */
+  amountCnyCents: number | null;
+}
+
+export interface RenewalDay {
+  day: number;
+  events: RenewalEvent[];
+  totalCnyCents: number;
+  count: number;
+}
+
+export interface RenewalMonth {
+  monthIndex: number;
+  year: number;
+  /** 1–12。 */
+  month: number;
+  /** 周一起始的偏移：0 = 周一。 */
+  firstWeekday: number;
+  daysInMonth: number;
+  days: RenewalDay[];
+  activeDays: number;
+  totalServers: number;
+  busiestDay: number | null;
+  busiestCount: number;
+}
+
 export interface CostTopRow {
   serverId: string;
   name: string;
@@ -516,6 +549,106 @@ export function formatFxRateDisplay(
     minimumFractionDigits: 2,
     maximumFractionDigits: 4,
   }).format(rate);
+}
+
+/**
+ * 续费日历：只统计传入服务器范围内填了 `paid_until` 的服务器。
+ * 金额按一个周期价格折算成 CNY；缺价格 / 汇率时仍展示台数，金额显示为 —。
+ */
+export function buildRenewalMonth(
+  servers: readonly Partial<Server>[],
+  rates: Readonly<Record<string, number>>,
+  monthIndex: number,
+): RenewalMonth {
+  const year = Math.floor(monthIndex / 12);
+  const month = monthIndex % 12;
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const firstWeekday =
+    (new Date(Date.UTC(year, month, 1)).getUTCDay() + 6) % 7;
+  const days = Array.from({ length: daysInMonth }, (_, index) => ({
+    day: index + 1,
+    events: [] as RenewalEvent[],
+    totalCnyCents: 0,
+    count: 0,
+  }));
+
+  for (const server of servers) {
+    const raw = server.paid_until;
+    if (typeof raw !== "string" || raw.trim() === "") continue;
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
+    if (!match) continue;
+    const paidYear = Number(match[1]);
+    const paidMonth = Number(match[2]) - 1;
+    const paidDay = Number(match[3]);
+    if (
+      paidYear !== year ||
+      paidMonth !== month ||
+      paidDay < 1 ||
+      paidDay > daysInMonth
+    ) {
+      continue;
+    }
+
+    const currency = normalizeCurrency(server.currency);
+    const price = normalizeCents(server.price_cents);
+    const rate =
+      currency === "CNY" ? 1 : currency ? rates[currency] : undefined;
+    const amountCnyCents =
+      price !== null && price > 0 && rate !== undefined && rate > 0
+        ? Math.round(price * rate)
+        : null;
+    const event: RenewalEvent = {
+      serverId: server.id ?? "",
+      name:
+        typeof server.name === "string" && server.name.trim()
+          ? server.name.trim()
+          : (server.id ?? ""),
+      paidUntil: raw.trim(),
+      day: paidDay,
+      currency,
+      amountCnyCents,
+    };
+    const bucket = days[paidDay - 1];
+    if (!bucket) continue;
+    bucket.events.push(event);
+  }
+
+  let activeDays = 0;
+  let totalServers = 0;
+  let busiestDay: number | null = null;
+  let busiestCount = 0;
+  for (const bucket of days) {
+    if (bucket.events.length === 0) continue;
+    activeDays += 1;
+    totalServers += bucket.events.length;
+    bucket.events.sort(
+      (a, b) =>
+        (b.amountCnyCents ?? -1) - (a.amountCnyCents ?? -1) ||
+        a.name.localeCompare(b.name),
+    );
+    bucket.count = bucket.events.length;
+    bucket.totalCnyCents = bucket.events.reduce(
+      (sum, event) => sum + (event.amountCnyCents ?? 0),
+      0,
+    );
+    if (bucket.count > busiestCount) {
+      busiestCount = bucket.count;
+      busiestDay = bucket.day;
+    }
+  }
+
+  return {
+    monthIndex,
+    year,
+    month,
+    firstWeekday,
+    daysInMonth,
+    days,
+    activeDays,
+    totalServers,
+    busiestDay,
+    busiestCount,
+  };
 }
 
 /**

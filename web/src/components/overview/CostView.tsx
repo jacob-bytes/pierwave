@@ -1,6 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router-dom";
 import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
   CircleDollarSignIcon,
   RefreshCwIcon,
   TriangleAlertIcon,
@@ -11,12 +13,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { FxDetailsPopover } from "./FxDetailsPopover";
 import { InsightMetrics } from "./InsightMetrics";
 import { errorText } from "@/lib/errors";
 import {
   buildCostOverview,
   buildMonthExpenses,
+  buildRenewalMonth,
   formatCny,
   formatCnyCompact,
   formatCurrency,
@@ -26,11 +35,13 @@ import {
   parseFxUpdatedAt,
   type CostCurrencyMixRow,
   type CostMonthExpense,
+  type RenewalMonth,
   type CostOneTimeRow,
   type CostOverview,
   type CostTopRow,
   type FxRates,
 } from "@/lib/costOverview";
+import type { Server } from "@/lib/api";
 import { useServers, useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
@@ -102,6 +113,7 @@ export default function CostView({
   return (
     <CostBody
       overview={overview}
+      servers={scopedServers}
       fx={fx}
       fxUpdatedAt={fxUpdatedAt}
       settingsError={settingsQuery.isError}
@@ -113,6 +125,7 @@ export default function CostView({
 
 function CostBody({
   overview,
+  servers,
   fx,
   fxUpdatedAt,
   settingsError,
@@ -120,6 +133,7 @@ function CostBody({
   onRetrySettings,
 }: {
   overview: CostOverview;
+  servers: readonly Partial<Server>[];
   fx: FxRates;
   fxUpdatedAt: number | null;
   settingsError: boolean;
@@ -186,19 +200,24 @@ function CostBody({
         <CurrencyMixCard
           rows={overview.currencyMix}
           locale={locale}
-          className={cn(
-            "h-full",
-            overview.oneTime.length === 0 && "xl:col-span-2",
-          )}
+          className="h-full"
         />
-        {overview.oneTime.length > 0 ? (
-          <OneTimeCard
-            rows={overview.oneTime}
-            locale={locale}
-            className="h-full"
-          />
-        ) : null}
+        <RenewalCalendarCard
+          servers={servers}
+          rates={fx.rates}
+          months={overview.months}
+          locale={locale}
+          className="h-full"
+        />
       </section>
+
+      {overview.oneTime.length > 0 ? (
+        <OneTimeCard
+          rows={overview.oneTime}
+          locale={locale}
+          className="h-full"
+        />
+      ) : null}
     </div>
   );
 }
@@ -641,6 +660,287 @@ function MonthExpenseTooltip({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function RenewalCalendarCard({
+  servers,
+  rates,
+  months,
+  locale,
+  className,
+}: {
+  servers: readonly Partial<Server>[];
+  rates: Readonly<Record<string, number>>;
+  months: number[];
+  locale: string;
+  className?: string;
+}) {
+  const { t } = useI18n();
+  const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
+  const [monthIndex, setMonthIndex] = useState(months[0] ?? 0);
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const month: RenewalMonth = useMemo(
+    () => buildRenewalMonth(servers, rates, monthIndex),
+    [servers, rates, monthIndex],
+  );
+  const position = months.indexOf(monthIndex);
+  const canPrev = position > 0;
+  const canNext = position >= 0 && position < months.length - 1;
+
+  const monthTitle = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        year: "numeric",
+        month: "long",
+        timeZone: "UTC",
+      }).format(new Date(Date.UTC(month.year, month.month, 1))),
+    [locale, month.month, month.year],
+  );
+  const weekdays = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, index) =>
+        new Intl.DateTimeFormat(locale, {
+          weekday: "short",
+          timeZone: "UTC",
+        }).format(new Date(Date.UTC(2024, 0, index + 1))),
+      ),
+    [locale],
+  );
+  const busiestLabel =
+    month.busiestDay === null
+      ? null
+      : new Intl.DateTimeFormat(locale, {
+          month: "short",
+          day: "numeric",
+          timeZone: "UTC",
+        }).format(
+          new Date(Date.UTC(month.year, month.month, month.busiestDay)),
+        );
+
+  function changeMonth(next: number) {
+    setMonthIndex(next);
+    setSelectedDay(null);
+  }
+
+  return (
+    <Card
+      ref={setCardElement}
+      className={cn(
+        "flex h-full min-h-[380px] min-w-0 flex-col gap-0",
+        className,
+      )}
+      data-cost-card="renewal"
+    >
+      <CardHeader className="border-b border-border pb-4">
+        <div className="flex min-w-0 items-center justify-between gap-2">
+          <CardTitle className="text-sm font-medium">
+            {t("overview.cost.renewalTitle")}
+          </CardTitle>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              data-renewal-prev
+              aria-label={t("overview.cost.renewalPrev")}
+              disabled={!canPrev}
+              onClick={() => changeMonth(months[position - 1] ?? monthIndex)}
+            >
+              <ChevronLeftIcon className="size-3.5" />
+            </Button>
+            <span
+              data-renewal-month
+              className="min-w-24 text-center text-xs font-medium tabular-nums"
+            >
+              {monthTitle}
+            </span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              data-renewal-next
+              aria-label={t("overview.cost.renewalNext")}
+              disabled={!canNext}
+              onClick={() => changeMonth(months[position + 1] ?? monthIndex)}
+            >
+              <ChevronRightIcon className="size-3.5" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="flex flex-1 flex-col p-2 sm:p-3">
+        <TooltipProvider delayDuration={80}>
+          <div
+            className="grid flex-1 auto-rows-fr grid-cols-7 gap-1 text-center"
+            data-renewal-grid
+          >
+            {weekdays.map((weekday) => (
+              <span
+                key={weekday}
+                data-renewal-weekday
+                className="pb-1 text-[9px] text-muted-foreground"
+              >
+                {weekday}
+              </span>
+            ))}
+            {Array.from({ length: month.firstWeekday }, (_, index) => (
+              <span key={`blank-${index}`} aria-hidden="true" />
+            ))}
+            {Array.from(
+              {
+                length: Math.max(
+                  0,
+                  42 - month.firstWeekday - month.daysInMonth,
+                ),
+              },
+              (_, index) => (
+                <span key={`trailing-${index}`} aria-hidden="true" />
+              ),
+            )}
+            {month.days.map((day) => {
+              if (day.events.length === 0) {
+                return (
+                  <span
+                    key={day.day}
+                    data-renewal-cell
+                    data-renewal-day-number={day.day}
+                    className="flex min-h-12 flex-col items-start rounded-md border border-border/30 p-1 text-left text-[9px] text-muted-foreground"
+                  >
+                    {day.day}
+                  </span>
+                );
+              }
+              const knownAmount = day.events.some(
+                (event) => event.amountCnyCents !== null,
+              );
+              const selected = selectedDay === day.day;
+              return (
+                <Tooltip key={day.day}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      data-renewal-day
+                      data-renewal-cell
+                      data-renewal-day-number={day.day}
+                      data-renewal-date={`${month.year}-${String(month.month + 1).padStart(2, "0")}-${String(day.day).padStart(2, "0")}`}
+                      data-renewal-count={day.count}
+                      data-renewal-total={day.totalCnyCents}
+                      aria-pressed={selected}
+                      aria-label={t("overview.cost.renewalDayAria", {
+                        date: `${month.month + 1}/${day.day}`,
+                        n: day.count,
+                        amount: knownAmount
+                          ? formatCny(day.totalCnyCents, locale)
+                          : "—",
+                      })}
+                      onClick={() =>
+                        setSelectedDay((current) =>
+                          current === day.day ? null : day.day,
+                        )
+                      }
+                      className={cn(
+                        "relative flex min-h-12 min-w-0 flex-col items-start justify-between rounded-md border p-1 text-left transition-colors duration-150",
+                        selected
+                          ? "border-primary bg-primary/10 ring-1 ring-primary"
+                          : "border-border/60 bg-primary/5 hover:bg-primary/10",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      )}
+                    >
+                      <span className="text-[9px] text-muted-foreground">
+                        {day.day}
+                      </span>
+                      <span className="w-full truncate text-left font-mono text-[10px] text-primary tabular-nums">
+                        {knownAmount
+                          ? `¥${formatCnyCompact(day.totalCnyCents, locale)}`
+                          : "—"}
+                      </span>
+                      <span
+                        data-renewal-badge
+                        className="absolute right-1 top-1 rounded-full bg-primary/10 px-1 text-[8px] text-primary tabular-nums"
+                      >
+                        {t("overview.cost.renewalBadge", {
+                          n: day.count,
+                        })}
+                      </span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    sideOffset={8}
+                    collisionPadding={12}
+                    collisionBoundary={cardElement ?? undefined}
+                    data-renewal-tooltip
+                    className="block w-72 max-w-[calc(100vw-2rem)] border border-border bg-popover p-0 text-popover-foreground shadow-lg/40 [&>svg]:bg-popover [&>svg]:fill-popover"
+                  >
+                    <div className="p-3">
+                      <div className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-1.5">
+                        <span className="text-xs font-medium">
+                          {monthTitle} {day.day}
+                        </span>
+                        <span className="font-mono text-xs tabular-nums">
+                          {knownAmount
+                            ? formatCny(day.totalCnyCents, locale)
+                            : "—"}
+                        </span>
+                      </div>
+                      <ul className="mt-1.5 flex max-h-40 flex-col gap-1 overflow-y-auto">
+                        {day.events.slice(0, 8).map((event) => (
+                          <li
+                            key={event.serverId}
+                            data-renewal-tooltip-row
+                            className="flex min-w-0 items-center justify-between gap-3"
+                          >
+                            <span
+                              className="min-w-0 truncate text-muted-foreground"
+                              title={event.name}
+                            >
+                              {event.name}
+                            </span>
+                            <span className="shrink-0 font-mono tabular-nums">
+                              {event.amountCnyCents === null
+                                ? "—"
+                                : formatCny(event.amountCnyCents, locale)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                      {day.events.length > 8 ? (
+                        <p
+                          data-renewal-tooltip-more
+                          className="mt-1 text-[10px] text-muted-foreground"
+                        >
+                          {t("overview.cost.monthMore", {
+                            n: day.events.length - 8,
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
+          </div>
+        </TooltipProvider>
+
+        <p
+          data-renewal-summary
+          className="mt-auto border-t border-border pt-3 text-[11px] leading-normal text-muted-foreground"
+        >
+          {month.activeDays === 0
+            ? t("overview.cost.renewalEmpty")
+            : t("overview.cost.renewalSummary", {
+                days: month.activeDays,
+                n: month.totalServers,
+                date: busiestLabel ?? "—",
+                k: month.busiestCount,
+              })}
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T07:06:42.874Z",
+  "generatedAt": "2026-11-22T07:26:36.350Z",
   "dist": "/Users/jlthzy/Documents/mmrust/web/dist/",
   "shots": [
     {
@@ -158,6 +158,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -440,6 +441,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -722,6 +724,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -907,6 +910,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -955,12 +959,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -983,6 +987,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -1160,21 +1165,45 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -1182,10 +1211,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -1196,7 +1225,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -1313,7 +1343,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-light-1440",
@@ -1334,12 +1364,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -1362,6 +1392,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -1539,21 +1570,45 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -1561,10 +1616,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -1575,7 +1630,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -1692,7 +1748,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-dark-390",
@@ -1713,12 +1769,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 1928,
+      "pageHeight": 2439,
       "viewportWidth": 390,
-      "viewportHeight": 1984,
+      "viewportHeight": 2495,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1505.578125,
+      "sectionHeight": 2017.171875,
       "tabs": [
         {
           "text": "资源状态",
@@ -1741,6 +1797,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -1924,15 +1981,39 @@
             "height": 197
           },
           {
-            "key": "once",
+            "key": "renewal",
             "top": 1840.359375,
-            "bottom": 1963.75,
+            "bottom": 2335.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2351.953125,
+            "bottom": 2475.34375,
             "left": 24,
             "right": 366,
             "height": 123.390625
           }
         ],
-        "bottomGap": 20.3,
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -1940,10 +2021,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1984,
-        "docHeight": 1984,
-        "mainScrollHeight": 1928,
-        "mainClientHeight": 1928
+        "bodyHeight": 2495,
+        "docHeight": 2495,
+        "mainScrollHeight": 2439,
+        "mainClientHeight": 2439
       },
       "costDebug": {
         "metrics": [
@@ -1954,7 +2035,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -1974,7 +2056,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1072
+      "pageHeightDelta": 1583
     },
     {
       "id": "cost-light-390",
@@ -1995,12 +2077,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 1928,
+      "pageHeight": 2439,
       "viewportWidth": 390,
-      "viewportHeight": 1984,
+      "viewportHeight": 2495,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1505.578125,
+      "sectionHeight": 2017.171875,
       "tabs": [
         {
           "text": "资源状态",
@@ -2023,6 +2105,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -2206,15 +2289,39 @@
             "height": 197
           },
           {
-            "key": "once",
+            "key": "renewal",
             "top": 1840.359375,
-            "bottom": 1963.75,
+            "bottom": 2335.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2351.953125,
+            "bottom": 2475.34375,
             "left": 24,
             "right": 366,
             "height": 123.390625
           }
         ],
-        "bottomGap": 20.3,
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -2222,10 +2329,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1984,
-        "docHeight": 1984,
-        "mainScrollHeight": 1928,
-        "mainClientHeight": 1928
+        "bodyHeight": 2495,
+        "docHeight": 2495,
+        "mainScrollHeight": 2439,
+        "mainClientHeight": 2439
       },
       "costDebug": {
         "metrics": [
@@ -2236,7 +2343,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -2256,7 +2364,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1072
+      "pageHeightDelta": 1583
     },
     {
       "id": "traffic-dark-1440",
@@ -2382,6 +2490,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -2632,6 +2741,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -2777,159 +2887,6 @@
       ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 2106,
-      "viewportWidth": 390,
-      "viewportHeight": 2162,
-      "overflowX": false,
-      "mainOverflowX": false,
-      "sectionHeight": 1687.9375,
-      "tabs": [
-        {
-          "text": "资源状态",
-          "selected": false
-        },
-        {
-          "text": "流量趋势",
-          "selected": true
-        },
-        {
-          "text": "成本开支",
-          "selected": false
-        },
-        {
-          "text": "链路时延",
-          "selected": false
-        }
-      ],
-      "cardTitles": [
-        "近 7 天趋势",
-        "流量分布",
-        "流量榜单",
-        "告警"
-      ],
-      "metrics": [],
-      "tabsList": {
-        "display": "grid",
-        "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
-      },
-      "heatmap": null,
-      "heatmapLegend": null,
-      "resourceChart": null,
-      "selectedText": "已选 8/12",
-      "search": "?view=traffic",
-      "filterLayout": {
-        "tabsTop": 442.171875,
-        "tabsBottom": 510.953125,
-        "tabsRight": 366,
-        "filterTop": 518.953125,
-        "filterRight": 366,
-        "sameRow": false
-      },
-      "kpiValues": [
-        "7/ 8",
-        "6/ 6",
-        "5",
-        "32GB"
-      ],
-      "kpiLabels": [
-        "在线服务器",
-        "用户全局",
-        "套餐实例全局",
-        "今日流量"
-      ],
-      "globalLabels": [
-        "全局",
-        "全局"
-      ],
-      "hasEmptyState": false,
-      "trafficWarning": true,
-      "filterTree": null,
-      "heatmapRows": 0,
-      "heatmapTabs": 0,
-      "heatmapRowScroll": null,
-      "heatmapStepColors": [
-        null,
-        null,
-        null,
-        null,
-        null
-      ],
-      "lineSeries": 0,
-      "areaSeries": 0,
-      "fx": {
-        "defaultText": null,
-        "popoverOpen": false,
-        "rows": 0,
-        "rowTexts": [],
-        "unknownText": null,
-        "footerText": null,
-        "rect": null,
-        "list": null,
-        "bodyHasRateLine": false
-      },
-      "costBars": {
-        "chart": null,
-        "count": 0,
-        "hasCalendar": false,
-        "labels": [],
-        "widths": [],
-        "heights": [],
-        "totals": [],
-        "chargeCounts": [],
-        "emptyCount": 0,
-        "cards": [],
-        "bottomGap": null,
-        "tooltip": null
-      },
-      "hasScrollHint": false,
-      "dom": {
-        "asideCount": 1,
-        "mainCount": 1,
-        "rootChildren": 2,
-        "bodyHeight": 2162,
-        "docHeight": 2162,
-        "mainScrollHeight": 2106,
-        "mainClientHeight": 2106
-      },
-      "costDebug": null,
-      "debug": {
-        "mainClientWidth": 390,
-        "mainScrollWidth": 390,
-        "bodyClientWidth": 390,
-        "bodyScrollWidth": 390,
-        "rootScrollWidth": 390,
-        "directChildren": [
-          {
-            "tag": "DIV",
-            "cls": "animate-enter space-y-6",
-            "width": 342,
-            "scrollWidth": 342
-          }
-        ],
-        "wideElements": []
-      },
-      "pageHeightDelta": 1254
-    },
-    {
-      "id": "traffic-light-390",
-      "view": "traffic",
-      "theme": "light",
-      "width": 390,
-      "mock": "normal",
-      "file": "app-traffic-light-390.png",
-      "apiPaths": [
-        "/api/v1/auth/me",
-        "/api/v1/updates",
-        "/api/v1/health",
-        "/api/v1/stats/overview",
-        "/api/v1/stats/traffic",
-        "/api/v1/servers",
-        "/api/v1/overview",
-        "/api/v1/enforcement/events"
-      ],
-      "httpErrors": [],
-      "pageWidth": 390,
       "pageHeight": 2110,
       "viewportWidth": 390,
       "viewportHeight": 2166,
@@ -3035,6 +2992,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -3044,6 +3002,160 @@
         "docHeight": 2166,
         "mainScrollHeight": 2110,
         "mainClientHeight": 2110
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1254
+    },
+    {
+      "id": "traffic-light-390",
+      "view": "traffic",
+      "theme": "light",
+      "width": 390,
+      "mock": "normal",
+      "file": "app-traffic-light-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/overview",
+        "/api/v1/enforcement/events"
+      ],
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2106,
+      "viewportWidth": 390,
+      "viewportHeight": 2162,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1687.9375,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": true
+        },
+        {
+          "text": "成本开支",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "近 7 天趋势",
+        "流量分布",
+        "流量榜单",
+        "告警"
+      ],
+      "metrics": [],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 8/12",
+      "search": "?view=traffic",
+      "filterLayout": {
+        "tabsTop": 442.171875,
+        "tabsBottom": 510.953125,
+        "tabsRight": 366,
+        "filterTop": 518.953125,
+        "filterRight": 366,
+        "sameRow": false
+      },
+      "kpiValues": [
+        "7/ 8",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": true,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": null,
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": null,
+        "count": 0,
+        "hasCalendar": false,
+        "labels": [],
+        "widths": [],
+        "heights": [],
+        "totals": [],
+        "chargeCounts": [],
+        "emptyCount": 0,
+        "cards": [],
+        "bottomGap": null,
+        "tooltip": null
+      },
+      "renewal": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2162,
+        "docHeight": 2162,
+        "mainScrollHeight": 2106,
+        "mainClientHeight": 2106
       },
       "costDebug": null,
       "debug": {
@@ -3183,6 +3295,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -3433,6 +3546,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -3678,6 +3792,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -3928,6 +4043,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -4209,6 +4325,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -4490,6 +4607,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -4771,6 +4889,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -4955,6 +5074,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -5189,6 +5309,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -5520,6 +5641,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -5851,6 +5973,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -6182,6 +6305,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -6416,6 +6540,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -6732,6 +6857,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -7026,6 +7152,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -7215,6 +7342,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -7501,6 +7629,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -7658,6 +7787,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -7912,6 +8042,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -8061,12 +8192,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1048,
+      "pageHeight": 1415,
       "viewportWidth": 1440,
-      "viewportHeight": 1104,
+      "viewportHeight": 1471,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 772.265625,
+      "sectionHeight": 1138.859375,
       "tabs": [
         {
           "text": "资源状态",
@@ -8088,7 +8219,8 @@
       "cardTitles": [
         "未来 12 个月的开销",
         "开销大头",
-        "币种构成"
+        "币种构成",
+        "续费日历"
       ],
       "metrics": [
         {
@@ -8265,13 +8397,35 @@
           {
             "key": "mix",
             "top": 959.046875,
-            "bottom": 1084.046875,
+            "bottom": 1450.640625,
             "left": 264,
+            "right": 832,
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 959.046875,
+            "bottom": 1450.640625,
+            "left": 848,
             "right": 1416,
-            "height": 125
+            "height": 491.59375
           }
         ],
-        "bottomGap": 20,
+        "bottomGap": 20.4,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月没有需要续费的服务器",
+        "cells": 30,
+        "eventDays": 0,
+        "totalCount": 0,
+        "badges": [],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -8279,10 +8433,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1104,
-        "docHeight": 1104,
-        "mainScrollHeight": 1048,
-        "mainClientHeight": 1048
+        "bodyHeight": 1471,
+        "docHeight": 1471,
+        "mainScrollHeight": 1415,
+        "mainClientHeight": 1415
       },
       "costDebug": {
         "metrics": [
@@ -8292,7 +8446,8 @@
           "按本年度剩余 1 个月折算",
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
-          "2026–2027"
+          "2026–2027",
+          "本月没有需要续费的服务器"
         ],
         "calendar": null
       },
@@ -8409,7 +8564,7 @@
           }
         ]
       },
-      "pageHeightDelta": 192
+      "pageHeightDelta": 559
     },
     {
       "id": "scope-chain-filtered-1440",
@@ -8553,6 +8708,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -8798,6 +8954,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -9043,6 +9200,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -9288,6 +9446,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -9533,6 +9692,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -9778,6 +9938,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -10012,6 +10173,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -10343,6 +10505,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -10547,6 +10710,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -10829,6 +10993,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -11112,6 +11277,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -11358,6 +11524,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -11645,6 +11812,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -11928,6 +12096,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -12207,6 +12376,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": true,
       "dom": {
         "asideCount": 1,
@@ -12452,6 +12622,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -12697,6 +12868,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -12847,6 +13019,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -13094,6 +13267,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -13341,6 +13515,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -13586,6 +13761,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -13831,6 +14007,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -13981,6 +14158,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -14245,6 +14423,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -14509,6 +14688,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -14773,6 +14953,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -14959,6 +15140,7 @@
         "bottomGap": null,
         "tooltip": null
       },
+      "renewal": null,
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
@@ -15008,12 +15190,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 2034,
+      "pageHeight": 2546,
       "viewportWidth": 390,
-      "viewportHeight": 2090,
+      "viewportHeight": 2602,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1521.578125,
+      "sectionHeight": 2033.171875,
       "tabs": [
         {
           "text": "Resource status",
@@ -15036,6 +15218,7 @@
         "Spending over the next 12 months",
         "Top costs",
         "Currency mix",
+        "Renewal calendar",
         "One-time costs"
       ],
       "metrics": [
@@ -15219,15 +15402,39 @@
             "height": 197
           },
           {
-            "key": "once",
+            "key": "renewal",
             "top": 1946.75,
-            "bottom": 2070.140625,
+            "bottom": 2442.34375,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2458.34375,
+            "bottom": 2581.734375,
             "left": 24,
             "right": 366,
             "height": 123.390625
           }
         ],
-        "bottomGap": 19.9,
+        "bottomGap": 20.3,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "November 2026",
+        "summary": "Renewals this month: 1 day(s), 1 server(s) · busiest Nov 30 (1)",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1"
+        ],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -15235,10 +15442,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 2090,
-        "docHeight": 2090,
-        "mainScrollHeight": 2034,
-        "mainClientHeight": 2034
+        "bodyHeight": 2602,
+        "docHeight": 2602,
+        "mainScrollHeight": 2546,
+        "mainClientHeight": 2546
       },
       "costDebug": {
         "metrics": [
@@ -15249,7 +15456,8 @@
           "Next 12 months",
           "Paid-until · prepaid skipped",
           "2026–2027",
-          "2 servers are offline or incompletely billed and are excluded."
+          "2 servers are offline or incompletely billed and are excluded.",
+          "Renewals this month: 1 day(s), 1 server(s) · busiest Nov 30 (1)"
         ],
         "calendar": null
       },
@@ -15269,7 +15477,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1178
+      "pageHeightDelta": 1690
     },
     {
       "id": "cost-fx-open-1440",
@@ -15292,12 +15500,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -15320,6 +15528,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -15399,7 +15608,7 @@
           "USD1 USD = ¥7.202 台"
         ],
         "unknownText": "未配置汇率，1 台未计入（AED）",
-        "footerText": "自动汇率 · 更新于 2026-11-22 14:06:42",
+        "footerText": "自动汇率 · 更新于 2026-11-22 14:26:36",
         "rect": {
           "left": 367,
           "right": 719,
@@ -15513,21 +15722,45 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -15535,10 +15768,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -15549,7 +15782,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -15666,7 +15900,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-fx-open-390",
@@ -15689,12 +15923,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 1928,
+      "pageHeight": 2439,
       "viewportWidth": 390,
-      "viewportHeight": 1984,
+      "viewportHeight": 2495,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1505.578125,
+      "sectionHeight": 2017.171875,
       "tabs": [
         {
           "text": "资源状态",
@@ -15717,6 +15951,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -15796,7 +16031,7 @@
           "USD1 USD = ¥7.202 台"
         ],
         "unknownText": "未配置汇率，1 台未计入（AED）",
-        "footerText": "自动汇率 · 更新于 2026-11-22 14:06:42",
+        "footerText": "自动汇率 · 更新于 2026-11-22 14:26:36",
         "rect": {
           "left": 26,
           "right": 378,
@@ -15916,15 +16151,39 @@
             "height": 197
           },
           {
-            "key": "once",
+            "key": "renewal",
             "top": 1840.359375,
-            "bottom": 1963.75,
+            "bottom": 2335.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2351.953125,
+            "bottom": 2475.34375,
             "left": 24,
             "right": 366,
             "height": 123.390625
           }
         ],
-        "bottomGap": 20.3,
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -15932,10 +16191,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1984,
-        "docHeight": 1984,
-        "mainScrollHeight": 1928,
-        "mainClientHeight": 1928
+        "bodyHeight": 2495,
+        "docHeight": 2495,
+        "mainScrollHeight": 2439,
+        "mainClientHeight": 2439
       },
       "costDebug": {
         "metrics": [
@@ -15946,7 +16205,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -15966,7 +16226,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1072
+      "pageHeightDelta": 1583
     },
     {
       "id": "cost-fx-open-light-1440",
@@ -15989,12 +16249,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -16017,6 +16277,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -16096,7 +16357,7 @@
           "USD1 USD = ¥7.202 台"
         ],
         "unknownText": "未配置汇率，1 台未计入（AED）",
-        "footerText": "自动汇率 · 更新于 2026-11-22 14:06:42",
+        "footerText": "自动汇率 · 更新于 2026-11-22 14:26:36",
         "rect": {
           "left": 367,
           "right": 719,
@@ -16210,21 +16471,45 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -16232,10 +16517,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -16246,7 +16531,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -16363,7 +16649,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-fx-open-light-390",
@@ -16386,12 +16672,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 1928,
+      "pageHeight": 2439,
       "viewportWidth": 390,
-      "viewportHeight": 1984,
+      "viewportHeight": 2495,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1505.578125,
+      "sectionHeight": 2017.171875,
       "tabs": [
         {
           "text": "资源状态",
@@ -16414,6 +16700,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -16493,7 +16780,7 @@
           "USD1 USD = ¥7.202 台"
         ],
         "unknownText": "未配置汇率，1 台未计入（AED）",
-        "footerText": "自动汇率 · 更新于 2026-11-22 14:06:42",
+        "footerText": "自动汇率 · 更新于 2026-11-22 14:26:36",
         "rect": {
           "left": 26,
           "right": 378,
@@ -16613,15 +16900,39 @@
             "height": 197
           },
           {
-            "key": "once",
+            "key": "renewal",
             "top": 1840.359375,
-            "bottom": 1963.75,
+            "bottom": 2335.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2351.953125,
+            "bottom": 2475.34375,
             "left": 24,
             "right": 366,
             "height": 123.390625
           }
         ],
-        "bottomGap": 20.3,
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -16629,10 +16940,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1984,
-        "docHeight": 1984,
-        "mainScrollHeight": 1928,
-        "mainClientHeight": 1928
+        "bodyHeight": 2495,
+        "docHeight": 2495,
+        "mainScrollHeight": 2439,
+        "mainClientHeight": 2439
       },
       "costDebug": {
         "metrics": [
@@ -16643,7 +16954,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -16663,7 +16975,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1072
+      "pageHeightDelta": 1583
     },
     {
       "id": "cost-fx-many-1440",
@@ -16686,12 +16998,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1264,
+      "pageHeight": 1415,
       "viewportWidth": 1440,
-      "viewportHeight": 1320,
+      "viewportHeight": 1471,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 988.265625,
+      "sectionHeight": 1138.859375,
       "tabs": [
         {
           "text": "资源状态",
@@ -16713,7 +17025,8 @@
       "cardTitles": [
         "未来 12 个月的开销",
         "开销大头",
-        "币种构成"
+        "币种构成",
+        "续费日历"
       ],
       "metrics": [
         {
@@ -16798,7 +17111,7 @@
           "USD1 USD = ¥1.271 台"
         ],
         "unknownText": null,
-        "footerText": "自动汇率 · 更新于 2026-11-22 14:06:42",
+        "footerText": "自动汇率 · 更新于 2026-11-22 14:26:36",
         "rect": {
           "left": 367,
           "right": 719,
@@ -16912,13 +17225,35 @@
           {
             "key": "mix",
             "top": 959.046875,
-            "bottom": 1300.046875,
+            "bottom": 1450.640625,
             "left": 264,
+            "right": 832,
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 959.046875,
+            "bottom": 1450.640625,
+            "left": 848,
             "right": 1416,
-            "height": 341
+            "height": 491.59375
           }
         ],
-        "bottomGap": 20,
+        "bottomGap": 20.4,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月没有需要续费的服务器",
+        "cells": 30,
+        "eventDays": 0,
+        "totalCount": 0,
+        "badges": [],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -16926,10 +17261,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1320,
-        "docHeight": 1320,
-        "mainScrollHeight": 1264,
-        "mainClientHeight": 1264
+        "bodyHeight": 1471,
+        "docHeight": 1471,
+        "mainScrollHeight": 1415,
+        "mainClientHeight": 1415
       },
       "costDebug": {
         "metrics": [
@@ -16939,7 +17274,8 @@
           "按本年度剩余 1 个月折算",
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
-          "2026–2027"
+          "2026–2027",
+          "本月没有需要续费的服务器"
         ],
         "calendar": null
       },
@@ -17056,7 +17392,7 @@
           }
         ]
       },
-      "pageHeightDelta": 408
+      "pageHeightDelta": 559
     },
     {
       "id": "cost-bar-tooltip-left-1440",
@@ -17078,12 +17414,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -17106,6 +17442,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -17283,18 +17620,26 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
@@ -17334,15 +17679,31 @@
           "oneTimeCount": 0
         }
       },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": null
+      },
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -17355,7 +17716,8 @@
           "已预付 3 台",
           "大阪-01 · 东京-02 · 法兰克福-01",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -17472,7 +17834,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-bar-tooltip-middle-1440",
@@ -17494,12 +17856,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -17522,6 +17884,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -17699,18 +18062,26 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
@@ -17750,15 +18121,31 @@
           "oneTimeCount": 0
         }
       },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": null
+      },
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -17769,7 +18156,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -17886,7 +18274,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-bar-tooltip-right-1440",
@@ -17908,12 +18296,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -17936,6 +18324,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -18113,18 +18502,26 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
@@ -18164,15 +18561,31 @@
           "oneTimeCount": 0
         }
       },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": null
+      },
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -18183,7 +18596,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -18300,17 +18714,17 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
-      "id": "cost-bar-tooltip-multi-1440",
+      "id": "cost-renewal-single-1440",
       "view": "cost",
       "theme": "dark",
       "width": 1440,
       "mock": "normal",
       "servers": "all",
-      "action": "barHoverMulti",
-      "file": "app-cost-bar-tooltip-multi-1440.png",
+      "action": "renewalHoverSingle",
+      "file": "app-cost-renewal-single-1440.png",
       "apiPaths": [
         "/api/v1/auth/me",
         "/api/v1/updates",
@@ -18322,12 +18736,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -18350,6 +18764,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -18527,18 +18942,4453 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
+            "right": 1416,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": {
+          "rows": 1,
+          "more": null,
+          "text": "2026年11月 30¥88.00香港-03¥88.00",
+          "rect": {
+            "left": 1116,
+            "right": 1404,
+            "top": 1284,
+            "bottom": 1355
+          }
+        }
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 727
+    },
+    {
+      "id": "cost-renewal-single-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalHoverSingle",
+      "file": "app-cost-renewal-single-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2441,
+      "viewportWidth": 390,
+      "viewportHeight": 2497,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 2017.171875,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 444.171875,
+        "tabsBottom": 512.953125,
+        "tabsRight": 366,
+        "filterTop": 520.953125,
+        "filterRight": 366,
+        "sameRow": false
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 318,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875
+        ],
+        "heights": [
+          307.0625,
+          4.546875,
+          21.859375,
+          141.640625,
+          198.25,
+          198.25,
+          198.25,
+          269.296875,
+          198.25,
+          198.25,
+          198.25,
+          198.25
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 771.515625,
+            "bottom": 1232.40625,
+            "left": 24,
+            "right": 366,
+            "height": 460.890625
+          },
+          {
+            "key": "top",
+            "top": 1248.40625,
+            "bottom": 1613.359375,
+            "left": 24,
+            "right": 366,
+            "height": 364.953125
+          },
+          {
+            "key": "mix",
+            "top": 1629.359375,
+            "bottom": 1826.359375,
+            "left": 24,
+            "right": 366,
+            "height": 197
+          },
+          {
+            "key": "renewal",
+            "top": 1842.359375,
+            "bottom": 2337.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2353.953125,
+            "bottom": 2477.34375,
+            "left": 24,
+            "right": 366,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": {
+          "rows": 1,
+          "more": null,
+          "text": "2026年11月 30¥88.00香港-03¥88.00",
+          "rect": {
+            "left": 66,
+            "right": 354,
+            "top": 2146,
+            "bottom": 2217
+          }
+        }
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2497,
+        "docHeight": 2497,
+        "mainScrollHeight": 2441,
+        "mainClientHeight": 2441
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1585
+    },
+    {
+      "id": "cost-renewal-multi-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalHoverMulti",
+      "file": "app-cost-renewal-multi-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1583,
+      "viewportWidth": 1440,
+      "viewportHeight": 1639,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1307.25,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 286,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 295.78125,
+        "tabsBottom": 327.78125,
+        "tabsRight": 550,
+        "filterTop": 295.78125,
+        "filterRight": 689.921875,
+        "sameRow": true
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 730.65625,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625
+        ],
+        "heights": [
+          313.0625,
+          4.625,
+          22.296875,
+          144.40625,
+          202.125,
+          202.125,
+          202.125,
+          274.5625,
+          202.125,
+          202.125,
+          202.125,
+          202.125
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 264,
+            "right": 1026.65625,
+            "height": 468.890625
+          },
+          {
+            "key": "top",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 1042.65625,
+            "right": 1416,
+            "height": 468.890625
+          },
+          {
+            "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
+            "left": 264,
+            "right": 832,
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
             "left": 848,
             "right": 1416,
+            "height": 491.59375
+          },
+          {
+            "key": "once",
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
+            "right": 1416,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年1月",
+        "summary": "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）",
+        "cells": 31,
+        "eventDays": 1,
+        "totalCount": 3,
+        "badges": [
+          "3 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": false,
+        "nextDisabled": false,
+        "tooltip": {
+          "rows": 3,
+          "more": null,
+          "text": "2027年1月 31¥487.44香港-01¥268.00新加坡-02¥158.00大阪-01¥61.44",
+          "rect": {
+            "left": 1116,
+            "right": 1404,
+            "top": 1244,
+            "bottom": 1355
+          }
+        }
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 727
+    },
+    {
+      "id": "cost-renewal-multi-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalHoverMulti",
+      "file": "app-cost-renewal-multi-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2441,
+      "viewportWidth": 390,
+      "viewportHeight": 2497,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 2017.171875,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 444.171875,
+        "tabsBottom": 512.953125,
+        "tabsRight": 366,
+        "filterTop": 520.953125,
+        "filterRight": 366,
+        "sameRow": false
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 318,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875
+        ],
+        "heights": [
+          307.0625,
+          4.546875,
+          21.859375,
+          141.640625,
+          198.25,
+          198.25,
+          198.25,
+          269.296875,
+          198.25,
+          198.25,
+          198.25,
+          198.25
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 771.515625,
+            "bottom": 1232.40625,
+            "left": 24,
+            "right": 366,
+            "height": 460.890625
+          },
+          {
+            "key": "top",
+            "top": 1248.40625,
+            "bottom": 1613.359375,
+            "left": 24,
+            "right": 366,
+            "height": 364.953125
+          },
+          {
+            "key": "mix",
+            "top": 1629.359375,
+            "bottom": 1826.359375,
+            "left": 24,
+            "right": 366,
             "height": 197
+          },
+          {
+            "key": "renewal",
+            "top": 1842.359375,
+            "bottom": 2337.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2353.953125,
+            "bottom": 2477.34375,
+            "left": 24,
+            "right": 366,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年1月",
+        "summary": "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）",
+        "cells": 31,
+        "eventDays": 1,
+        "totalCount": 3,
+        "badges": [
+          "3 台"
+        ],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": false,
+        "nextDisabled": false,
+        "tooltip": {
+          "rows": 3,
+          "more": null,
+          "text": "2027年1月 31¥487.44香港-01¥268.00新加坡-02¥158.00大阪-01¥61.44",
+          "rect": {
+            "left": 66,
+            "right": 354,
+            "top": 2106,
+            "bottom": 2217
+          }
+        }
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2497,
+        "docHeight": 2497,
+        "mainScrollHeight": 2441,
+        "mainClientHeight": 2441
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1585
+    },
+    {
+      "id": "cost-renewal-multi-light-1440",
+      "view": "cost",
+      "theme": "light",
+      "width": 1440,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalHoverMulti",
+      "file": "app-cost-renewal-multi-light-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1583,
+      "viewportWidth": 1440,
+      "viewportHeight": 1639,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1307.25,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 286,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 295.78125,
+        "tabsBottom": 327.78125,
+        "tabsRight": 550,
+        "filterTop": 295.78125,
+        "filterRight": 689.921875,
+        "sameRow": true
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 730.65625,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625
+        ],
+        "heights": [
+          313.0625,
+          4.625,
+          22.296875,
+          144.40625,
+          202.125,
+          202.125,
+          202.125,
+          274.5625,
+          202.125,
+          202.125,
+          202.125,
+          202.125
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 264,
+            "right": 1026.65625,
+            "height": 468.890625
+          },
+          {
+            "key": "top",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 1042.65625,
+            "right": 1416,
+            "height": 468.890625
+          },
+          {
+            "key": "mix",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 264,
+            "right": 832,
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
+          },
+          {
+            "key": "once",
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
+            "right": 1416,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年1月",
+        "summary": "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）",
+        "cells": 31,
+        "eventDays": 1,
+        "totalCount": 3,
+        "badges": [
+          "3 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": false,
+        "nextDisabled": false,
+        "tooltip": {
+          "rows": 3,
+          "more": null,
+          "text": "2027年1月 31¥487.44香港-01¥268.00新加坡-02¥158.00大阪-01¥61.44",
+          "rect": {
+            "left": 1116,
+            "right": 1404,
+            "top": 1244,
+            "bottom": 1355
+          }
+        }
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 727
+    },
+    {
+      "id": "cost-renewal-empty-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalEmpty",
+      "file": "app-cost-renewal-empty-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1583,
+      "viewportWidth": 1440,
+      "viewportHeight": 1639,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1307.25,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 286,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 295.78125,
+        "tabsBottom": 327.78125,
+        "tabsRight": 550,
+        "filterTop": 295.78125,
+        "filterRight": 689.921875,
+        "sameRow": true
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 730.65625,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625
+        ],
+        "heights": [
+          313.0625,
+          4.625,
+          22.296875,
+          144.40625,
+          202.125,
+          202.125,
+          202.125,
+          274.5625,
+          202.125,
+          202.125,
+          202.125,
+          202.125
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 264,
+            "right": 1026.65625,
+            "height": 468.890625
+          },
+          {
+            "key": "top",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 1042.65625,
+            "right": 1416,
+            "height": 468.890625
+          },
+          {
+            "key": "mix",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 264,
+            "right": 832,
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
+          },
+          {
+            "key": "once",
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
+            "right": 1416,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年4月",
+        "summary": "本月没有需要续费的服务器",
+        "cells": 30,
+        "eventDays": 0,
+        "totalCount": 0,
+        "badges": [],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": false,
+        "nextDisabled": false,
+        "tooltip": null
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月没有需要续费的服务器"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 727
+    },
+    {
+      "id": "cost-renewal-empty-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalEmpty",
+      "file": "app-cost-renewal-empty-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2441,
+      "viewportWidth": 390,
+      "viewportHeight": 2497,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 2017.171875,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 444.171875,
+        "tabsBottom": 512.953125,
+        "tabsRight": 366,
+        "filterTop": 520.953125,
+        "filterRight": 366,
+        "sameRow": false
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 318,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875
+        ],
+        "heights": [
+          307.0625,
+          4.546875,
+          21.859375,
+          141.640625,
+          198.25,
+          198.25,
+          198.25,
+          269.296875,
+          198.25,
+          198.25,
+          198.25,
+          198.25
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 771.515625,
+            "bottom": 1232.40625,
+            "left": 24,
+            "right": 366,
+            "height": 460.890625
+          },
+          {
+            "key": "top",
+            "top": 1248.40625,
+            "bottom": 1613.359375,
+            "left": 24,
+            "right": 366,
+            "height": 364.953125
+          },
+          {
+            "key": "mix",
+            "top": 1629.359375,
+            "bottom": 1826.359375,
+            "left": 24,
+            "right": 366,
+            "height": 197
+          },
+          {
+            "key": "renewal",
+            "top": 1842.359375,
+            "bottom": 2337.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2353.953125,
+            "bottom": 2477.34375,
+            "left": 24,
+            "right": 366,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年4月",
+        "summary": "本月没有需要续费的服务器",
+        "cells": 30,
+        "eventDays": 0,
+        "totalCount": 0,
+        "badges": [],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": false,
+        "nextDisabled": false,
+        "tooltip": null
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2497,
+        "docHeight": 2497,
+        "mainScrollHeight": 2441,
+        "mainClientHeight": 2441
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月没有需要续费的服务器"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1585
+    },
+    {
+      "id": "cost-renewal-empty-light-1440",
+      "view": "cost",
+      "theme": "light",
+      "width": 1440,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalEmpty",
+      "file": "app-cost-renewal-empty-light-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1583,
+      "viewportWidth": 1440,
+      "viewportHeight": 1639,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1307.25,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 286,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 295.78125,
+        "tabsBottom": 327.78125,
+        "tabsRight": 550,
+        "filterTop": 295.78125,
+        "filterRight": 689.921875,
+        "sameRow": true
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 730.65625,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625
+        ],
+        "heights": [
+          313.0625,
+          4.625,
+          22.296875,
+          144.40625,
+          202.125,
+          202.125,
+          202.125,
+          274.5625,
+          202.125,
+          202.125,
+          202.125,
+          202.125
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 264,
+            "right": 1026.65625,
+            "height": 468.890625
+          },
+          {
+            "key": "top",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 1042.65625,
+            "right": 1416,
+            "height": 468.890625
+          },
+          {
+            "key": "mix",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 264,
+            "right": 832,
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
+          },
+          {
+            "key": "once",
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
+            "right": 1416,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年4月",
+        "summary": "本月没有需要续费的服务器",
+        "cells": 30,
+        "eventDays": 0,
+        "totalCount": 0,
+        "badges": [],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": false,
+        "nextDisabled": false,
+        "tooltip": null
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月没有需要续费的服务器"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 727
+    },
+    {
+      "id": "cost-renewal-empty-light-390",
+      "view": "cost",
+      "theme": "light",
+      "width": 390,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalEmpty",
+      "file": "app-cost-renewal-empty-light-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2441,
+      "viewportWidth": 390,
+      "viewportHeight": 2497,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 2017.171875,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 444.171875,
+        "tabsBottom": 512.953125,
+        "tabsRight": 366,
+        "filterTop": 520.953125,
+        "filterRight": 366,
+        "sameRow": false
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 318,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875
+        ],
+        "heights": [
+          307.0625,
+          4.546875,
+          21.859375,
+          141.640625,
+          198.25,
+          198.25,
+          198.25,
+          269.296875,
+          198.25,
+          198.25,
+          198.25,
+          198.25
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 771.515625,
+            "bottom": 1232.40625,
+            "left": 24,
+            "right": 366,
+            "height": 460.890625
+          },
+          {
+            "key": "top",
+            "top": 1248.40625,
+            "bottom": 1613.359375,
+            "left": 24,
+            "right": 366,
+            "height": 364.953125
+          },
+          {
+            "key": "mix",
+            "top": 1629.359375,
+            "bottom": 1826.359375,
+            "left": 24,
+            "right": 366,
+            "height": 197
+          },
+          {
+            "key": "renewal",
+            "top": 1842.359375,
+            "bottom": 2337.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2353.953125,
+            "bottom": 2477.34375,
+            "left": 24,
+            "right": 366,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年4月",
+        "summary": "本月没有需要续费的服务器",
+        "cells": 30,
+        "eventDays": 0,
+        "totalCount": 0,
+        "badges": [],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": false,
+        "nextDisabled": false,
+        "tooltip": null
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2497,
+        "docHeight": 2497,
+        "mainScrollHeight": 2441,
+        "mainClientHeight": 2441
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月没有需要续费的服务器"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1585
+    },
+    {
+      "id": "cost-renewal-future-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalFuture",
+      "file": "app-cost-renewal-future-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1583,
+      "viewportWidth": 1440,
+      "viewportHeight": 1639,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1307.25,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 286,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 295.78125,
+        "tabsBottom": 327.78125,
+        "tabsRight": 550,
+        "filterTop": 295.78125,
+        "filterRight": 689.921875,
+        "sameRow": true
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 730.65625,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625
+        ],
+        "heights": [
+          313.0625,
+          4.625,
+          22.296875,
+          144.40625,
+          202.125,
+          202.125,
+          202.125,
+          274.5625,
+          202.125,
+          202.125,
+          202.125,
+          202.125
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 264,
+            "right": 1026.65625,
+            "height": 468.890625
+          },
+          {
+            "key": "top",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 1042.65625,
+            "right": 1416,
+            "height": 468.890625
+          },
+          {
+            "key": "mix",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 264,
+            "right": 832,
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
+          },
+          {
+            "key": "once",
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
+            "right": 1416,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年1月",
+        "summary": "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）",
+        "cells": 31,
+        "eventDays": 1,
+        "totalCount": 3,
+        "badges": [
+          "3 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": false,
+        "nextDisabled": false,
+        "tooltip": null
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 727
+    },
+    {
+      "id": "cost-renewal-future-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalFuture",
+      "file": "app-cost-renewal-future-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2441,
+      "viewportWidth": 390,
+      "viewportHeight": 2497,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 2017.171875,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 444.171875,
+        "tabsBottom": 512.953125,
+        "tabsRight": 366,
+        "filterTop": 520.953125,
+        "filterRight": 366,
+        "sameRow": false
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 318,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.15625,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875,
+          19.171875
+        ],
+        "heights": [
+          307.0625,
+          4.546875,
+          21.859375,
+          141.640625,
+          198.25,
+          198.25,
+          198.25,
+          269.296875,
+          198.25,
+          198.25,
+          198.25,
+          198.25
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 771.515625,
+            "bottom": 1232.40625,
+            "left": 24,
+            "right": 366,
+            "height": 460.890625
+          },
+          {
+            "key": "top",
+            "top": 1248.40625,
+            "bottom": 1613.359375,
+            "left": 24,
+            "right": 366,
+            "height": 364.953125
+          },
+          {
+            "key": "mix",
+            "top": 1629.359375,
+            "bottom": 1826.359375,
+            "left": 24,
+            "right": 366,
+            "height": 197
+          },
+          {
+            "key": "renewal",
+            "top": 1842.359375,
+            "bottom": 2337.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2353.953125,
+            "bottom": 2477.34375,
+            "left": 24,
+            "right": 366,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年1月",
+        "summary": "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）",
+        "cells": 31,
+        "eventDays": 1,
+        "totalCount": 3,
+        "badges": [
+          "3 台"
+        ],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": false,
+        "nextDisabled": false,
+        "tooltip": null
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2497,
+        "docHeight": 2497,
+        "mainScrollHeight": 2441,
+        "mainClientHeight": 2441
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 3 台 · 最忙 1月31日（3 台）"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1585
+    },
+    {
+      "id": "cost-renewal-bounds-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "servers": "all",
+      "action": "renewalBounds",
+      "file": "app-cost-renewal-bounds-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1583,
+      "viewportWidth": 1440,
+      "viewportHeight": 1639,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1307.25,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 286,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 295.78125,
+        "tabsBottom": 327.78125,
+        "tabsRight": 550,
+        "filterTop": 295.78125,
+        "filterRight": 689.921875,
+        "sameRow": true
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 730.65625,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625
+        ],
+        "heights": [
+          313.0625,
+          4.625,
+          22.296875,
+          144.40625,
+          202.125,
+          202.125,
+          202.125,
+          274.5625,
+          202.125,
+          202.125,
+          202.125,
+          202.125
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 264,
+            "right": 1026.65625,
+            "height": 468.890625
+          },
+          {
+            "key": "top",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 1042.65625,
+            "right": 1416,
+            "height": 468.890625
+          },
+          {
+            "key": "mix",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 264,
+            "right": 832,
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
+          },
+          {
+            "key": "once",
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
+            "right": 1416,
+            "height": 123.390625
+          }
+        ],
+        "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2027年10月",
+        "summary": "本月没有需要续费的服务器",
+        "cells": 31,
+        "eventDays": 0,
+        "totalCount": 0,
+        "badges": [],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": false,
+        "nextDisabled": true,
+        "tooltip": null
+      },
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
+      },
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复",
+          "2026–2027",
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月没有需要续费的服务器"
+        ],
+        "calendar": null
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 727
+    },
+    {
+      "id": "cost-bar-tooltip-multi-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "servers": "all",
+      "action": "barHoverMulti",
+      "file": "app-cost-bar-tooltip-multi-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1583,
+      "viewportWidth": 1440,
+      "viewportHeight": 1639,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1307.25,
+      "tabs": [
+        {
+          "text": "资源状态",
+          "selected": false
+        },
+        {
+          "text": "流量趋势",
+          "selected": false
+        },
+        {
+          "text": "成本开支",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "未来 12 个月的开销",
+        "开销大头",
+        "币种构成",
+        "续费日历",
+        "一次性费用"
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 286,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "selectedText": "已选 12/12",
+      "search": "?view=cost&servers=srv-hk-01%2Csrv-hk-02%2Csrv-hk-03%2Csrv-tokyo-01%2Csrv-tokyo-02%2Csrv-sg-01%2Csrv-sg-02%2Csrv-fra-01%2Csrv-osaka-01%2Csrv-us-01%2Csrv-dubai-01%2Csrv-bangkok-01",
+      "filterLayout": {
+        "tabsTop": 295.78125,
+        "tabsBottom": 327.78125,
+        "tabsRight": 550,
+        "filterTop": 295.78125,
+        "filterRight": 689.921875,
+        "sameRow": true
+      },
+      "kpiValues": [
+        "11/ 12",
+        "6/ 6",
+        "5",
+        "32GB"
+      ],
+      "kpiLabels": [
+        "在线服务器",
+        "用户全局",
+        "套餐实例全局",
+        "今日流量"
+      ],
+      "globalLabels": [
+        "全局",
+        "全局"
+      ],
+      "hasEmptyState": false,
+      "trafficWarning": false,
+      "filterTree": null,
+      "heatmapRows": 0,
+      "heatmapTabs": 0,
+      "heatmapRowScroll": null,
+      "heatmapStepColors": [
+        null,
+        null,
+        null,
+        null,
+        null
+      ],
+      "lineSeries": 0,
+      "areaSeries": 0,
+      "fx": {
+        "defaultText": "按汇率折算为 CNY",
+        "popoverOpen": false,
+        "rows": 0,
+        "rowTexts": [],
+        "unknownText": null,
+        "footerText": null,
+        "rect": null,
+        "list": null,
+        "bodyHasRateLine": false
+      },
+      "costBars": {
+        "chart": {
+          "width": 730.65625,
+          "height": 340
+        },
+        "count": 12,
+        "hasCalendar": false,
+        "labels": [
+          "11月",
+          "12月",
+          "1月2027",
+          "2月",
+          "3月",
+          "4月",
+          "5月",
+          "6月",
+          "7月",
+          "8月",
+          "9月",
+          "10月"
+        ],
+        "widths": [
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625,
+          53.546875,
+          53.5625
+        ],
+        "heights": [
+          313.0625,
+          4.625,
+          22.296875,
+          144.40625,
+          202.125,
+          202.125,
+          202.125,
+          274.5625,
+          202.125,
+          202.125,
+          202.125,
+          202.125
+        ],
+        "totals": [
+          864000,
+          12800,
+          61544,
+          398564,
+          557864,
+          557864,
+          557864,
+          757764,
+          557864,
+          557864,
+          557864,
+          557864
+        ],
+        "chargeCounts": [
+          1,
+          1,
+          4,
+          6,
+          6,
+          6,
+          6,
+          7,
+          6,
+          6,
+          6,
+          6
+        ],
+        "emptyCount": 0,
+        "cards": [
+          {
+            "key": "month",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 264,
+            "right": 1026.65625,
+            "height": 468.890625
+          },
+          {
+            "key": "top",
+            "top": 503.15625,
+            "bottom": 972.046875,
+            "left": 1042.65625,
+            "right": 1416,
+            "height": 468.890625
+          },
+          {
+            "key": "mix",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 264,
+            "right": 832,
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
+          },
+          {
+            "key": "once",
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
+            "right": 1416,
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
@@ -18578,15 +23428,31 @@
           "oneTimeCount": 1
         }
       },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": null
+      },
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -18597,7 +23463,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -18714,7 +23581,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-bar-tooltip-single-1440",
@@ -18736,12 +23603,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -18764,6 +23631,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -18941,18 +23809,26 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
@@ -18992,15 +23868,31 @@
           "oneTimeCount": 0
         }
       },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": null
+      },
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -19013,7 +23905,8 @@
           "已预付 3 台",
           "大阪-01 · 东京-02 · 法兰克福-01",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -19130,7 +24023,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-bar-tooltip-empty-1440",
@@ -19152,12 +24045,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -19180,6 +24073,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -19357,18 +24251,26 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
@@ -19408,15 +24310,31 @@
           "oneTimeCount": 0
         }
       },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": null
+      },
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -19430,7 +24348,8 @@
           "已预付 3 台",
           "大阪-01 · 东京-02 · 法兰克福-01",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -19547,7 +24466,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-bar-tooltip-empty-390",
@@ -19569,12 +24488,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 1928,
+      "pageHeight": 2439,
       "viewportWidth": 390,
-      "viewportHeight": 1984,
+      "viewportHeight": 2495,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1505.578125,
+      "sectionHeight": 2017.171875,
       "tabs": [
         {
           "text": "资源状态",
@@ -19597,6 +24516,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -19780,15 +24700,23 @@
             "height": 197
           },
           {
-            "key": "once",
+            "key": "renewal",
             "top": 1840.359375,
-            "bottom": 1963.75,
+            "bottom": 2335.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2351.953125,
+            "bottom": 2475.34375,
             "left": 24,
             "right": 366,
             "height": 123.390625
           }
         ],
-        "bottomGap": 20.3,
+        "bottomGap": 19.7,
         "tooltip": {
           "rect": {
             "left": 84,
@@ -19825,15 +24753,31 @@
           "oneTimeCount": 0
         }
       },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": null
+      },
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1984,
-        "docHeight": 1984,
-        "mainScrollHeight": 1928,
-        "mainClientHeight": 1928
+        "bodyHeight": 2495,
+        "docHeight": 2495,
+        "mainScrollHeight": 2439,
+        "mainClientHeight": 2439
       },
       "costDebug": {
         "metrics": [
@@ -19847,7 +24791,8 @@
           "已预付 3 台",
           "大阪-01 · 东京-02 · 法兰克福-01",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -19867,7 +24812,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1072
+      "pageHeightDelta": 1583
     },
     {
       "id": "cost-bar-tooltip-keyboard-1440",
@@ -19889,12 +24834,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -19917,6 +24862,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -20094,18 +25040,26 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
@@ -20145,15 +25099,31 @@
           "oneTimeCount": 1
         }
       },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
+        "tooltip": null
+      },
       "hasScrollHint": false,
       "dom": {
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -20164,7 +25134,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -20281,7 +25252,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-manual-1440",
@@ -20302,12 +25273,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -20330,6 +25301,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -20507,21 +25479,45 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年11月",
+        "summary": "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）",
+        "cells": 30,
+        "eventDays": 1,
+        "totalCount": 1,
+        "badges": [
+          "1 台"
+        ],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -20529,10 +25525,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -20543,7 +25539,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月 1 天有到期，共 1 台 · 最忙 11月30日（1 台）"
         ],
         "calendar": null
       },
@@ -20660,7 +25657,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-dec-1440",
@@ -20682,12 +25679,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1149,
+      "pageHeight": 1583,
       "viewportWidth": 1440,
-      "viewportHeight": 1205,
+      "viewportHeight": 1639,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 873.265625,
+      "sectionHeight": 1307.25,
       "tabs": [
         {
           "text": "资源状态",
@@ -20710,6 +25707,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -20887,21 +25885,43 @@
           {
             "key": "mix",
             "top": 988.046875,
-            "bottom": 1185.046875,
+            "bottom": 1479.640625,
             "left": 264,
             "right": 832,
-            "height": 197
+            "height": 491.59375
+          },
+          {
+            "key": "renewal",
+            "top": 988.046875,
+            "bottom": 1479.640625,
+            "left": 848,
+            "right": 1416,
+            "height": 491.59375
           },
           {
             "key": "once",
-            "top": 988.046875,
-            "bottom": 1185.046875,
-            "left": 848,
+            "top": 1495.640625,
+            "bottom": 1619.03125,
+            "left": 264,
             "right": 1416,
-            "height": 197
+            "height": 123.390625
           }
         ],
         "bottomGap": 20,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年12月",
+        "summary": "本月没有需要续费的服务器",
+        "cells": 31,
+        "eventDays": 0,
+        "totalCount": 0,
+        "badges": [],
+        "cellWidth": 74.28125,
+        "cellHeight": 48,
+        "gridWidth": 544,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -20909,10 +25929,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1205,
-        "docHeight": 1205,
-        "mainScrollHeight": 1149,
-        "mainClientHeight": 1149
+        "bodyHeight": 1639,
+        "docHeight": 1639,
+        "mainScrollHeight": 1583,
+        "mainClientHeight": 1583
       },
       "costDebug": {
         "metrics": [
@@ -20923,7 +25943,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月没有需要续费的服务器"
         ],
         "calendar": null
       },
@@ -21040,7 +26061,7 @@
           }
         ]
       },
-      "pageHeightDelta": 293
+      "pageHeightDelta": 727
     },
     {
       "id": "cost-dec-390",
@@ -21062,12 +26083,12 @@
       ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 1928,
+      "pageHeight": 2439,
       "viewportWidth": 390,
-      "viewportHeight": 1984,
+      "viewportHeight": 2495,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1505.578125,
+      "sectionHeight": 2017.171875,
       "tabs": [
         {
           "text": "资源状态",
@@ -21090,6 +26111,7 @@
         "未来 12 个月的开销",
         "开销大头",
         "币种构成",
+        "续费日历",
         "一次性费用"
       ],
       "metrics": [
@@ -21273,15 +26295,37 @@
             "height": 197
           },
           {
-            "key": "once",
+            "key": "renewal",
             "top": 1840.359375,
-            "bottom": 1963.75,
+            "bottom": 2335.953125,
+            "left": 24,
+            "right": 366,
+            "height": 495.59375
+          },
+          {
+            "key": "once",
+            "top": 2351.953125,
+            "bottom": 2475.34375,
             "left": 24,
             "right": 366,
             "height": 123.390625
           }
         ],
-        "bottomGap": 20.3,
+        "bottomGap": 19.7,
+        "tooltip": null
+      },
+      "renewal": {
+        "month": "2026年12月",
+        "summary": "本月没有需要续费的服务器",
+        "cells": 31,
+        "eventDays": 0,
+        "totalCount": 0,
+        "badges": [],
+        "cellWidth": 43.140625,
+        "cellHeight": 48,
+        "gridWidth": 326,
+        "prevDisabled": true,
+        "nextDisabled": false,
         "tooltip": null
       },
       "hasScrollHint": false,
@@ -21289,10 +26333,10 @@
         "asideCount": 1,
         "mainCount": 1,
         "rootChildren": 2,
-        "bodyHeight": 1984,
-        "docHeight": 1984,
-        "mainScrollHeight": 1928,
-        "mainClientHeight": 1928
+        "bodyHeight": 2495,
+        "docHeight": 2495,
+        "mainScrollHeight": 2439,
+        "mainClientHeight": 2439
       },
       "costDebug": {
         "metrics": [
@@ -21303,7 +26347,8 @@
           "未来 12 个月",
           "按到期日排期 · 已预付不重复",
           "2026–2027",
-          "另有 2 台离线或费用未填完整，未计入。"
+          "另有 2 台离线或费用未填完整，未计入。",
+          "本月没有需要续费的服务器"
         ],
         "calendar": null
       },
@@ -21323,7 +26368,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1072
+      "pageHeightDelta": 1583
     }
   ],
   "urlBehavior": null,
