@@ -2,9 +2,16 @@
 //! （仅管理员）。
 //!
 //! 跨链时延聚合：一次读链拓扑（链 / 组 / 成员 3 条 SQL，不按链循环），
-//! 一次取窗口样本（`forward_latency_samples` 的 `forward_id IN (...)`），
-//! 剩下的归并全部在 [`pierwave_domain::chain_health`] 里做。查询次数与链数、
-//! 成员数无关，没有 N+1。
+//! 一次取窗口时延样本（`forward_latency_samples` 的 `forward_id IN (...)`），
+//! 一次取当前窗口的探测计数（`forward_probe_samples` 的 `forward_id IN (...)`
+//! 并按 `forward_id` 聚合），剩下的归并全部在
+//! [`pierwave_domain::chain_health`] 里做。查询次数与链数、成员数无关，
+//! 没有 N+1。
+//!
+//! 丢包口径：每段取最近 [`aggregate::CURRENT_WINDOW_SECS`]（2 小时，与 p50
+//! 的当前窗口完全一致）的 attempts/failures，attempts = 0 为 null；整链按
+//! 各跳独立连乘 `1 - Π(1 - loss_i)`，缺数据的段跳过；只有「部分段有数据」
+//! 时才标 `loss_partial`（全链无数据是 `loss_pct = null` + `loss_partial = false`）。
 //!
 //! `server_ids` 与 `/api/v1/overview`、`/overview/server-health` **完全同语义**：
 //! 不传 = 全部；空数组 = 空结果；未知 id 忽略并进 `warnings.unknown_ids`；
@@ -183,7 +190,12 @@ async fn build_chain_health(
     // 一次取「时间轴 + 24h 基线」覆盖到的全部样本；空链不查库。
     let since = aggregate::sample_window_start(now, hours, bucket);
     let samples = repo::latency::list_for_forwards(pool, &forward_ids, since).await?;
-    let result = aggregate::aggregate(&chains, &samples, now, hours, bucket);
+    // 丢包只看当前窗口（与段 p50 同一个窗口），按 forward 在 SQL 里求和。
+    let (probe_since, probe_until) = aggregate::current_window(now, hours, bucket);
+    let probes =
+        repo::chain_probe::totals_for_forwards(pool, &forward_ids, probe_since, probe_until)
+            .await?;
+    let result = aggregate::aggregate(&chains, &samples, &probes, now, hours, bucket);
 
     let response = ChainHealthResponse {
         generated_at: now,
@@ -261,6 +273,7 @@ mod tests {
     use tower::ServiceExt;
 
     use pierwave_domain::chains::forward_id;
+    use pierwave_domain::repo::chain_probe;
     use pierwave_domain::repo::chains::{NewChain, NewChainGroup, NewChainGroupMember};
     use pierwave_domain::repo::{latency, servers, sessions, users};
     use pierwave_domain::Db;
@@ -452,6 +465,18 @@ mod tests {
         assert_eq!(body["chains"][0]["segments"][0]["from"], "香港-01");
         assert_eq!(body["chains"][0]["segments"][0]["to"], "东京-01");
         assert_eq!(body["chains"][0]["segments"][0]["p50"], 17.0);
+        // 没有探测样本：attempts = 0、loss_pct 为 null；整链无数据不标 partial。
+        assert_eq!(body["chains"][0]["segments"][0]["attempts"], 0);
+        assert_eq!(body["chains"][0]["segments"][0]["failures"], 0);
+        assert_eq!(body["chains"][0]["segments"][0]["loss_pct"], Value::Null);
+        assert_eq!(body["chains"][0]["loss_pct"], Value::Null);
+        assert_eq!(
+            body["chains"][0]["loss_samples"],
+            json!({ "attempts": 0, "failures": 0 })
+        );
+        assert_eq!(body["chains"][0]["loss_partial"], false);
+        assert_eq!(body["summary"]["loss_pct"], Value::Null);
+        assert_eq!(body["summary"]["worst_loss"], Value::Null);
         assert_eq!(body["chains"][0]["series"].as_array().unwrap().len(), 12);
         assert_eq!(
             body["chains"][0]["series"]
@@ -689,5 +714,150 @@ mod tests {
         assert_eq!(body["summary"]["hop_p50_ms"], 75);
         assert_eq!(body["summary"]["delta_ms"], 25);
         assert_eq!(body["summary"]["worst_hop"]["seq"], 2);
+    }
+
+    /// 每段的 attempts/failures → 单段比值 + 整链连乘；时延字段保持不变。
+    #[tokio::test]
+    async fn chain_health_reports_segment_and_compounded_chain_loss() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        let c = server(pool, "大阪-01", "10.0.0.3").await;
+        let chain_id = chain(pool, "港日链", vec![vec![&a], vec![&b], vec![&c]]).await;
+        let now = repo::now();
+        let end = end_at(now, 900);
+        let ts = end - 60;
+
+        // 时延回归：丢包字段不能影响 p50 / series。
+        latency::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), "", 14)
+            .await
+            .unwrap();
+        latency::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), "", 21)
+            .await
+            .unwrap();
+        // 当前窗口探测：两段各 240 次、2 次失败（0.8333%）。
+        chain_probe::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), 240, 2)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), 240, 2)
+            .await
+            .unwrap();
+        // 最后一跳到链目标：全失败也不能算进任何段。
+        chain_probe::record_sample(pool, ts, &c, &forward_id(&chain_id, 2, &c, 1), 240, 240)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let view = &body["chains"][0];
+        assert_eq!(view["segments"][0]["p50"], 14.0, "时延字段不受影响");
+        assert_eq!(view["segments"][1]["p50"], 21.0);
+        assert_eq!(view["series"].as_array().unwrap().len(), 4);
+        assert_eq!(view["segments"][0]["attempts"], 240);
+        assert_eq!(view["segments"][0]["failures"], 2);
+        assert_eq!(view["segments"][0]["loss_pct"], 0.8333);
+        assert_eq!(view["segments"][1]["loss_pct"], 0.8333);
+        // 1 - (1 - 2/240)² = 1.6597%，不是把两段相加的 1.6667%。
+        assert_eq!(view["loss_pct"], 1.6597);
+        assert_eq!(
+            view["loss_samples"],
+            json!({ "attempts": 480, "failures": 4 })
+        );
+        assert_eq!(view["loss_partial"], false);
+        assert_eq!(body["summary"]["loss_pct"], 1.6597);
+        assert_eq!(body["summary"]["worst_loss"]["chain_id"], chain_id);
+        assert_eq!(body["summary"]["worst_loss"]["chain_name"], "港日链");
+        assert_eq!(body["summary"]["worst_loss"]["loss_pct"], 1.6597);
+    }
+
+    /// `loss_partial` 只在「部分段有探测数据」时为 true；全无数据是 false。
+    #[tokio::test]
+    async fn chain_health_marks_loss_partial_only_for_partially_probed_chains() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        let c = server(pool, "新加坡-01", "10.0.0.3").await;
+        let d = server(pool, "大阪-01", "10.0.0.4").await;
+        let chain_id = chain(pool, "四跳链", vec![vec![&a], vec![&b], vec![&c], vec![&d]]).await;
+        let ts = end_at(repo::now(), 900) - 60;
+        // 前两段各 1%、第三段完全没有探测。
+        chain_probe::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), 100, 1)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), 100, 1)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let view = &body["chains"][0];
+        assert_eq!(view["segments"][0]["loss_pct"], 1.0);
+        assert_eq!(view["segments"][1]["loss_pct"], 1.0);
+        assert_eq!(view["segments"][2]["loss_pct"], Value::Null);
+        assert_eq!(view["loss_pct"], 1.99);
+        assert_eq!(view["loss_partial"], true);
+        assert_eq!(
+            view["loss_samples"],
+            json!({ "attempts": 200, "failures": 2 })
+        );
+        assert_eq!(body["summary"]["loss_pct"], 1.99);
+    }
+
+    /// `server_ids` 筛选后，丢包汇总只算保留的链（不能把未选中的链算进 headline）。
+    #[tokio::test]
+    async fn chain_health_loss_only_counts_the_selected_chains() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        let c = server(pool, "香港-02", "10.0.0.3").await;
+        let d = server(pool, "大阪-01", "10.0.0.4").await;
+        let ab = chain(pool, "甲链", vec![vec![&a], vec![&b]]).await;
+        let cd = chain(pool, "乙链", vec![vec![&c], vec![&d]]).await;
+        let ts = end_at(repo::now(), 900) - 60;
+        chain_probe::record_sample(pool, ts, &a, &forward_id(&ab, 0, &a, 1), 100, 50)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, ts, &c, &forward_id(&cd, 0, &c, 1), 100, 1)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            &format!("/api/v1/overview/chain-health?hours=1&bucket=900&server_ids={a}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["summary"]["total_chains"], 1);
+        assert_eq!(body["chains"][0]["name"], "甲链");
+        assert_eq!(body["summary"]["loss_pct"], 50.0);
+        assert_eq!(body["summary"]["worst_loss"]["chain_id"], ab);
+        // 未选中的乙链（1%）不能进入汇总。
+        assert_eq!(body["chains"][0]["loss_pct"], 50.0);
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            &format!("/api/v1/overview/chain-health?hours=1&bucket=900&server_ids={d}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["summary"]["total_chains"], 1);
+        assert_eq!(body["chains"][0]["name"], "乙链");
+        assert_eq!(body["summary"]["loss_pct"], 1.0);
+        assert_eq!(body["summary"]["worst_loss"]["chain_id"], cd);
     }
 }

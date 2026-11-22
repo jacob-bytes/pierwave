@@ -580,6 +580,51 @@ SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS IN
 FROM slots WHERE slots.n < 24;
 
 -- ------------------------------------------------------------
+-- 每跳探测计数（丢包）：最近 24h、5 分钟一桶的增量
+-- ------------------------------------------------------------
+-- forward_probe_samples 与上方时延样本用同一套「组 → 成员 → forward」映射，
+-- 每个 forward 的探测就是该跳入口到下一跳的探测。第 2 段
+-- （东京-01 → 新加坡-01，forward ...-1）最近 2h 失败率约 3%，其余段 <0.2%，
+-- 用于验证「单段丢包 vs 整链连乘」。最后一跳到链目标的探测也写入，
+-- 聚合时不会归到任何段。
+WITH RECURSIVE slots(n) AS (
+  SELECT 0 UNION ALL SELECT n + 1 FROM slots WHERE n < 288
+),
+probe_seed(server_id, forward_id, hot) AS (VALUES
+  -- 港日中转链：4 跳
+  ('c0ffee00-0000-4000-8000-000000000001', 'chain-c0ffee00-0006-4000-8000-000000000601-0', 0),
+  ('c0ffee00-0000-4000-8000-000000000004', 'chain-c0ffee00-0006-4000-8000-000000000601-1', 1),
+  ('c0ffee00-0000-4000-8000-000000000007', 'chain-c0ffee00-0006-4000-8000-000000000601-2', 0),
+  ('c0ffee00-0000-4000-8000-000000000006', 'chain-c0ffee00-0006-4000-8000-000000000601-3', 0),
+  -- 港新直达链：2 跳
+  ('c0ffee00-0000-4000-8000-000000000002', 'chain-c0ffee00-0006-4000-8000-000000000602-0', 0),
+  ('c0ffee00-0000-4000-8000-000000000008', 'chain-c0ffee00-0006-4000-8000-000000000602-1', 0),
+  -- 港日多路径：入口 + 两个中转成员 + 最后一跳
+  ('c0ffee00-0000-4000-8000-000000000001', 'chain-c0ffee00-0006-4000-8000-000000000603-0', 0),
+  ('c0ffee00-0000-4000-8000-000000000004', 'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000004', 0),
+  ('c0ffee00-0000-4000-8000-000000000005', 'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000005', 0),
+  ('c0ffee00-0000-4000-8000-000000000006', 'chain-c0ffee00-0006-4000-8000-000000000603-2', 0)
+)
+INSERT INTO forward_probe_samples (ts, server_id, forward_id, attempts, failures)
+SELECT
+  -- 按 900 对齐：最近 24 个 5 分钟桶正好等于接口的 2h 当前窗口，
+  -- 造数里的「最近 2h」在验证时能被完整统计。
+  ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 900) - slots.n * 300),
+  probe_seed.server_id,
+  probe_seed.forward_id,
+  240,
+  CASE
+    -- 最近 2h：n = 0 是当前未结束的桶（查询窗口右开，不计入），
+    -- n = 1..24 共 24 个桶，每桶 7/240 ≈ 2.92%，明显高于其它段。
+    WHEN probe_seed.hot = 1 AND slots.n < 25 THEN 7
+    -- 其余段：每 3 个桶 1 次失败 = 1/240 ≈ 0.14%。
+    WHEN slots.n % 3 = 0 THEN 1
+    ELSE 0
+  END
+FROM probe_seed
+CROSS JOIN slots;
+
+-- ------------------------------------------------------------
 -- 7 天计费流量：9 台有数据的主机（无数据的探针不产生流量）
 -- ------------------------------------------------------------
 WITH traffic_seed(server_id, subject, base_uplink, base_downlink) AS (VALUES
@@ -710,6 +755,7 @@ AFTER_USER_PACKAGES="$(count_of user_packages)"
 AFTER_SUBSCRIPTIONS="$(count_of subscriptions)"
 AFTER_FORWARDS="$(count_of forwards)"
 AFTER_SAMPLES="$(count_of server_samples)"
+AFTER_PROBES="$(count_of forward_probe_samples)"
 AFTER_TRAFFIC_DAILY="$(count_of traffic_daily)"
 AFTER_TRAFFIC_NODE="$(count_of traffic_node_daily)"
 
@@ -735,7 +781,7 @@ ABNORMAL="$(echo "$STATUS_COUNTS" | cut -d'|' -f2)"
 OFFLINE="$(echo "$STATUS_COUNTS" | cut -d'|' -f3)"
 NO_DATA="$(echo "$STATUS_COUNTS" | cut -d'|' -f4)"
 
-echo "seed-preview: 已写入 $AFTER_SERVERS 台主机（在线 $ONLINE / 异常 $ABNORMAL / 离线 $OFFLINE / 无数据 ${NO_DATA}），$AFTER_NODES 个节点，$AFTER_FORWARDS 条转发。" >&2
+echo "seed-preview: 已写入 $AFTER_SERVERS 台主机（在线 $ONLINE / 异常 $ABNORMAL / 离线 $OFFLINE / 无数据 ${NO_DATA}），$AFTER_NODES 个节点，$AFTER_FORWARDS 条转发，$AFTER_PROBES 条每跳探测样本。" >&2
 echo "seed-preview: 数据库 ${DB_REAL}（真实库 ${REAL_DB_REAL} 未被触碰）。" >&2
 
 printf '{"database":"data/preview.db","deleted":{"servers":%d},"inserted":{"servers":%d,"nodes":%d,"users":%d,"packages":%d,"user_packages":%d,"subscriptions":%d,"forwards":%d,"server_samples":%d,"traffic_daily":%d,"traffic_node_daily":%d},"skipped":{"users":%d,"packages":%d,"user_packages":%d,"subscriptions":%d},"totals":{"servers":%d,"nodes":%d,"users":%d,"packages":%d,"user_packages":%d,"subscriptions":%d,"forwards":%d,"server_samples":%d,"traffic_daily":%d,"traffic_node_daily":%d},"statuses":{"online":%d,"abnormal":%d,"offline":%d,"no_data":%d}}\n' \

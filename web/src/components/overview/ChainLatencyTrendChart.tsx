@@ -12,6 +12,7 @@ import {
   buildChainTrendData,
   chainHasTrend,
   formatChainTime,
+  formatLossPct,
   formatMs,
   type ChainHealthChain,
 } from "@/lib/chainHealth";
@@ -215,20 +216,31 @@ function ChainTrendTooltip({
               </span>
               <span
                 className={cn(
-                  "flex shrink-0 items-center gap-1 font-mono tabular-nums",
+                  "flex shrink-0 flex-col items-end font-mono tabular-nums",
                   row.chain.slow ? "text-warning" : "text-foreground",
                   highest && "font-medium",
                 )}
               >
-                {formatMs(row.value)}
-                {highest ? (
+                <span className="flex items-center gap-1">
+                  {formatMs(row.value)}
+                  {highest ? (
+                    <span
+                      className={cn(
+                        "font-sans text-[9px]",
+                        row.chain.slow ? "text-warning" : "text-primary",
+                      )}
+                    >
+                      {t("overview.chainLatency.highest")}
+                    </span>
+                  ) : null}
+                </span>
+                {row.chain.lossPct !== null ? (
                   <span
-                    className={cn(
-                      "font-sans text-[9px]",
-                      row.chain.slow ? "text-warning" : "text-primary",
-                    )}
+                    data-chain-tooltip-loss
+                    className="font-sans text-[9px] font-normal text-muted-foreground"
                   >
-                    {t("overview.chainLatency.highest")}
+                    {t("overview.chainLatency.loss")}{" "}
+                    {formatLossPct(row.chain.lossPct)}
                   </span>
                 ) : null}
               </span>

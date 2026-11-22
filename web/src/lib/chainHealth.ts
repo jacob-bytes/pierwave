@@ -63,11 +63,25 @@ export interface ChainHealthPoint {
   samples: number;
 }
 
+/**
+ * 丢包色阶（只复用既有语义色，不引入新色相）：
+ * `< 0.5%` 正常、`0.5–2%` 警告、`> 2%` 危险。
+ */
+export const LOSS_WARNING_PCT = 0.5;
+export const LOSS_DESTRUCTIVE_PCT = 2;
+export type ChainLossTone = "normal" | "warning" | "destructive";
+
 export type ChainDiagnosisKind = "single_hop" | "overall" | "unknown";
 
 export interface ChainHealthDiagnosis {
   kind: ChainDiagnosisKind;
   seq: number | null;
+}
+
+/** 丢包探测计数：失败次数 / 探测次数。缺失为 null，绝不补 0。 */
+export interface ChainLossSamples {
+  attempts: number | null;
+  failures: number | null;
 }
 
 /** 逐段行：`missing = true` 表示该跳没有历史数据（例如最后一跳）。 */
@@ -79,6 +93,12 @@ export interface ChainHealthSegment {
   deltaMs: number | null;
   contributionPct: number | null;
   missing: boolean;
+  /** 该段丢包百分比（0–100）；无探测数据为 null。 */
+  lossPct: number | null;
+  /** 该段探测次数；契约缺失为 null。 */
+  attempts: number | null;
+  /** 该段探测失败次数；契约缺失为 null。 */
+  failures: number | null;
   /** 新契约可能直接给逐段序列；没有时由 `/chains/{id}/latency` 补齐。 */
   series: ChainHealthPoint[];
 }
@@ -98,6 +118,12 @@ export interface ChainHealthChain {
   slow: boolean;
   hasSamples: boolean;
   lastHopMissing: boolean;
+  /** 整链丢包百分比（0–100）；旧主控 / 无探测时为 null。 */
+  lossPct: number | null;
+  /** 部分跳缺少探测数据：`lossPct` 只是可见跳的汇总，不是全链精确值。 */
+  lossPartial: boolean;
+  /** 整链探测计数；旧主控缺失时为 null。 */
+  lossSamples: ChainLossSamples | null;
 }
 
 export interface ChainHealthWorstHop {
@@ -107,12 +133,22 @@ export interface ChainHealthWorstHop {
   p50Ms: number | null;
 }
 
+/** 丢包最严重的链；旧主控没有该字段时为 null。 */
+export interface ChainHealthWorstLoss {
+  chainId: string | null;
+  chainName: string | null;
+  lossPct: number | null;
+}
+
 export interface ChainHealthSummary {
   hopP50: number | null;
   deltaMs: number | null;
   slowChains: number | null;
   totalChains: number;
   worstHop: ChainHealthWorstHop | null;
+  /** 全局面板丢包百分比；旧主控缺失时为 null。 */
+  lossPct: number | null;
+  worstLoss: ChainHealthWorstLoss | null;
 }
 
 export interface ChainHealthSnapshot {
@@ -243,6 +279,26 @@ function readDiagnosis(raw: unknown): ChainHealthDiagnosis {
   return { kind: "unknown", seq: null };
 }
 
+/**
+ * 丢包百分比：只接受 0–100 的有限数。
+ *
+ * 越界值（负数 / 120%）按「数据不可信」处理返回 null，宁可显示 — 也不把它
+ * 夹成 0% 或 100% 伪造一个看似正常的读数。
+ */
+function readLossPct(value: unknown): number | null {
+  const number = finiteNumber(value);
+  if (number === null || number < 0 || number > 100) return null;
+  return number;
+}
+
+function readLossSamples(raw: unknown): ChainLossSamples | null {
+  if (!isRecord(raw)) return null;
+  const attempts = positiveInt(raw.attempts);
+  // attempts 是比值的分母：没有它就没有可展示的探测次数，整组按缺失处理。
+  if (attempts === null) return null;
+  return { attempts, failures: finiteInt(raw.failures) };
+}
+
 function readSegment(raw: unknown): ChainHealthSegment | null {
   if (!isRecord(raw)) return null;
   const seq = positiveInt(raw.seq);
@@ -257,6 +313,9 @@ function readSegment(raw: unknown): ChainHealthSegment | null {
     contributionPct:
       contribution === null ? null : clamp(contribution, 0, 100),
     missing: false,
+    lossPct: readLossPct(raw.loss_pct),
+    attempts: positiveInt(raw.attempts),
+    failures: finiteInt(raw.failures),
     series: readSeries(raw.series),
   };
 }
@@ -302,6 +361,9 @@ function buildSegments(
       deltaMs: null,
       contributionPct: null,
       missing: true,
+      lossPct: null,
+      attempts: null,
+      failures: null,
       series: [],
     });
   }
@@ -407,6 +469,9 @@ function readChain(raw: unknown): ChainHealthChain | null {
     slow: deltaMs !== null && deltaMs >= SLOW_CHAIN_DELTA_MS,
     hasSamples,
     lastHopMissing: built.lastHopMissing,
+    lossPct: readLossPct(raw.loss_pct),
+    lossPartial: raw.loss_partial === true,
+    lossSamples: readLossSamples(raw.loss_samples),
   };
 }
 
@@ -439,6 +504,39 @@ function readWorstHop(raw: unknown): ChainHealthWorstHop | null {
   const chainName = trimmedString(raw.chain_name);
   if (p50Ms === null) return null;
   return { chainId, chainName, seq, p50Ms };
+}
+
+function worstLossFromChains(
+  chains: readonly ChainHealthChain[],
+): ChainHealthWorstLoss | null {
+  let worst: ChainHealthWorstLoss | null = null;
+  for (const chain of chains) {
+    if (chain.lossPct === null) continue;
+    if (
+      worst !== null &&
+      worst.lossPct !== null &&
+      chain.lossPct <= worst.lossPct
+    ) {
+      continue;
+    }
+    worst = {
+      chainId: chain.id,
+      chainName: chain.name,
+      lossPct: chain.lossPct,
+    };
+  }
+  return worst;
+}
+
+function readWorstLoss(raw: unknown): ChainHealthWorstLoss | null {
+  if (!isRecord(raw)) return null;
+  const lossPct = readLossPct(raw.loss_pct);
+  if (lossPct === null) return null;
+  return {
+    chainId: trimmedString(raw.chain_id),
+    chainName: trimmedString(raw.chain_name),
+    lossPct,
+  };
 }
 
 function buildSummary(
@@ -475,8 +573,18 @@ function buildSummary(
   const totalChains = finiteInt(rawSummary.total_chains) ?? chains.length;
   const worstHop =
     readWorstHop(rawSummary.worst_hop) ?? worstHopFromChains(chains);
+  const worstLoss =
+    readWorstLoss(rawSummary.worst_loss) ?? worstLossFromChains(chains);
 
-  return { hopP50, deltaMs, slowChains, totalChains, worstHop };
+  return {
+    hopP50,
+    deltaMs,
+    slowChains,
+    totalChains,
+    worstHop,
+    lossPct: readLossPct(rawSummary.loss_pct),
+    worstLoss,
+  };
 }
 
 function buildSnapshot(
@@ -771,6 +879,25 @@ export function chainLatestP50(series: readonly ChainHealthPoint[]): number | nu
 }
 
 /**
+ * 最近一次有效时延样本的时间（Unix 秒）：整体序列与逐段序列取最大。
+ * 没有任何「p50 非空 + samples > 0」的点时返回 null。
+ */
+export function chainLatestSampleTs(
+  chain: Pick<ChainHealthChain, "series" | "segments">,
+): number | null {
+  let latest: number | null = null;
+  const visit = (points: readonly ChainHealthPoint[]) => {
+    for (const point of points) {
+      if (point.p50 === null || point.samples <= 0) continue;
+      if (latest === null || point.ts > latest) latest = point.ts;
+    }
+  };
+  visit(chain.series);
+  for (const segment of chain.segments) visit(segment.series);
+  return latest;
+}
+
+/**
  * 把 `/chains/{id}/latency` 的 5 分钟点按目标桶聚合成逐段序列。
  * 同一 `(seq, 桶)` 取中位数；没有样本的桶不补 0。
  */
@@ -845,6 +972,40 @@ export function formatSignedMs(value: number | null): string {
 export function formatPercentValue(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return "—";
   return String(Math.round(value));
+}
+
+/**
+ * 丢包色阶：`<0.5%` 正常、`0.5–2%` warning、`>2%` destructive。
+ *
+ * 无数据返回 null（渲染成 muted 的 `—`），不把「没有探测」当成 0% 正常。
+ */
+export function chainLossTone(value: number | null): ChainLossTone | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  if (value < LOSS_WARNING_PCT) return "normal";
+  if (value <= LOSS_DESTRUCTIVE_PCT) return "warning";
+  return "destructive";
+}
+
+/**
+ * 丢包百分比：`1.2%` / `0.3%` / `0%`；null 显示 `—`。
+ *
+ * 真实测到的极小丢包保留一位小数；不足 0.1% 但大于 0 时写 `<0.1%`，
+ * 避免四舍五入成 `0%` 与「没有丢包」混淆。
+ */
+export function formatLossPct(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return "—";
+  const rounded = Math.round(value * 10) / 10;
+  if (value > 0 && rounded === 0) return "<0.1%";
+  return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
+}
+
+/** 探测计数 `2 / 240`（失败 / 总数）；任一侧缺失或为 0 次显示 `—`。 */
+export function formatLossProbes(
+  attempts: number | null,
+  failures: number | null,
+): string {
+  if (attempts === null || failures === null || attempts <= 0) return "—";
+  return `${failures} / ${attempts}`;
 }
 
 function pad2(value: number): string {

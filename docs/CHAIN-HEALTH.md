@@ -20,7 +20,9 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
   "generated_at": 1795321276, "hours": 24, "bucket": 900,
   "summary": {
     "hop_p50_ms": 96, "delta_ms": 25, "slow_chains": 1, "total_chains": 3,
-    "worst_hop": { "chain_id": "…", "chain_name": "港日中转链", "seq": 3, "p50_ms": 58 }
+    "worst_hop": { "chain_id": "…", "chain_name": "港日中转链", "seq": 3, "p50_ms": 58 },
+    "loss_pct": 0.8333,
+    "worst_loss": { "chain_id": "…", "chain_name": "港日中转链", "loss_pct": 0.8333 }
   },
   "chains": [{
     "id": "…", "name": "港日中转链", "hops": 4,
@@ -29,10 +31,15 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
     "series": [ { "ts": 1795312800, "p50": 71, "p10": 69, "p90": 74, "samples": 9 }, null ],
     "segments": [
       { "seq": 1, "from": "香港-01", "to": "东京-01",
-        "p50": 16.0, "delta_ms": 0.0, "contribution_pct": 0 },
+        "p50": 16.0, "delta_ms": 0.0, "contribution_pct": 0,
+        "attempts": 240, "failures": 2, "loss_pct": 0.8333 },
       { "seq": 3, "from": "新加坡-01", "to": "大阪-01",
-        "p50": 58.0, "delta_ms": 25.0, "contribution_pct": 100 }
+        "p50": 58.0, "delta_ms": 25.0, "contribution_pct": 100,
+        "attempts": 240, "failures": 0, "loss_pct": 0.0 }
     ],
+    "loss_pct": 0.8333,
+    "loss_samples": { "attempts": 480, "failures": 2 },
+    "loss_partial": false,
     "diagnosis": { "kind": "single_hop", "seq": 3 }
   }],
   "scope": { "server_ids": [], "servers_matched": 0, "filtered": false },
@@ -60,6 +67,10 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
   没有成员，相邻段也写进 `missing_hops`；
 - 多成员组（多路径）：段内取所有成员样本的中位数，链级 `estimated: true`。
   整体 = 各段中位数之和，是估算值，不是某一条真实路径的端到端 RTT。
+- 丢包用 `forward_probe_samples`，它是**每跳入口**的探测次数/失败次数，
+  与上面同一套「组 → 成员 → forward」映射：源组每个成员的 forward 记为
+  该段的一次探测；最后一组的 forward 探测的是链目标（没有下一组），不归入
+  任何段。多路径时先把同段各成员的 attempts / failures 相加再算比值。
 
 `warnings.unmapped_forwards` 只统计「本应映射到某段却失败」的样本：多成员
 目标却上报空目标、链改过成员后的历史残留等。最后一跳到链目标的探测是
@@ -100,6 +111,33 @@ p50 最高的段。
 - `summary.slow_chains`：整体 delta ≥ 8ms 的链数。8ms 是跨公网一跳的
   常见抖动上限，也与设计稿「稳定 = 没有超过 8ms 的变化」一致。
 
+### 4.1 丢包
+
+口径：**探测失败率**的近似，不是业务报文的真实丢包率（见
+`docs/TELEMETRY.md`）。探测计数由 Agent 心跳上报，主控按 5 分钟桶存增量。
+
+- **窗口**：只看**当前窗口**（最近 2 小时，`CURRENT_WINDOW_SECS`，按
+  `bucket` 对齐），与逐段 p50 的当前值完全同一个窗口；`hours < 2` 时退化为
+  请求窗口。丢包不使用 24h 基线，也不输出丢包时间序列；
+- **单段**：`loss_pct = failures / attempts × 100`，保留 4 位小数
+  （2/240 = 0.8333）。`attempts = 0` 时 `loss_pct = null`，**不是 0**：补 0
+  会被读成「这段完全不丢包」；
+- **整链**：各跳独立，`loss_pct = 1 - Π(1 - loss_i)`（同样保留 4 位）。
+  例如两段各 1% → 1.99%，不是相加的 2%；
+- **缺段**：任一段 `loss_pct = null` 时跳过该段，整链数字只覆盖有数据的段。
+  `loss_partial` 只在「至少一段有数据、且至少一段缺数据」时为 `true`；
+  全部段都缺数据时整链 `loss_pct = null`、
+  `loss_samples = { "attempts": 0, "failures": 0 }`、**`loss_partial: false`**
+  （否则会和「无探测数据」自相矛盾）；全部段都有数据时同样是 `false`；
+- **`loss_samples`**：参与连乘的各段 attempts / failures **之和**（原始计数，
+  不是比率）；`loss_pct` 是连乘结果，所以一般不等于
+  `failures / attempts`；
+- **`server_ids`**：与筛选同样的语义——只对保留的链取 forward 样本，未选中
+  的链不会进入 `summary`；
+- **`summary.loss_pct` / `worst_loss`**：当前可见（筛选后）链里丢包最高的
+  一条及其 id / 名称；同值按 `chain_id` 稳定排序。没有任何可用丢包数据时
+  两项都是 `null`。
+
 ## 5. 筛选
 
 `server_ids` 与 `/api/v1/overview`、`/overview/server-health` 完全同语义：
@@ -121,7 +159,9 @@ p50 最高的段。
 2. `chain_groups`：全部组一次读出；
 3. `chain_group_members` JOIN `servers`：全部成员一次读出；
 4. `forward_latency_samples`：所有成员 forward id 一次 `IN (...)`，时间下界
-   覆盖 `series` 与 24h 基线中更老的一侧。
+   覆盖 `series` 与 24h 基线中更老的一侧；
+5. `forward_probe_samples`：同一批 forward id 的当前窗口（2h）计数，
+   一次 `IN (...) + GROUP BY forward_id`。
 
 在 `data/preview.db`（迁移建库、不跑 `ANALYZE`）上实测：
 
@@ -141,12 +181,17 @@ USE TEMP B-TREE FOR RIGHT PART OF ORDER BY
 -- 时延样本（5 个 forward id）
 SEARCH forward_latency_samples USING INDEX idx_forward_latency_samples_forward_ts (forward_id=? AND ts>?)
 USE TEMP B-TREE FOR ORDER BY
+
+-- 每跳探测计数（同一批 forward id，当前 2h 窗口）
+SEARCH forward_probe_samples USING INDEX idx_forward_probe_samples_forward_ts (forward_id=? AND ts>? AND ts<?)
 ```
 
-没有 `SCAN forward_latency_samples` 全表扫描；`IN (...)` 对每个 forward id
-各做一次 `(forward_id, ts)` 区间探测。`ORDER BY` 的临时 B 树只排序本窗口
-命中的行，不是全表。`EXPLAIN QUERY PLAN` 的完整输出在
-`crates/domain/tests/query_plan.rs` 的回归里也以同样 SQL 形状锁定。
+没有 `SCAN forward_latency_samples` / `SCAN forward_probe_samples` 全表扫描；
+`IN (...)` 对每个 forward id 各做一次 `(forward_id, ts)` 区间探测。丢包查询的
+`GROUP BY` 直接复用同一个索引前缀，不额外建临时表。`ORDER BY` 的临时 B 树
+只排序本窗口命中的行，不是全表。`EXPLAIN QUERY PLAN` 的完整输出在
+`crates/domain/tests/query_plan.rs` 的回归里也以同样 SQL 形状锁定（含
+`forward_probe_samples` 的计数查询）。
 
 结果缓存 30 秒（`crates/master/src/state.rs::ChainHealthCache`），key =
 `(hours, bucket, 规范化后的请求 server_ids)`；命中的 + 未知的 id 都进 key，
@@ -168,6 +213,12 @@ USE TEMP B-TREE FOR ORDER BY
   - 每条链最后一跳到目标的样本也有写入，用来验证不会混进段、且不计入
     `unmapped_forwards`；
   - 多路径链的入口组上报两个真实 `target_server_id`，中转组两台各自上报。
+- 最近 24h、每 5 分钟一桶的 `forward_probe_samples`（10 个 forward ×
+  289 个桶 = 2890 条）：
+  - 港日中转链第 2 段（东京-01 → 新加坡-01）最近 2h 每桶 `7/240 ≈ 2.92%`；
+  - 其余段 `<0.2%`（每 3 个桶 1 次失败，`1/240 ≈ 0.14%`）；
+  - 整链连乘约 `3.2%`，用于对照「单段丢包 vs 整链」；
+  - 最后一跳到链目标的探测也写入，聚合时不会归到任何段。
 
 重复执行幂等：固定 id + 先删后插；只写 `data/preview.db`，不碰
 `data/pierwave.db`。
@@ -176,10 +227,16 @@ USE TEMP B-TREE FOR ORDER BY
 
 - 领域层（`crates/domain/src/chain_health.rs`）：单跳、多跳、多路径估算、
   缺最后一跳、空样本、无成员链、部分桶不补 0、单段变慢的
-  `contribution_pct` / `diagnosis`、整体均匀变慢；
+  `contribution_pct` / `diagnosis`、整体均匀变慢；丢包的 attempts=0 → null、
+  单段 2/240 = 0.8333、两段各 1% → 1.99、缺段跳过；全无数据 → null +
+  `loss_partial=false`、部分段有数据 → 连乘 + `loss_partial=true`、
+  最后一跳不计入段、多路径先加计数再算比值、`summary` 取最差链；
 - 路由层（`crates/master/src/routes/chain_health.rs`）：单跳/多跳映射、
-  最后一跳不伪装 0、筛选（命中/未知/空数组/非法/201 个 id）、非法
-  `hours`/`bucket`、缓存 key 隔离、非管理员 401/403；
+  最后一跳不伪装 0、段/整链丢包与时延回归、`server_ids` 筛选后只汇总保留
+  的链、筛选（命中/未知/空数组/非法/201 个 id）、非法 `hours`/`bucket`、
+  缓存 key 隔离、非管理员 401/403；
+- 查询计划（`crates/domain/tests/query_plan.rs`）：`forward_probe_samples`
+  的计数查询必须走 `idx_forward_probe_samples_forward_ts`，不允许全表扫描；
 - 缓存层（`crates/master/src/state.rs`）：`(hours, bucket, 筛选)` 三维
   key 隔离、TTL、禁用。
 
@@ -189,6 +246,8 @@ USE TEMP B-TREE FOR ORDER BY
   目标仍没有可靠历史，只声明 `missing_hops`；
 - 不提供逐段的完整时间序列（契约只要求段级 p50/delta/贡献；热力图若需要
   逐段序列，需要再扩字段）；
+- 丢包只有当前 2h 窗口的段级计数与整链连乘，不提供丢包时间序列，也不做
+  24h 丢包基线；
 - 多路径按「段中位数求和」估算，不做按实际选路权重的加权；
 - 不做跨进程缓存失效（30 秒 TTL，单进程）；
 - 不改 `web/`、`agent/`、`proto/`。
@@ -237,24 +296,54 @@ reported, invalid ids return 400, the deduplicated cap is 200, and only chains
 with at least one selected member are kept. `summary` is recomputed over the
 kept chains.
 
-Performance: three topology queries (chains / groups / members) plus one
-`forward_latency_samples` query with `forward_id IN (...)`; no N+1. On the
-preview database `EXPLAIN QUERY PLAN` shows `idx_chains_created`,
-`idx_chain_groups_chain`, the `(group_id)` primary-key lookup, and
-`idx_forward_latency_samples_forward_ts (forward_id=? AND ts>?)`; there is no
-full table scan of the samples table. The response is cached for 30 seconds in
-`ChainHealthCache` keyed by `(hours, bucket, normalized request server_ids)`
-(unknown ids included because `scope` / `warnings` are cached with the body),
-with `X-Chain-Health-Cache: hit|miss`.
+Loss is added per segment, per chain and in the summary. `forward_probe_samples`
+stores per-hop entry probes using the same group → member → forward mapping as
+the latency samples; the final group's forward probes the chain target and is
+therefore not attributed to any segment. For multi-member groups the attempts
+and failures are summed before dividing. A segment's `loss_pct` is
+`failures / attempts × 100` rounded to 4 decimals; `attempts = 0` yields `null`,
+never 0. The chain value assumes independent hops:
+`loss_pct = 1 - Π(1 - loss_i)` (two segments at 1% give 1.99%, not 2%). Segments
+without probe data are skipped. `loss_partial` is `true` only when at least one
+segment has data and at least one does not; a chain with no probe data at all
+has `loss_pct: null`, `loss_samples: { "attempts": 0, "failures": 0 }` and
+`loss_partial: false` (never both "no data" and "partially probed"), and a fully
+probed chain also uses `false`. `loss_samples` sums the raw counts of the
+segments that entered the product, so it is not generally equal to
+`failures / attempts`. Loss uses the same current 2-hour window as the segment
+p50 (or the request window when `hours < 2`), aligned to `bucket`; no 24-hour
+loss baseline or loss series is produced. `summary.loss_pct` is the highest
+chain loss among the visible (filtered) chains and `worst_loss` names that chain
+(id, name, loss); both are `null` when no chain has usable probe data.
 
-`scripts/seed-preview.sh` adds 3 chains / 9 groups / 10 members and 24 hours of
-5-minute samples (2384 rows). The third segment of 港日中转链 is +25ms for the
-last 2 hours, the other segments stay flat, and the final-hop samples are
-present to prove they are neither summed nor counted as unmapped. The script is
-idempotent and only writes `data/preview.db`.
+Performance: three topology queries (chains / groups / members), one
+`forward_latency_samples` query with `forward_id IN (...)`, and one
+`forward_probe_samples` query with `forward_id IN (...) GROUP BY forward_id`;
+no N+1. On the preview database `EXPLAIN QUERY PLAN` shows `idx_chains_created`,
+`idx_chain_groups_chain`, the `(group_id)` primary-key lookup,
+`idx_forward_latency_samples_forward_ts (forward_id=? AND ts>?)`, and
+`idx_forward_probe_samples_forward_ts (forward_id=? AND ts>? AND ts<?)`; there
+is no full table scan of either samples table. The response is cached for 30
+seconds in `ChainHealthCache` keyed by
+`(hours, bucket, normalized request server_ids)` (unknown ids included because
+`scope` / `warnings` are cached with the body), with
+`X-Chain-Health-Cache: hit|miss`.
+
+`scripts/seed-preview.sh` adds 3 chains / 9 groups / 10 members, 24 hours of
+5-minute latency samples (2384 rows), and 24 hours of per-hop probe samples
+(2890 rows: 10 forwards × 289 buckets). The third segment of 港日中转链 is +25ms
+for the last 2 hours; the second segment's probe failure rate is about 2.92% for
+the last 2 hours (7/240 per bucket) while the other segments stay below 0.2%
+(1/240 every third bucket), so the compounded chain loss is about 3.2%. The
+final-hop samples are present to prove they are neither summed nor counted as
+unmapped. The script is idempotent and only writes `data/preview.db`.
 
 Tests cover single-hop, multi-hop, multi-path estimation, missing final hop,
 empty samples, chains without members, partial buckets, single-segment and
-uniform slowdowns, filtering (hit/unknown/empty/invalid/201 ids), bad
-`hours`/`bucket`, cache-key isolation, and 401/403. No migration is added; no
-`web/`, `agent/` or `proto/` changes are made.
+uniform slowdowns, loss edge cases (`attempts = 0` → `null`, 2/240 = 0.8333,
+two 1% segments → 1.99%, missing segment → `loss_partial`, no probe data at all
+→ `null` + `loss_partial: false`, final hop ignored,
+multi-member counts summed), summary worst-loss selection, filtering
+(hit/unknown/empty/invalid/201 ids), loss under `server_ids` filtering, latency
+regression, bad `hours`/`bucket`, cache-key isolation, query plans, and 401/403.
+No migration is added; no `web/`, `agent/` or `proto/` changes are made.

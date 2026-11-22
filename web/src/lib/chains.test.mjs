@@ -10,6 +10,7 @@ import {
   GROUP_MAX_MEMBERS,
   GROUP_MIN_MEMBERS,
   chainGroupSummary,
+  chainPathNames,
   chainStatus,
   collectGroupIssues,
   degradedGroups,
@@ -415,4 +416,30 @@ test("nftablesStrategySupported mirrors the kernel-supported strategies", () => 
   // 未知值按默认轮询处理，与 normalizeStrategy 的回落一致。
   assert.equal(nftablesStrategySupported("garbage"), true);
   assert.equal(nftablesStrategySupported(undefined), true);
+});
+
+test("chainPathNames joins entry to exit, or to the target on a single hop", () => {
+  assert.deepEqual(
+    chainPathNames(
+      [
+        group(1, [member(0, { server_name: "大阪-01" })]),
+        group(0, [member(0, { server_name: "香港-01" })]),
+      ],
+      { host: "10.0.0.8", port: 443 },
+    ),
+    { from: "香港-01", to: "大阪-01" },
+  );
+  assert.deepEqual(
+    chainPathNames(
+      [group(0, [member(1, { server_name: "  香港-01  " })])],
+      { host: " 10.0.0.8 ", port: 443 },
+    ),
+    { from: "香港-01", to: "10.0.0.8:443" },
+  );
+  assert.deepEqual(
+    chainPathNames([group(0, [member(0, { server_name: "香港-01" })])], null),
+    { from: "香港-01", to: null },
+  );
+  assert.deepEqual(chainPathNames([]), { from: null, to: null });
+  assert.deepEqual(chainPathNames([group(0, [])]), { from: null, to: null });
 });

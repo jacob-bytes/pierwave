@@ -515,4 +515,18 @@ async fn chain_health_queries_use_their_indexes() {
         "idx_forward_latency_samples_forward_ts",
     )
     .await;
+
+    // 丢包计数：与时延同形状的 `(forward_id, ts)` 区间探测 + GROUP BY，
+    // 不允许扫整张 forward_probe_samples。
+    assert_uses_index(
+        &pool,
+        "SELECT forward_id, SUM(attempts) AS attempts, SUM(failures) AS failures
+         FROM forward_probe_samples
+         WHERE ts >= 1_700_000_000
+           AND ts < 1_700_007_200
+           AND forward_id IN ('chain-c1-0', 'chain-c1-1')
+         GROUP BY forward_id",
+        "idx_forward_probe_samples_forward_ts",
+    )
+    .await;
 }

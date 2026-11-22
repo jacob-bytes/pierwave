@@ -1,9 +1,5 @@
 import { Fragment } from "react";
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  TriangleAlertIcon,
-} from "lucide-react";
+import { ChevronRightIcon, TriangleAlertIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChainLatencySparkline } from "@/components/overview/ChainLatencyChart";
@@ -11,12 +7,16 @@ import {
   ChainLatencyRangeTabs,
   ChainLatencyUpdatedBadge,
 } from "@/components/overview/ChainLatencyControls";
+import { ChainLossValue } from "@/components/overview/ChainLossValue";
 import {
   SLOW_CHAIN_DELTA_MS,
   chainDiagnosis,
   chainDiagnosisReason,
+  chainLossTone,
   chainTopology,
   formatChainTime,
+  formatLossPct,
+  formatLossProbes,
   formatMs,
   formatPercentValue,
   formatSignedMs,
@@ -131,14 +131,74 @@ function TopologyEdge({ edge }: { edge: ChainTopologyEdge }) {
   );
 }
 
+/**
+ * 顶部整体信息：整链 P50 与整链丢包并列。
+ *
+ * `loss_pct = null` 时显示 muted 的 `—` 并注明「无探测数据」，绝不画成 0%；
+ * `loss_partial` 表示部分跳没有探测，丢包只是可见跳的汇总。
+ */
+function ChainOverallStats({ chain }: { chain: ChainHealthChain }) {
+  const samples = chain.lossSamples;
+  const lossTitle =
+    chain.lossPct === null
+      ? t("overview.chainLatency.lossNoData")
+      : samples !== null && samples.attempts !== null && samples.failures !== null
+        ? t("overview.chainLatency.lossProbes", {
+            attempts: samples.attempts,
+            failures: samples.failures,
+          })
+        : undefined;
+
+  return (
+    <div
+      data-chain-overall-stats
+      className="flex min-w-0 flex-wrap items-baseline justify-end gap-x-3 gap-y-1 text-[10px] text-muted-foreground"
+    >
+      <span className="inline-flex items-baseline gap-1.5">
+        <span className="text-[10px] text-muted-foreground">P50</span>
+        <span className="font-mono text-xs text-foreground tabular-nums">
+          {formatMs(chain.latestP50)}
+        </span>
+      </span>
+      <span
+        data-chain-loss-summary
+        data-loss-tone={chainLossTone(chain.lossPct) ?? "none"}
+        title={lossTitle}
+        className="inline-flex items-baseline gap-1.5"
+      >
+        <span className="text-[10px] text-muted-foreground">
+          {t("overview.chainLatency.loss")}
+        </span>
+        <ChainLossValue value={chain.lossPct} className="text-xs" />
+      </span>
+      {chain.lossPct === null ? (
+        <span
+          data-chain-loss-nodata
+          className="text-[9px] text-muted-foreground"
+        >
+          {t("overview.chainLatency.lossNoData")}
+        </span>
+      ) : null}
+      {chain.lossPartial ? (
+        <span data-chain-loss-partial className="text-[9px] text-warning">
+          {t("overview.chainLatency.lossPartial")}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
   const topology = chainTopology(chain);
   return (
     <Card className="min-w-0 gap-0" data-chain-topology-card>
       <CardHeader className="border-b border-border pb-4">
-        <CardTitle className="text-sm font-medium">
-          {t("overview.chainLatency.topologyTitle")}
-        </CardTitle>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-1">
+          <CardTitle className="text-sm font-medium">
+            {t("overview.chainLatency.topologyTitle")}
+          </CardTitle>
+          <ChainOverallStats chain={chain} />
+        </div>
       </CardHeader>
       <CardContent className="min-w-0 p-2 sm:p-4">
         {topology.nodes.length === 0 ? (
@@ -318,12 +378,22 @@ function SegmentRow({
           to: segment.to,
         })
       : t("overview.chainLatency.missingHop");
+  const probes = formatLossProbes(segment.attempts, segment.failures);
+  const probesTitle =
+    segment.attempts !== null && segment.failures !== null
+      ? t("overview.chainLatency.lossProbes", {
+          attempts: segment.attempts,
+          failures: segment.failures,
+        })
+      : undefined;
   const label = t("overview.chainLatency.segmentAria", {
     seq: segment.seq,
     route,
     p50: formatMs(segment.p50),
     delta: formatSignedMs(segment.deltaMs),
     pct: formatPercentValue(segment.contributionPct),
+    loss: formatLossPct(segment.lossPct),
+    probes,
   });
   const slowed =
     dominant ||
@@ -355,6 +425,26 @@ function SegmentRow({
         </span>
         <span className="shrink-0 font-mono text-xs tabular-nums">
           {formatMs(segment.p50)}
+        </span>
+        <span
+          data-segment-loss
+          data-loss-tone={chainLossTone(segment.lossPct) ?? "none"}
+          className="flex w-16 shrink-0 flex-col items-end leading-tight text-right"
+        >
+          <span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap">
+            <span className="text-[9px] text-muted-foreground">
+              {t("overview.chainLatency.loss")}
+            </span>
+            <ChainLossValue value={segment.lossPct} className="text-[11px]" />
+          </span>
+          {segment.attempts !== null && segment.failures !== null ? (
+            <span
+              className="font-mono text-[9px] text-muted-foreground tabular-nums"
+              title={probesTitle}
+            >
+              {probes}
+            </span>
+          ) : null}
         </span>
       </div>
       {noData ? (
@@ -482,17 +572,16 @@ function SegmentsCard({
 }
 
 /**
- * 链路详情：只有从这里开始才出现逐段内容。
+ * 链路详情内容：弹窗里渲染，顺序按产品稿：
+ * 完整链路（含整链 P50 / 丢包）→ 整体时延图（诊断句在图下方）→ 逐段明细。
  *
- * 顺序按产品稿：返回面包屑 → 完整链路行 → 整体时延图（诊断句在图下方）
- * → 逐段明细。
+ * 标题与关闭动作由外层 Dialog 负责，这里不再画面包屑 / 返回按钮。
  */
 export function ChainLatencyDetail({
   chain,
   snapshot,
   range,
   onRangeChange,
-  onBack,
   trends,
   trendPending,
 }: {
@@ -500,38 +589,12 @@ export function ChainLatencyDetail({
   snapshot: ChainHealthSnapshot;
   range: ChainLatencyRange;
   onRangeChange: (range: ChainLatencyRange) => void;
-  onBack: () => void;
   trends: ReadonlyMap<number, ChainHealthPoint[]>;
   trendPending: boolean;
 }) {
   useI18n();
   return (
     <div className="space-y-4" data-chain-detail>
-      <div
-        data-chain-detail-header
-        className="flex min-w-0 items-center gap-1 text-sm"
-      >
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label={t("overview.chainLatency.backToList")}
-          title={t("overview.chainLatency.backToList")}
-          className="inline-flex min-w-0 shrink-0 items-center gap-1 rounded-sm text-muted-foreground outline-none transition-colors duration-150 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-        >
-          <ChevronLeftIcon aria-hidden="true" className="size-4" />
-          <span>{t("overview.chainLatency.title")}</span>
-        </button>
-        <span aria-hidden="true" className="text-muted-foreground">
-          /
-        </span>
-        <span
-          className="min-w-0 truncate font-medium"
-          title={chain.name}
-        >
-          {chain.name}
-        </span>
-      </div>
-
       <ChainTopologyCard chain={chain} />
       <OverallChartCard
         chain={chain}

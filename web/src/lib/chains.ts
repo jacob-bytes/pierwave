@@ -240,6 +240,53 @@ export function entryHop<T extends { seq: number }>(
   return orderHops(hops)[0] ?? null;
 }
 
+/** 列表「路径」列的两端：入口服务器名 → 出口服务器名 / 链目标。 */
+export interface ChainPathNames {
+  from: string | null;
+  to: string | null;
+}
+
+interface PathGroup<M> {
+  seq: number;
+  members: readonly M[];
+}
+
+/**
+ * 路径展示：入口 = 第一组的第一台成员，出口 = 最后一组的第一台成员。
+ *
+ * 单组链没有「最后一组 → 下一组」可看，出口直接用链目标（`host:port`），
+ * 否则会出现「香港-01 → 香港-01」这种没有信息量的路径。空链两端都是 null。
+ */
+export function chainPathNames<
+  M extends { priority: number; server_name: string },
+>(
+  groups: readonly PathGroup<M>[],
+  target?: { host: string; port: number } | null,
+): ChainPathNames {
+  const ordered = orderGroups(groups);
+  if (ordered.length === 0) return { from: null, to: null };
+
+  const entry = orderMembers(ordered[0].members)[0] ?? null;
+  const from = entry?.server_name.trim() || null;
+  if (!from) return { from: null, to: null };
+
+  if (ordered.length > 1) {
+    const exit =
+      orderMembers(ordered[ordered.length - 1].members)[0] ?? null;
+    return { from, to: exit?.server_name.trim() || null };
+  }
+
+  const host = (target?.host ?? "").trim();
+  if (!host) return { from, to: null };
+  const port = target?.port;
+  return {
+    from,
+    to: typeof port === "number" && Number.isFinite(port) && port > 0
+      ? `${host}:${port}`
+      : host,
+  };
+}
+
 /** 列表里的「N 组 · M 台」。 */
 export function chainGroupSummary(
   groups: readonly { members: readonly unknown[] }[],

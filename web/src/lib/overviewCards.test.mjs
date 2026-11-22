@@ -16,6 +16,7 @@ const cost = read("../components/overview/CostView.tsx");
 const chain = read("../components/overview/ChainLatencyView.tsx");
 const chainList = read("../components/overview/ChainLatencyList.tsx");
 const chainDetail = read("../components/overview/ChainLatencyDetail.tsx");
+const chainDialog = read("../components/overview/ChainLatencyDetailDialog.tsx");
 const chainTrend = read("../components/overview/ChainLatencyTrendChart.tsx");
 const line = read("../components/overview/ResourceLineChart.tsx");
 const fxPopover = read("../components/overview/FxDetailsPopover.tsx");
@@ -225,29 +226,33 @@ test("成本 tab：三数字 / 12 个月开销柱状图 / Top 3 / 币种构成 /
   );
 });
 
-test("链路 tab：列表只放整体 KPI / 整体趋势，逐段只在详情", () => {
+test("链路 tab：详情改弹窗，列表只剩 KPI / 趋势 / 表格", () => {
   assertIncludes(
     chain,
     [
-      "overview.chainHealth",
       "useChainHealth",
       "useChainLatency",
       "data-chain-list-page",
-      "data-chain-detail-page",
       "<ChainLatencyList",
-      "<ChainLatencyDetail",
-      "<ChainHealthCard",
+      "<ChainLatencyDetailDialog",
+      "chains={scopedChains}",
+      "onClose={closeChain}",
       "searchParams.get(\"chain\")",
       "next.set(\"chain\"",
       "next.delete(\"chain\"",
     ],
     "ChainLatencyView",
   );
+  // 不再整页切换 detail，也不再另起「转发链健康」卡。
   assertExcludes(
     chain,
     [
       "overview.chainLatency.soon",
       "ChainPlaceholderCard",
+      "data-chain-detail-page",
+      "ChainHealthCard",
+      "data-chain-health-card",
+      "chainHealthRows",
       "overview.trendTitle",
       "overview.distributionTitle",
       "overview.leaderboardTitle",
@@ -261,18 +266,37 @@ test("链路 tab：列表只放整体 KPI / 整体趋势，逐段只在详情", 
   );
 
   assertIncludes(
+    chainDialog,
+    [
+      "DialogContent",
+      "data-chain-dialog",
+      "data-chain-dialog-scroll",
+      "ChainLatencyDetail",
+      "onOpenChange",
+      "onClose",
+      "overview.chainLatency.dialogDesc",
+    ],
+    "ChainLatencyDetailDialog",
+  );
+
+  assertIncludes(
     chainList,
     [
       "overview.chainLatency.hopP50",
       "overview.chainLatency.slowChains",
       "overview.chainLatency.worstHop",
-      "overview.chainLatency.statusNormal",
-      "overview.chainLatency.statusSlow",
-      "overview.chainLatency.statusInsufficient",
+      "overview.chainLatency.healthHealthy",
+      "overview.chainLatency.loss",
+      "overview.chainLatency.colPath",
+      "overview.chainLatency.colStatus",
       "ChainLatencyTrendChart",
       "data-chain-trend-card",
       "data-chain-list",
+      "data-chain-list-head",
       "data-chain-list-row",
+      "data-chain-loss",
+      "data-chain-path",
+      "data-chain-status",
       "overview.chainLatency.listTitle",
     ],
     "ChainLatencyList",
@@ -315,14 +339,21 @@ test("链路 tab：列表只放整体 KPI / 整体趋势，逐段只在详情", 
     [
       "data-chain-topology",
       "data-chain-topology-scroll",
+      "data-chain-overall-stats",
+      "data-chain-loss-summary",
+      "data-chain-loss-partial",
+      "data-chain-loss-nodata",
       "data-chain-segments",
       "data-chain-segment",
+      "data-segment-loss",
       "chainTopology",
       "chainDiagnosis",
       "overview.chainLatency.diagnosisSingle",
       "overview.chainLatency.missingLastHop",
       "overview.chainLatency.overallTitle",
       "overview.chainLatency.topologyScroll",
+      "overview.chainLatency.lossPartial",
+      "overview.chainLatency.lossNoData",
     ],
     "ChainLatencyDetail",
   );

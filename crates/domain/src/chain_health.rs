@@ -14,7 +14,13 @@
 //!   [`BASELINE_WINDOW_SECS`]（24 小时）的桶中位数。选择 2h 而不是 24h 的
 //!   原因：24h 中位数会把最近 2 小时的短时劣化稀释到 8% 的权重，回答不了
 //!   「现在哪条链慢」；基线仍用 24h，避免单个桶的抖动。
-//! * 多成员组（多路径）按段中位数求和，链级 `estimated = true`。
+//! * 丢包：每段取同一「当前窗口」（最近 2h，与 p50 一致）内
+//!   `forward_probe_samples` 的 attempts / failures；单段 `loss = failures /
+//!   attempts`，attempts = 0 时为 `null`（不是 0）。整链按各跳独立连乘
+//!   `1 - Π(1 - loss_i)`；缺数据的段跳过，只有「部分段有数据」时才标
+//!   `loss_partial`（全链无数据时 `loss_pct = null`、`loss_partial = false`）。
+//! * 多成员组（多路径）按段中位数求和，链级 `estimated = true`；丢包则把
+//!   各成员的探测计数相加后再算比值。
 
 use std::collections::HashMap;
 
@@ -22,6 +28,7 @@ use serde::Serialize;
 
 use crate::models::{ChainGroupMember, ChainGroupWithMembers, ChainWithGroups};
 use crate::repo::latency::LatencySample;
+use crate::telemetry::ProbeCounts;
 
 /// 当前值窗口：最近 2 小时（按桶宽向下取整）。
 pub const CURRENT_WINDOW_SECS: i64 = 2 * 60 * 60;
@@ -69,6 +76,19 @@ pub struct SegmentView {
     pub delta_ms: Option<f64>,
     /// 正向增量占比（0..100，整数）。只把「变慢」的段计入分母。
     pub contribution_pct: i64,
+    /// 当前窗口内的探测次数；没有探测时 0（`loss_pct` 为 null）。
+    pub attempts: i64,
+    /// 当前窗口内的探测失败次数。
+    pub failures: i64,
+    /// `failures / attempts × 100`（保留 4 位）；attempts = 0 时 null，不是 0。
+    pub loss_pct: Option<f64>,
+}
+
+/// 一组探测计数（整链各段之和）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+pub struct LossSamples {
+    pub attempts: i64,
+    pub failures: i64,
 }
 
 /// 整体时间序列的一个点；空桶在数组里是 `null`。
@@ -97,6 +117,15 @@ pub struct ChainHealth {
     pub series: Vec<Option<SeriesPoint>>,
     /// 逐段视图，按目标组 seq 升序。
     pub segments: Vec<SegmentView>,
+    /// 整链丢包：各段独立连乘 `1 - Π(1 - loss_i)`（%）；没有可用段时 null。
+    pub loss_pct: Option<f64>,
+    /// 参与连乘的各段探测次数 / 失败次数之和；没有可用段时是 `{0, 0}`。
+    pub loss_samples: LossSamples,
+    /// 有段缺探测数据且另有段有数据时为 true：该段被跳过，整链
+    /// `loss_pct` 只覆盖有数据的段。**全部段都没有探测数据时是 false**
+    /// （此时整链 `loss_pct` 为 null，前端只显示「无探测数据」，不能同时
+    /// 声称「部分跳缺少数据」）。
+    pub loss_partial: bool,
     pub diagnosis: Diagnosis,
 }
 
@@ -113,6 +142,18 @@ pub struct Summary {
     pub total_chains: i64,
     /// 当前窗口 p50 最高的段；没有段数据时 null。
     pub worst_hop: Option<HopRef>,
+    /// 当前可见链里最差的一条的整链丢包（%）；没有可用丢包数据时 null。
+    pub loss_pct: Option<f64>,
+    /// 上述最差丢包链；与 `loss_pct` 同源，没有数据时 null。
+    pub worst_loss: Option<LossRef>,
+}
+
+/// 最差丢包链的位置。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LossRef {
+    pub chain_id: String,
+    pub chain_name: String,
+    pub loss_pct: f64,
 }
 
 /// 最慢段的位置。
@@ -164,11 +205,27 @@ fn baseline_bucket_count(bucket: i64) -> i64 {
     (BASELINE_WINDOW_SECS / bucket).max(1)
 }
 
+/// 当前值窗口的 `[start, end)`（与 `sample_window_start` 同一套对齐规则）。
+///
+/// 路由层用它给 `forward_probe_samples` 取数，保证丢包和 p50 用的是**同一个
+/// 当前窗口**（最近 2h，请求窗口不足 2h 时退化为请求窗口）。
+pub fn current_window(now: i64, hours: i64, bucket: i64) -> (i64, i64) {
+    if hours <= 0 || bucket <= 0 {
+        return (now, now);
+    }
+    let end = aligned_end(now, bucket);
+    let current_count = current_bucket_count(hours, bucket);
+    (end - current_count * bucket, end)
+}
+
 /// 纯内存聚合。`chains` 必须已经按 `server_ids` 筛选过；`samples` 是这些链
-/// 所有成员的 `forward_latency_samples`（`ts >= sample_window_start`）。
+/// 所有成员的 `forward_latency_samples`（`ts >= sample_window_start`）；
+/// `probes` 是同一批成员 forward 在 [`current_window`] 内的探测计数之和
+/// （没有探测的 forward 不在 map 里，读作 attempts = 0）。
 pub fn aggregate(
     chains: &[ChainWithGroups],
     samples: &[LatencySample],
+    probes: &HashMap<String, ProbeCounts>,
     now: i64,
     hours: i64,
     bucket: i64,
@@ -187,8 +244,7 @@ pub fn aggregate(
     let count = (hours * 3600 / bucket).max(1);
     let end = aligned_end(now, bucket);
     let series_start = end - count * bucket;
-    let current_count = current_bucket_count(hours, bucket);
-    let current_start = end - current_count * bucket;
+    let (current_start, _) = current_window(now, hours, bucket);
     let baseline_count = baseline_bucket_count(bucket);
     let baseline_start = current_start - baseline_count * bucket;
     let since = series_start.min(baseline_start);
@@ -206,6 +262,24 @@ pub fn aggregate(
                     .or_insert((chain_index, group_index, member_index));
             }
         }
+    }
+
+    // (chain, segment) → 当前窗口探测计数。forward 是「每跳入口」的探测，
+    // 这里把同一段所有成员（多路径）的计数相加；最后一跳（最后一组 → 链
+    // 目标）没有下一组可归属，和时延样本一样忽略。
+    let mut segment_probes: HashMap<(usize, usize), ProbeCounts> = HashMap::new();
+    for (forward_id, counts) in probes {
+        let Some(&(chain_index, group_index, _)) = forward_map.get(forward_id) else {
+            continue;
+        };
+        let layout = &layouts[chain_index];
+        if group_index + 1 >= layout.groups.len() {
+            continue;
+        }
+        segment_probes
+            .entry((chain_index, group_index))
+            .or_default()
+            .add(*counts);
     }
 
     // (chain, segment, bucket) → 原始延迟值；桶内再算分位数。
@@ -335,6 +409,10 @@ pub fn aggregate(
 
         let mut segments = Vec::with_capacity(segment_count);
         let mut deltas = Vec::with_capacity(segment_count);
+        let mut survival = 1.0_f64;
+        let mut loss_samples = LossSamples::default();
+        let mut loss_segments = 0_usize;
+        let mut missing_segments = 0_usize;
         for segment_index in 0..segment_count {
             let current_p50 = current.segment_p50[segment_index];
             let baseline_p50 = baseline.segment_p50[segment_index];
@@ -343,6 +421,23 @@ pub fn aggregate(
                 _ => None,
             };
             deltas.push(delta);
+            // 丢包只看当前窗口（与 p50 同窗口）。attempts = 0 是「没有探测」，
+            // 必须保持 null：补 0 会被读成 0% 丢包。
+            let counts = segment_probes
+                .get(&(chain_index, segment_index))
+                .copied()
+                .unwrap_or_default();
+            let loss = (counts.attempts > 0)
+                .then(|| (counts.failures.max(0) as f64 / counts.attempts as f64).clamp(0.0, 1.0));
+            match loss {
+                Some(loss) => {
+                    survival *= 1.0 - loss;
+                    loss_segments += 1;
+                    loss_samples.attempts = loss_samples.attempts.saturating_add(counts.attempts);
+                    loss_samples.failures = loss_samples.failures.saturating_add(counts.failures);
+                }
+                None => missing_segments += 1,
+            }
             let (from, to) = layout.representative(chain_index, segment_index, &pair_counts);
             segments.push(SegmentView {
                 seq: layout.segment_seq[segment_index],
@@ -351,8 +446,17 @@ pub fn aggregate(
                 p50: current_p50.map(round1),
                 delta_ms: delta.map(round1),
                 contribution_pct: 0,
+                attempts: counts.attempts,
+                failures: counts.failures,
+                loss_pct: loss.map(|loss| round4(loss * 100.0)),
             });
         }
+        // 各跳独立：整链 = 1 - Π(1 - loss_i)。缺数据的段已跳过，不能把
+        // 「不知道」当成 0 后声称整链完好。
+        // partial 只在「有的段有数据、有的段没有」时为 true；全链都没有
+        // 探测时 loss_pct 本身就是 null，再标 partial 会自相矛盾。
+        let loss_partial = loss_segments > 0 && missing_segments > 0;
+        let chain_loss_pct = (loss_segments > 0).then(|| round4((1.0 - survival) * 100.0));
 
         // 正向增量占比：分母只算「变慢」的段。
         let total_positive: f64 = deltas
@@ -382,6 +486,9 @@ pub fn aggregate(
                 missing_hops: layout.missing_hops.clone(),
                 series,
                 segments,
+                loss_pct: chain_loss_pct,
+                loss_samples,
+                loss_partial,
                 diagnosis,
             },
             current_overall,
@@ -732,6 +839,26 @@ fn summarize(views: &[ChainViewBuild]) -> Summary {
         }
     }
 
+    let mut worst_loss: Option<LossRef> = None;
+    for build in views {
+        let Some(loss_pct) = build.view.loss_pct else {
+            continue;
+        };
+        let candidate = LossRef {
+            chain_id: build.view.id.clone(),
+            chain_name: build.view.name.clone(),
+            loss_pct,
+        };
+        let replace = worst_loss.as_ref().is_none_or(|current| {
+            loss_pct > current.loss_pct
+                || (loss_pct == current.loss_pct && candidate.chain_id < current.chain_id)
+        });
+        if replace {
+            worst_loss = Some(candidate);
+        }
+    }
+    let loss_pct = worst_loss.as_ref().map(|worst| worst.loss_pct);
+
     Summary {
         hop_p50_ms: focus
             .and_then(|build| build.current_overall)
@@ -740,6 +867,8 @@ fn summarize(views: &[ChainViewBuild]) -> Summary {
         slow_chains,
         total_chains: views.len() as i64,
         worst_hop: worst,
+        loss_pct,
+        worst_loss,
     }
 }
 
@@ -771,6 +900,11 @@ fn percentile(sorted: &[f64], p: f64) -> f64 {
 
 fn round1(value: f64) -> f64 {
     (value * 10.0).round() / 10.0
+}
+
+/// 丢包百分比保留 4 位小数：2/240 = 0.8333%，两段各 1% = 1.99%。
+fn round4(value: f64) -> f64 {
+    (value * 10_000.0).round() / 10_000.0
 }
 
 #[cfg(test)]
@@ -888,6 +1022,27 @@ mod tests {
         crate::chains::forward_id(chain_id, seq, server_id, member_count)
     }
 
+    /// 没有探测数据：丢包逐段为 null、整链 null，且不标 `loss_partial`。
+    fn no_probes() -> HashMap<String, ProbeCounts> {
+        HashMap::new()
+    }
+
+    /// 按 `(forward_id, attempts, failures)` 构造当前窗口的探测计数。
+    fn probes(entries: &[(String, i64, i64)]) -> HashMap<String, ProbeCounts> {
+        entries
+            .iter()
+            .map(|(forward_id, attempts, failures)| {
+                (
+                    forward_id.clone(),
+                    ProbeCounts {
+                        attempts: *attempts,
+                        failures: *failures,
+                    },
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn maps_adjacent_groups_and_sums_the_same_bucket() {
         let chain = chain(
@@ -908,7 +1063,7 @@ mod tests {
             sample(ts, "c", forward("c1", 2, "c", 1), "", 5),
         ];
 
-        let aggregate = aggregate(&[chain], &samples, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
         assert_eq!(
             aggregate.unmapped_forwards, 0,
             "最后一跳到链目标是预期样本，由 missing_hops 表达"
@@ -946,7 +1101,7 @@ mod tests {
         );
         let ts = end_at(NOW, BUCKET) - 60;
         let samples = vec![sample(ts, "a", forward("c1", 0, "a", 1), "", 10)];
-        let aggregate = aggregate(&[chain], &samples, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
         assert_eq!(aggregate.unmapped_forwards, 1);
         assert!(aggregate.chains[0].series.last().unwrap().is_none());
         assert!(aggregate.chains[0].segments[0].p50.is_none());
@@ -958,7 +1113,7 @@ mod tests {
         let ts = end_at(NOW, BUCKET) - 60;
         // 目标不在下一组里（链改过成员后的历史样本）：必须进 warnings。
         let samples = vec![sample(ts, "a", forward("c1", 0, "a", 1), "ghost", 10)];
-        let aggregate = aggregate(&[chain], &samples, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
         assert_eq!(aggregate.unmapped_forwards, 1);
         assert!(aggregate.chains[0].series.last().unwrap().is_none());
     }
@@ -982,7 +1137,7 @@ mod tests {
             sample(ts, "b1", forward("c1", 1, "b1", 2), "", 30),
             sample(ts, "b2", forward("c1", 1, "b2", 2), "", 50),
         ];
-        let aggregate = aggregate(&[chain], &samples, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert!(view.estimated, "多成员组必须标注估算");
         assert_eq!(view.segments[0].p50, Some(15.0), "10/20 的中位数");
@@ -998,7 +1153,7 @@ mod tests {
     #[test]
     fn chains_without_samples_keep_null_series_and_unknown_diagnosis() {
         let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
-        let aggregate = aggregate(&[chain], &[], NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 2);
         assert_eq!(view.missing_hops, vec![2]);
@@ -1017,7 +1172,7 @@ mod tests {
     #[test]
     fn a_single_group_chain_has_no_segments_and_no_fake_zero() {
         let chain = chain("c1", vec![(0, vec![("a", "A")])]);
-        let aggregate = aggregate(&[chain], &[], NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 1);
         assert_eq!(view.missing_hops, vec![1]);
@@ -1029,7 +1184,7 @@ mod tests {
     #[test]
     fn groups_without_members_are_reported_as_missing_instead_of_panicking() {
         let chain = chain("c1", vec![(0, vec![]), (1, vec![])]);
-        let aggregate = aggregate(&[chain], &[], NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 2);
         assert_eq!(view.missing_hops, vec![1, 2]);
@@ -1106,7 +1261,7 @@ mod tests {
             |_| 55,
         ));
 
-        let aggregate = aggregate(&[chain], &samples, NOW, 24, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].p50, Some(20.0));
         assert_eq!(view.segments[1].p50, Some(55.0));
@@ -1159,7 +1314,7 @@ mod tests {
             ));
         }
 
-        let aggregate = aggregate(&[chain], &samples, NOW, 24, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].contribution_pct, 50);
         assert_eq!(view.segments[1].contribution_pct, 50);
@@ -1175,7 +1330,7 @@ mod tests {
         // 30h 前：比 24h 基线更老，但仍在 48h 的 series 窗口里。
         let ts = end - 30 * 3600;
         let samples = vec![sample(ts, "a", forward("c1", 0, "a", 1), "", 20)];
-        let aggregate = aggregate(&[chain], &samples, NOW, 48, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 48, BUCKET);
         let view = &aggregate.chains[0];
         let index = ((ts - (end - 48 * 3600)) / BUCKET) as usize;
         assert!(
@@ -1202,10 +1357,231 @@ mod tests {
         let ts = end_at(NOW, BUCKET) - 60;
         // 只有第 1 段有样本：整体桶必须 null，第 1 段自己仍然有 p50。
         let samples = vec![sample(ts, "a", forward("c1", 0, "a", 1), "", 20)];
-        let aggregate = aggregate(&[chain], &samples, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].p50, Some(20.0));
         assert!(view.segments[1].p50.is_none());
         assert!(view.series.last().unwrap().is_none());
+    }
+
+    #[test]
+    fn zero_attempts_is_null_not_a_zero_loss() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        // 计数行存在但 attempts = 0（差分被丢弃等）：必须当作「没有探测」。
+        let probes = probes(&[(forward("c1", 0, "a", 1), 0, 0)]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments[0].attempts, 0);
+        assert_eq!(view.segments[0].failures, 0);
+        assert_eq!(
+            view.segments[0].loss_pct, None,
+            "attempts=0 必须是 null 而不是 0"
+        );
+        assert_eq!(view.loss_pct, None, "没有可用段时整链丢包也是 null");
+        assert_eq!(view.loss_samples, LossSamples::default());
+        assert!(
+            !view.loss_partial,
+            "全链都没有探测数据时不能标 partial（否则与「无探测数据」矛盾）"
+        );
+        assert_eq!(aggregate.summary.loss_pct, None);
+        assert!(aggregate.summary.worst_loss.is_none());
+    }
+
+    #[test]
+    fn a_segment_loss_is_failures_over_attempts() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let probes = probes(&[(forward("c1", 0, "a", 1), 240, 2)]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments[0].attempts, 240);
+        assert_eq!(view.segments[0].failures, 2);
+        assert_eq!(view.segments[0].loss_pct, Some(0.8333), "2/240 = 0.8333%");
+        assert_eq!(view.loss_pct, Some(0.8333), "只有一段时整链等于该段");
+        assert_eq!(
+            view.loss_samples,
+            LossSamples {
+                attempts: 240,
+                failures: 2
+            }
+        );
+        assert!(!view.loss_partial);
+        assert_eq!(aggregate.summary.loss_pct, Some(0.8333));
+        assert_eq!(
+            aggregate
+                .summary
+                .worst_loss
+                .as_ref()
+                .map(|worst| worst.chain_id.as_str()),
+            Some("c1")
+        );
+    }
+
+    #[test]
+    fn chain_loss_compounds_independent_hops() {
+        let chain = chain(
+            "c1",
+            vec![
+                (0, vec![("a", "A")]),
+                (1, vec![("b", "B")]),
+                (2, vec![("c", "C")]),
+            ],
+        );
+        // 两段各 1%：1 - 0.99² = 1.99%，不是 2%。
+        let probes = probes(&[
+            (forward("c1", 0, "a", 1), 100, 1),
+            (forward("c1", 1, "b", 1), 100, 1),
+        ]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments[0].loss_pct, Some(1.0));
+        assert_eq!(view.segments[1].loss_pct, Some(1.0));
+        assert_eq!(view.loss_pct, Some(1.99));
+        assert_eq!(
+            view.loss_samples,
+            LossSamples {
+                attempts: 200,
+                failures: 2
+            }
+        );
+        assert!(!view.loss_partial);
+        assert_eq!(aggregate.summary.loss_pct, Some(1.99));
+    }
+
+    #[test]
+    fn a_missing_segment_is_skipped_and_flags_partial() {
+        let chain = chain(
+            "c1",
+            vec![
+                (0, vec![("a", "A")]),
+                (1, vec![("b", "B")]),
+                (2, vec![("c", "C")]),
+            ],
+        );
+        // 只有第 1 段有探测：算法只能覆盖已知段，不能把第 2 段当 0%。
+        let probes = probes(&[(forward("c1", 0, "a", 1), 100, 1)]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments[0].loss_pct, Some(1.0));
+        assert_eq!(view.segments[1].loss_pct, None);
+        assert_eq!(view.loss_pct, Some(1.0), "缺的段跳过，不补 0");
+        assert!(view.loss_partial);
+        assert_eq!(
+            view.loss_samples,
+            LossSamples {
+                attempts: 100,
+                failures: 1
+            }
+        );
+    }
+
+    #[test]
+    fn all_missing_probes_are_null_and_not_partial() {
+        let chain = chain(
+            "c1",
+            vec![
+                (0, vec![("a", "A")]),
+                (1, vec![("b", "B")]),
+                (2, vec![("c", "C")]),
+                (3, vec![("d", "D")]),
+            ],
+        );
+        // 整链三段都没有探测：这是「无数据」，不是「部分跳缺数据」。
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments.len(), 3);
+        assert!(view
+            .segments
+            .iter()
+            .all(|segment| segment.loss_pct.is_none()));
+        assert_eq!(view.loss_pct, None);
+        assert_eq!(view.loss_samples, LossSamples::default());
+        assert!(
+            !view.loss_partial,
+            "全部段都缺探测时 loss_partial 必须是 false"
+        );
+        assert_eq!(aggregate.summary.loss_pct, None);
+        assert!(aggregate.summary.worst_loss.is_none());
+    }
+
+    #[test]
+    fn two_probed_segments_and_one_missing_stay_partial() {
+        let chain = chain(
+            "c1",
+            vec![
+                (0, vec![("a", "A")]),
+                (1, vec![("b", "B")]),
+                (2, vec![("c", "C")]),
+                (3, vec![("d", "D")]),
+            ],
+        );
+        // 两段有数据（各 1%）、一段没有 → 连乘 1.99%，并标 partial。
+        let probes = probes(&[
+            (forward("c1", 0, "a", 1), 100, 1),
+            (forward("c1", 1, "b", 1), 100, 1),
+        ]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments[0].loss_pct, Some(1.0));
+        assert_eq!(view.segments[1].loss_pct, Some(1.0));
+        assert_eq!(view.segments[2].loss_pct, None);
+        assert_eq!(view.loss_pct, Some(1.99));
+        assert!(view.loss_partial, "部分段有数据、部分没有时必须是 true");
+        assert_eq!(
+            view.loss_samples,
+            LossSamples {
+                attempts: 200,
+                failures: 2
+            }
+        );
+    }
+
+    #[test]
+    fn the_last_hop_probe_is_not_attributed_to_a_segment() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        // 最后一组的 forward 探测的是链目标，没有「下一组」，不能算进第 1 段。
+        let probes = probes(&[(forward("c1", 1, "b", 1), 240, 240)]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments[0].attempts, 0);
+        assert_eq!(view.segments[0].loss_pct, None);
+        assert_eq!(view.loss_pct, None);
+        assert!(!view.loss_partial, "整链无数据时不能标 partial");
+    }
+
+    #[test]
+    fn a_multi_member_segment_sums_probe_counts_before_dividing() {
+        let chain = chain(
+            "c1",
+            vec![(0, vec![("a1", "A1"), ("a2", "A2")]), (1, vec![("b", "B")])],
+        );
+        // 不能对两个成员的失败率取平均：必须先把计数相加。
+        let probes = probes(&[
+            (forward("c1", 0, "a1", 2), 100, 0),
+            (forward("c1", 0, "a2", 2), 100, 10),
+        ]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments[0].attempts, 200);
+        assert_eq!(view.segments[0].failures, 10);
+        assert_eq!(view.segments[0].loss_pct, Some(5.0));
+        assert_eq!(view.loss_pct, Some(5.0));
+    }
+
+    #[test]
+    fn the_summary_reports_the_worst_visible_chain() {
+        let a = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let b = chain("c2", vec![(0, vec![("c", "C")]), (1, vec![("d", "D")])]);
+        let probes = probes(&[
+            (forward("c1", 0, "a", 1), 100, 50),
+            (forward("c2", 0, "c", 1), 100, 1),
+        ]);
+        let aggregate = aggregate(&[a, b], &[], &probes, NOW, 1, BUCKET);
+        assert_eq!(aggregate.chains[0].loss_pct, Some(50.0));
+        assert_eq!(aggregate.chains[1].loss_pct, Some(1.0));
+        assert_eq!(aggregate.summary.loss_pct, Some(50.0));
+        let worst = aggregate.summary.worst_loss.unwrap();
+        assert_eq!(worst.chain_id, "c1");
+        assert_eq!(worst.chain_name, "chain-c1");
+        assert_eq!(worst.loss_pct, 50.0);
     }
 }

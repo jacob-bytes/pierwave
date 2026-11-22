@@ -7,13 +7,17 @@ import {
   chainAnomalyWindows,
   chainDiagnosis,
   chainDiagnosisReason,
+  chainLatestSampleTs,
   chainLatencyWindow,
+  chainLossTone,
   chainSeriesMax,
   buildChainTrendData,
   chainHasTrend,
   chainStatus,
   chainTopology,
   formatChainTime,
+  formatLossPct,
+  formatLossProbes,
   formatMs,
   formatPercentValue,
   formatSignedMs,
@@ -635,4 +639,209 @@ test("unsupported detection only covers 404/403", () => {
     false,
   );
   assert.equal(isChainHealthUnsupported(new Error("network")), false);
+});
+
+test("loss fields normalize from the incremental contract", () => {
+  const result = normalizeChainHealth(
+    payload(
+      [
+        chain({
+          loss_pct: 1.2,
+          loss_partial: true,
+          loss_samples: { attempts: 720, failures: 9 },
+          segments: [
+            {
+              seq: 1,
+              from: "香港-01",
+              to: "东京-01",
+              p50: 20,
+              delta_ms: 1,
+              contribution_pct: 100,
+              loss_pct: 0.83,
+              attempts: 240,
+              failures: 2,
+            },
+            {
+              seq: 2,
+              from: "东京-01",
+              to: "10.0.0.8",
+              p50: 1,
+              delta_ms: 0,
+              contribution_pct: 0,
+            },
+          ],
+        }),
+      ],
+      {
+        loss_pct: 1.2,
+        worst_loss: {
+          chain_id: "chain-1",
+          chain_name: "香港 → 东京",
+          loss_pct: 1.2,
+        },
+      },
+    ),
+  );
+  const snapshot = result.snapshot;
+  const item = snapshot.chains[0];
+  assert.equal(item.lossPct, 1.2);
+  assert.equal(item.lossPartial, true);
+  assert.deepEqual(item.lossSamples, { attempts: 720, failures: 9 });
+  assert.equal(item.segments[0].lossPct, 0.83);
+  assert.equal(item.segments[0].attempts, 240);
+  assert.equal(item.segments[0].failures, 2);
+  assert.equal(item.segments[1].lossPct, null);
+  assert.equal(item.segments[1].attempts, null);
+  assert.equal(snapshot.summary.lossPct, 1.2);
+  assert.deepEqual(snapshot.summary.worstLoss, {
+    chainId: "chain-1",
+    chainName: "香港 → 东京",
+    lossPct: 1.2,
+  });
+});
+
+test("an older payload without loss fields stays null, never 0%", () => {
+  const result = normalizeChainHealth(payload([chain()]));
+  const snapshot = result.snapshot;
+  const item = snapshot.chains[0];
+  assert.equal(item.lossPct, null);
+  assert.equal(item.lossPartial, false);
+  assert.equal(item.lossSamples, null);
+  assert.equal(item.segments[0].lossPct, null);
+  assert.equal(item.segments[0].attempts, null);
+  assert.equal(item.segments[0].failures, null);
+  assert.equal(snapshot.summary.lossPct, null);
+  assert.equal(snapshot.summary.worstLoss, null);
+});
+
+test("out-of-range loss percentages are treated as missing", () => {
+  const result = normalizeChainHealth(
+    payload([
+      chain({
+        loss_pct: 120,
+        loss_partial: "yes",
+        loss_samples: { attempts: "nope", failures: "nope" },
+        segments: [
+          {
+            seq: 1,
+            from: "A",
+            to: "B",
+            p50: 20,
+            delta_ms: 1,
+            contribution_pct: 100,
+            loss_pct: -0.5,
+            attempts: 0,
+            failures: 0,
+          },
+        ],
+      }),
+    ]),
+  );
+  const item = result.snapshot.chains[0];
+  assert.equal(item.lossPct, null);
+  assert.equal(item.lossPartial, false);
+  assert.equal(item.lossSamples, null);
+  assert.equal(item.segments[0].lossPct, null);
+  assert.equal(item.segments[0].attempts, null);
+  assert.equal(formatLossPct(item.segments[0].lossPct), "—");
+});
+
+test("worst_loss falls back to the chain with the highest loss", () => {
+  const result = normalizeChainHealth(
+    payload([
+      chain({ loss_pct: 0.3 }),
+      chain({ id: "chain-2", name: "大阪 → 洛杉矶", loss_pct: 3.4 }),
+      chain({ id: "chain-3", name: "无探测" }),
+    ]),
+  );
+  assert.equal(result.snapshot.summary.lossPct, null);
+  assert.deepEqual(result.snapshot.summary.worstLoss, {
+    chainId: "chain-2",
+    chainName: "大阪 → 洛杉矶",
+    lossPct: 3.4,
+  });
+});
+
+test("loss tone uses only three existing semantic tones", () => {
+  assert.equal(chainLossTone(null), null);
+  assert.equal(chainLossTone(0), "normal");
+  assert.equal(chainLossTone(0.49), "normal");
+  assert.equal(chainLossTone(0.5), "warning");
+  assert.equal(chainLossTone(1.2), "warning");
+  assert.equal(chainLossTone(2), "warning");
+  assert.equal(chainLossTone(2.01), "destructive");
+  assert.equal(chainLossTone(100), "destructive");
+});
+
+test("loss formatting keeps one decimal and an em dash for missing probes", () => {
+  assert.equal(formatLossPct(null), "—");
+  assert.equal(formatLossPct(0), "0%");
+  assert.equal(formatLossPct(0.25), "0.3%");
+  assert.equal(formatLossPct(1.2), "1.2%");
+  assert.equal(formatLossPct(2), "2%");
+  assert.equal(formatLossPct(100), "100%");
+  assert.equal(formatLossPct(0.04), "<0.1%");
+  assert.equal(formatLossProbes(240, 2), "2 / 240");
+  assert.equal(formatLossProbes(null, 2), "—");
+  assert.equal(formatLossProbes(240, null), "—");
+  assert.equal(formatLossProbes(0, 0), "—");
+});
+
+test("chainLatestSampleTs uses the newest valid hop or overall sample", () => {
+  const value = chainLatestSampleTs({
+    series: [point(1_800_000_000, 20), point(1_800_003_600, null, null, null, 0)],
+    segments: [
+      {
+        seq: 1,
+        from: "A",
+        to: "B",
+        p50: 20,
+        deltaMs: 1,
+        contributionPct: 100,
+        missing: false,
+        lossPct: null,
+        attempts: null,
+        failures: null,
+        series: [point(1_800_007_200, 21)],
+      },
+    ],
+  });
+  assert.equal(value, 1_800_007_200);
+  assert.equal(chainLatestSampleTs({ series: [], segments: [] }), null);
+});
+
+test("zero-attempt probe samples stay missing instead of becoming 0%", () => {
+  const result = normalizeChainHealth(
+    payload(
+      [
+        chain({
+          loss_pct: null,
+          loss_partial: true,
+          loss_samples: { attempts: 0, failures: 0 },
+          segments: [
+            {
+              seq: 1,
+              from: "A",
+              to: "B",
+              p50: 20,
+              delta_ms: 1,
+              contribution_pct: 100,
+              loss_pct: null,
+              attempts: 0,
+              failures: 0,
+            },
+          ],
+        }),
+      ],
+      { loss_pct: null, worst_loss: null },
+    ),
+  );
+  const item = result.snapshot.chains[0];
+  assert.equal(item.lossPct, null);
+  assert.equal(item.lossSamples, null);
+  assert.equal(item.lossPartial, true);
+  assert.equal(item.segments[0].attempts, null);
+  assert.equal(formatLossPct(item.lossPct), "—");
+  assert.equal(formatLossProbes(0, 0), "—");
+  assert.equal(result.snapshot.summary.worstLoss, null);
 });
