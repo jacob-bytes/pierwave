@@ -146,6 +146,10 @@ for (const scenario of SCENARIOS) {
             node
               .querySelector("[data-insight-metric-value]")
               ?.textContent?.trim() ?? "",
+          hint:
+            node
+              .querySelector("[data-insight-metric-hint]")
+              ?.textContent?.trim() ?? "",
         }),
       ),
       heatmap: heatmapCell
@@ -175,14 +179,18 @@ for (const scenario of SCENARIOS) {
               costText
                 .split("\n")
                 .find((line) => line.includes("汇率")) ?? null,
-            annualizedLine:
+            currentYearLine:
               costText
                 .split("\n")
-                .find((line) => line.includes("不含一次性")) ?? null,
+                .find(
+                  (line) =>
+                    line.includes("本年度剩余") ||
+                    line.includes("本年度已无剩余月份"),
+                ) ?? null,
             oneTimeLine:
               costText
                 .split("\n")
-                .find((line) => line.includes("不计入年化")) ?? null,
+                .find((line) => line.includes("不计入本年度")) ?? null,
           }
         : null,
       hasScrollHint: document.body.innerText.includes("左右滑动"),

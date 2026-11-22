@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T04:45:51.008Z",
+  "generatedAt": "2026-11-22T05:02:54.861Z",
   "dist": "/Users/jlthzy/Documents/mmrust/web/dist/",
   "shots": [
     {
@@ -29,6 +29,23 @@
         {
           "text": "链路时延",
           "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "96.4%",
+          "hint": "7 天 99.8% · 11 台有采样"
+        },
+        {
+          "label": "异常服务器",
+          "value": "3",
+          "hint": "1 台离线过 · 2 台资源告警"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "91.0%",
+          "hint": "东京-02 · 当前最高"
         }
       ],
       "tabsList": {
@@ -190,6 +207,23 @@
           "selected": false
         }
       ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "96.4%",
+          "hint": "7 天 99.8% · 11 台有采样"
+        },
+        {
+          "label": "异常服务器",
+          "value": "3",
+          "hint": "1 台离线过 · 2 台资源告警"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "91.0%",
+          "hint": "东京-02 · 当前最高"
+        }
+      ],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -349,6 +383,23 @@
           "selected": false
         }
       ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "96.4%",
+          "hint": "7 天 99.8% · 11 台有采样"
+        },
+        {
+          "label": "异常服务器",
+          "value": "3",
+          "hint": "1 台离线过 · 2 台资源告警"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "91.0%",
+          "hint": "东京-02 · 当前最高"
+        }
+      ],
       "tabsList": {
         "display": "grid",
         "width": 342,
@@ -409,6 +460,23 @@
         {
           "text": "链路时延",
           "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "96.4%",
+          "hint": "7 天 99.8% · 11 台有采样"
+        },
+        {
+          "label": "异常服务器",
+          "value": "3",
+          "hint": "1 台离线过 · 2 台资源告警"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "91.0%",
+          "hint": "东京-02 · 当前最高"
         }
       ],
       "tabsList": {
@@ -473,6 +541,23 @@
           "selected": false
         }
       ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -480,7 +565,7 @@
       },
       "heatmap": null,
       "costCalendar": {
-        "cellWidth": 46.890625,
+        "cellWidth": 46.875,
         "cellHeight": 32,
         "scrollWidth": 763,
         "clientWidth": 763,
@@ -489,12 +574,12 @@
       "hasScrollHint": false,
       "costDebug": {
         "metrics": [
-          "月均（CNY）",
-          "9 台周期性计费",
-          "年化",
-          "当前周期年化 · 不含一次性",
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
           "未来 12 个月",
-          "比年化少 ¥18,584.48（已预付）"
+          "按到期日排期 · 已预付不重复"
         ],
         "monthHeaders": [
           {
@@ -567,78 +652,9 @@
           {
             "cells": [
               {
-                "text": "USD · 2 台 · ¥3,312.00/月",
+                "text": "USD · 2 台 · ¥11,232.00/周期",
                 "left": 280,
                 "width": 120
-              }
-            ]
-          },
-          {
-            "cells": [
-              {
-                "text": "东京-02",
-                "left": 280,
-                "width": 120
-              },
-              {
-                "text": "",
-                "left": 404,
-                "width": 47
-              },
-              {
-                "text": "",
-                "left": 455,
-                "width": 47
-              },
-              {
-                "text": "",
-                "left": 506,
-                "width": 47
-              },
-              {
-                "text": "",
-                "left": 557,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 608,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 658,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 709,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 760,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 811,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 862,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 913,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 964,
-                "width": 47
               }
             ]
           },
@@ -706,6 +722,75 @@
               },
               {
                 "text": "",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "2,592",
                 "left": 964,
                 "width": 47
               }
@@ -857,6 +942,23 @@
           "selected": false
         }
       ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -864,7 +966,7 @@
       },
       "heatmap": null,
       "costCalendar": {
-        "cellWidth": 46.890625,
+        "cellWidth": 46.875,
         "cellHeight": 32,
         "scrollWidth": 763,
         "clientWidth": 763,
@@ -873,12 +975,12 @@
       "hasScrollHint": false,
       "costDebug": {
         "metrics": [
-          "月均（CNY）",
-          "9 台周期性计费",
-          "年化",
-          "当前周期年化 · 不含一次性",
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
           "未来 12 个月",
-          "比年化少 ¥18,584.48（已预付）"
+          "按到期日排期 · 已预付不重复"
         ],
         "monthHeaders": [
           {
@@ -951,78 +1053,9 @@
           {
             "cells": [
               {
-                "text": "USD · 2 台 · ¥3,312.00/月",
+                "text": "USD · 2 台 · ¥11,232.00/周期",
                 "left": 280,
                 "width": 120
-              }
-            ]
-          },
-          {
-            "cells": [
-              {
-                "text": "东京-02",
-                "left": 280,
-                "width": 120
-              },
-              {
-                "text": "",
-                "left": 404,
-                "width": 47
-              },
-              {
-                "text": "",
-                "left": 455,
-                "width": 47
-              },
-              {
-                "text": "",
-                "left": 506,
-                "width": 47
-              },
-              {
-                "text": "",
-                "left": 557,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 608,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 658,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 709,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 760,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 811,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 862,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 913,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 964,
-                "width": 47
               }
             ]
           },
@@ -1090,6 +1123,75 @@
               },
               {
                 "text": "",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "2,592",
                 "left": 964,
                 "width": 47
               }
@@ -1241,6 +1343,23 @@
           "selected": false
         }
       ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
       "tabsList": {
         "display": "grid",
         "width": 342,
@@ -1257,12 +1376,12 @@
       "hasScrollHint": true,
       "costDebug": {
         "metrics": [
-          "月均（CNY）",
-          "9 台周期性计费",
-          "年化",
-          "当前周期年化 · 不含一次性",
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
           "未来 12 个月",
-          "比年化少 ¥18,584.48（已预付）"
+          "按到期日排期 · 已预付不重复"
         ],
         "monthHeaders": [
           {
@@ -1335,78 +1454,9 @@
           {
             "cells": [
               {
-                "text": "USD · 2 台 · ¥3,312.00/月",
+                "text": "USD · 2 台 · ¥11,232.00/周期",
                 "left": 40,
                 "width": 120
-              }
-            ]
-          },
-          {
-            "cells": [
-              {
-                "text": "东京-02",
-                "left": 40,
-                "width": 120
-              },
-              {
-                "text": "",
-                "left": 164,
-                "width": 44
-              },
-              {
-                "text": "",
-                "left": 212,
-                "width": 44
-              },
-              {
-                "text": "",
-                "left": 260,
-                "width": 44
-              },
-              {
-                "text": "",
-                "left": 308,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 356,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 404,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 452,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 500,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 548,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 596,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 644,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 692,
-                "width": 44
               }
             ]
           },
@@ -1474,6 +1524,75 @@
               },
               {
                 "text": "",
+                "left": 692,
+                "width": 44
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "2,592",
                 "left": 692,
                 "width": 44
               }
@@ -1528,6 +1647,23 @@
           "selected": false
         }
       ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
       "tabsList": {
         "display": "grid",
         "width": 342,
@@ -1544,12 +1680,12 @@
       "hasScrollHint": true,
       "costDebug": {
         "metrics": [
-          "月均（CNY）",
-          "9 台周期性计费",
-          "年化",
-          "当前周期年化 · 不含一次性",
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
           "未来 12 个月",
-          "比年化少 ¥18,584.48（已预付）"
+          "按到期日排期 · 已预付不重复"
         ],
         "monthHeaders": [
           {
@@ -1622,78 +1758,9 @@
           {
             "cells": [
               {
-                "text": "USD · 2 台 · ¥3,312.00/月",
+                "text": "USD · 2 台 · ¥11,232.00/周期",
                 "left": 40,
                 "width": 120
-              }
-            ]
-          },
-          {
-            "cells": [
-              {
-                "text": "东京-02",
-                "left": 40,
-                "width": 120
-              },
-              {
-                "text": "",
-                "left": 164,
-                "width": 44
-              },
-              {
-                "text": "",
-                "left": 212,
-                "width": 44
-              },
-              {
-                "text": "",
-                "left": 260,
-                "width": 44
-              },
-              {
-                "text": "",
-                "left": 308,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 356,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 404,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 452,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 500,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 548,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 596,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 644,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 692,
-                "width": 44
               }
             ]
           },
@@ -1765,6 +1832,75 @@
                 "width": 44
               }
             ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 692,
+                "width": 44
+              }
+            ]
           }
         ]
       },
@@ -1815,6 +1951,7 @@
           "selected": false
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -1968,6 +2105,7 @@
           "selected": false
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "grid",
         "width": 342,
@@ -2026,6 +2164,7 @@
           "selected": false
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -2181,6 +2320,7 @@
           "selected": false
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -2336,6 +2476,7 @@
           "selected": false
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -2489,6 +2630,7 @@
           "selected": false
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -2622,12 +2764,12 @@
       "file": "app-cost-empty-390.png",
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 2609,
+      "pageHeight": 2632,
       "viewportWidth": 390,
-      "viewportHeight": 2665,
+      "viewportHeight": 2688,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 404.78125,
+      "sectionHeight": 427.171875,
       "tabs": [
         {
           "text": "服务器状态",
@@ -2642,6 +2784,7 @@
           "selected": false
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "grid",
         "width": 342,
@@ -2667,7 +2810,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 429
+      "pageHeightDelta": 452
     },
     {
       "id": "cost-error-1440",
@@ -2701,6 +2844,7 @@
           "selected": false
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -2854,6 +2998,7 @@
           "selected": true
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -3007,6 +3152,7 @@
           "selected": true
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -3160,6 +3306,7 @@
           "selected": true
         }
       ],
+      "metrics": [],
       "tabsList": {
         "display": "grid",
         "width": 342,
@@ -3217,6 +3364,23 @@
           "selected": false
         }
       ],
+      "metrics": [
+        {
+          "label": "24h uptime",
+          "value": "96.4%",
+          "hint": "7d 99.8% · 11 sampled"
+        },
+        {
+          "label": "Servers with anomalies",
+          "value": "3",
+          "hint": "1 offline · 2 resource alerts"
+        },
+        {
+          "label": "Highest disk usage",
+          "value": "91.0%",
+          "hint": "东京-02 · highest now"
+        }
+      ],
       "tabsList": {
         "display": "grid",
         "width": 342,
@@ -3260,12 +3424,12 @@
       "file": "app-cost-en-390.png",
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 4010,
+      "pageHeight": 4026,
       "viewportWidth": 390,
-      "viewportHeight": 4066,
+      "viewportHeight": 4082,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1693.171875,
+      "sectionHeight": 1709.171875,
       "tabs": [
         {
           "text": "Server status",
@@ -3278,6 +3442,23 @@
         {
           "text": "Chain latency",
           "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "Total cost",
+          "value": "¥17,216.64",
+          "hint": "Online + fully billed · 1 cycle"
+        },
+        {
+          "label": "This year",
+          "value": "¥6,381.89",
+          "hint": "Remaining 1 month"
+        },
+        {
+          "label": "Next 12 months",
+          "value": "¥59,997.20",
+          "hint": "Paid-until · prepaid skipped"
         }
       ],
       "tabsList": {
@@ -3296,12 +3477,12 @@
       "hasScrollHint": false,
       "costDebug": {
         "metrics": [
-          "Monthly (CNY)",
-          "9 servers billed periodically",
-          "Annualized",
-          "Annualized · excludes one-time",
+          "Total cost",
+          "Online + fully billed · 1 cycle",
+          "This year",
+          "Remaining 1 month",
           "Next 12 months",
-          "Less ¥18,584.48 (prepaid)"
+          "Paid-until · prepaid skipped"
         ],
         "monthHeaders": [
           {
@@ -3374,78 +3555,9 @@
           {
             "cells": [
               {
-                "text": "USD · 2 · ¥3,312.00/mo",
+                "text": "USD · 2 · ¥11,232.00/cycle",
                 "left": 40,
                 "width": 120
-              }
-            ]
-          },
-          {
-            "cells": [
-              {
-                "text": "东京-02",
-                "left": 40,
-                "width": 120
-              },
-              {
-                "text": "",
-                "left": 164,
-                "width": 44
-              },
-              {
-                "text": "",
-                "left": 212,
-                "width": 44
-              },
-              {
-                "text": "",
-                "left": 260,
-                "width": 44
-              },
-              {
-                "text": "",
-                "left": 308,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 356,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 404,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 452,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 500,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 548,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 596,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 644,
-                "width": 44
-              },
-              {
-                "text": "2,592",
-                "left": 692,
-                "width": 44
               }
             ]
           },
@@ -3517,6 +3629,75 @@
                 "width": 44
               }
             ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 692,
+                "width": 44
+              }
+            ]
           }
         ]
       },
@@ -3536,7 +3717,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1717
+      "pageHeightDelta": 1733
     },
     {
       "id": "cost-manual-1440",
@@ -3567,6 +3748,23 @@
           "selected": false
         }
       ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥6,381.89",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥59,997.20",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
       "tabsList": {
         "display": "flex",
         "width": 290,
@@ -3574,7 +3772,7 @@
       },
       "heatmap": null,
       "costCalendar": {
-        "cellWidth": 46.890625,
+        "cellWidth": 46.875,
         "cellHeight": 32,
         "scrollWidth": 763,
         "clientWidth": 763,
@@ -3583,12 +3781,12 @@
       "hasScrollHint": false,
       "costDebug": {
         "metrics": [
-          "月均（CNY）",
-          "9 台周期性计费",
-          "年化",
-          "当前周期年化 · 不含一次性",
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "按本年度剩余 1 个月折算",
           "未来 12 个月",
-          "比年化少 ¥18,584.48（已预付）"
+          "按到期日排期 · 已预付不重复"
         ],
         "monthHeaders": [
           {
@@ -3661,78 +3859,9 @@
           {
             "cells": [
               {
-                "text": "USD · 2 台 · ¥3,312.00/月",
+                "text": "USD · 2 台 · ¥11,232.00/周期",
                 "left": 280,
                 "width": 120
-              }
-            ]
-          },
-          {
-            "cells": [
-              {
-                "text": "东京-02",
-                "left": 280,
-                "width": 120
-              },
-              {
-                "text": "",
-                "left": 404,
-                "width": 47
-              },
-              {
-                "text": "",
-                "left": 455,
-                "width": 47
-              },
-              {
-                "text": "",
-                "left": 506,
-                "width": 47
-              },
-              {
-                "text": "",
-                "left": 557,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 608,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 658,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 709,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 760,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 811,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 862,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 913,
-                "width": 47
-              },
-              {
-                "text": "2,592",
-                "left": 964,
-                "width": 47
               }
             ]
           },
@@ -3800,6 +3929,75 @@
               },
               {
                 "text": "",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "2,592",
                 "left": 964,
                 "width": 47
               }
@@ -3921,6 +4119,713 @@
         ]
       },
       "pageHeightDelta": 1001
+    },
+    {
+      "id": "cost-dec-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "clockMs": 1797307200000,
+      "file": "app-cost-dec-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 2301,
+      "viewportWidth": 1440,
+      "viewportHeight": 2357,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 977.90625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥0.00",
+          "hint": "本年度已无剩余月份"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥65,575.84",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": {
+        "cellWidth": 46.875,
+        "cellHeight": 32,
+        "scrollWidth": 763,
+        "clientWidth": 763,
+        "scrollable": false
+      },
+      "hasScrollHint": false,
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "本年度已无剩余月份",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复"
+        ],
+        "monthHeaders": [
+          {
+            "text": "",
+            "left": 280,
+            "width": 120
+          },
+          {
+            "text": "12月",
+            "left": 404,
+            "width": 46.875
+          },
+          {
+            "text": "1月",
+            "left": 454.875,
+            "width": 46.890625
+          },
+          {
+            "text": "2月",
+            "left": 505.765625,
+            "width": 46.890625
+          },
+          {
+            "text": "3月",
+            "left": 556.65625,
+            "width": 46.890625
+          },
+          {
+            "text": "4月",
+            "left": 607.546875,
+            "width": 46.890625
+          },
+          {
+            "text": "5月",
+            "left": 658.4375,
+            "width": 46.875
+          },
+          {
+            "text": "6月",
+            "left": 709.3125,
+            "width": 46.890625
+          },
+          {
+            "text": "7月",
+            "left": 760.203125,
+            "width": 46.890625
+          },
+          {
+            "text": "8月",
+            "left": 811.09375,
+            "width": 46.890625
+          },
+          {
+            "text": "9月",
+            "left": 861.984375,
+            "width": 46.890625
+          },
+          {
+            "text": "10月",
+            "left": 912.875,
+            "width": 46.890625
+          },
+          {
+            "text": "11月",
+            "left": 963.765625,
+            "width": 46.875
+          }
+        ],
+        "rows": [
+          {
+            "cells": [
+              {
+                "text": "USD · 2 台 · ¥11,232.00/周期",
+                "left": 280,
+                "width": 120
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-01",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "8,640",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          }
+        ]
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 1001
+    },
+    {
+      "id": "cost-dec-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "clockMs": 1797307200000,
+      "file": "app-cost-dec-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 3882,
+      "viewportWidth": 390,
+      "viewportHeight": 3938,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1677.171875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "总开销",
+          "value": "¥17,216.64",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "¥0.00",
+          "hint": "本年度已无剩余月份"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥65,575.84",
+          "hint": "按到期日排期 · 已预付不重复"
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": {
+        "cellWidth": 44,
+        "cellHeight": 32,
+        "scrollWidth": 712,
+        "clientWidth": 342,
+        "scrollable": true
+      },
+      "hasScrollHint": true,
+      "costDebug": {
+        "metrics": [
+          "总开销",
+          "在线且费用完整 · 各计一个周期",
+          "本年度总开销",
+          "本年度已无剩余月份",
+          "未来 12 个月",
+          "按到期日排期 · 已预付不重复"
+        ],
+        "monthHeaders": [
+          {
+            "text": "",
+            "left": 40,
+            "width": 120
+          },
+          {
+            "text": "12月",
+            "left": 164,
+            "width": 44
+          },
+          {
+            "text": "1月",
+            "left": 212,
+            "width": 44
+          },
+          {
+            "text": "2月",
+            "left": 260,
+            "width": 44
+          },
+          {
+            "text": "3月",
+            "left": 308,
+            "width": 44
+          },
+          {
+            "text": "4月",
+            "left": 356,
+            "width": 44
+          },
+          {
+            "text": "5月",
+            "left": 404,
+            "width": 44
+          },
+          {
+            "text": "6月",
+            "left": 452,
+            "width": 44
+          },
+          {
+            "text": "7月",
+            "left": 500,
+            "width": 44
+          },
+          {
+            "text": "8月",
+            "left": 548,
+            "width": 44
+          },
+          {
+            "text": "9月",
+            "left": 596,
+            "width": 44
+          },
+          {
+            "text": "10月",
+            "left": 644,
+            "width": 44
+          },
+          {
+            "text": "11月",
+            "left": 692,
+            "width": 44
+          }
+        ],
+        "rows": [
+          {
+            "cells": [
+              {
+                "text": "USD · 2 台 · ¥11,232.00/周期",
+                "left": 40,
+                "width": 120
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-01",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "8,640",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 692,
+                "width": 44
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 692,
+                "width": 44
+              }
+            ]
+          }
+        ]
+      },
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1702
     }
   ],
   "urlBehavior": {

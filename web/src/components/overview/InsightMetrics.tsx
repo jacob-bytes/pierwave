@@ -44,7 +44,10 @@ export function InsightMetrics({
               {item.value}
             </div>
             {item.hint ? (
-              <p className="mt-2 line-clamp-2 text-xs leading-normal text-muted-foreground">
+              <p
+                data-insight-metric-hint
+                className="mt-2 line-clamp-2 text-xs leading-normal text-muted-foreground"
+              >
                 {item.hint}
               </p>
             ) : null}

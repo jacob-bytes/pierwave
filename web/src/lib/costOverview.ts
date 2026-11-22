@@ -1,18 +1,17 @@
 /**
- * 「成本开销」视图的纯逻辑：汇率归一化、月度/年化/未来 12 个月、付款日历、
- * Top 5 与币种构成。
+ * 「成本开销」视图的纯逻辑：范围过滤、汇率归一化、总开销 / 本年度 / 未来 12 个月。
  *
- * 计算口径（与设计稿一致）：
- * - `monthly_cny = price_cents / cycle_months * rate`，先按单台四舍五入到「分」，
- *   再求和，避免先加总再取整产生漂移；
- * - 所有金额内部都用 **CNY 分**，展示时再除以 100；
- * - 一次性费用 **不计入** 月均 / 年化 / 未来 12 个月，单列；
- * - 未知币种（不在 `fx_rates` 里）**不计入总额**，单列台数与币种；
- * - 没有计费周期的服务器无法年化，同样不计入，并单独计数；
- * - 未来 12 个月按 `paid_until` 起排期：`paid_until` 之前的月份标「已预付」，
- *   当期金额是**该周期的全额**（年付就是年付全额），不是月均。
+ * 所有者定义的口径：
+ * - 只统计 **在线** 且费用信息完整（price + currency + cycle count/unit）的服务器；
+ *   离线、未填费用、未知币种都不进入总额；未知币种单列提示；
+ * - 总开销 = 每台一个计费周期的价格（CNY）之和，一次性也计入；
+ * - 本年度总开销 = 周期价格 / 周期月数 × 本年度剩余月数（当前月视为已付/已过）；
+ *   一次性没有可信月数，不计入本年度；
+ * - 未来 12 个月 = 按 `paid_until` 排期，已预付不重复；一次性按到期日计入；
+ * - 排序 / Top 5 / 币种构成都用「一个周期的 CNY 价格」。
  *
- * 不依赖 React / DOM / i18n。
+ * 所有金额内部用 **CNY 分**：先把单台一个周期的价格折算成 CNY 分并四舍五入，
+ * 再做加减；展示时再除以 100。
  */
 
 import type { Server } from "./api.ts";
@@ -39,18 +38,21 @@ export interface CostCycleOnce {
 
 export type CostCycle = CostCycleMonths | CostCycleOnce;
 
-export interface CostPeriodicServer {
+/** 进入成本统计范围的一台服务器（在线 + 费用完整 + 汇率可换算）。 */
+export interface CostScopeRow {
   serverId: string;
   name: string;
   currency: string;
   rate: number;
-  cycleMonths: number;
-  /** 原币月均（分，已四舍五入）。 */
-  monthlyOriginalCents: number;
-  /** 折算 CNY 月均（分）。 */
-  monthlyCnyCents: number;
-  /** 该周期全额折算 CNY（分），用于付款日历。 */
+  kind: "periodic" | "once";
+  /** 一次性为 null。 */
+  cycleMonths: number | null;
+  /** 一个周期的原币价格（分）。 */
+  cycleOriginalCents: number;
+  /** 一个周期的价格折算 CNY（分）。 */
   cycleCnyCents: number;
+  /** 本年度折算（分）；一次性恒为 0。 */
+  currentYearCnyCents: number;
   paidUntil: string | null;
 }
 
@@ -59,9 +61,12 @@ export interface CostOneTimeRow {
   name: string;
   currency: string;
   amountCents: number;
-  /** 未知币种时为 null：原币金额保留，但不进入任何 CNY 汇总。 */
-  amountCnyCents: number | null;
+  amountCnyCents: number;
   paidUntil: string | null;
+  /** 到期月份序号；没有 paid_until 时按当前月。 */
+  dueMonth: number | null;
+  /** 是否落在未来 12 个月窗口内并计入 next12。 */
+  inNext12: boolean;
 }
 
 export interface CostUnknownCurrencyRow {
@@ -72,22 +77,24 @@ export interface CostUnknownCurrencyRow {
   cycle: CostCycle;
 }
 
-export type CostIncompleteReason =
+export type CostExcludedReason =
+  | "offline"
+  | "no_billing"
   | "missing_price"
   | "missing_currency"
   | "no_cycle";
 
-export interface CostIncompleteRow {
+export interface CostExcludedRow {
   serverId: string;
   name: string;
-  reason: CostIncompleteReason;
+  reason: CostExcludedReason;
 }
 
 export interface CostCalendarCell {
   monthIndex: number;
   /** 0 = 该月没有付款。 */
   amountCnyCents: number;
-  /** 已预付覆盖、不重复计费。 */
+  /** 已预付覆盖、不重复计费（仅周期性计费）。 */
   prepaid: boolean;
 }
 
@@ -95,6 +102,7 @@ export interface CostCalendarRow {
   serverId: string;
   name: string;
   currency: string;
+  kind: "periodic" | "once";
   /** 与 `CostOverview.months` 等长、按月份升序。 */
   cells: CostCalendarCell[];
 }
@@ -102,7 +110,7 @@ export interface CostCalendarRow {
 export interface CostCalendarGroup {
   currency: string;
   count: number;
-  monthlyCnyCents: number;
+  cycleCnyCents: number;
   rows: CostCalendarRow[];
 }
 
@@ -110,36 +118,42 @@ export interface CostTopRow {
   serverId: string;
   name: string;
   currency: string;
-  monthlyCnyCents: number;
-  /** 占周期性月均总额的百分比（0–100）。 */
+  kind: "periodic" | "once";
+  cycleCnyCents: number;
+  /** 占「一个周期总额」的百分比（0–100）。 */
   share: number;
 }
 
 export interface CostCurrencyMixRow {
   currency: string;
   count: number;
-  monthlyOriginalCents: number;
-  monthlyCnyCents: number;
+  cycleOriginalCents: number;
+  cycleCnyCents: number;
   share: number;
 }
 
 export interface CostOverview {
   months: number[];
-  monthlyCnyCents: number;
-  annualizedCnyCents: number;
+  /** 1–12（UTC+8）。 */
+  currentMonth: number;
+  /** 12 − 当前月；12 月为 0。 */
+  remainingMonths: number;
+  /** 在线 + 费用完整 + 汇率可换算的服务器，一个周期价格之和（含一次性）。 */
+  totalCnyCents: number;
+  /** 本年度剩余月份折算之和；不含一次性。 */
+  currentYearCnyCents: number;
+  /** 未来 12 个月排期之和；含一次性到期日。 */
   next12CnyCents: number;
-  /** 年化 - 未来 12 个月；负数按 0 处理。 */
-  prepaidSavingsCents: number;
-  periodicCount: number;
-  periodic: CostPeriodicServer[];
+  scope: CostScopeRow[];
+  scopeCount: number;
   top: CostTopRow[];
   currencyMix: CostCurrencyMixRow[];
   calendarRows: CostCalendarRow[];
   calendarGroups: CostCalendarGroup[];
   oneTime: CostOneTimeRow[];
   unknownCurrency: CostUnknownCurrencyRow[];
-  incomplete: CostIncompleteRow[];
-  /** 是否有任何可展示的计费数据；只有「未配置完整」时为 false。 */
+  excluded: CostExcludedRow[];
+  /** 有可展示的计费数据（含未知币种提示）；只有离线/未填费用时为 false。 */
   hasData: boolean;
 }
 
@@ -177,7 +191,8 @@ function normalizeCents(value: unknown): number | null {
 
 /**
  * 汇率归一化：接受对象、JSON 字符串，以及 `[{currency, rate}]` 数组。
- * 非法键 / 非正汇率一律忽略；CNY 始终为 1。
+ * 后端实际形状是 `{base, rates:{USD...}, fetched_at, source}` 的 JSON 字符串；
+ * 兼容直接给 `{USD:7.2}` 的旧形态。非法键 / 非正汇率一律忽略；CNY 始终为 1。
  */
 export function parseFxRates(raw: unknown): FxRates {
   let value = raw;
@@ -225,20 +240,16 @@ export function parseFxRates(raw: unknown): FxRates {
       );
     }
   } else if (isRecord(value)) {
-    // 后端实际形状：{base, rates:{USD...}, fetched_at, source}
     if (isRecord(value.rates)) {
       source =
         typeof value.source === "string" && value.source.trim()
           ? value.source.trim()
           : null;
-      fetchedAt = parseFxUpdatedAt(
-        value.fetched_at ?? value.fetchedAt,
-      );
+      fetchedAt = parseFxUpdatedAt(value.fetched_at ?? value.fetchedAt);
       for (const [key, rateValue] of Object.entries(value.rates)) {
         add(key, rateValue);
       }
     } else {
-      // 兼容直接给对象 / 数组的旧形态。
       for (const [key, rateValue] of Object.entries(value)) {
         add(key, rateValue);
       }
@@ -249,7 +260,7 @@ export function parseFxRates(raw: unknown): FxRates {
   return { rates, provided, source, fetchedAt };
 }
 
-/** `fx_rates_updated_at`：Unix 秒 / 毫秒 / 数字字符串 / ISO 日期。 */
+/** `fx_rates_updated_at` / `fetched_at`：Unix 秒 / 毫秒 / 数字字符串 / ISO。 */
 export function parseFxUpdatedAt(raw: unknown): number | null {
   if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) {
     return raw > 1e12 ? Math.floor(raw / 1000) : Math.floor(raw);
@@ -268,35 +279,34 @@ export function parseFxUpdatedAt(raw: unknown): number | null {
   return null;
 }
 
-/** 新契约（数量 + 单位）优先，旧 `billing_cycle` 回落；一次性固定 `once`。 */
+/**
+ * 完整费用信息 → 周期。按所有者口径，**必须**同时有合法的
+ * `billing_cycle_count` 与 `billing_cycle_unit`；只有旧 `billing_cycle`
+ * 视为「未填完整」，不进入成本统计。
+ */
 export function costCycleOf(server: Partial<Server>): CostCycle | null {
   const unit = server.billing_cycle_unit;
   const count = server.billing_cycle_count;
-
+  if (
+    unit !== "month" &&
+    unit !== "year" &&
+    unit !== "once"
+  ) {
+    return null;
+  }
+  if (
+    typeof count !== "number" ||
+    !Number.isInteger(count) ||
+    count < 1 ||
+    count > 1200
+  ) {
+    return null;
+  }
   if (unit === "once") return { kind: "once" };
-  if (unit === "month" || unit === "year") {
-    const amount =
-      typeof count === "number" && Number.isInteger(count) && count >= 1
-        ? count
-        : null;
-    if (amount !== null) {
-      return {
-        kind: "months",
-        months: unit === "year" ? amount * 12 : amount,
-      };
-    }
-  }
-
-  switch (server.billing_cycle) {
-    case "monthly":
-      return { kind: "months", months: 1 };
-    case "yearly":
-      return { kind: "months", months: 12 };
-    case "once":
-      return { kind: "once" };
-    default:
-      return null;
-  }
+  return {
+    kind: "months",
+    months: unit === "year" ? count * 12 : count,
+  };
 }
 
 function hasAnyBillingField(server: Partial<Server>): boolean {
@@ -372,7 +382,7 @@ function safeNumberFormat(
   }
 }
 
-/** CNY 分 → `¥1,810.75`（英文环境会得到 `CN¥…`，仍是 CNY）。 */
+/** CNY 分 → `¥1,810.75`（英文环境也使用窄符号 ¥）。 */
 export function formatCny(cents: number, locale = "zh-CN"): string {
   return safeNumberFormat(locale, {
     style: "currency",
@@ -417,89 +427,102 @@ export function formatFxRate(rate: number, locale = "zh-CN"): string {
 }
 
 function currencyMix(
-  periodic: readonly CostPeriodicServer[],
-  totalMonthly: number,
+  scope: readonly CostScopeRow[],
+  totalCnyCents: number,
 ): CostCurrencyMixRow[] {
   const groups = new Map<
     string,
     Omit<CostCurrencyMixRow, "share">
   >();
-  for (const row of periodic) {
+  for (const row of scope) {
     const existing = groups.get(row.currency);
     if (existing) {
       existing.count += 1;
-      existing.monthlyOriginalCents += row.monthlyOriginalCents;
-      existing.monthlyCnyCents += row.monthlyCnyCents;
+      existing.cycleOriginalCents += row.cycleOriginalCents;
+      existing.cycleCnyCents += row.cycleCnyCents;
     } else {
       groups.set(row.currency, {
         currency: row.currency,
         count: 1,
-        monthlyOriginalCents: row.monthlyOriginalCents,
-        monthlyCnyCents: row.monthlyCnyCents,
+        cycleOriginalCents: row.cycleOriginalCents,
+        cycleCnyCents: row.cycleCnyCents,
       });
     }
   }
   return [...groups.values()]
     .map((row) => ({
       ...row,
-      share: totalMonthly > 0 ? (row.monthlyCnyCents / totalMonthly) * 100 : 0,
+      share:
+        totalCnyCents > 0 ? (row.cycleCnyCents / totalCnyCents) * 100 : 0,
     }))
     .sort(
       (a, b) =>
-        b.monthlyCnyCents - a.monthlyCnyCents ||
+        b.cycleCnyCents - a.cycleCnyCents ||
         a.currency.localeCompare(b.currency),
     );
 }
 
 /**
- * 主入口：把服务器列表 + 汇率 + 当前时间算成完整成本视图。
+ * 主入口：服务器列表 + 汇率 + 当前时间 → 成本视图。
  *
- * `now` 用 Unix 秒；测试固定它就能断言「未来 12 个月」的排期。
+ * `now` 用 Unix 秒；测试固定它就能断言 8 月剩余 4 个月、12 月为 0。
  */
 export function buildCostOverview(
   servers: readonly Partial<Server>[],
   rates: Readonly<Record<string, number>>,
   now = Date.now() / 1000,
 ): CostOverview {
-  const periodic: CostPeriodicServer[] = [];
-  const oneTime: CostOneTimeRow[] = [];
+  const todayMonth = monthIndexOf(now);
+  const currentMonth = monthIndexParts(todayMonth).month + 1;
+  const remainingMonths = 12 - currentMonth;
+  const months = Array.from({ length: 12 }, (_, index) => todayMonth + index);
+  const endMonth = months[months.length - 1] ?? todayMonth;
+
+  const scope: CostScopeRow[] = [];
   const unknownCurrency: CostUnknownCurrencyRow[] = [];
-  const incomplete: CostIncompleteRow[] = [];
+  const excluded: CostExcludedRow[] = [];
 
   for (const server of servers) {
     if (!server || typeof server.id !== "string" || !server.id.trim()) {
       continue;
     }
-    if (!hasAnyBillingField(server)) continue;
-
     const serverId = server.id;
     const name =
       typeof server.name === "string" && server.name.trim()
         ? server.name.trim()
         : serverId;
+
+    // 范围 1：当前在线。到期但仍在线的也保留（视为忘了续期）。
+    if (server.status !== "online") {
+      excluded.push({ serverId, name, reason: "offline" });
+      continue;
+    }
+
+    const hasBilling = hasAnyBillingField(server);
     const price = normalizeCents(server.price_cents);
     const currency = normalizeCurrency(server.currency);
     const cycle = costCycleOf(server);
-    const paidUntil =
-      typeof server.paid_until === "string" && server.paid_until.trim()
-        ? server.paid_until.trim()
-        : null;
 
+    if (!hasBilling) {
+      excluded.push({ serverId, name, reason: "no_billing" });
+      continue;
+    }
     if (price === null) {
-      incomplete.push({ serverId, name, reason: "missing_price" });
+      excluded.push({ serverId, name, reason: "missing_price" });
       continue;
     }
     if (currency === null) {
-      incomplete.push({ serverId, name, reason: "missing_currency" });
+      excluded.push({ serverId, name, reason: "missing_currency" });
       continue;
     }
     if (cycle === null) {
-      incomplete.push({ serverId, name, reason: "no_cycle" });
+      excluded.push({ serverId, name, reason: "no_cycle" });
       continue;
     }
 
     const rate = currency === "CNY" ? 1 : rates[currency];
     if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
+      // 范围 2：未知币种换算不了；不进总额，但单列提示。
       unknownCurrency.push({
         serverId,
         name,
@@ -510,84 +533,121 @@ export function buildCostOverview(
       continue;
     }
 
-    if (cycle.kind === "once") {
-      oneTime.push({
-        serverId,
-        name,
-        currency,
-        amountCents: price,
-        amountCnyCents: Math.round(price * rate),
-        paidUntil,
-      });
-      continue;
-    }
+    const cycleCnyCents = Math.round(price * rate);
+    const currentYearCnyCents =
+      cycle.kind === "once"
+        ? 0
+        : Math.round((cycleCnyCents / cycle.months) * remainingMonths);
+    const paidUntil =
+      typeof server.paid_until === "string" && server.paid_until.trim()
+        ? server.paid_until.trim()
+        : null;
 
-    periodic.push({
+    scope.push({
       serverId,
       name,
       currency,
       rate,
-      cycleMonths: cycle.months,
-      monthlyOriginalCents: Math.round(price / cycle.months),
-      monthlyCnyCents: Math.round((price / cycle.months) * rate),
-      cycleCnyCents: Math.round(price * rate),
+      kind: cycle.kind === "once" ? "once" : "periodic",
+      cycleMonths: cycle.kind === "once" ? null : cycle.months,
+      cycleOriginalCents: price,
+      cycleCnyCents,
+      currentYearCnyCents,
       paidUntil,
     });
   }
 
-  const monthlyCnyCents = periodic.reduce(
-    (sum, row) => sum + row.monthlyCnyCents,
+  const totalCnyCents = scope.reduce(
+    (sum, row) => sum + row.cycleCnyCents,
     0,
   );
-  const annualizedCnyCents = monthlyCnyCents * 12;
-  const todayMonth = monthIndexOf(now);
-  const months = Array.from({ length: 12 }, (_, index) => todayMonth + index);
-  const endMonth = months[months.length - 1] ?? todayMonth;
+  const currentYearCnyCents = scope.reduce(
+    (sum, row) => sum + row.currentYearCnyCents,
+    0,
+  );
 
   let next12CnyCents = 0;
-  const calendarRows = periodic.map<CostCalendarRow>((row) => {
+  const calendarRows: CostCalendarRow[] = [];
+
+  for (const row of scope) {
     const paidMonth = monthIndexOfDate(row.paidUntil);
-    const startMonth =
-      paidMonth === null ? todayMonth : Math.max(todayMonth, paidMonth);
-    const payments = new Map<number, number>();
-    for (
-      let month = startMonth;
-      month <= endMonth;
-      month += row.cycleMonths
-    ) {
-      payments.set(month, row.cycleCnyCents);
-    }
-    const prepaid = new Set<number>();
-    for (let month = todayMonth; month < startMonth; month += 1) {
-      if (month >= todayMonth && month <= endMonth) prepaid.add(month);
-    }
+    const cells = new Map<number, CostCalendarCell>();
 
-    const cells = months.map<CostCalendarCell>((monthIndex) => {
-      const amount = payments.get(monthIndex) ?? 0;
-      return {
-        monthIndex,
-        amountCnyCents: amount,
-        prepaid: amount === 0 && prepaid.has(monthIndex),
+    if (row.kind === "periodic" && row.cycleMonths !== null) {
+      const startMonth =
+        paidMonth === null ? todayMonth : Math.max(todayMonth, paidMonth);
+      const prepaid = new Set<number>();
+      for (let month = todayMonth; month < startMonth; month += 1) {
+        if (month >= todayMonth && month <= endMonth) prepaid.add(month);
+      }
+      for (
+        let month = startMonth;
+        month <= endMonth;
+        month += row.cycleMonths
+      ) {
+        const cell = {
+          monthIndex: month,
+          amountCnyCents: row.cycleCnyCents,
+          prepaid: false,
+        };
+        cells.set(month, cell);
+        next12CnyCents += row.cycleCnyCents;
+      }
+      for (const month of prepaid) {
+        cells.set(month, {
+          monthIndex: month,
+          amountCnyCents: 0,
+          prepaid: true,
+        });
+      }
+      calendarRows.push({
+        serverId: row.serverId,
+        name: row.name,
+        currency: row.currency,
+        kind: row.kind,
+        cells: months.map(
+          (monthIndex) =>
+            cells.get(monthIndex) ?? {
+              monthIndex,
+              amountCnyCents: 0,
+              prepaid: false,
+            },
+        ),
+      });
+    } else {
+      // 一次性：按到期日一次性计入；没有 paid_until 视为当前月到期。
+      // 已经过期的单次费用视为已付，不进未来 12 个月。
+      const dueMonth = paidMonth ?? todayMonth;
+      if (dueMonth < todayMonth || dueMonth > endMonth) continue;
+      const cell = {
+        monthIndex: dueMonth,
+        amountCnyCents: row.cycleCnyCents,
+        prepaid: false,
       };
-    });
-    next12CnyCents += [...payments.values()].reduce(
-      (sum, amount) => sum + amount,
-      0,
-    );
+      cells.set(dueMonth, cell);
+      next12CnyCents += row.cycleCnyCents;
+      calendarRows.push({
+        serverId: row.serverId,
+        name: row.name,
+        currency: row.currency,
+        kind: row.kind,
+        cells: months.map(
+          (monthIndex) =>
+            cells.get(monthIndex) ?? {
+              monthIndex,
+              amountCnyCents: 0,
+              prepaid: false,
+            },
+        ),
+      });
+    }
+  }
 
-    return {
-      serverId: row.serverId,
-      name: row.name,
-      currency: row.currency,
-      cells,
-    };
-  });
-
-  const mix = currencyMix(periodic, monthlyCnyCents);
-  const top = [...periodic]
+  const mix = currencyMix(scope, totalCnyCents);
+  const top = [...scope]
     .sort(
       (a, b) =>
-        b.monthlyCnyCents - a.monthlyCnyCents ||
+        b.cycleCnyCents - a.cycleCnyCents ||
         a.name.localeCompare(b.name),
     )
     .slice(0, 5)
@@ -595,60 +655,88 @@ export function buildCostOverview(
       serverId: row.serverId,
       name: row.name,
       currency: row.currency,
-      monthlyCnyCents: row.monthlyCnyCents,
-      share: monthlyCnyCents > 0 ? (row.monthlyCnyCents / monthlyCnyCents) * 100 : 0,
+      kind: row.kind,
+      cycleCnyCents: row.cycleCnyCents,
+      share: totalCnyCents > 0 ? (row.cycleCnyCents / totalCnyCents) * 100 : 0,
     }));
 
   const groupOrder = new Map(
     mix.map((row, index) => [row.currency, index] as const),
   );
+  const scopeById = new Map(scope.map((row) => [row.serverId, row] as const));
   const calendarGroups: CostCalendarGroup[] = mix
-    .map((row) => ({
-      currency: row.currency,
-      count: row.count,
-      monthlyCnyCents: row.monthlyCnyCents,
-      rows: calendarRows
+    .map((row) => {
+      const rows = calendarRows
         .filter((calendarRow) => calendarRow.currency === row.currency)
-        .sort(
-          (a, b) =>
-            (periodic.find((item) => item.serverId === b.serverId)
-              ?.monthlyCnyCents ?? 0) -
-              (periodic.find((item) => item.serverId === a.serverId)
-                ?.monthlyCnyCents ?? 0) ||
-            a.name.localeCompare(b.name),
+        .sort((a, b) => {
+          const aRow = scopeById.get(a.serverId);
+          const bRow = scopeById.get(b.serverId);
+          return (
+            (bRow?.cycleCnyCents ?? 0) - (aRow?.cycleCnyCents ?? 0) ||
+            a.name.localeCompare(b.name)
+          );
+        });
+      return {
+        currency: row.currency,
+        count: rows.length,
+        cycleCnyCents: rows.reduce(
+          (sum, calendarRow) =>
+            sum + (scopeById.get(calendarRow.serverId)?.cycleCnyCents ?? 0),
+          0,
         ),
-    }))
+        rows,
+      };
+    })
     .sort(
       (a, b) =>
         (groupOrder.get(a.currency) ?? 0) -
-          (groupOrder.get(b.currency) ?? 0) || a.currency.localeCompare(b.currency),
+          (groupOrder.get(b.currency) ?? 0) ||
+        a.currency.localeCompare(b.currency),
     )
     .filter((group) => group.rows.length > 0);
 
+  const oneTime: CostOneTimeRow[] = scope
+    .filter((row) => row.kind === "once")
+    .map((row) => {
+      const paidMonth = monthIndexOfDate(row.paidUntil);
+      const dueMonth = paidMonth ?? todayMonth;
+      return {
+        serverId: row.serverId,
+        name: row.name,
+        currency: row.currency,
+        amountCents: row.cycleOriginalCents,
+        amountCnyCents: row.cycleCnyCents,
+        paidUntil: row.paidUntil,
+        dueMonth,
+        inNext12:
+          dueMonth >= todayMonth &&
+          dueMonth <= endMonth,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.amountCnyCents - a.amountCnyCents ||
+        a.name.localeCompare(b.name),
+    );
+
   return {
     months,
-    monthlyCnyCents,
-    annualizedCnyCents,
+    currentMonth,
+    remainingMonths,
+    totalCnyCents,
+    currentYearCnyCents,
     next12CnyCents,
-    prepaidSavingsCents: Math.max(0, annualizedCnyCents - next12CnyCents),
-    periodicCount: periodic.length,
-    periodic,
+    scope,
+    scopeCount: scope.length,
     top,
     currencyMix: mix,
     calendarRows,
     calendarGroups,
-    oneTime: oneTime.sort(
-      (a, b) =>
-        (b.amountCnyCents ?? -1) - (a.amountCnyCents ?? -1) ||
-        a.name.localeCompare(b.name),
-    ),
+    oneTime,
     unknownCurrency: unknownCurrency.sort((a, b) =>
       a.currency.localeCompare(b.currency),
     ),
-    incomplete,
-    hasData:
-      periodic.length > 0 ||
-      oneTime.length > 0 ||
-      unknownCurrency.length > 0,
+    excluded,
+    hasData: scope.length > 0 || unknownCurrency.length > 0,
   };
 }

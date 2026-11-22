@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T04:45:32.275Z",
+  "generatedAt": "2026-11-22T05:00:00.098Z",
   "base": "http://127.0.0.1:8787",
   "shots": [
     {
@@ -32,15 +32,18 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "38.6%"
+          "value": "38.3%",
+          "hint": "7 天 74.7% · 10 台有采样"
         },
         {
           "label": "异常服务器",
-          "value": "10"
+          "value": "10",
+          "hint": "10 台离线过 · 0 台资源告警"
         },
         {
           "label": "磁盘最高",
-          "value": "56.3%"
+          "value": "56.3%",
+          "hint": "新加坡-02 · 当前最高"
         }
       ],
       "heatmap": {
@@ -85,15 +88,18 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "38.6%"
+          "value": "38.3%",
+          "hint": "7 天 74.7% · 10 台有采样"
         },
         {
           "label": "异常服务器",
-          "value": "10"
+          "value": "10",
+          "hint": "10 台离线过 · 0 台资源告警"
         },
         {
           "label": "磁盘最高",
-          "value": "56.3%"
+          "value": "56.3%",
+          "hint": "新加坡-02 · 当前最高"
         }
       ],
       "heatmap": {
@@ -138,15 +144,18 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "38.6%"
+          "value": "38.3%",
+          "hint": "7 天 74.7% · 10 台有采样"
         },
         {
           "label": "异常服务器",
-          "value": "10"
+          "value": "10",
+          "hint": "10 台离线过 · 0 台资源告警"
         },
         {
           "label": "磁盘最高",
-          "value": "56.3%"
+          "value": "56.3%",
+          "hint": "新加坡-02 · 当前最高"
         }
       ],
       "heatmap": {
@@ -191,15 +200,18 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "38.6%"
+          "value": "38.3%",
+          "hint": "7 天 74.7% · 10 台有采样"
         },
         {
           "label": "异常服务器",
-          "value": "10"
+          "value": "10",
+          "hint": "10 台离线过 · 0 台资源告警"
         },
         {
           "label": "磁盘最高",
-          "value": "56.3%"
+          "value": "56.3%",
+          "hint": "新加坡-02 · 当前最高"
         }
       ],
       "heatmap": {
@@ -243,29 +255,32 @@
       ],
       "metrics": [
         {
-          "label": "月均（CNY）",
-          "value": "¥1,132.55"
+          "label": "总开销",
+          "value": "¥4,047.30",
+          "hint": "在线且费用完整 · 各计一个周期"
         },
         {
-          "label": "年化",
-          "value": "¥13,590.60"
+          "label": "本年度总开销",
+          "value": "¥1,132.55",
+          "hint": "按本年度剩余 1 个月折算"
         },
         {
           "label": "未来 12 个月",
-          "value": "¥13,322.60"
+          "value": "¥15,321.60",
+          "hint": "按到期日排期 · 已预付不重复"
         }
       ],
       "heatmap": null,
       "cost": {
-        "cells": 48,
-        "cellWidth": 46.875,
+        "cells": 49,
+        "cellWidth": 46.890625,
         "cellHeight": 32,
         "scrollWidth": 763,
         "clientWidth": 763,
         "scrollable": false,
         "fxLine": "按自动汇率折算为 CNY（EUR 7.8 / JPY 0.048 / USD 7.2，更新于 2026-11-22 12:41:22）",
-        "annualizedLine": "当前周期年化 · 不含一次性",
-        "oneTimeLine": "不计入年化"
+        "currentYearLine": "按本年度剩余 1 个月折算",
+        "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
       "pageHeightDelta": 924
@@ -277,12 +292,12 @@
       "width": 390,
       "file": "app-real-cost-dark-390.png",
       "pageWidth": 390,
-      "pageHeight": 3706,
+      "pageHeight": 3779,
       "viewportWidth": 390,
-      "viewportHeight": 3762,
+      "viewportHeight": 3835,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1398.171875,
+      "sectionHeight": 1471.171875,
       "tabs": [
         {
           "text": "服务器状态",
@@ -299,32 +314,35 @@
       ],
       "metrics": [
         {
-          "label": "月均（CNY）",
-          "value": "¥1,132.55"
+          "label": "总开销",
+          "value": "¥4,047.30",
+          "hint": "在线且费用完整 · 各计一个周期"
         },
         {
-          "label": "年化",
-          "value": "¥13,590.60"
+          "label": "本年度总开销",
+          "value": "¥1,132.55",
+          "hint": "按本年度剩余 1 个月折算"
         },
         {
           "label": "未来 12 个月",
-          "value": "¥13,322.60"
+          "value": "¥15,321.60",
+          "hint": "按到期日排期 · 已预付不重复"
         }
       ],
       "heatmap": null,
       "cost": {
-        "cells": 48,
+        "cells": 49,
         "cellWidth": 44,
         "cellHeight": 32,
         "scrollWidth": 712,
         "clientWidth": 342,
         "scrollable": true,
         "fxLine": "按自动汇率折算为 CNY（EUR 7.8 / JPY 0.048 / USD 7.2，更新于 2026-11-22 12:41:22）",
-        "annualizedLine": "当前周期年化 · 不含一次性",
-        "oneTimeLine": "不计入年化"
+        "currentYearLine": "按本年度剩余 1 个月折算",
+        "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": true,
-      "pageHeightDelta": 1422
+      "pageHeightDelta": 1495
     },
     {
       "id": "real-cost-light-1440",
@@ -355,29 +373,32 @@
       ],
       "metrics": [
         {
-          "label": "月均（CNY）",
-          "value": "¥1,132.55"
+          "label": "总开销",
+          "value": "¥4,047.30",
+          "hint": "在线且费用完整 · 各计一个周期"
         },
         {
-          "label": "年化",
-          "value": "¥13,590.60"
+          "label": "本年度总开销",
+          "value": "¥1,132.55",
+          "hint": "按本年度剩余 1 个月折算"
         },
         {
           "label": "未来 12 个月",
-          "value": "¥13,322.60"
+          "value": "¥15,321.60",
+          "hint": "按到期日排期 · 已预付不重复"
         }
       ],
       "heatmap": null,
       "cost": {
-        "cells": 48,
-        "cellWidth": 46.875,
+        "cells": 49,
+        "cellWidth": 46.890625,
         "cellHeight": 32,
         "scrollWidth": 763,
         "clientWidth": 763,
         "scrollable": false,
         "fxLine": "按自动汇率折算为 CNY（EUR 7.8 / JPY 0.048 / USD 7.2，更新于 2026-11-22 12:41:22）",
-        "annualizedLine": "当前周期年化 · 不含一次性",
-        "oneTimeLine": "不计入年化"
+        "currentYearLine": "按本年度剩余 1 个月折算",
+        "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
       "pageHeightDelta": 924
@@ -389,12 +410,12 @@
       "width": 390,
       "file": "app-real-cost-light-390.png",
       "pageWidth": 390,
-      "pageHeight": 3706,
+      "pageHeight": 3779,
       "viewportWidth": 390,
-      "viewportHeight": 3762,
+      "viewportHeight": 3835,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1398.171875,
+      "sectionHeight": 1471.171875,
       "tabs": [
         {
           "text": "服务器状态",
@@ -411,32 +432,35 @@
       ],
       "metrics": [
         {
-          "label": "月均（CNY）",
-          "value": "¥1,132.55"
+          "label": "总开销",
+          "value": "¥4,047.30",
+          "hint": "在线且费用完整 · 各计一个周期"
         },
         {
-          "label": "年化",
-          "value": "¥13,590.60"
+          "label": "本年度总开销",
+          "value": "¥1,132.55",
+          "hint": "按本年度剩余 1 个月折算"
         },
         {
           "label": "未来 12 个月",
-          "value": "¥13,322.60"
+          "value": "¥15,321.60",
+          "hint": "按到期日排期 · 已预付不重复"
         }
       ],
       "heatmap": null,
       "cost": {
-        "cells": 48,
+        "cells": 49,
         "cellWidth": 44,
         "cellHeight": 32,
         "scrollWidth": 712,
         "clientWidth": 342,
         "scrollable": true,
         "fxLine": "按自动汇率折算为 CNY（EUR 7.8 / JPY 0.048 / USD 7.2，更新于 2026-11-22 12:41:22）",
-        "annualizedLine": "当前周期年化 · 不含一次性",
-        "oneTimeLine": "不计入年化"
+        "currentYearLine": "按本年度剩余 1 个月折算",
+        "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": true,
-      "pageHeightDelta": 1422
+      "pageHeightDelta": 1495
     }
   ],
   "errors": []

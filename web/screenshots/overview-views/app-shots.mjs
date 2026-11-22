@@ -82,6 +82,7 @@ const SERVER_DEFS = [
   {
     id: "srv-hk-03",
     name: "香港-03",
+    status: "offline",
     currency: "CNY",
     price_cents: 8800,
     billing_cycle: "monthly",
@@ -174,7 +175,6 @@ const SERVER_DEFS = [
     billing_cycle_unit: "once",
     paid_until: "2027-06-30",
     current: null,
-    status: "offline",
     noBuckets: true,
   },
   {
@@ -571,6 +571,8 @@ const SCENARIOS = [
   { id: "server-en-390", view: "server", theme: "dark", width: 390, mock: "normal", locale: "en" },
   { id: "cost-en-390", view: "cost", theme: "dark", width: 390, mock: "normal", locale: "en" },
   { id: "cost-manual-1440", view: "cost", theme: "dark", width: 1440, mock: "costManual" },
+  { id: "cost-dec-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", clockMs: Date.UTC(2026, 11, 15, 4, 0, 0) },
+  { id: "cost-dec-390", view: "cost", theme: "dark", width: 390, mock: "normal", clockMs: Date.UTC(2026, 11, 15, 4, 0, 0) },
 ];
 
 const only = process.env.APP_SHOTS_ONLY?.split(",").filter(Boolean) ?? [];
@@ -628,6 +630,25 @@ for (const scenario of activeScenarios) {
     },
     { theme: scenario.theme, locale: scenario.locale ?? "zh-CN" },
   );
+  if (scenario.clockMs !== undefined) {
+    await page.addInitScript(
+      ({ clockMs }) => {
+        const RealDate = Date;
+        class FixedDate extends RealDate {
+          constructor(...args) {
+            if (args.length === 0) super(clockMs);
+            else super(...args);
+          }
+          static now() {
+            return clockMs;
+          }
+        }
+        // @ts-ignore - test-only clock override
+        window.Date = FixedDate;
+      },
+      { clockMs: scenario.clockMs },
+    );
+  }
   await page.route("**/api/v1/**", (route) => handleApi(route, scenario.mock));
 
   const url = scenario.view
@@ -697,6 +718,22 @@ for (const scenario of activeScenarios) {
             }),
           )
         : [],
+      metrics: [...document.querySelectorAll("[data-insight-metric]")].map(
+        (node) => ({
+          label:
+            node
+              .querySelector("[data-insight-metric-label]")
+              ?.textContent?.trim() ?? "",
+          value:
+            node
+              .querySelector("[data-insight-metric-value]")
+              ?.textContent?.trim() ?? "",
+          hint:
+            node
+              .querySelector("[data-insight-metric-hint]")
+              ?.textContent?.trim() ?? "",
+        }),
+      ),
       tabsList: viewTabs
         ? {
             display: getComputedStyle(viewTabs).display,

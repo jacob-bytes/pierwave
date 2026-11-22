@@ -117,36 +117,34 @@ function CostBody({
   onRetrySettings: () => void;
 }) {
   const { locale } = useI18n();
-  const next12Hint =
-    overview.prepaidSavingsCents > 0
-      ? t("overview.cost.next12Less", {
-          amount: formatCny(overview.prepaidSavingsCents, locale),
-        })
-      : t("overview.cost.next12Hint");
+  const currentYearHint =
+    overview.remainingMonths === 0
+      ? t("overview.cost.currentYearZeroHint")
+      : t(
+          overview.remainingMonths === 1
+            ? "overview.cost.currentYearHintOne"
+            : "overview.cost.currentYearHint",
+          { n: overview.remainingMonths },
+        );
 
   return (
     <div className="space-y-4" data-cost-view>
       <InsightMetrics
         items={[
           {
-            label: t("overview.cost.monthly"),
-            value: formatCny(overview.monthlyCnyCents, locale),
-            hint: t(
-              overview.periodicCount === 1
-                ? "overview.cost.monthlyHintOne"
-                : "overview.cost.monthlyHint",
-              { n: overview.periodicCount },
-            ),
+            label: t("overview.cost.total"),
+            value: formatCny(overview.totalCnyCents, locale),
+            hint: t("overview.cost.totalHint"),
           },
           {
-            label: t("overview.cost.annualized"),
-            value: formatCny(overview.annualizedCnyCents, locale),
-            hint: t("overview.cost.annualizedHint"),
+            label: t("overview.cost.currentYear"),
+            value: formatCny(overview.currentYearCnyCents, locale),
+            hint: currentYearHint,
           },
           {
             label: t("overview.cost.next12"),
             value: formatCny(overview.next12CnyCents, locale),
-            hint: next12Hint,
+            hint: t("overview.cost.next12Hint"),
           },
         ]}
       />
@@ -442,14 +440,9 @@ function PaymentCalendarCard({
       <p className="px-4 pt-1 pb-4 text-[10px] leading-normal text-muted-foreground xl:hidden">
         {t("overview.cost.calendarScroll")}
       </p>
-      {overview.incomplete.length > 0 ? (
+      {overview.excluded.length > 0 ? (
         <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
-          {t(
-            overview.incomplete.length === 1
-              ? "overview.cost.incompleteOne"
-              : "overview.cost.incomplete",
-            { n: overview.incomplete.length },
-          )}
+          {t("overview.cost.excluded", { n: overview.excluded.length })}
         </p>
       ) : null}
     </Card>
@@ -479,7 +472,7 @@ function CalendarGroup({
             {
               currency: group.currency,
               n: group.count,
-              amount: formatCny(group.monthlyCnyCents, locale),
+              amount: formatCny(group.cycleCnyCents, locale),
             },
           )}
         </span>
@@ -490,8 +483,13 @@ function CalendarGroup({
           className="grid items-center gap-1"
           style={gridStyle}
         >
-          <div className="min-w-0 truncate text-xs" title={row.name}>
-            {row.name}
+          <div className="flex min-w-0 items-baseline gap-1 text-xs" title={row.name}>
+            <span className="min-w-0 truncate">{row.name}</span>
+            {row.kind === "once" ? (
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                · {t("overview.cost.onceShort")}
+              </span>
+            ) : null}
           </div>
           {row.cells.map((cell) => (
             <CalendarCell
@@ -516,7 +514,7 @@ function TopCostCard({
   rows: CostTopRow[];
   locale: string;
 }) {
-  const max = rows[0]?.monthlyCnyCents ?? 0;
+  const max = rows[0]?.cycleCnyCents ?? 0;
 
   return (
     <Card className="flex flex-col gap-0">
@@ -556,7 +554,7 @@ function TopCostCard({
                     {row.currency}
                   </span>
                   <span className="shrink-0 font-mono text-xs tabular-nums">
-                    {formatCny(row.monthlyCnyCents, locale)}
+                    {formatCny(row.cycleCnyCents, locale)}
                   </span>
                 </div>
                 <div className="mt-1 flex items-center gap-2 pl-5">
@@ -569,7 +567,7 @@ function TopCostCard({
                       style={{
                         width:
                           max > 0
-                            ? `${Math.round((row.monthlyCnyCents / max) * 100)}%`
+                            ? `${Math.round((row.cycleCnyCents / max) * 100)}%`
                             : "0%",
                       }}
                     />
@@ -647,7 +645,7 @@ function CurrencyMixCard({
                 className="flex min-w-0 items-center gap-2 px-2.5 py-1 text-xs"
                 title={t("overview.cost.mixOriginal", {
                   amount: formatCurrency(
-                    row.monthlyOriginalCents,
+                    row.cycleOriginalCents,
                     row.currency,
                     locale,
                   ),
@@ -665,13 +663,13 @@ function CurrencyMixCard({
                   {row.currency === "CNY"
                     ? "—"
                     : formatCurrency(
-                        row.monthlyOriginalCents,
+                        row.cycleOriginalCents,
                         row.currency,
                         locale,
                       )}
                 </span>
                 <span className="shrink-0 font-mono tabular-nums">
-                  {formatCny(row.monthlyCnyCents, locale)}
+                  {formatCny(row.cycleCnyCents, locale)}
                 </span>
                 <span className="w-8 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums">
                   {row.share.toFixed(0)}%
@@ -728,9 +726,7 @@ function OneTimeCard({
                     {formatCurrency(row.amountCents, row.currency, locale)}
                   </span>
                   <span className="shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
-                    {row.amountCnyCents === null
-                      ? t("overview.cost.oneTimeNoRate")
-                      : formatCny(row.amountCnyCents, locale)}
+                    {formatCny(row.amountCnyCents, locale)}
                   </span>
                 </>
               )}
