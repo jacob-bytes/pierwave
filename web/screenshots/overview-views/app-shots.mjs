@@ -1086,7 +1086,7 @@ const EXPECTED_API = {
 const EXPECTED_CARD_TITLES = {
   server: ["服务器 × 时间", "当前资源", "异常窗口"],
   traffic: ["近 7 天趋势", "流量分布", "流量榜单", "告警"],
-  cost: ["未来 12 个月的开销", "开销大头", "币种构成", "续费日历", "一次性费用"],
+  cost: ["未来 12 个月的开销", "开销大头", "一次性费用", "币种构成", "续费日历"],
   chain: ["转发链健康", "链路时延"],
 };
 
@@ -1561,8 +1561,26 @@ for (const scenario of activeScenarios) {
   if (scenario.action === "pieHoverOther") {
     const sectors = page.locator("[data-pie-sector]");
     if ((await sectors.count()) > 0) {
-      await sectors.last().dispatchEvent("mouseover");
-      await page.waitForTimeout(250);
+      await sectors.last().evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        element.dispatchEvent(
+          new MouseEvent("mouseover", {
+            bubbles: true,
+            clientX: x,
+            clientY: y,
+          }),
+        );
+        element.dispatchEvent(
+          new MouseEvent("mousemove", {
+            bubbles: true,
+            clientX: x,
+            clientY: y,
+          }),
+        );
+      });
+      await page.waitForTimeout(300);
     }
   }
 
@@ -1931,6 +1949,9 @@ for (const scenario of activeScenarios) {
         const grid = card.querySelector("[data-renewal-grid]");
         const days = [...card.querySelectorAll("[data-renewal-day]")];
         const cells = [...card.querySelectorAll("[data-renewal-cell]")];
+        const currentCells = cells.filter(
+          (cell) => !cell.hasAttribute("data-renewal-adjacent"),
+        );
         const cell = cells[0]?.getBoundingClientRect() ?? null;
         const tooltip = document.querySelector("[data-renewal-tooltip]");
         const tooltipRect = tooltip?.getBoundingClientRect() ?? null;
@@ -1942,6 +1963,13 @@ for (const scenario of activeScenarios) {
             card.querySelector("[data-renewal-summary]")?.textContent?.trim() ??
             null,
           cells: cells.length,
+          currentCells: currentCells.length,
+          adjacentCells: cells.length - currentCells.length,
+          leadingCells: card.querySelectorAll("[data-renewal-leading]").length,
+          blankCells: cells.filter(
+            (cell) => (cell.textContent?.trim() ?? "") === "",
+          ).length,
+          todayCells: card.querySelectorAll("[data-renewal-today]").length,
           eventDays: days.length,
           totalCount: days.reduce(
             (sum, day) =>
@@ -2465,11 +2493,15 @@ for (const scenario of activeScenarios) {
       if (
         month &&
         top &&
+        once &&
         (Math.abs(month.top - top.top) > 1.5 ||
-          Math.abs(month.bottom - top.bottom) > 1.5)
+          Math.abs(month.bottom - once.bottom) > 1.5 ||
+          Math.abs(top.left - once.left) > 1.5 ||
+          Math.abs(top.right - once.right) > 1.5 ||
+          Math.abs(once.top - top.bottom - 16) > 2)
       ) {
         errors.push(
-          `${scenario.id}: month/top cards not aligned (${JSON.stringify({ month, top })})`,
+          `${scenario.id}: right column stack not aligned (${JSON.stringify({ month, top, once })})`,
         );
       }
       if (
@@ -2480,17 +2512,6 @@ for (const scenario of activeScenarios) {
       ) {
         errors.push(
           `${scenario.id}: mix/renewal cards not aligned (${JSON.stringify({ mix, renewal })})`,
-        );
-      }
-      if (
-        once &&
-        month &&
-        top &&
-        (Math.abs(once.left - month.left) > 1.5 ||
-          Math.abs(once.right - top.right) > 1.5)
-      ) {
-        errors.push(
-          `${scenario.id}: one-time card is not full width (${JSON.stringify({ once, month })})`,
         );
       }
     }
@@ -2609,8 +2630,24 @@ for (const scenario of activeScenarios) {
     metrics.renewal
   ) {
     const renewal = metrics.renewal;
-    if (renewal.cells < 28 || renewal.cells > 31) {
-      errors.push(`${scenario.id}: renewal cells ${renewal.cells}`);
+    if (renewal.currentCells < 28 || renewal.currentCells > 31) {
+      errors.push(`${scenario.id}: renewal current cells ${renewal.currentCells}`);
+    }
+    if (renewal.cells !== 42 || renewal.blankCells !== 0) {
+      errors.push(
+        `${scenario.id}: renewal grid cells ${renewal.cells}, blank ${renewal.blankCells}`,
+      );
+    }
+    if (renewal.todayCells > 1) {
+      errors.push(`${scenario.id}: renewal has ${renewal.todayCells} today cells`);
+    }
+    if (
+      scenario.id === "cost-dark-1440" &&
+      (renewal.leadingCells === 0 || renewal.todayCells !== 1)
+    ) {
+      errors.push(
+        `${scenario.id}: compact calendar leading/today missing (${JSON.stringify({ leading: renewal.leadingCells, today: renewal.todayCells })})`,
+      );
     }
     if (renewal.badges.length !== renewal.eventDays) {
       errors.push(`${scenario.id}: renewal badge count mismatch`);
@@ -2696,7 +2733,7 @@ for (const scenario of activeScenarios) {
     if (
       metrics.renewal?.cellHeight !== null &&
       metrics.renewal?.cellHeight !== undefined &&
-      (metrics.renewal.cellHeight < 36 || metrics.renewal.cellHeight > 42)
+      (metrics.renewal.cellHeight < 44 || metrics.renewal.cellHeight > 48)
     ) {
       errors.push(
         `${scenario.id}: renewal cell height ${metrics.renewal.cellHeight}`,

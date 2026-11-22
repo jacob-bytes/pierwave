@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T07:52:45.485Z",
+  "generatedAt": "2026-11-22T08:22:16.119Z",
   "base": "http://127.0.0.1:8787",
   "shots": [
     {
@@ -41,8 +41,8 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "33.6%",
-          "hint": "7 天 74.3% · 10 台有采样"
+          "value": "32.6%",
+          "hint": "7 天 74.1% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -106,8 +106,8 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "33.6%",
-          "hint": "7 天 74.3% · 10 台有采样"
+          "value": "32.6%",
+          "hint": "7 天 74.1% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -171,8 +171,8 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "33.6%",
-          "hint": "7 天 74.3% · 10 台有采样"
+          "value": "32.6%",
+          "hint": "7 天 74.1% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -236,8 +236,8 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "33.6%",
-          "hint": "7 天 74.3% · 10 台有采样"
+          "value": "32.6%",
+          "hint": "7 天 74.1% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -269,12 +269,12 @@
       "width": 1440,
       "file": "app-real-cost-dark-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 1527,
+      "pageHeight": 1398,
       "viewportWidth": 1440,
-      "viewportHeight": 1583,
+      "viewportHeight": 1454,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1251.25,
+      "sectionHeight": 1122.109375,
       "tabs": [
         {
           "text": "资源状态",
@@ -296,9 +296,9 @@
       "cardTitles": [
         "未来 12 个月的开销",
         "开销大头",
+        "一次性费用",
         "币种构成",
-        "续费日历",
-        "一次性费用"
+        "续费日历"
       ],
       "metrics": [
         {
@@ -330,7 +330,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 671
+      "pageHeightDelta": 542
     },
     {
       "id": "real-cost-dark-390",
@@ -339,12 +339,12 @@
       "width": 390,
       "file": "app-real-cost-dark-390.png",
       "pageWidth": 390,
-      "pageHeight": 2547,
+      "pageHeight": 2530,
       "viewportWidth": 390,
-      "viewportHeight": 2603,
+      "viewportHeight": 2586,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 2141.171875,
+      "sectionHeight": 2123.96875,
       "tabs": [
         {
           "text": "资源状态",
@@ -366,9 +366,9 @@
       "cardTitles": [
         "未来 12 个月的开销",
         "开销大头",
+        "一次性费用",
         "币种构成",
-        "续费日历",
-        "一次性费用"
+        "续费日历"
       ],
       "metrics": [
         {
@@ -400,7 +400,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 1691
+      "pageHeightDelta": 1674
     },
     {
       "id": "real-cost-light-1440",
@@ -409,12 +409,12 @@
       "width": 1440,
       "file": "app-real-cost-light-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 1527,
+      "pageHeight": 1398,
       "viewportWidth": 1440,
-      "viewportHeight": 1583,
+      "viewportHeight": 1454,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1251.25,
+      "sectionHeight": 1122.109375,
       "tabs": [
         {
           "text": "资源状态",
@@ -436,9 +436,9 @@
       "cardTitles": [
         "未来 12 个月的开销",
         "开销大头",
+        "一次性费用",
         "币种构成",
-        "续费日历",
-        "一次性费用"
+        "续费日历"
       ],
       "metrics": [
         {
@@ -470,7 +470,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 671
+      "pageHeightDelta": 542
     },
     {
       "id": "real-cost-light-390",
@@ -479,12 +479,12 @@
       "width": 390,
       "file": "app-real-cost-light-390.png",
       "pageWidth": 390,
-      "pageHeight": 2547,
+      "pageHeight": 2530,
       "viewportWidth": 390,
-      "viewportHeight": 2603,
+      "viewportHeight": 2586,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 2141.171875,
+      "sectionHeight": 2123.96875,
       "tabs": [
         {
           "text": "资源状态",
@@ -506,9 +506,9 @@
       "cardTitles": [
         "未来 12 个月的开销",
         "开销大头",
+        "一次性费用",
         "币种构成",
-        "续费日历",
-        "一次性费用"
+        "续费日历"
       ],
       "metrics": [
         {
@@ -540,7 +540,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 1691
+      "pageHeightDelta": 1674
     }
   ],
   "errors": []
