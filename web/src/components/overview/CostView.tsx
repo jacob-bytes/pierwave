@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Link } from "react-router-dom";
 import {
   CircleDollarSignIcon,
@@ -16,6 +16,7 @@ import { InsightMetrics } from "./InsightMetrics";
 import { errorText } from "@/lib/errors";
 import {
   buildCostOverview,
+  buildMonthExpenses,
   formatCny,
   formatCnyCompact,
   formatCurrency,
@@ -23,9 +24,8 @@ import {
   formatMonthLabel,
   parseFxRates,
   parseFxUpdatedAt,
-  type CostCalendarCell,
-  type CostCalendarGroup,
   type CostCurrencyMixRow,
+  type CostMonthExpense,
   type CostOneTimeRow,
   type CostOverview,
   type CostTopRow,
@@ -138,7 +138,7 @@ function CostBody({
         );
 
   return (
-    <div className="space-y-4" data-cost-view>
+    <div className="space-y-4 -mb-4" data-cost-view>
       <InsightMetrics
         items={[
           {
@@ -169,21 +169,36 @@ function CostBody({
         onRetry={onRetrySettings}
       />
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        <PaymentCalendarCard
+      <section className="grid items-stretch gap-4 xl:grid-cols-3">
+        <MonthExpenseCard
           overview={overview}
           locale={locale}
           className="xl:col-span-2"
         />
-        <div className="grid gap-4">
-          <TopCostCard rows={overview.top} locale={locale} />
-          <CurrencyMixCard rows={overview.currencyMix} locale={locale} />
-        </div>
+        <TopCostCard
+          rows={overview.top}
+          locale={locale}
+          className="h-full"
+        />
       </section>
 
-      {overview.oneTime.length > 0 ? (
-        <OneTimeCard rows={overview.oneTime} locale={locale} />
-      ) : null}
+      <section className="grid items-stretch gap-4 xl:grid-cols-2">
+        <CurrencyMixCard
+          rows={overview.currencyMix}
+          locale={locale}
+          className={cn(
+            "h-full",
+            overview.oneTime.length === 0 && "xl:col-span-2",
+          )}
+        />
+        {overview.oneTime.length > 0 ? (
+          <OneTimeCard
+            rows={overview.oneTime}
+            locale={locale}
+            className="h-full"
+          />
+        ) : null}
+      </section>
     </div>
   );
 }
@@ -249,95 +264,7 @@ function FxSummary({
   );
 }
 
-/** 金额越高颜色越深；只用 primary 的透明度阶梯，亮 / 暗都保持文字可读。 */
-function calendarCellClass(amount: number, max: number): string {
-  if (amount <= 0) return "";
-  const ratio = max > 0 ? amount / max : 0;
-  if (ratio >= 0.75) return "bg-primary/55";
-  if (ratio >= 0.5) return "bg-primary/40";
-  if (ratio >= 0.25) return "bg-primary/25";
-  return "bg-primary/15";
-}
-
-function CalendarCell({
-  name,
-  monthIndex,
-  cell,
-  max,
-  locale,
-}: {
-  name: string;
-  monthIndex: number;
-  cell: CostCalendarCell;
-  max: number;
-  locale: string;
-}) {
-  const month = formatMonthIndex(monthIndex);
-  if (cell.prepaid) {
-    return (
-      <span
-        title={t("overview.cost.cellPrepaid", { name, month })}
-        aria-label={t("overview.cost.cellPrepaidHint")}
-        className="calendar-prepaid h-8 rounded-[4px] border border-dashed border-muted-foreground/50"
-      />
-    );
-  }
-  if (cell.amountCnyCents <= 0) {
-    return (
-      <span
-        title={t("overview.cost.cellEmpty", { name, month })}
-        className="flex h-8 items-center justify-center rounded-[4px] border border-border/40 text-[9px] text-muted-foreground"
-      />
-    );
-  }
-  return (
-    <span
-      data-cost-cell
-      title={t("overview.cost.cellTitle", {
-        name,
-        month,
-        amount: formatCny(cell.amountCnyCents, locale),
-      })}
-      className={cn(
-        "flex h-8 items-center justify-center rounded-[4px] px-0.5 font-mono text-[10px] tabular-nums",
-        calendarCellClass(cell.amountCnyCents, max),
-      )}
-    >
-      {formatCnyCompact(cell.amountCnyCents, locale)}
-    </span>
-  );
-}
-
-function CalendarLegend() {
-  return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-      <span className="inline-flex items-center gap-1.5">
-        <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-primary/15" />
-        {t("overview.cost.calendarLegendLow")}
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span aria-hidden="true" className="size-2.5 rounded-[2px] bg-primary/55" />
-        {t("overview.cost.calendarLegendHigh")}
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          aria-hidden="true"
-          className="calendar-prepaid size-2.5 rounded-[2px] border border-dashed border-muted-foreground/50"
-        />
-        {t("overview.cost.calendarLegendPrepaid")}
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <span
-          aria-hidden="true"
-          className="size-2.5 rounded-[2px] border border-border/40"
-        />
-        {t("overview.cost.calendarLegendEmpty")}
-      </span>
-    </div>
-  );
-}
-
-function PaymentCalendarCard({
+function MonthExpenseCard({
   overview,
   locale,
   className,
@@ -346,135 +273,373 @@ function PaymentCalendarCard({
   locale: string;
   className?: string;
 }) {
-  const max = overview.calendarRows.reduce(
-    (current, row) =>
-      row.cells.reduce(
-        (rowMax, cell) => Math.max(rowMax, cell.amountCnyCents),
-        current,
-      ),
-    0,
-  );
-  const gridStyle = {
-    gridTemplateColumns: `minmax(120px, 1.2fr) repeat(12, minmax(44px, 1fr))`,
-  };
+  const months = useMemo(() => buildMonthExpenses(overview), [overview]);
 
   return (
-    <Card className={cn("flex flex-col gap-0", className)}>
+    <Card
+      className={cn("flex h-full min-w-0 flex-col gap-0", className)}
+      data-cost-card="month"
+    >
       <CardHeader className="border-b border-border pb-4">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium">
             {t("overview.cost.calendarTitle")}
           </CardTitle>
-          <CalendarLegend />
+          <span className="text-[10px] text-muted-foreground">
+            {t("overview.cost.monthUnit")}
+          </span>
         </div>
       </CardHeader>
 
-      {overview.calendarGroups.length === 0 ? (
-        <EmptyState
-          size="sm"
-          icon={WalletIcon}
-          title={t("overview.cost.calendarEmpty")}
-          description={t("overview.cost.calendarEmptyDesc")}
-          className="py-10"
-        />
-      ) : (
-        <div
-          className="overflow-x-auto"
-          data-cost-calendar
-          aria-label={t("overview.cost.calendarAria")}
-        >
-          <div className="min-w-[680px] p-4 xl:min-w-0">
-            <div className="grid items-center gap-1" style={gridStyle}>
-              <span aria-hidden="true" />
-              {overview.months.map((monthIndex) => (
-                <span
-                  key={monthIndex}
-                  className="truncate text-center text-[10px] text-muted-foreground"
-                  title={formatMonthIndex(monthIndex)}
-                >
-                  {formatMonthLabel(monthIndex, locale)}
-                </span>
-              ))}
-            </div>
-            {overview.calendarGroups.map((group) => (
-              <CalendarGroup
-                key={group.currency}
-                group={group}
-                max={max}
-                locale={locale}
-                gridStyle={gridStyle}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      <p className="px-4 pt-1 pb-4 text-[10px] leading-normal text-muted-foreground xl:hidden">
-        {t("overview.cost.calendarScroll")}
-      </p>
-      {overview.excluded.length > 0 ? (
-        <p className="border-t border-border px-4 py-3 text-xs text-muted-foreground">
-          {t("overview.cost.excluded", { n: overview.excluded.length })}
-        </p>
-      ) : null}
+      <CardContent className="flex min-h-0 flex-1 flex-col p-3 sm:p-4">
+        <MonthBarChart months={months} locale={locale} />
+        {overview.excluded.length > 0 ? (
+          <p className="mt-auto border-t border-border pt-3 text-xs text-muted-foreground">
+            {t("overview.cost.excluded", { n: overview.excluded.length })}
+          </p>
+        ) : null}
+      </CardContent>
     </Card>
   );
 }
 
-function CalendarGroup({
-  group,
-  max,
+function MonthBarChart({
+  months,
   locale,
-  gridStyle,
 }: {
-  group: CostCalendarGroup;
-  max: number;
+  months: CostMonthExpense[];
   locale: string;
-  gridStyle: { gridTemplateColumns: string };
 }) {
   const { t } = useI18n();
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const max = Math.max(0, ...months.map((month) => month.totalCnyCents));
+  const scaleMax = max > 0 ? max : 1;
+  const spansYears =
+    new Set(months.map((month) => Math.floor(month.monthIndex / 12)))
+      .size > 1;
+  const active =
+    activeIndex === null ? null : (months[activeIndex] ?? null);
+  const plotRef = useRef<HTMLDivElement>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const plot = plotRef.current;
+    const tooltip = tooltipRef.current;
+    if (!plot || !tooltip || activeIndex === null) return;
+    const bar = plot.querySelectorAll<HTMLElement>("[data-month-bar]")[
+      activeIndex
+    ];
+    if (!bar) return;
+
+    const plotRect = plot.getBoundingClientRect();
+    const barRect = bar.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const fill = bar.firstElementChild?.getBoundingClientRect() ?? null;
+    const gap = 10;
+    const edge = 4;
+
+    const center = barRect.left + barRect.width / 2 - plotRect.left;
+    const barLeft = barRect.left - plotRect.left;
+    const barRight = barRect.right - plotRect.left;
+    const visualLeft = fill ? fill.left - plotRect.left : barLeft;
+    const visualRight = fill ? fill.right - plotRect.left : barRight;
+    const barTop = fill
+      ? fill.top - plotRect.top
+      : barRect.bottom - plotRect.top;
+    const barBottom = fill
+      ? fill.bottom - plotRect.top
+      : barRect.bottom - plotRect.top;
+    const barHeight = Math.max(0, barBottom - barTop);
+    const maxLeft = plotRect.width - tooltipRect.width - edge;
+
+    let placement = "above";
+    let left = Math.max(
+      edge,
+      Math.min(maxLeft, center - tooltipRect.width / 2),
+    );
+    let top = barTop - tooltipRect.height - gap;
+
+    if (top < edge) {
+      placement = "below";
+      top = barBottom + gap;
+    }
+
+    if (top < edge || top + tooltipRect.height > plotRect.height - edge) {
+      const aboveFits = barTop - tooltipRect.height - gap >= edge;
+      const belowFits =
+        barBottom + gap + tooltipRect.height <= plotRect.height - edge;
+      if (aboveFits) {
+        placement = "above";
+        top = barTop - tooltipRect.height - gap;
+      } else if (belowFits) {
+        placement = "below";
+        top = barBottom + gap;
+      } else {
+        const rightFits =
+          visualRight + gap + tooltipRect.width <= plotRect.width - edge;
+        const leftFits = visualLeft - gap - tooltipRect.width >= edge;
+        if (center < plotRect.width / 2 && rightFits) {
+          placement = "right";
+          left = visualRight + gap;
+        } else if (leftFits) {
+          placement = "left";
+          left = visualLeft - gap - tooltipRect.width;
+        } else {
+          placement = "overlap";
+        }
+        top = barTop + (barHeight - tooltipRect.height) / 2;
+      }
+    }
+
+    left = Math.max(edge, Math.min(maxLeft, left));
+    top = Math.max(
+      edge,
+      Math.min(plotRect.height - tooltipRect.height - edge, top),
+    );
+
+    tooltip.dataset.placement = placement;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.style.opacity = "1";
+  }, [activeIndex, active]);
+
   return (
-    <div>
-      <div className="mt-3 mb-1 grid items-center gap-1" style={gridStyle}>
-        <span className="truncate text-[10px] text-muted-foreground">
-          {t(
-            group.count === 1
-              ? "overview.cost.groupTitleOne"
-              : "overview.cost.groupTitle",
-            {
-              currency: group.currency,
-              n: group.count,
-              amount: formatCny(group.cycleCnyCents, locale),
-            },
+    <div className="flex min-h-[340px] flex-1 flex-col" data-cost-bar-chart>
+      <div className="relative flex min-h-0 flex-1 gap-2">
+        <div className="flex w-9 shrink-0 flex-col justify-between pb-1 text-right text-[9px] text-muted-foreground tabular-nums">
+          {[max, max * (2 / 3), max * (1 / 3), 0].map(
+            (value, index) => (
+              <span key={index} className="truncate">
+                ¥{formatCnyCompact(value, locale)}
+              </span>
+            ),
           )}
+        </div>
+
+        <div
+          ref={plotRef}
+          className="relative flex min-w-0 flex-1 items-end gap-1"
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 flex flex-col justify-between"
+          >
+            {[0, 1, 2, 3].map((line) => (
+              <span key={line} className="border-t border-border/40" />
+            ))}
+          </div>
+
+          {months.map((month, index) => {
+            const height =
+              scaleMax > 0
+                ? Math.max(0, (month.totalCnyCents / scaleMax) * 100)
+                : 0;
+            const empty =
+              month.totalCnyCents === 0 && month.prepaid.length === 0;
+            return (
+              <button
+                key={month.monthIndex}
+                type="button"
+                data-month-bar
+                data-month-index={index}
+                data-month-key={month.monthIndex}
+                data-month-total-cents={month.totalCnyCents}
+                data-month-charge-count={month.charges.length}
+                aria-label={
+                  empty
+                    ? t("overview.cost.monthBarAriaEmpty", {
+                        month: formatMonthIndex(month.monthIndex),
+                      })
+                    : t("overview.cost.monthBarAria", {
+                        month: formatMonthIndex(month.monthIndex),
+                        amount: formatCny(month.totalCnyCents, locale),
+                        n: month.charges.length,
+                      })
+                }
+                onMouseEnter={() => setActiveIndex(index)}
+                onFocus={() => setActiveIndex(index)}
+                onMouseLeave={(event) => {
+                  if (event.currentTarget.matches(":focus")) return;
+                  setActiveIndex((current) =>
+                    current === index ? null : current,
+                  );
+                }}
+                onBlur={() =>
+                  setActiveIndex((current) =>
+                    current === index ? null : current,
+                  )
+                }
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setActiveIndex(null);
+                }}
+                className="group relative flex h-full min-w-0 flex-1 items-end justify-center rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "w-full max-w-9 rounded-t-[3px] transition-colors duration-150",
+                    month.totalCnyCents > 0
+                      ? "bg-primary/80 group-hover:bg-primary group-focus-visible:bg-primary"
+                      : "bg-transparent",
+                  )}
+                  style={{ height: `${height}%` }}
+                />
+              </button>
+            );
+          })}
+
+          {active ? (
+            <MonthExpenseTooltip
+              month={active}
+              locale={locale}
+              containerRef={tooltipRef}
+              className="absolute z-20"
+            />
+          ) : null}
+        </div>
+      </div>
+
+      {spansYears ? (
+        <p className="ml-11 mt-1 text-right text-[8px] text-muted-foreground sm:hidden">
+          {Math.floor(months[0].monthIndex / 12)}–
+          {Math.floor(months.at(-1)!.monthIndex / 12)}
+        </p>
+      ) : null}
+      <div className="ml-11 mt-1 flex gap-1">
+        {months.map((month) => {
+          const year = Math.floor(month.monthIndex / 12);
+          const showYear = spansYears && month.monthIndex % 12 === 0;
+          return (
+            <span
+              key={month.monthIndex}
+              className="flex min-w-0 flex-1 flex-col items-center text-[9px] leading-tight text-muted-foreground"
+              title={formatMonthIndex(month.monthIndex)}
+            >
+              <span className="truncate">
+                {formatMonthLabel(month.monthIndex, locale)}
+              </span>
+              {showYear ? (
+                <span className="text-[8px] opacity-70 max-sm:hidden">
+                  {year}
+                </span>
+              ) : null}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MonthExpenseTooltip({
+  month,
+  locale,
+  className,
+  containerRef,
+}: {
+  month: CostMonthExpense;
+  locale: string;
+  className?: string;
+  containerRef?: RefObject<HTMLDivElement | null>;
+}) {
+  const { t } = useI18n();
+  const hasSpending = month.charges.length > 0;
+
+  return (
+    <div
+      ref={containerRef}
+      role="tooltip"
+      data-month-tooltip
+      data-month-key={month.monthIndex}
+      style={{ left: 0, top: 0, opacity: 0 }}
+      className={cn(
+        "pointer-events-none w-[min(18rem,calc(100%-1rem))] rounded-lg border border-border bg-popover px-3 py-2 text-xs shadow-lg/40",
+        className,
+      )}
+    >
+      <div className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-1.5">
+        <span className="font-medium text-foreground">
+          {formatMonthIndex(month.monthIndex)}
+        </span>
+        <span
+          data-month-tooltip-total
+          className="font-mono tabular-nums text-foreground"
+        >
+          {formatCny(month.totalCnyCents, locale)}
         </span>
       </div>
-      {group.rows.map((row) => (
-        <div
-          key={row.serverId}
-          className="grid items-center gap-1"
-          style={gridStyle}
+
+      {hasSpending ? (
+        <ul
+          className="mt-1.5 flex max-h-40 flex-col gap-1 overflow-y-auto"
+          data-month-tooltip-list
         >
-          <div className="flex min-w-0 items-baseline gap-1 text-xs" title={row.name}>
-            <span className="min-w-0 truncate">{row.name}</span>
-            {row.kind === "once" ? (
-              <span className="shrink-0 text-[10px] text-muted-foreground">
-                · {t("overview.cost.onceShort")}
+          {month.charges.slice(0, 8).map((row) => (
+            <li
+              key={row.serverId}
+              data-month-tooltip-server
+              className="flex min-w-0 items-center justify-between gap-3"
+            >
+              <span className="min-w-0 truncate text-muted-foreground" title={row.name}>
+                {row.name}
               </span>
-            ) : null}
-          </div>
-          {row.cells.map((cell) => (
-            <CalendarCell
-              key={`${row.serverId}-${cell.monthIndex}`}
-              name={row.name}
-              monthIndex={cell.monthIndex}
-              cell={cell}
-              max={max}
-              locale={locale}
-            />
+              <span className="flex shrink-0 items-center gap-1.5">
+                {row.kind === "once" ? (
+                  <span className="rounded-sm bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
+                    {t("overview.cost.onceShort")}
+                  </span>
+                ) : null}
+                {row.prepaid ? (
+                  <span className="rounded-sm bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
+                    {t("overview.cost.calendarLegendPrepaid")}
+                  </span>
+                ) : null}
+                <span className="font-mono tabular-nums text-foreground">
+                  {formatCny(row.amountCnyCents, locale)}
+                </span>
+              </span>
+            </li>
           ))}
+        </ul>
+      ) : (
+        <p
+          data-month-tooltip-empty
+          className="mt-1.5 text-[11px] text-muted-foreground"
+        >
+          {t("overview.cost.monthNoSpend")}
+        </p>
+      )}
+
+      {month.hiddenCharges > 0 ? (
+        <p
+          data-month-tooltip-more
+          className="mt-1 text-[10px] text-muted-foreground"
+        >
+          {t("overview.cost.monthMore", { n: month.hiddenCharges })}
+        </p>
+      ) : null}
+
+      {month.prepaid.length > 0 ? (
+        <div
+          data-month-tooltip-prepaid
+          className="mt-1.5 border-t border-border/60 pt-1.5 text-[10px] text-muted-foreground"
+        >
+          <p>
+            {t("overview.cost.monthPrepaid", {
+              n: month.prepaid.length,
+            })}
+          </p>
+          <p className="truncate">
+            {month.prepaid
+              .slice(0, 4)
+              .map((row) => row.name)
+              .join(" · ")}
+            {month.prepaid.length > 4
+              ? ` · +${month.prepaid.length - 4}`
+              : ""}
+          </p>
         </div>
-      ))}
+      ) : null}
     </div>
   );
 }
@@ -482,14 +647,16 @@ function CalendarGroup({
 function TopCostCard({
   rows,
   locale,
+  className,
 }: {
   rows: CostTopRow[];
   locale: string;
+  className?: string;
 }) {
   const max = rows[0]?.cycleCnyCents ?? 0;
 
   return (
-    <Card className="flex flex-col gap-0">
+    <Card className={cn("flex h-full flex-col gap-0", className)} data-cost-card="top">
       <CardHeader className="border-b border-border pb-4">
         <div className="flex min-w-0 items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium">
@@ -565,12 +732,14 @@ function TopCostCard({
 function CurrencyMixCard({
   rows,
   locale,
+  className,
 }: {
   rows: CostCurrencyMixRow[];
   locale: string;
+  className?: string;
 }) {
   return (
-    <Card className="flex flex-col gap-0">
+    <Card className={cn("flex h-full flex-col gap-0", className)} data-cost-card="mix">
       <CardHeader className="border-b border-border pb-4">
         <div className="flex min-w-0 items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium">
@@ -658,12 +827,14 @@ function CurrencyMixCard({
 function OneTimeCard({
   rows,
   locale,
+  className,
 }: {
   rows: CostOneTimeRow[];
   locale: string;
+  className?: string;
 }) {
   return (
-    <Card className="flex flex-col gap-0">
+    <Card className={cn("flex h-full flex-col gap-0", className)} data-cost-card="once">
       <CardHeader className="border-b border-border pb-4">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium">

@@ -145,7 +145,7 @@ test("流量趋势 tab：趋势 / 分布 / 排行 / 告警，不含链健康与�
   );
 });
 
-test("成本 tab：三数字 / 付款日历 / Top 5 / 币种构成 / 一次性，不含流量与链卡", () => {
+test("成本 tab：三数字 / 12 个月开销柱状图 / Top 5 / 币种构成 / 一次性，不含流量与链卡", () => {
   assertIncludes(
     cost,
     [
@@ -154,7 +154,9 @@ test("成本 tab：三数字 / 付款日历 / Top 5 / 币种构成 / 一次性�
       "overview.cost.topTitle",
       "overview.cost.mixTitle",
       "overview.cost.oneTimeTitle",
-      "<PaymentCalendarCard",
+      "<MonthExpenseCard",
+      "<MonthBarChart",
+      "data-cost-bar-chart",
       "<TopCostCard",
       "<CurrencyMixCard",
       "<OneTimeCard",
@@ -169,6 +171,9 @@ test("成本 tab：三数字 / 付款日历 / Top 5 / 币种构成 / 一次性�
       "overview.leaderboardTitle",
       "overview.chainHealth",
       "overview.alerts",
+      "PaymentCalendarCard",
+      "data-cost-calendar",
+      "CalendarCell",
     ],
     "CostView",
   );

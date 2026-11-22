@@ -132,6 +132,29 @@ export interface CostCalendarGroup {
   rows: CostCalendarRow[];
 }
 
+/** 12 个月开销柱状图的一台服务器。 */
+export interface CostMonthServer {
+  serverId: string;
+  name: string;
+  currency: string;
+  kind: "periodic" | "once";
+  amountCnyCents: number;
+  /** 该月由已预付覆盖（通常金额为 0）。 */
+  prepaid: boolean;
+}
+
+export interface CostMonthExpense {
+  monthIndex: number;
+  totalCnyCents: number;
+  /** 有金额的服务器，按金额降序。 */
+  charges: CostMonthServer[];
+  /** 已预付、当月不再计费的服务器。 */
+  prepaid: CostMonthServer[];
+  /** 超过 8 台时提示「另有 N 台」。 */
+  hiddenCharges: number;
+  oneTimeCount: number;
+}
+
 export interface CostTopRow {
   serverId: string;
   name: string;
@@ -493,6 +516,64 @@ export function formatFxRateDisplay(
     minimumFractionDigits: 2,
     maximumFractionDigits: 4,
   }).format(rate);
+}
+
+/**
+ * 把付款日历行聚合成 12 个月的柱状图数据。
+ * 无开支月份保留 total=0 的柱子；预付费单元格单独返回用于 tooltip 标记。
+ */
+export function buildMonthExpenses(
+  overview: Pick<CostOverview, "months" | "calendarRows">,
+): CostMonthExpense[] {
+  const buckets = new Map<
+    number,
+    { charges: CostMonthServer[]; prepaid: CostMonthServer[] }
+  >();
+  for (const monthIndex of overview.months) {
+    buckets.set(monthIndex, { charges: [], prepaid: [] });
+  }
+
+  for (const row of overview.calendarRows) {
+    for (const cell of row.cells) {
+      const bucket = buckets.get(cell.monthIndex);
+      if (!bucket) continue;
+      const item: CostMonthServer = {
+        serverId: row.serverId,
+        name: row.name,
+        currency: row.currency,
+        kind: row.kind,
+        amountCnyCents: cell.amountCnyCents,
+        prepaid: cell.prepaid,
+      };
+      if (cell.amountCnyCents > 0) bucket.charges.push(item);
+      else if (cell.prepaid) bucket.prepaid.push(item);
+    }
+  }
+
+  return overview.months.map((monthIndex) => {
+    const bucket = buckets.get(monthIndex) ?? {
+      charges: [],
+      prepaid: [],
+    };
+    const charges = [...bucket.charges].sort(
+      (a, b) =>
+        b.amountCnyCents - a.amountCnyCents ||
+        a.name.localeCompare(b.name),
+    );
+    return {
+      monthIndex,
+      totalCnyCents: charges.reduce(
+        (sum, row) => sum + row.amountCnyCents,
+        0,
+      ),
+      charges,
+      prepaid: [...bucket.prepaid].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+      hiddenCharges: Math.max(0, charges.length - 8),
+      oneTimeCount: charges.filter((row) => row.kind === "once").length,
+    };
+  });
 }
 
 function currencyMix(

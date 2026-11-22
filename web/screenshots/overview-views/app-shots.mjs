@@ -1086,7 +1086,7 @@ const EXPECTED_API = {
 const EXPECTED_CARD_TITLES = {
   server: ["服务器 × 时间", "当前资源", "异常窗口"],
   traffic: ["近 7 天趋势", "流量分布", "流量榜单", "告警"],
-  cost: ["未来 12 个月付款日历", "开销大头", "币种构成", "一次性费用"],
+  cost: ["未来 12 个月的开销", "开销大头", "币种构成", "一次性费用"],
   chain: ["转发链健康", "链路时延"],
 };
 
@@ -1169,6 +1169,14 @@ const SCENARIOS = [
   { id: "cost-fx-open-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", action: "fxOpen", expectedFxRows: 4 },
   { id: "cost-fx-open-light-390", view: "cost", theme: "light", width: 390, mock: "normal", action: "fxOpen", expectedFxRows: 4 },
   { id: "cost-fx-many-1440", view: "cost", theme: "dark", width: 1440, mock: "costManyCurrencies", servers: "all", action: "fxOpen", expectedFxRows: 10 },
+  { id: "cost-bar-tooltip-left-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverLeft" },
+  { id: "cost-bar-tooltip-middle-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverMiddle" },
+  { id: "cost-bar-tooltip-right-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverRight" },
+  { id: "cost-bar-tooltip-multi-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "barHoverMulti" },
+  { id: "cost-bar-tooltip-single-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverSingle" },
+  { id: "cost-bar-tooltip-empty-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverEmpty" },
+  { id: "cost-bar-tooltip-empty-390", view: "cost", theme: "dark", width: 390, mock: "normal", action: "barFocusEmpty" },
+  { id: "cost-bar-tooltip-keyboard-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barFocus" },
   { id: "cost-manual-1440", view: "cost", theme: "dark", width: 1440, mock: "costManual" },
   { id: "cost-dec-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", clockMs: Date.UTC(2026, 11, 15, 4, 0, 0) },
   { id: "cost-dec-390", view: "cost", theme: "dark", width: 390, mock: "normal", clockMs: Date.UTC(2026, 11, 15, 4, 0, 0) },
@@ -1383,6 +1391,54 @@ for (const scenario of activeScenarios) {
       }),
   );
   await page.waitForTimeout(400);
+
+  if (
+    scenario.action === "barHoverMulti" ||
+    scenario.action === "barHoverSingle" ||
+    scenario.action === "barHoverEmpty" ||
+    scenario.action === "barHoverLeft" ||
+    scenario.action === "barHoverMiddle" ||
+    scenario.action === "barHoverRight" ||
+    scenario.action === "barFocus" ||
+    scenario.action === "barFocusEmpty"
+  ) {
+    const index = await page.evaluate((kind) => {
+      const bars = [...document.querySelectorAll("[data-month-bar]")];
+      const counts = bars.map((bar) =>
+        Number(bar.getAttribute("data-month-charge-count") ?? 0),
+      );
+      const totals = bars.map((bar) =>
+        Number(bar.getAttribute("data-month-total-cents") ?? 0),
+      );
+      if (kind === "barHoverEmpty" || kind === "barFocusEmpty") {
+        return totals.findIndex((value) => value === 0);
+      }
+      if (kind === "barHoverSingle") {
+        return counts.findIndex((value) => value === 1);
+      }
+      if (kind === "barHoverLeft") return 0;
+      if (kind === "barHoverRight") return bars.length - 1;
+      if (kind === "barHoverMiddle") {
+        return Math.floor(bars.length / 2);
+      }
+      return counts.reduce(
+        (best, value, i) => (value > counts[best] ? i : best),
+        0,
+      );
+    }, scenario.action);
+    if (index >= 0) {
+      const bar = page.locator("[data-month-bar]").nth(index);
+      if (
+        scenario.action === "barFocus" ||
+        scenario.action === "barFocusEmpty"
+      ) {
+        await bar.focus();
+      } else {
+        await bar.hover();
+      }
+      await page.waitForTimeout(250);
+    }
+  }
 
   const metrics = await page.evaluate(() => {
     const doc = document.documentElement;
@@ -1609,15 +1665,140 @@ for (const scenario of activeScenarios) {
           bodyHasRateLine: document.body.innerText.includes("1 USD ="),
         };
       })(),
-      costCalendar: costCalendar
-        ? {
-            cellWidth: costRect?.width ?? null,
-            cellHeight: costRect?.height ?? null,
-            scrollWidth: costCalendar.scrollWidth,
-            clientWidth: costCalendar.clientWidth,
-            scrollable: costCalendar.scrollWidth > costCalendar.clientWidth + 1,
-          }
-        : null,
+      costBars: (() => {
+        const chart = document.querySelector("[data-cost-bar-chart]");
+        const bars = [...document.querySelectorAll("[data-month-bar]")];
+        const cards = [...document.querySelectorAll("[data-cost-card]")];
+        const tooltip = document.querySelector("[data-month-tooltip]");
+        const barRect = (bar) => bar.getBoundingClientRect();
+        const innerRect = (bar) =>
+          bar.firstElementChild?.getBoundingClientRect() ?? null;
+        return {
+          chart: chart
+            ? {
+                width: chart.getBoundingClientRect().width,
+                height: chart.getBoundingClientRect().height,
+              }
+            : null,
+          count: bars.length,
+          hasCalendar: Boolean(document.querySelector("[data-cost-calendar]")),
+          labels: bars.map((bar) => {
+            const index = Number(bar.getAttribute("data-month-index") ?? 0);
+            return (
+              document.querySelectorAll("[data-cost-bar-chart] > div:last-child > span")[
+                index
+              ]?.textContent?.trim() ?? ""
+            );
+          }),
+          widths: bars.map((bar) => barRect(bar).width),
+          heights: bars.map((bar) => innerRect(bar)?.height ?? 0),
+          totals: bars.map((bar) =>
+            Number(bar.getAttribute("data-month-total-cents") ?? 0),
+          ),
+          chargeCounts: bars.map((bar) =>
+            Number(bar.getAttribute("data-month-charge-count") ?? 0),
+          ),
+          emptyCount: bars.filter(
+            (bar) => Number(bar.getAttribute("data-month-total-cents") ?? 0) === 0,
+          ).length,
+          cards: cards.map((card) => {
+            const rect = card.getBoundingClientRect();
+            return {
+              key: card.getAttribute("data-cost-card"),
+              top: rect.top,
+              bottom: rect.bottom,
+              left: rect.left,
+              right: rect.right,
+              height: rect.height,
+            };
+          }),
+          bottomGap: (() => {
+            const last = cards.at(-1);
+            if (!last || !main) return null;
+            const rect = last.getBoundingClientRect();
+            const mainRect = main.getBoundingClientRect();
+            return Math.round(
+              (main.scrollHeight -
+                (rect.bottom - mainRect.top + main.scrollTop)) *
+                10,
+            ) / 10;
+          })(),
+          tooltip: tooltip
+            ? (() => {
+                const tooltipRect = tooltip.getBoundingClientRect();
+                const plot = document.querySelector(
+                  "[data-cost-bar-chart] [data-month-bar]",
+                )?.parentElement;
+                const plotRect = plot?.getBoundingClientRect() ?? null;
+                const key = tooltip.getAttribute("data-month-key");
+                const bar = [...bars].find(
+                  (item) => item.getAttribute("data-month-key") === key,
+                );
+                const fill = bar?.firstElementChild;
+                const barRect = bar?.getBoundingClientRect() ?? null;
+                const fillRect = fill?.getBoundingClientRect() ?? null;
+                return {
+                  rect: {
+                    left: tooltipRect.left,
+                    right: tooltipRect.right,
+                    top: tooltipRect.top,
+                    bottom: tooltipRect.bottom,
+                    width: tooltipRect.width,
+                    height: tooltipRect.height,
+                  },
+                  plotRect: plotRect
+                    ? {
+                        left: plotRect.left,
+                        right: plotRect.right,
+                        top: plotRect.top,
+                        bottom: plotRect.bottom,
+                      }
+                    : null,
+                  barRect: barRect
+                    ? {
+                        left: barRect.left,
+                        right: barRect.right,
+                        top: barRect.top,
+                        bottom: barRect.bottom,
+                      }
+                    : null,
+                  barFillRect: fillRect
+                    ? {
+                        left: fillRect.left,
+                        right: fillRect.right,
+                        top: fillRect.top,
+                        bottom: fillRect.bottom,
+                      }
+                    : null,
+                  placement: tooltip.getAttribute("data-placement"),
+                  total:
+                  tooltip
+                    .querySelector("[data-month-tooltip-total]")
+                    ?.textContent?.trim() ?? null,
+                rows: tooltip.querySelectorAll("[data-month-tooltip-server]")
+                  .length,
+                more:
+                  tooltip
+                    .querySelector("[data-month-tooltip-more]")
+                    ?.textContent?.trim() ?? null,
+                empty:
+                  tooltip
+                    .querySelector("[data-month-tooltip-empty]")
+                    ?.textContent?.trim() ?? null,
+                prepaid:
+                  tooltip
+                    .querySelector("[data-month-tooltip-prepaid]")
+                    ?.textContent?.trim() ?? null,
+                  oneTimeCount: [
+                    ...tooltip.querySelectorAll("[data-month-tooltip-server]"),
+                  ].filter((row) =>
+                    row.textContent?.includes("一次性"),
+                  ).length,
+                };
+              })()
+            : null,
+        };
+      })(),
       hasScrollHint: document.body.innerText.includes("左右滑动"),
       theme: doc.dataset.theme ?? null,
       dom: {
@@ -2009,6 +2190,164 @@ for (const scenario of activeScenarios) {
     }
   }
 
+  if (
+    (scenario.view ?? null) === "cost" &&
+    scenario.mock !== "costEmpty" &&
+    scenario.mock !== "costError" &&
+    !(Array.isArray(scenario.servers) && scenario.servers.length === 0)
+  ) {
+    if (metrics.costBars?.count !== 12) {
+      errors.push(
+        `${scenario.id}: month bars ${metrics.costBars?.count} != 12`,
+      );
+    }
+    if (metrics.costBars?.hasCalendar) {
+      errors.push(`${scenario.id}: old payment calendar still rendered`);
+    }
+    if (
+      metrics.costBars?.totals.some(
+        (total, index) => total === 0 && metrics.costBars.heights[index] > 0.5,
+      )
+    ) {
+      errors.push(`${scenario.id}: empty month has a positive-height bar`);
+    }
+    if (metrics.viewportWidth >= 1280 && metrics.costBars?.cards) {
+      const byKey = new Map(
+        metrics.costBars.cards.map((card) => [card.key, card]),
+      );
+      const month = byKey.get("month");
+      const top = byKey.get("top");
+      const mix = byKey.get("mix");
+      const once = byKey.get("once");
+      if (
+        month &&
+        top &&
+        (Math.abs(month.top - top.top) > 1.5 ||
+          Math.abs(month.bottom - top.bottom) > 1.5)
+      ) {
+        errors.push(
+          `${scenario.id}: month/top cards not aligned (${JSON.stringify({ month, top })})`,
+        );
+      }
+      if (
+        mix &&
+        once &&
+        (Math.abs(mix.top - once.top) > 1.5 ||
+          Math.abs(mix.bottom - once.bottom) > 1.5)
+      ) {
+        errors.push(
+          `${scenario.id}: mix/once cards not aligned (${JSON.stringify({ mix, once })})`,
+        );
+      }
+    }
+    if (metrics.costBars?.bottomGap !== null && metrics.costBars.bottomGap > 24) {
+      errors.push(
+        `${scenario.id}: bottom gap ${metrics.costBars.bottomGap} > 24`,
+      );
+    }
+    if (scenario.action === "barHoverMulti") {
+      if (!metrics.costBars?.tooltip || metrics.costBars.tooltip.rows === 0) {
+        errors.push(`${scenario.id}: multi-month tooltip has no servers`);
+      }
+      const maxCharges = Math.max(...(metrics.costBars?.chargeCounts ?? [0]));
+      if (
+        maxCharges > 8 &&
+        !metrics.costBars?.tooltip?.more?.includes("另有")
+      ) {
+        errors.push(`${scenario.id}: missing >8 server hint`);
+      }
+    }
+    if (scenario.action === "barHoverSingle") {
+      if (metrics.costBars?.tooltip?.rows !== 1) {
+        errors.push(
+          `${scenario.id}: single-month tooltip rows ${metrics.costBars?.tooltip?.rows}`,
+        );
+      }
+    }
+    if (
+      scenario.action === "barHoverEmpty" ||
+      scenario.action === "barFocusEmpty"
+    ) {
+      if (!metrics.costBars?.tooltip?.empty?.includes("本月无开支")) {
+        errors.push(`${scenario.id}: empty-month tooltip missing no-spend text`);
+      }
+    }
+    if (scenario.action === "barFocus" && !metrics.costBars?.tooltip) {
+      errors.push(`${scenario.id}: keyboard focus did not open tooltip`);
+    }
+    if (
+      ["barHoverLeft", "barHoverMiddle", "barHoverRight"].includes(
+        scenario.action,
+      )
+    ) {
+      const tooltip = metrics.costBars?.tooltip;
+      if (!tooltip?.rect || !tooltip.plotRect || !tooltip.barRect) {
+        errors.push(`${scenario.id}: tooltip geometry missing`);
+      } else {
+        const { rect, plotRect, barRect, barFillRect } = tooltip;
+        if (
+          rect.left < plotRect.left - 1 ||
+          rect.right > plotRect.right + 1 ||
+          rect.top < plotRect.top - 1 ||
+          rect.bottom > plotRect.bottom + 1
+        ) {
+          errors.push(
+            `${scenario.id}: tooltip outside plot (${JSON.stringify({ rect, plotRect })})`,
+          );
+        }
+        if (tooltip.placement === "above" || tooltip.placement === "below") {
+          if (!barFillRect) {
+            errors.push(`${scenario.id}: tooltip/bar gap missing`);
+          } else {
+            const above = rect.bottom <= barFillRect.top;
+            const below = rect.top >= barFillRect.bottom;
+            const gap = above
+              ? barFillRect.top - rect.bottom
+              : barFillRect.bottom - rect.top;
+            if ((!above && !below) || gap < 8 || gap > 14) {
+              errors.push(
+                `${scenario.id}: tooltip/bar gap invalid (gap ${gap})`,
+              );
+            }
+          }
+        } else if (
+          tooltip.placement === "left" ||
+          tooltip.placement === "right"
+        ) {
+          const visualBar = barFillRect ?? barRect;
+          const gap =
+            tooltip.placement === "right"
+              ? rect.left - visualBar.right
+              : visualBar.left - rect.right;
+          if (gap < 8 || gap > 14) {
+            errors.push(
+              `${scenario.id}: side tooltip/bar gap invalid (gap ${gap})`,
+            );
+          }
+        } else {
+          errors.push(
+            `${scenario.id}: tooltip placement ${tooltip.placement} overlaps`,
+          );
+        }
+        if (
+          scenario.action === "barHoverMiddle" &&
+          (tooltip.placement === "above" ||
+            tooltip.placement === "below")
+        ) {
+          const delta = Math.abs(
+            (rect.left + rect.right) / 2 -
+              (barRect.left + barRect.right) / 2,
+          );
+          if (delta > 2) {
+            errors.push(
+              `${scenario.id}: middle tooltip not centered (delta ${delta})`,
+            );
+          }
+        }
+      }
+    }
+  }
+
   const file = `app-${scenario.id}.png`;
   await page.screenshot({ path: `${OUT}${file}`, fullPage: false, animations: "disabled" });
 
@@ -2365,8 +2704,8 @@ for (const shot of report.shots) {
       shot.heatmap
         ? `heatmapCell=${shot.heatmap.cellWidth?.toFixed(1)}x${shot.heatmap.cellHeight?.toFixed(1)} scrollable=${shot.heatmap.scrollable}`
         : "",
-      shot.costCalendar
-        ? `costCell=${shot.costCalendar.cellWidth?.toFixed(1)}x${shot.costCalendar.cellHeight?.toFixed(1)} scrollable=${shot.costCalendar.scrollable}`
+      shot.costBars
+        ? `bars=${shot.costBars.count} empty=${shot.costBars.emptyCount}`
         : "",
       `tabs=${shot.tabs.map((tab) => `${tab.text}${tab.selected ? "*" : ""}`).join(",")}`,
     ]

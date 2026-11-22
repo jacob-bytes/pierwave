@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T06:28:27.512Z",
+  "generatedAt": "2026-11-22T07:06:15.883Z",
   "base": "http://127.0.0.1:8787",
   "shots": [
     {
@@ -41,8 +41,8 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "36.2%",
-          "hint": "7 天 74.5% · 10 台有采样"
+          "value": "35.0%",
+          "hint": "7 天 74.3% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -106,8 +106,8 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "36.2%",
-          "hint": "7 天 74.5% · 10 台有采样"
+          "value": "35.0%",
+          "hint": "7 天 74.3% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -171,8 +171,8 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "36.2%",
-          "hint": "7 天 74.5% · 10 台有采样"
+          "value": "35.0%",
+          "hint": "7 天 74.3% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -236,8 +236,8 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "36.2%",
-          "hint": "7 天 74.5% · 10 台有采样"
+          "value": "35.0%",
+          "hint": "7 天 74.3% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -269,12 +269,12 @@
       "width": 1440,
       "file": "app-real-cost-dark-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 1177,
+      "pageHeight": 1125,
       "viewportWidth": 1440,
-      "viewportHeight": 1233,
+      "viewportHeight": 1181,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 900.71875,
+      "sectionHeight": 849.265625,
       "tabs": [
         {
           "text": "资源状态",
@@ -294,7 +294,7 @@
         }
       ],
       "cardTitles": [
-        "未来 12 个月付款日历",
+        "未来 12 个月的开销",
         "开销大头",
         "币种构成",
         "一次性费用"
@@ -318,18 +318,18 @@
       ],
       "heatmap": null,
       "cost": {
-        "cells": 49,
-        "cellWidth": 46.890625,
-        "cellHeight": 32,
-        "scrollWidth": 763,
-        "clientWidth": 763,
+        "cells": 0,
+        "cellWidth": null,
+        "cellHeight": null,
+        "scrollWidth": null,
+        "clientWidth": null,
         "scrollable": false,
         "fxLine": "按汇率折算为 CNY",
         "currentYearLine": "按本年度剩余 1 个月折算",
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 321
+      "pageHeightDelta": 269
     },
     {
       "id": "real-cost-dark-390",
@@ -338,12 +338,12 @@
       "width": 390,
       "file": "app-real-cost-dark-390.png",
       "pageWidth": 390,
-      "pageHeight": 1948,
+      "pageHeight": 1888,
       "viewportWidth": 390,
-      "viewportHeight": 2004,
+      "viewportHeight": 1944,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1541.578125,
+      "sectionHeight": 1481.578125,
       "tabs": [
         {
           "text": "资源状态",
@@ -363,7 +363,7 @@
         }
       ],
       "cardTitles": [
-        "未来 12 个月付款日历",
+        "未来 12 个月的开销",
         "开销大头",
         "币种构成",
         "一次性费用"
@@ -387,18 +387,18 @@
       ],
       "heatmap": null,
       "cost": {
-        "cells": 49,
-        "cellWidth": 44,
-        "cellHeight": 32,
-        "scrollWidth": 712,
-        "clientWidth": 342,
-        "scrollable": true,
+        "cells": 0,
+        "cellWidth": null,
+        "cellHeight": null,
+        "scrollWidth": null,
+        "clientWidth": null,
+        "scrollable": false,
         "fxLine": "按汇率折算为 CNY",
         "currentYearLine": "按本年度剩余 1 个月折算",
         "oneTimeLine": "不计入本年度"
       },
-      "hasScrollHint": true,
-      "pageHeightDelta": 1092
+      "hasScrollHint": false,
+      "pageHeightDelta": 1032
     },
     {
       "id": "real-cost-light-1440",
@@ -407,12 +407,12 @@
       "width": 1440,
       "file": "app-real-cost-light-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 1177,
+      "pageHeight": 1125,
       "viewportWidth": 1440,
-      "viewportHeight": 1233,
+      "viewportHeight": 1181,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 900.71875,
+      "sectionHeight": 849.265625,
       "tabs": [
         {
           "text": "资源状态",
@@ -432,7 +432,7 @@
         }
       ],
       "cardTitles": [
-        "未来 12 个月付款日历",
+        "未来 12 个月的开销",
         "开销大头",
         "币种构成",
         "一次性费用"
@@ -456,18 +456,18 @@
       ],
       "heatmap": null,
       "cost": {
-        "cells": 49,
-        "cellWidth": 46.890625,
-        "cellHeight": 32,
-        "scrollWidth": 763,
-        "clientWidth": 763,
+        "cells": 0,
+        "cellWidth": null,
+        "cellHeight": null,
+        "scrollWidth": null,
+        "clientWidth": null,
         "scrollable": false,
         "fxLine": "按汇率折算为 CNY",
         "currentYearLine": "按本年度剩余 1 个月折算",
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 321
+      "pageHeightDelta": 269
     },
     {
       "id": "real-cost-light-390",
@@ -476,12 +476,12 @@
       "width": 390,
       "file": "app-real-cost-light-390.png",
       "pageWidth": 390,
-      "pageHeight": 1948,
+      "pageHeight": 1888,
       "viewportWidth": 390,
-      "viewportHeight": 2004,
+      "viewportHeight": 1944,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1541.578125,
+      "sectionHeight": 1481.578125,
       "tabs": [
         {
           "text": "资源状态",
@@ -501,7 +501,7 @@
         }
       ],
       "cardTitles": [
-        "未来 12 个月付款日历",
+        "未来 12 个月的开销",
         "开销大头",
         "币种构成",
         "一次性费用"
@@ -525,18 +525,18 @@
       ],
       "heatmap": null,
       "cost": {
-        "cells": 49,
-        "cellWidth": 44,
-        "cellHeight": 32,
-        "scrollWidth": 712,
-        "clientWidth": 342,
-        "scrollable": true,
+        "cells": 0,
+        "cellWidth": null,
+        "cellHeight": null,
+        "scrollWidth": null,
+        "clientWidth": null,
+        "scrollable": false,
         "fxLine": "按汇率折算为 CNY",
         "currentYearLine": "按本年度剩余 1 个月折算",
         "oneTimeLine": "不计入本年度"
       },
-      "hasScrollHint": true,
-      "pageHeightDelta": 1092
+      "hasScrollHint": false,
+      "pageHeightDelta": 1032
     }
   ],
   "errors": []

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildCostOverview,
   buildFxDetails,
+  buildMonthExpenses,
   costCycleOf,
   formatCnyCompact,
   formatFxRateDisplay,
@@ -422,6 +423,49 @@ test("只有离线 / 未填费用时不显示正常视图；只有未知币种�
   assert.equal(unknownOnly.hasData, true);
   assert.equal(unknownOnly.totalCnyCents, 0);
   assert.equal(unknownOnly.unknownCurrency.length, 1);
+});
+
+test("buildMonthExpenses: 12 个月合计、服务器降序、>8 提示与空月", () => {
+  const months = Array.from({ length: 12 }, (_, index) => 2026 * 12 + 7 + index);
+  const calendarRows = Array.from({ length: 10 }, (_, index) => ({
+    serverId: `s-${index}`,
+    name: `server-${String(index).padStart(2, "0")}`,
+    currency: "CNY",
+    kind: "periodic",
+    cells: [
+      { monthIndex: months[0], amountCnyCents: 100 + index, prepaid: false },
+      { monthIndex: months[1], amountCnyCents: 0, prepaid: false },
+    ],
+  }));
+  calendarRows.push({
+    serverId: "once",
+    name: "once-server",
+    currency: "CNY",
+    kind: "once",
+    cells: [{ monthIndex: months[0], amountCnyCents: 5000, prepaid: false }],
+  });
+  calendarRows.push({
+    serverId: "prepaid",
+    name: "prepaid-server",
+    currency: "CNY",
+    kind: "periodic",
+    cells: [{ monthIndex: months[0], amountCnyCents: 0, prepaid: true }],
+  });
+
+  const result = buildMonthExpenses({ months, calendarRows });
+  assert.equal(result.length, 12);
+  assert.equal(result[0].charges.length, 11);
+  assert.equal(result[0].charges[0].serverId, "once");
+  assert.equal(result[0].hiddenCharges, 3);
+  assert.equal(result[0].oneTimeCount, 1);
+  assert.equal(result[0].prepaid.length, 1);
+  assert.equal(
+    result[0].totalCnyCents,
+    5000 + Array.from({ length: 10 }, (_, i) => 100 + i).reduce((a, b) => a + b, 0),
+  );
+  assert.equal(result[1].totalCnyCents, 0);
+  assert.equal(result[1].charges.length, 0);
+  assert.equal(result[11].totalCnyCents, 0);
 });
 
 test("buildFxDetails: 只列在用币种，CNY 在前，未知币种单独返回", () => {
