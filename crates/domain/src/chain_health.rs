@@ -19,6 +19,8 @@
 //!   attempts`，attempts = 0 时为 `null`（不是 0）。整链按各跳独立连乘
 //!   `1 - Π(1 - loss_i)`；缺数据的段跳过，只有「部分段有数据」时才标
 //!   `loss_partial`（全链无数据时 `loss_pct = null`、`loss_partial = false`）。
+//! * `series[].loss_pct` 是**该时间桶**的整链丢包，用同一 `ts` 桶的各段
+//!   探测计数连乘；桶内所有段都没探测时为 null（桶级不设 partial）。
 //! * 多成员组（多路径）按段中位数求和，链级 `estimated = true`；丢包则把
 //!   各成员的探测计数相加后再算比值。
 
@@ -27,6 +29,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::models::{ChainGroupMember, ChainGroupWithMembers, ChainWithGroups};
+use crate::repo::chain_probe::ProbeBucketRow;
 use crate::repo::latency::LatencySample;
 use crate::telemetry::ProbeCounts;
 
@@ -99,6 +102,9 @@ pub struct SeriesPoint {
     pub p10: f64,
     pub p90: f64,
     pub samples: i64,
+    /// 该桶内的整链丢包（%；各段取同一 `ts` 桶的 attempts/failures 连乘）。
+    /// 桶内所有段都没有探测时为 null，不补 0。
+    pub loss_pct: Option<f64>,
 }
 
 /// 一条链的聚合结果。
@@ -218,14 +224,27 @@ pub fn current_window(now: i64, hours: i64, bucket: i64) -> (i64, i64) {
     (end - current_count * bucket, end)
 }
 
+/// 时间轴窗口的 `[start, end)`：从对齐后的 `end` 往前 `hours` 小时。
+///
+/// 路由层用它给 `forward_probe_samples` 取数：逐桶丢包需要 `series` 覆盖到
+/// 的每个探测桶（不只是当前 2h 窗口）。
+pub fn series_window(now: i64, hours: i64, bucket: i64) -> (i64, i64) {
+    if hours <= 0 || bucket <= 0 {
+        return (now, now);
+    }
+    let end = aligned_end(now, bucket);
+    let count = (hours * 3600 / bucket).max(1);
+    (end - count * bucket, end)
+}
+
 /// 纯内存聚合。`chains` 必须已经按 `server_ids` 筛选过；`samples` 是这些链
 /// 所有成员的 `forward_latency_samples`（`ts >= sample_window_start`）；
-/// `probes` 是同一批成员 forward 在 [`current_window`] 内的探测计数之和
-/// （没有探测的 forward 不在 map 里，读作 attempts = 0）。
+/// `probes` 是同一批成员 forward 在 [`series_window`] 内的 5 分钟探测桶。
+/// 当前窗口的整链丢包与 `series[].loss_pct` 都由这批桶内存聚合得到。
 pub fn aggregate(
     chains: &[ChainWithGroups],
     samples: &[LatencySample],
-    probes: &HashMap<String, ProbeCounts>,
+    probes: &[ProbeBucketRow],
     now: i64,
     hours: i64,
     bucket: i64,
@@ -242,8 +261,7 @@ pub fn aggregate(
     }
 
     let count = (hours * 3600 / bucket).max(1);
-    let end = aligned_end(now, bucket);
-    let series_start = end - count * bucket;
+    let (series_start, end) = series_window(now, hours, bucket);
     let (current_start, _) = current_window(now, hours, bucket);
     let baseline_count = baseline_bucket_count(bucket);
     let baseline_start = current_start - baseline_count * bucket;
@@ -264,22 +282,38 @@ pub fn aggregate(
         }
     }
 
-    // (chain, segment) → 当前窗口探测计数。forward 是「每跳入口」的探测，
-    // 这里把同一段所有成员（多路径）的计数相加；最后一跳（最后一组 → 链
-    // 目标）没有下一组可归属，和时延样本一样忽略。
+    // (chain, segment, series bucket) → 该桶的探测计数。forward 是「每跳入口」
+    // 的探测，这里把同一段所有成员（多路径）的计数相加；最后一跳（最后一组
+    // → 链目标）没有下一组可归属，和时延样本一样忽略。
+    let mut segment_probe_buckets: HashMap<(usize, usize, i64), ProbeCounts> = HashMap::new();
+    // 同一批桶里落在当前窗口（最近 2h）的部分，用于整链窗口丢包。
     let mut segment_probes: HashMap<(usize, usize), ProbeCounts> = HashMap::new();
-    for (forward_id, counts) in probes {
-        let Some(&(chain_index, group_index, _)) = forward_map.get(forward_id) else {
+    for row in probes {
+        let Some(&(chain_index, group_index, _)) = forward_map.get(&row.forward_id) else {
             continue;
         };
         let layout = &layouts[chain_index];
         if group_index + 1 >= layout.groups.len() {
             continue;
         }
-        segment_probes
-            .entry((chain_index, group_index))
+        let bucket_ts = row.ts.div_euclid(bucket) * bucket;
+        if bucket_ts < series_start || bucket_ts >= end {
+            continue;
+        }
+        let counts = ProbeCounts {
+            attempts: row.attempts.max(0),
+            failures: row.failures.max(0),
+        };
+        segment_probe_buckets
+            .entry((chain_index, group_index, bucket_ts))
             .or_default()
-            .add(*counts);
+            .add(counts);
+        if bucket_ts >= current_start {
+            segment_probes
+                .entry((chain_index, group_index))
+                .or_default()
+                .add(counts);
+        }
     }
 
     // (chain, segment, bucket) → 原始延迟值；桶内再算分位数。
@@ -386,7 +420,14 @@ pub fn aggregate(
                     }
                 }
             }
-            series.push(complete.then(|| total.into_point(ts)));
+            // 桶级丢包与 p50 同桶：某段该桶无探测就跳过，全部段都无探测
+            // 才是 null；桶级没有 partial 字段，缺失只由 null 表达。
+            let loss_pct = if complete {
+                chain_loss_for_bucket(&segment_probe_buckets, chain_index, segment_count, ts)
+            } else {
+                None
+            };
+            series.push(complete.then(|| total.into_point(ts, loss_pct)));
         }
 
         // 当前窗口（最近 2h）与基线窗口（此前 24h）：逐桶 p50，再取中位数。
@@ -502,6 +543,33 @@ pub fn aggregate(
         chains: views.into_iter().map(|build| build.view).collect(),
         unmapped_forwards,
     }
+}
+
+/// 某一个时间桶的整链丢包（%）：各段取**同一桶**的 attempts/failures 连乘。
+///
+/// 某段该桶没有探测就跳过；所有段都没有探测时返回 null（不补 0）。
+/// 桶级不设 partial：缺失只由 `null` 表达。
+fn chain_loss_for_bucket(
+    probes: &HashMap<(usize, usize, i64), ProbeCounts>,
+    chain_index: usize,
+    segment_count: usize,
+    ts: i64,
+) -> Option<f64> {
+    let mut survival = 1.0_f64;
+    let mut seen = false;
+    for segment_index in 0..segment_count {
+        let counts = probes
+            .get(&(chain_index, segment_index, ts))
+            .copied()
+            .unwrap_or_default();
+        if counts.attempts <= 0 {
+            continue;
+        }
+        seen = true;
+        let loss = (counts.failures.max(0) as f64 / counts.attempts as f64).clamp(0.0, 1.0);
+        survival *= 1.0 - loss;
+    }
+    seen.then(|| round4((1.0 - survival) * 100.0))
 }
 
 /// (链, 段) → (源成员, 目标成员) → 当前窗口样本数。
@@ -676,13 +744,14 @@ impl StatsAccumulator {
         self.samples += stats.samples;
     }
 
-    fn into_point(self, ts: i64) -> SeriesPoint {
+    fn into_point(self, ts: i64, loss_pct: Option<f64>) -> SeriesPoint {
         SeriesPoint {
             ts,
             p50: round1(self.p50),
             p10: round1(self.p10),
             p90: round1(self.p90),
             samples: self.samples,
+            loss_pct,
         }
     }
 }
@@ -1023,22 +1092,24 @@ mod tests {
     }
 
     /// 没有探测数据：丢包逐段为 null、整链 null，且不标 `loss_partial`。
-    fn no_probes() -> HashMap<String, ProbeCounts> {
-        HashMap::new()
+    fn no_probes() -> Vec<ProbeBucketRow> {
+        Vec::new()
     }
 
-    /// 按 `(forward_id, attempts, failures)` 构造当前窗口的探测计数。
-    fn probes(entries: &[(String, i64, i64)]) -> HashMap<String, ProbeCounts> {
+    /// 当前窗口内的一个 5 分钟探测桶：`(forward_id, attempts, failures)`。
+    fn probes(entries: &[(String, i64, i64)]) -> Vec<ProbeBucketRow> {
+        probes_in_bucket(end_at(NOW, BUCKET) - 60, entries)
+    }
+
+    /// 指定时间戳的探测桶；同一批 entry 共用 `ts`。
+    fn probes_in_bucket(ts: i64, entries: &[(String, i64, i64)]) -> Vec<ProbeBucketRow> {
         entries
             .iter()
-            .map(|(forward_id, attempts, failures)| {
-                (
-                    forward_id.clone(),
-                    ProbeCounts {
-                        attempts: *attempts,
-                        failures: *failures,
-                    },
-                )
+            .map(|(forward_id, attempts, failures)| ProbeBucketRow {
+                forward_id: forward_id.clone(),
+                ts,
+                attempts: *attempts,
+                failures: *failures,
             })
             .collect()
     }
@@ -1533,6 +1604,84 @@ mod tests {
                 failures: 2
             }
         );
+    }
+
+    #[test]
+    fn series_loss_is_per_bucket_not_the_window_value() {
+        let chain = chain(
+            "c1",
+            vec![
+                (0, vec![("a", "A")]),
+                (1, vec![("b", "B")]),
+                (2, vec![("c", "C")]),
+            ],
+        );
+        let end = end_at(NOW, BUCKET);
+        let mut samples = Vec::new();
+        for ts in [end - 3 * BUCKET, end - 2 * BUCKET, end - BUCKET] {
+            samples.push(sample(ts + 60, "a", forward("c1", 0, "a", 1), "", 20));
+            samples.push(sample(ts + 60, "b", forward("c1", 1, "b", 1), "", 30));
+        }
+
+        // 桶 1：两段各 1% → 1.99%；桶 2：第 1 段 0%、第 2 段 50% → 50%。
+        let mut probes = probes_in_bucket(
+            end - 3 * BUCKET,
+            &[
+                (forward("c1", 0, "a", 1), 100, 1),
+                (forward("c1", 1, "b", 1), 100, 1),
+            ],
+        );
+        probes.extend(probes_in_bucket(
+            end - 2 * BUCKET,
+            &[
+                (forward("c1", 0, "a", 1), 100, 0),
+                (forward("c1", 1, "b", 1), 100, 50),
+            ],
+        ));
+        // 桶 3：只有第 1 段有探测，第 2 段跳过（桶级不算 partial）。
+        probes.extend(probes_in_bucket(
+            end - BUCKET,
+            &[(forward("c1", 0, "a", 1), 100, 1)],
+        ));
+
+        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert!(view.series[0].is_none(), "没有时延样本的桶仍是 null");
+        assert_eq!(view.series[1].as_ref().unwrap().loss_pct, Some(1.99));
+        assert_eq!(view.series[2].as_ref().unwrap().loss_pct, Some(50.0));
+        assert_eq!(
+            view.series[3].as_ref().unwrap().loss_pct,
+            Some(1.0),
+            "缺第 2 段探测时按第 1 段有数据的部分计算"
+        );
+        assert_eq!(
+            view.series[1].as_ref().unwrap().p50,
+            50.0,
+            "丢包按桶计算不影响 p50"
+        );
+
+        // 窗口值仍是当前 2h 的合并计数：第 1 段 2/300、第 2 段 51/200。
+        assert_eq!(view.segments[0].loss_pct, Some(0.6667));
+        assert_eq!(view.segments[1].loss_pct, Some(25.5));
+        assert_eq!(view.loss_pct, Some(25.9967));
+    }
+
+    #[test]
+    fn a_series_bucket_without_probes_has_null_loss() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let end = end_at(NOW, BUCKET);
+        let samples = vec![
+            sample(end - 2 * BUCKET + 60, "a", forward("c1", 0, "a", 1), "", 20),
+            sample(end - BUCKET + 60, "a", forward("c1", 0, "a", 1), "", 20),
+        ];
+        // 只给较老的那个桶写探测；另一个桶只有时延、没有探测。
+        let probes = probes_in_bucket(end - 2 * BUCKET + 60, &[(forward("c1", 0, "a", 1), 100, 1)]);
+
+        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.series[2].as_ref().unwrap().loss_pct, Some(1.0));
+        assert_eq!(view.series[3].as_ref().unwrap().loss_pct, None);
+        assert_eq!(view.series[3].as_ref().unwrap().p50, 20.0);
     }
 
     #[test]

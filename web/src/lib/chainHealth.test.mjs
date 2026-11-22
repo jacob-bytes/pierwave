@@ -9,6 +9,7 @@ import {
   chainDiagnosisReason,
   chainLatestSampleTs,
   chainLatencyWindow,
+  chainLossAt,
   chainLossTone,
   chainSeriesMax,
   buildChainTrendData,
@@ -29,8 +30,13 @@ import {
 } from "./chainHealth.ts";
 import { ApiError } from "./apiError.ts";
 
-function point(ts, p50, p10 = null, p90 = null, samples = 3) {
-  return { ts, p50, p10, p90, samples };
+function point(ts, p50, p10 = null, p90 = null, samples = 3, lossPct = null) {
+  return { ts, p50, p10, p90, samples, lossPct };
+}
+
+/** 原始契约里的桶（snake_case），用于验证 `series[].loss_pct` 归一化。 */
+function rawPoint(ts, p50, p10 = null, p90 = null, samples = 3, lossPct = null) {
+  return { ts, p50, p10, p90, samples, loss_pct: lossPct };
 }
 
 function chain(overrides = {}) {
@@ -576,11 +582,11 @@ test("segment trends aggregate raw 5-minute points into the requested bucket", (
   ];
   const trends = segmentTrends(points, 900);
   assert.deepEqual(trends.get(1), [
-    { ts: 0, p50: 20, p10: null, p90: null, samples: 3 },
-    { ts: 900, p50: 40, p10: null, p90: null, samples: 1 },
+    { ts: 0, p50: 20, p10: null, p90: null, samples: 3, lossPct: null },
+    { ts: 900, p50: 40, p10: null, p90: null, samples: 1, lossPct: null },
   ]);
   assert.deepEqual(trends.get(2), [
-    { ts: 0, p50: 5, p10: null, p90: null, samples: 1 },
+    { ts: 0, p50: 5, p10: null, p90: null, samples: 1, lossPct: null },
   ]);
 
   const result = normalizeChainHealth(payload([chain()]));
@@ -844,4 +850,42 @@ test("zero-attempt probe samples stay missing instead of becoming 0%", () => {
   assert.equal(formatLossPct(item.lossPct), "—");
   assert.equal(formatLossProbes(0, 0), "—");
   assert.equal(result.snapshot.summary.worstLoss, null);
+});
+
+test("series buckets keep their own loss instead of the window aggregate", () => {
+  const result = normalizeChainHealth(
+    payload([
+      chain({
+        loss_pct: 1.2,
+        series: [
+          rawPoint(1_800_000_000, 20, 18, 22, 240, 0.2),
+          rawPoint(1_800_000_900, 21, 19, 23, 240, 4.7),
+          { ts: 1_800_001_800, p50: null, samples: 0 },
+        ],
+      }),
+    ]),
+  );
+  const item = result.snapshot.chains[0];
+  assert.equal(item.series[0].lossPct, 0.2);
+  assert.equal(item.series[1].lossPct, 4.7);
+  assert.equal(item.series[2].lossPct, null);
+  assert.equal(chainLossAt(item, 1_800_000_000), 0.2);
+  assert.equal(chainLossAt(item, 1_800_000_900), 4.7);
+  assert.equal(formatLossPct(chainLossAt(item, 1_800_000_900)), "4.7%");
+});
+
+test("chainLossAt never falls back to the window loss", () => {
+  const result = normalizeChainHealth(
+    payload([chain({ loss_pct: 3.3, series: [rawPoint(1_800_000_000, 20)] })]),
+  );
+  const item = result.snapshot.chains[0];
+  // 旧主控没有逐桶 loss_pct：该时刻必须显示 —，不能借用窗口的 3.3%。
+  assert.equal(item.lossPct, 3.3);
+  assert.equal(item.series[0].lossPct, null);
+  assert.equal(chainLossAt(item, 1_800_000_000), null);
+  assert.equal(formatLossPct(chainLossAt(item, 1_800_000_000)), "—");
+  // 没有这个桶同样是 —。
+  assert.equal(chainLossAt(item, 1_800_000_900), null);
+  assert.equal(chainLossAt(item, null), null);
+  assert.equal(chainLossAt(item, Number.NaN), null);
 });

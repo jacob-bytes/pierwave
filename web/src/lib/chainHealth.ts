@@ -61,6 +61,8 @@ export interface ChainHealthPoint {
   p10: number | null;
   p90: number | null;
   samples: number;
+  /** 该桶（该时刻）的探测丢包；旧主控 / 无探测为 null，不回落到窗口值。 */
+  lossPct: number | null;
 }
 
 /**
@@ -240,7 +242,7 @@ function readPoint(raw: unknown): ChainHealthPoint | null {
   // 显式 `samples: 0` 表示没有采样：值一律置空，不能画成 0ms。
   const samples = samplesRaw ?? (p50 !== null ? 1 : 0);
   if (samples <= 0) {
-    return { ts, p50: null, p10: null, p90: null, samples: 0 };
+    return { ts, p50: null, p10: null, p90: null, samples: 0, lossPct: null };
   }
 
   let p10 = p10Raw;
@@ -248,7 +250,7 @@ function readPoint(raw: unknown): ChainHealthPoint | null {
   if (p10 !== null && p90 !== null && p10 > p90) {
     [p10, p90] = [p90, p10];
   }
-  return { ts, p50, p10, p90, samples };
+  return { ts, p50, p10, p90, samples, lossPct: readLossPct(raw.loss_pct) };
 }
 
 function readSeries(raw: unknown): ChainHealthPoint[] {
@@ -879,6 +881,21 @@ export function chainLatestP50(series: readonly ChainHealthPoint[]): number | nu
 }
 
 /**
+ * 指定时间桶的「该时刻丢包」；没有这个桶或该桶没有探测时返回 null。
+ *
+ * 只读 `series[].loss_pct`，**不**回落到 `chain.lossPct`（窗口聚合值）：
+ * 图上的时刻值与列表的窗口值必须能区分开。
+ */
+export function chainLossAt(
+  chain: Pick<ChainHealthChain, "series">,
+  ts: number | null,
+): number | null {
+  if (ts === null || !Number.isFinite(ts)) return null;
+  const point = chain.series.find((item) => item.ts === ts);
+  return point?.lossPct ?? null;
+}
+
+/**
  * 最近一次有效时延样本的时间（Unix 秒）：整体序列与逐段序列取最大。
  * 没有任何「p50 非空 + samples > 0」的点时返回 null。
  */
@@ -938,6 +955,8 @@ export function segmentTrends(
         p10: null,
         p90: null,
         samples: values.length,
+        // 逐段延迟历史来自 `/chains/{id}/latency`，不含探测丢包。
+        lossPct: null,
       }));
     trends.set(seq, series);
   }

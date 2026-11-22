@@ -265,15 +265,15 @@ function ChainListRow({
   const lossSamples = chain.lossSamples;
   const lossTitle =
     chain.lossPct === null
-      ? t("overview.chainLatency.lossNoData")
+      ? t("overview.chainLatency.windowLossNoData")
       : lossSamples !== null &&
           lossSamples.attempts !== null &&
           lossSamples.failures !== null
-        ? t("overview.chainLatency.lossProbes", {
+        ? t("overview.chainLatency.windowLossProbes", {
             attempts: lossSamples.attempts,
             failures: lossSamples.failures,
           })
-        : undefined;
+        : t("overview.chainLatency.windowLoss");
   const statusLabel = source
     ? t(HEALTH_META[chainHealthStatus(source)].labelKey)
     : "—";
@@ -358,7 +358,7 @@ function ChainListRow({
             className="shrink-0 text-right sm:col-start-4 sm:row-start-1"
           >
             <span className="mr-1 text-[9px] text-muted-foreground sm:hidden">
-              {t("overview.chainLatency.loss")}
+              {t("overview.chainLatency.windowLoss")}
             </span>
             <ChainLossValue
               value={chain.lossPct}
@@ -457,7 +457,7 @@ export function ChainLatencyList({
             <span>{t("overview.chainLatency.colPath")}</span>
             <span className="text-right">P50</span>
             <span className="text-right">
-              {t("overview.chainLatency.loss")}
+              {t("overview.chainLatency.windowLoss")}
             </span>
             <span className="text-right">
               {t("overview.chainLatency.colStatus")}

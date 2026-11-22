@@ -141,13 +141,13 @@ function ChainOverallStats({ chain }: { chain: ChainHealthChain }) {
   const samples = chain.lossSamples;
   const lossTitle =
     chain.lossPct === null
-      ? t("overview.chainLatency.lossNoData")
+      ? t("overview.chainLatency.windowLossNoData")
       : samples !== null && samples.attempts !== null && samples.failures !== null
-        ? t("overview.chainLatency.lossProbes", {
+        ? t("overview.chainLatency.windowLossProbes", {
             attempts: samples.attempts,
             failures: samples.failures,
           })
-        : undefined;
+        : t("overview.chainLatency.windowLoss");
 
   return (
     <div
@@ -167,7 +167,7 @@ function ChainOverallStats({ chain }: { chain: ChainHealthChain }) {
         className="inline-flex items-baseline gap-1.5"
       >
         <span className="text-[10px] text-muted-foreground">
-          {t("overview.chainLatency.loss")}
+          {t("overview.chainLatency.currentWindowLoss")}
         </span>
         <ChainLossValue value={chain.lossPct} className="text-xs" />
       </span>

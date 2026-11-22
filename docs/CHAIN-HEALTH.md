@@ -28,7 +28,7 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
     "id": "…", "name": "港日中转链", "hops": 4,
     "estimated": false,
     "missing_hops": [4],
-    "series": [ { "ts": 1795312800, "p50": 71, "p10": 69, "p90": 74, "samples": 9 }, null ],
+    "series": [ { "ts": 1795312800, "p50": 71, "p10": 69, "p90": 74, "samples": 9, "loss_pct": 0.8 }, null ],
     "segments": [
       { "seq": 1, "from": "香港-01", "to": "东京-01",
         "p50": 16.0, "delta_ms": 0.0, "contribution_pct": 0,
@@ -118,7 +118,8 @@ p50 最高的段。
 
 - **窗口**：只看**当前窗口**（最近 2 小时，`CURRENT_WINDOW_SECS`，按
   `bucket` 对齐），与逐段 p50 的当前值完全同一个窗口；`hours < 2` 时退化为
-  请求窗口。丢包不使用 24h 基线，也不输出丢包时间序列；
+  请求窗口。`series[].loss_pct` 按每个时间桶单独算（见下）。两者都不使用
+  24h 丢包基线；
 - **单段**：`loss_pct = failures / attempts × 100`，保留 4 位小数
   （2/240 = 0.8333）。`attempts = 0` 时 `loss_pct = null`，**不是 0**：补 0
   会被读成「这段完全不丢包」；
@@ -129,6 +130,11 @@ p50 最高的段。
   全部段都缺数据时整链 `loss_pct = null`、
   `loss_samples = { "attempts": 0, "failures": 0 }`、**`loss_partial: false`**
   （否则会和「无探测数据」自相矛盾）；全部段都有数据时同样是 `false`；
+- **`series[].loss_pct`（该时刻）**：每个时间桶各自算整链丢包，各段取
+  **同一 `ts` 桶**的 attempts/failures 连乘（与 `p50` 同桶对齐）。某段该桶
+  没探测就跳过；整桶所有段都没探测 → `loss_pct: null`。桶级**没有**
+  partial 字段，缺失只由 `null` 表达。它和链级 `loss_pct`（当前 2h 窗口
+  聚合值）是两个不同口径，不要混用；
 - **`loss_samples`**：参与连乘的各段 attempts / failures **之和**（原始计数，
   不是比率）；`loss_pct` 是连乘结果，所以一般不等于
   `failures / attempts`；
@@ -160,8 +166,8 @@ p50 最高的段。
 3. `chain_group_members` JOIN `servers`：全部成员一次读出；
 4. `forward_latency_samples`：所有成员 forward id 一次 `IN (...)`，时间下界
    覆盖 `series` 与 24h 基线中更老的一侧；
-5. `forward_probe_samples`：同一批 forward id 的当前窗口（2h）计数，
-   一次 `IN (...) + GROUP BY forward_id`。
+5. `forward_probe_samples`：同一批 forward id 在 `series` 窗口内的 5 分钟
+   探测桶，一次 `IN (...)` 读出；逐桶丢包在内存里按 `bucket` 再合并。
 
 在 `data/preview.db`（迁移建库、不跑 `ANALYZE`）上实测：
 
@@ -182,16 +188,16 @@ USE TEMP B-TREE FOR RIGHT PART OF ORDER BY
 SEARCH forward_latency_samples USING INDEX idx_forward_latency_samples_forward_ts (forward_id=? AND ts>?)
 USE TEMP B-TREE FOR ORDER BY
 
--- 每跳探测计数（同一批 forward id，当前 2h 窗口）
+-- 每跳探测桶（同一批 forward id，series 窗口）
 SEARCH forward_probe_samples USING INDEX idx_forward_probe_samples_forward_ts (forward_id=? AND ts>? AND ts<?)
+USE TEMP B-TREE FOR ORDER BY
 ```
 
 没有 `SCAN forward_latency_samples` / `SCAN forward_probe_samples` 全表扫描；
-`IN (...)` 对每个 forward id 各做一次 `(forward_id, ts)` 区间探测。丢包查询的
-`GROUP BY` 直接复用同一个索引前缀，不额外建临时表。`ORDER BY` 的临时 B 树
-只排序本窗口命中的行，不是全表。`EXPLAIN QUERY PLAN` 的完整输出在
+`IN (...)` 对每个 forward id 各做一次 `(forward_id, ts)` 区间探测。`ORDER BY`
+的临时 B 树只排序本窗口命中的行，不是全表。`EXPLAIN QUERY PLAN` 的完整输出在
 `crates/domain/tests/query_plan.rs` 的回归里也以同样 SQL 形状锁定（含
-`forward_probe_samples` 的计数查询）。
+`forward_probe_samples` 的逐桶查询）。
 
 结果缓存 30 秒（`crates/master/src/state.rs::ChainHealthCache`），key =
 `(hours, bucket, 规范化后的请求 server_ids)`；命中的 + 未知的 id 都进 key，
@@ -231,12 +237,13 @@ SEARCH forward_probe_samples USING INDEX idx_forward_probe_samples_forward_ts (f
   单段 2/240 = 0.8333、两段各 1% → 1.99、缺段跳过；全无数据 → null +
   `loss_partial=false`、部分段有数据 → 连乘 + `loss_partial=true`、
   最后一跳不计入段、多路径先加计数再算比值、`summary` 取最差链；
+  `series[].loss_pct` 两个桶不同失败率 → 不同值、无探测桶 → null；
 - 路由层（`crates/master/src/routes/chain_health.rs`）：单跳/多跳映射、
-  最后一跳不伪装 0、段/整链丢包与时延回归、`server_ids` 筛选后只汇总保留
-  的链、筛选（命中/未知/空数组/非法/201 个 id）、非法 `hours`/`bucket`、
-  缓存 key 隔离、非管理员 401/403；
+  最后一跳不伪装 0、段/整链丢包与时延回归、`series[]` 逐桶丢包、
+  `server_ids` 筛选后只汇总保留的链、筛选（命中/未知/空数组/非法/201 个
+  id）、非法 `hours`/`bucket`、缓存 key 隔离、非管理员 401/403；
 - 查询计划（`crates/domain/tests/query_plan.rs`）：`forward_probe_samples`
-  的计数查询必须走 `idx_forward_probe_samples_forward_ts`，不允许全表扫描；
+  的逐桶查询必须走 `idx_forward_probe_samples_forward_ts`，不允许全表扫描；
 - 缓存层（`crates/master/src/state.rs`）：`(hours, bucket, 筛选)` 三维
   key 隔离、TTL、禁用。
 
@@ -246,8 +253,8 @@ SEARCH forward_probe_samples USING INDEX idx_forward_probe_samples_forward_ts (f
   目标仍没有可靠历史，只声明 `missing_hops`；
 - 不提供逐段的完整时间序列（契约只要求段级 p50/delta/贡献；热力图若需要
   逐段序列，需要再扩字段）；
-- 丢包只有当前 2h 窗口的段级计数与整链连乘，不提供丢包时间序列，也不做
-  24h 丢包基线；
+- 丢包不单独提供曲线/基线：逐桶值随 `series[]` 一起返回，链级值取当前 2h
+  窗口，不做 24h 丢包基线；
 - 多路径按「段中位数求和」估算，不做按实际选路权重的加权；
 - 不做跨进程缓存失效（30 秒 TTL，单进程）；
 - 不改 `web/`、`agent/`、`proto/`。
@@ -310,23 +317,31 @@ has `loss_pct: null`, `loss_samples: { "attempts": 0, "failures": 0 }` and
 `loss_partial: false` (never both "no data" and "partially probed"), and a fully
 probed chain also uses `false`. `loss_samples` sums the raw counts of the
 segments that entered the product, so it is not generally equal to
-`failures / attempts`. Loss uses the same current 2-hour window as the segment
-p50 (or the request window when `hours < 2`), aligned to `bucket`; no 24-hour
-loss baseline or loss series is produced. `summary.loss_pct` is the highest
-chain loss among the visible (filtered) chains and `worst_loss` names that chain
-(id, name, loss); both are `null` when no chain has usable probe data.
+`failures / attempts`. The chain-level `loss_pct` uses the same current 2-hour
+window as the segment p50 (or the request window when `hours < 2`), aligned to
+`bucket`. Each non-null `series[]` point additionally carries `loss_pct` for
+**that time bucket**: the same `1 - Π(1 - loss_i)` product over the segments'
+probe counts in the same `ts` bucket. A segment without probes in that bucket
+is skipped; a bucket where no segment has probes is `loss_pct: null` (there is
+no per-bucket partial flag—missing data is expressed by `null` alone). The
+series value and the chain-level window value are different measures and must
+not be mixed. No 24-hour loss baseline is produced. `summary.loss_pct` is the
+highest chain loss among the visible (filtered) chains and `worst_loss` names
+that chain (id, name, loss); both are `null` when no chain has usable probe
+data.
 
 Performance: three topology queries (chains / groups / members), one
 `forward_latency_samples` query with `forward_id IN (...)`, and one
-`forward_probe_samples` query with `forward_id IN (...) GROUP BY forward_id`;
-no N+1. On the preview database `EXPLAIN QUERY PLAN` shows `idx_chains_created`,
-`idx_chain_groups_chain`, the `(group_id)` primary-key lookup,
+`forward_probe_samples` query reading the 5-minute buckets across the series
+window with `forward_id IN (...)`; no N+1. On the preview database
+`EXPLAIN QUERY PLAN` shows `idx_chains_created`, `idx_chain_groups_chain`, the
+`(group_id)` primary-key lookup,
 `idx_forward_latency_samples_forward_ts (forward_id=? AND ts>?)`, and
-`idx_forward_probe_samples_forward_ts (forward_id=? AND ts>? AND ts<?)`; there
-is no full table scan of either samples table. The response is cached for 30
-seconds in `ChainHealthCache` keyed by
-`(hours, bucket, normalized request server_ids)` (unknown ids included because
-`scope` / `warnings` are cached with the body), with
+`idx_forward_probe_samples_forward_ts (forward_id=? AND ts>? AND ts<?)` plus a
+temporary B-tree for the ordered result; there is no full table scan of either
+samples table. The response is cached for 30 seconds in `ChainHealthCache` keyed
+by `(hours, bucket, normalized request server_ids)` (unknown ids included
+because `scope` / `warnings` are cached with the body), with
 `X-Chain-Health-Cache: hit|miss`.
 
 `scripts/seed-preview.sh` adds 3 chains / 9 groups / 10 members, 24 hours of
@@ -342,8 +357,11 @@ Tests cover single-hop, multi-hop, multi-path estimation, missing final hop,
 empty samples, chains without members, partial buckets, single-segment and
 uniform slowdowns, loss edge cases (`attempts = 0` → `null`, 2/240 = 0.8333,
 two 1% segments → 1.99%, missing segment → `loss_partial`, no probe data at all
-→ `null` + `loss_partial: false`, final hop ignored,
-multi-member counts summed), summary worst-loss selection, filtering
-(hit/unknown/empty/invalid/201 ids), loss under `server_ids` filtering, latency
-regression, bad `hours`/`bucket`, cache-key isolation, query plans, and 401/403.
-No migration is added; no `web/`, `agent/` or `proto/` changes are made.
+→ `null` + `loss_partial: false`, per-bucket `series[].loss_pct` differing
+between buckets and `null` for a bucket without probes, final hop ignored,
+multi-member counts summed), per-bucket `series[].loss_pct` (different values
+per bucket, `null` for a bucket without probes), summary worst-loss selection,
+filtering (hit/unknown/empty/invalid/201 ids), loss under `server_ids`
+filtering, latency regression, bad `hours`/`bucket`, cache-key isolation, query
+plans, and 401/403. No migration is added; no `web/`, `agent/` or `proto/`
+changes are made.

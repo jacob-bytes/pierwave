@@ -3,15 +3,15 @@
 //!
 //! 跨链时延聚合：一次读链拓扑（链 / 组 / 成员 3 条 SQL，不按链循环），
 //! 一次取窗口时延样本（`forward_latency_samples` 的 `forward_id IN (...)`），
-//! 一次取当前窗口的探测计数（`forward_probe_samples` 的 `forward_id IN (...)`
-//! 并按 `forward_id` 聚合），剩下的归并全部在
+//! 一次取时间轴窗口内的 5 分钟探测桶（`forward_probe_samples` 的
+//! `forward_id IN (...)`），剩下的归并全部在
 //! [`pierwave_domain::chain_health`] 里做。查询次数与链数、成员数无关，
 //! 没有 N+1。
 //!
-//! 丢包口径：每段取最近 [`aggregate::CURRENT_WINDOW_SECS`]（2 小时，与 p50
-//! 的当前窗口完全一致）的 attempts/failures，attempts = 0 为 null；整链按
-//! 各跳独立连乘 `1 - Π(1 - loss_i)`，缺数据的段跳过；只有「部分段有数据」
-//! 时才标 `loss_partial`（全链无数据是 `loss_pct = null` + `loss_partial = false`）。
+//! 丢包口径：链级 `loss_pct` 取最近 [`aggregate::CURRENT_WINDOW_SECS`]（2 小时，
+//! 与 p50 的当前窗口一致）的 attempts/failures；`series[].loss_pct` 取该时间桶
+//! 的同一批计数。两者都按各跳独立连乘 `1 - Π(1 - loss_i)`，`attempts = 0` 为
+//! null；链级只有「部分段有数据」时才标 `loss_partial`。
 //!
 //! `server_ids` 与 `/api/v1/overview`、`/overview/server-health` **完全同语义**：
 //! 不传 = 全部；空数组 = 空结果；未知 id 忽略并进 `warnings.unknown_ids`；
@@ -190,10 +190,11 @@ async fn build_chain_health(
     // 一次取「时间轴 + 24h 基线」覆盖到的全部样本；空链不查库。
     let since = aggregate::sample_window_start(now, hours, bucket);
     let samples = repo::latency::list_for_forwards(pool, &forward_ids, since).await?;
-    // 丢包只看当前窗口（与段 p50 同一个窗口），按 forward 在 SQL 里求和。
-    let (probe_since, probe_until) = aggregate::current_window(now, hours, bucket);
+    // 丢包：取整个时间轴窗口内的 5 分钟探测桶，逐桶连乘给 series[]，
+    // 其中落在当前窗口（2h）的桶再汇总成链级 loss_pct。
+    let (probe_since, probe_until) = aggregate::series_window(now, hours, bucket);
     let probes =
-        repo::chain_probe::totals_for_forwards(pool, &forward_ids, probe_since, probe_until)
+        repo::chain_probe::buckets_for_forwards(pool, &forward_ids, probe_since, probe_until)
             .await?;
     let result = aggregate::aggregate(&chains, &samples, &probes, now, hours, bucket);
 
@@ -813,6 +814,48 @@ mod tests {
             json!({ "attempts": 200, "failures": 2 })
         );
         assert_eq!(body["summary"]["loss_pct"], 1.99);
+    }
+
+    /// `series[].loss_pct` 是该时间桶的值，不是链级窗口值；无探测桶为 null。
+    #[tokio::test]
+    async fn chain_health_series_reports_per_bucket_loss() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        let chain_id = chain(pool, "港日链", vec![vec![&a], vec![&b]]).await;
+        let end = end_at(repo::now(), 900);
+        let forward_id = forward_id(&chain_id, 0, &a, 1);
+
+        // 三个有样本的桶：一个没有探测、一个 1%、一个 50%。
+        for ts in [end - 3 * 900 + 60, end - 2 * 900 + 60, end - 900 + 60] {
+            latency::record_sample(pool, ts, &a, &forward_id, "", 20)
+                .await
+                .unwrap();
+        }
+        chain_probe::record_sample(pool, end - 2 * 900 + 60, &a, &forward_id, 100, 1)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, end - 900 + 60, &a, &forward_id, 100, 50)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let series = body["chains"][0]["series"].as_array().unwrap();
+        assert_eq!(series.len(), 4);
+        assert!(series[0].is_null(), "没有时延样本的桶仍是 null");
+        assert_eq!(series[1]["p50"], 20.0);
+        assert_eq!(series[1]["loss_pct"], Value::Null, "该桶无探测");
+        assert_eq!(series[2]["loss_pct"], 1.0);
+        assert_eq!(series[3]["loss_pct"], 50.0);
+        // 链级窗口值是两桶计数合并后的 25.5%，与逐桶值不同。
+        assert_eq!(body["chains"][0]["loss_pct"], 25.5);
     }
 
     /// `server_ids` 筛选后，丢包汇总只算保留的链（不能把未选中的链算进 headline）。

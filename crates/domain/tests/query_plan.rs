@@ -529,4 +529,17 @@ async fn chain_health_queries_use_their_indexes() {
         "idx_forward_probe_samples_forward_ts",
     )
     .await;
+
+    // 链路趋势的逐桶丢包读路径：series 窗口内的 5 分钟桶，按 ts 排序。
+    assert_uses_index(
+        &pool,
+        "SELECT forward_id, ts, attempts, failures
+         FROM forward_probe_samples
+         WHERE ts >= 1_700_000_000
+           AND ts < 1_700_007_200
+           AND forward_id IN ('chain-c1-0', 'chain-c1-1')
+         ORDER BY ts ASC, forward_id ASC",
+        "idx_forward_probe_samples_forward_ts",
+    )
+    .await;
 }

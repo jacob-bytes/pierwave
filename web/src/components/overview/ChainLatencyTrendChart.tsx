@@ -11,6 +11,7 @@ import {
 import {
   buildChainTrendData,
   chainHasTrend,
+  chainLossAt,
   formatChainTime,
   formatLossPct,
   formatMs,
@@ -158,6 +159,7 @@ function ChainTrendTooltip({
 }) {
   if (!active || !payload?.length) return null;
 
+  const hoveredTs = Number(label);
   const byId = new Map(chains.map((chain, index) => [chain.id, { chain, index }]));
   const rows = payload
     .map((item) => {
@@ -202,6 +204,7 @@ function ChainTrendTooltip({
             <div
               key={row.chain.id}
               data-chain-tooltip-row
+              data-chain-id={row.chain.id}
               data-highest={highest ? "true" : undefined}
               className={cn(
                 "flex items-center justify-between gap-5 rounded-sm px-1 py-0.5",
@@ -234,15 +237,17 @@ function ChainTrendTooltip({
                     </span>
                   ) : null}
                 </span>
-                {row.chain.lossPct !== null ? (
-                  <span
-                    data-chain-tooltip-loss
-                    className="font-sans text-[9px] font-normal text-muted-foreground"
-                  >
-                    {t("overview.chainLatency.loss")}{" "}
-                    {formatLossPct(row.chain.lossPct)}
-                  </span>
-                ) : null}
+                <span
+                  data-chain-tooltip-loss
+                  className="font-sans text-[9px] font-normal text-muted-foreground"
+                >
+                  {t("overview.chainLatency.lossAtTime")}{" "}
+                  {formatLossPct(
+                    Number.isFinite(hoveredTs)
+                      ? chainLossAt(row.chain, hoveredTs)
+                      : null,
+                  )}
+                </span>
               </span>
             </div>
           );
@@ -303,6 +308,12 @@ export function ChainLatencyTrendChart({
       })}
     >
       <ChainTrendLegend chains={chains} hidden={hidden} onToggle={toggle} />
+      <p
+        data-chain-trend-hint
+        className="pb-1 pr-1 text-right text-[9px] text-muted-foreground"
+      >
+        {t("overview.chainLatency.hoverLossHint")}
+      </p>
       {data.series.length === 0 ? (
         <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground">
           {t("overview.chainLatency.noSamplesShort")}
