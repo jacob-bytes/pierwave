@@ -577,6 +577,54 @@ export function chainDiagnosis(chain: ChainHealthChain): ChainDiagnosisView {
   return unknown;
 }
 
+/** 列表页一行链路的状态；正常 / 变慢 / 样本不足。 */
+export type ChainLatencyStatus = "normal" | "slow" | "insufficient";
+
+export function chainStatus(chain: ChainHealthChain): ChainLatencyStatus {
+  if (!chain.hasSamples || chain.deltaMs === null) return "insufficient";
+  return chain.slow ? "slow" : "normal";
+}
+
+/** 链路拓扑的一条边：段序号 + 该段 P50；没有样本时 missing = true。 */
+export interface ChainTopologyEdge {
+  seq: number;
+  p50: number | null;
+  missing: boolean;
+}
+
+export interface ChainTopology {
+  /** 真实服务器节点，按路径顺序；不包含链目标。 */
+  nodes: string[];
+  edges: ChainTopologyEdge[];
+  /** 最后一跳（最后一组 → 链目标）没有历史数据。 */
+  targetMissing: boolean;
+}
+
+/**
+ * 把逐段行拼成「香港-01 → 东京-01 → …」的完整链路。
+ *
+ * 只使用有 from/to 的段；最后一跳到链目标没有服务器节点，由
+ * `targetMissing` 单独表达，组件在末尾补一个「链目标」节点。
+ */
+export function chainTopology(chain: ChainHealthChain): ChainTopology {
+  const nodes: string[] = [];
+  const edges: ChainTopologyEdge[] = [];
+
+  for (const segment of chain.segments) {
+    if (segment.missing || !segment.from || !segment.to) continue;
+    if (nodes.length === 0) nodes.push(segment.from);
+    else if (nodes[nodes.length - 1] !== segment.from) nodes.push(segment.from);
+    edges.push({
+      seq: segment.seq,
+      p50: segment.p50,
+      missing: segment.p50 === null,
+    });
+    if (nodes[nodes.length - 1] !== segment.to) nodes.push(segment.to);
+  }
+
+  return { nodes, edges, targetMissing: chain.lastHopMissing };
+}
+
 /**
  * 诊断句分支：后端把「整体稳定 / 变快」也归到 `unknown`，所以不能只看
  * kind；有样本且 delta ≤ 0 时是 stable，真正缺样本才是 unknown。

@@ -9,6 +9,8 @@ import {
   chainDiagnosisReason,
   chainLatencyWindow,
   chainSeriesMax,
+  chainStatus,
+  chainTopology,
   formatChainTime,
   formatMs,
   formatPercentValue,
@@ -366,6 +368,94 @@ test("diagnosis overall is kept; no samples is always unknown", () => {
     payload([chain({ series: [], segments: [] })]),
   );
   assert.equal(chainDiagnosis(empty.snapshot.chains[0]).kind, "unknown");
+});
+
+test("list status is normal / slow / insufficient", () => {
+  const base = normalizeChainHealth(payload([chain()])).snapshot.chains[0];
+  assert.equal(chainStatus(base), "normal");
+  assert.equal(
+    chainStatus({ ...base, hasSamples: false, deltaMs: 10 }),
+    "insufficient",
+  );
+  assert.equal(chainStatus({ ...base, deltaMs: null }), "insufficient");
+  assert.equal(chainStatus({ ...base, slow: true, deltaMs: 8 }), "slow");
+});
+
+test("topology stitches segment from/to and flags the missing target hop", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 4,
+        missing_hops: [4],
+        series: [],
+        segments: [
+          {
+            seq: 1,
+            from: "香港-01",
+            to: "东京-01",
+            p50: 14,
+            delta_ms: 0,
+            contribution_pct: 0,
+          },
+          {
+            seq: 2,
+            from: "东京-01",
+            to: "新加坡-01",
+            p50: 28.5,
+            delta_ms: 1,
+            contribution_pct: 0,
+          },
+          {
+            seq: 3,
+            from: "新加坡-01",
+            to: "大阪-01",
+            p50: 43.2,
+            delta_ms: 2,
+            contribution_pct: 100,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+  const topology = chainTopology(item);
+  assert.deepEqual(topology.nodes, [
+    "香港-01",
+    "东京-01",
+    "新加坡-01",
+    "大阪-01",
+  ]);
+  assert.deepEqual(topology.edges, [
+    { seq: 1, p50: 14, missing: false },
+    { seq: 2, p50: 28.5, missing: false },
+    { seq: 3, p50: 43.2, missing: false },
+  ]);
+  assert.equal(topology.targetMissing, true);
+});
+
+test("topology keeps nodes for a segment with no samples", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [2],
+        series: [],
+        segments: [
+          {
+            seq: 1,
+            from: "香港-01",
+            to: "东京-01",
+            p50: null,
+            delta_ms: null,
+            contribution_pct: 0,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+  const topology = chainTopology(item);
+  assert.deepEqual(topology.nodes, ["香港-01", "东京-01"]);
+  assert.deepEqual(topology.edges, [{ seq: 1, p50: null, missing: true }]);
+  assert.equal(topology.targetMissing, true);
 });
 
 test("diagnosis reason separates stable chains from missing samples", () => {

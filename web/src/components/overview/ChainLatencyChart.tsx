@@ -152,6 +152,8 @@ export function ChainLatencySparkline({
   bucketSecs,
   tone,
   showBand = true,
+  showAnomalies = showBand,
+  interactive = true,
   label,
   onActivate,
   className,
@@ -161,6 +163,10 @@ export function ChainLatencySparkline({
   bucketSecs: number;
   tone: Tone;
   showBand?: boolean;
+  /** 整链图默认画异常窗口；列表迷你图/逐段图可关掉。 */
+  showAnomalies?: boolean;
+  /** false = 仅作视觉/悬停提示，不进入 Tab 序列（列表行本身是按钮）。 */
+  interactive?: boolean;
   label: string;
   onActivate?: () => void;
   className?: string;
@@ -171,8 +177,8 @@ export function ChainLatencySparkline({
   // 异常窗口只画在整链小多图上；逐段趋势是单个段的曲线，重复的探测抖动
   // 会被误标成一串竖条。
   const anomalies = useMemo(
-    () => (showBand ? chainAnomalyWindows(points, bucketSecs) : []),
-    [points, bucketSecs, showBand],
+    () => (showAnomalies ? chainAnomalyWindows(points, bucketSecs) : []),
+    [points, bucketSecs, showAnomalies],
   );
   const max = chainSeriesMax(points);
   const domain = max > 0 ? max * 1.15 : 1;
@@ -248,11 +254,11 @@ export function ChainLatencySparkline({
       onPointerDown={showAt}
       onPointerLeave={() => setActive(null)}
       onPointerCancel={() => setActive(null)}
-      onClick={onActivate}
-      onKeyDown={moveFocus}
-      onFocus={() => setActive(lastIndex)}
-      onBlur={() => setActive(null)}
-      tabIndex={0}
+      onClick={interactive ? onActivate : undefined}
+      onKeyDown={interactive ? moveFocus : undefined}
+      onFocus={interactive ? () => setActive(lastIndex) : undefined}
+      onBlur={interactive ? () => setActive(null) : undefined}
+      tabIndex={interactive ? 0 : undefined}
       role="img"
       aria-label={label}
     >

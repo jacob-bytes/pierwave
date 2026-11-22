@@ -14,6 +14,8 @@ const server = read("../components/overview/ServerHealthView.tsx");
 const traffic = read("../components/overview/TrafficView.tsx");
 const cost = read("../components/overview/CostView.tsx");
 const chain = read("../components/overview/ChainLatencyView.tsx");
+const chainList = read("../components/overview/ChainLatencyList.tsx");
+const chainDetail = read("../components/overview/ChainLatencyDetail.tsx");
 const line = read("../components/overview/ResourceLineChart.tsx");
 const fxPopover = read("../components/overview/FxDetailsPopover.tsx");
 const scopeHook = read("../components/overview/useOverviewScope.ts");
@@ -222,22 +224,21 @@ test("成本 tab：三数字 / 12 个月开销柱状图 / Top 3 / 币种构成 /
   );
 });
 
-test("链路 tab：时延 KPI + 小多图 + 逐段，不含其它 tab 的卡片", () => {
+test("链路 tab：列表只放整体 KPI / 整体趋势，逐段只在详情", () => {
   assertIncludes(
     chain,
     [
       "overview.chainHealth",
-      "overview.chainLatency.hopP50",
-      "overview.chainLatency.slowChains",
-      "overview.chainLatency.worstHop",
       "useChainHealth",
-      "ChainLatencySparkline",
-      "data-chain-latency-row",
-      "chainDiagnosis",
-      "overview.chainLatency.diagnosisSingle",
-      "overview.chainLatency.missingLastHop",
-      "<NoSamplesCard",
+      "useChainLatency",
+      "data-chain-list-page",
+      "data-chain-detail-page",
+      "<ChainLatencyList",
+      "<ChainLatencyDetail",
       "<ChainHealthCard",
+      "searchParams.get(\"chain\")",
+      "next.set(\"chain\"",
+      "next.delete(\"chain\"",
     ],
     "ChainLatencyView",
   );
@@ -256,6 +257,53 @@ test("链路 tab：时延 KPI + 小多图 + 逐段，不含其它 tab 的卡片"
       "PaymentCalendarCard",
     ],
     "ChainLatencyView",
+  );
+
+  assertIncludes(
+    chainList,
+    [
+      "overview.chainLatency.hopP50",
+      "overview.chainLatency.slowChains",
+      "overview.chainLatency.worstHop",
+      "overview.chainLatency.statusNormal",
+      "overview.chainLatency.statusSlow",
+      "overview.chainLatency.statusInsufficient",
+      "ChainLatencySparkline",
+      "showAnomalies={false}",
+      "data-chain-list",
+      "data-chain-list-row",
+    ],
+    "ChainLatencyList",
+  );
+  // 列表页绝对不能出现逐段明细 / 诊断 / 拓扑。
+  assertExcludes(
+    chainList,
+    [
+      "data-chain-segment",
+      "data-chain-topology",
+      "SegmentRow",
+      "chainDiagnosis",
+      "diagnosisSingle",
+      "chain.segments",
+    ],
+    "ChainLatencyList",
+  );
+
+  assertIncludes(
+    chainDetail,
+    [
+      "data-chain-topology",
+      "data-chain-topology-scroll",
+      "data-chain-segments",
+      "data-chain-segment",
+      "chainTopology",
+      "chainDiagnosis",
+      "overview.chainLatency.diagnosisSingle",
+      "overview.chainLatency.missingLastHop",
+      "overview.chainLatency.overallTitle",
+      "overview.chainLatency.topologyScroll",
+    ],
+    "ChainLatencyDetail",
   );
 });
 
