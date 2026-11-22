@@ -47,7 +47,7 @@ const ABNORMAL_ONLINE_RATIO: f64 = 0.9;
 const ABNORMAL_DISK_RATIO: f64 = 0.9;
 
 /// 取某个查询参数的**最后一个**值：与旧行为一致（重复时后写的赢）。
-fn last_query_value<'a>(params: &'a [(String, String)], name: &str) -> Option<&'a str> {
+pub(crate) fn last_query_value<'a>(params: &'a [(String, String)], name: &str) -> Option<&'a str> {
     params
         .iter()
         .rev()
@@ -56,7 +56,7 @@ fn last_query_value<'a>(params: &'a [(String, String)], name: &str) -> Option<&'
 }
 
 /// 收集某个查询参数的**全部**值（重复参数按出现顺序），保持原顺序。
-fn query_values<'a>(params: &'a [(String, String)], name: &str) -> Vec<&'a str> {
+pub(crate) fn query_values<'a>(params: &'a [(String, String)], name: &str) -> Vec<&'a str> {
     params
         .iter()
         .filter(|(key, _)| key == name)
@@ -65,7 +65,7 @@ fn query_values<'a>(params: &'a [(String, String)], name: &str) -> Vec<&'a str> 
 }
 
 /// 请求里的 `server_ids` 解析结果。
-enum RequestedServers {
+pub(crate) enum RequestedServers {
     /// 没传参数：全站口径。
     All,
     /// 传了参数：已规范化（小写连字符）、去重、升序；**可能为空**
@@ -74,11 +74,11 @@ enum RequestedServers {
 }
 
 /// 一次请求的筛选作用域。
-struct ResolvedScope {
+pub(crate) struct ResolvedScope {
     /// `None` = 不筛选；`Some` = 只统计这些服务器（可能为空 = 筛选到空集）。
-    filter: Option<repo::overview::ServerFilter>,
+    pub(crate) filter: Option<repo::overview::ServerFilter>,
     /// 请求里格式合法、但库里不存在的服务器 id（已忽略）。
-    unknown_ids: Vec<String>,
+    pub(crate) unknown_ids: Vec<String>,
 }
 
 impl ResolvedScope {
@@ -87,7 +87,7 @@ impl ResolvedScope {
     /// 响应把 `warnings.unknown_ids` 与 `scope` 一起缓存，key 只带命中的 id
     /// 会让 `[已知 A, 未知 B]` 复用 `[已知 A]` 的响应、吞掉 B 的警告；这里
     /// 用完整的请求集合。两者都已排序去重，合并后再排一次即可。
-    fn cache_ids(&self) -> Option<Vec<String>> {
+    pub(crate) fn cache_ids(&self) -> Option<Vec<String>> {
         self.filter.as_ref().map(|filter| {
             let mut ids = filter.ids().to_vec();
             ids.extend(self.unknown_ids.iter().cloned());
@@ -214,7 +214,7 @@ fn days_invalid() -> AppError {
 ///
 /// 非法 UUID → 400（`query.server_ids_invalid`），而不是静默忽略：拼错一个
 /// 字符应该立刻看到错误，不能得到一份看起来「正常」但少了服务器的报表。
-fn parse_server_ids(values: &[&str]) -> AppResult<RequestedServers> {
+pub(crate) fn parse_server_ids(values: &[&str]) -> AppResult<RequestedServers> {
     if values.is_empty() {
         // 参数完全没出现：全站口径。
         return Ok(RequestedServers::All);
@@ -267,7 +267,7 @@ fn server_ids_too_many(count: usize) -> AppError {
 /// 把请求 id 与库里的服务器对账：命中的进筛选，未知的进 `warnings`。
 ///
 /// 一次 `IN (...)` 查完（`repo::servers::missing_ids`），不按 id 循环。
-async fn resolve_scope(
+pub(crate) async fn resolve_scope(
     pool: &sqlx::SqlitePool,
     requested: RequestedServers,
 ) -> AppResult<ResolvedScope> {

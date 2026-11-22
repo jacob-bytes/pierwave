@@ -129,7 +129,10 @@ export default function OverviewInsight({
         </TabsContent>
         <TabsContent value="chain" className="min-w-0">
           <Suspense fallback={<InsightFallback />}>
-            <ChainLatencyView selectedIds={scope.selectedIds} />
+            <ChainLatencyView
+              selectedIds={scope.selectedIds}
+              filtered={scope.filtered}
+            />
           </Suspense>
         </TabsContent>
       </Tabs>

@@ -414,6 +414,11 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/overview/server-health",
             get(routes::overview::server_health),
         )
+        // 管理员链路时延：一次拓扑 + 一次窗口样本，30 秒短缓存。
+        .route(
+            "/api/v1/overview/chain-health",
+            get(routes::chain_health::chain_health),
+        )
         .route("/api/v1/stats/traffic", get(routes::stats::traffic))
         .route("/api/v1/stats/nodes", get(routes::stats::nodes))
         .route(

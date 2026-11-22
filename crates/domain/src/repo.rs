@@ -7830,6 +7830,36 @@ pub mod chains {
         list_where(pool, true).await
     }
 
+    /// 一次读出全部链的拓扑（链 + 组 + 成员）。
+    ///
+    /// 与 [`Self::list`] 的**数据**完全一致，区别只在查询次数：`list` 逐链
+    /// `assemble`，链一多就是 N+1；跨链聚合（链路时延）不能按链循环查库，
+    /// 这里固定 3 条 SQL：
+    ///
+    /// 1. `chains`（按 `created_at, rowid`，与列表顺序一致）；
+    /// 2. `chain_groups`（按 `chain_id, seq, rowid`）；
+    /// 3. `chain_group_members` JOIN `servers`（按 `chain_id, seq, priority, rowid`）。
+    ///
+    /// 返回的组与成员顺序与 [`Self::find_by_id`] 相同，调用方可以直接用
+    /// `groups[0..]` 做「第 N 组 → 第 N+1 组」的映射。
+    pub async fn list_topology(pool: &SqlitePool) -> anyhow::Result<Vec<ChainWithGroups>> {
+        let chains =
+            sqlx::query_as::<_, Chain>("SELECT * FROM chains ORDER BY created_at ASC, rowid ASC")
+                .fetch_all(pool)
+                .await?;
+        if chains.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut groups = load_all_groups(pool).await?;
+        Ok(chains
+            .into_iter()
+            .map(|chain| ChainWithGroups {
+                groups: groups.remove(&chain.id).unwrap_or_default(),
+                chain,
+            })
+            .collect())
+    }
+
     /// 概览用：与链列表同口径的 blocked 链数。
     ///
     /// 口径完全走 [`crate::chains::blocked_reason`]：证书过期 / 能力不足等

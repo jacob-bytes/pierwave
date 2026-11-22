@@ -66,6 +66,7 @@ import {
   type NodeTrafficDetail,
   type Outbound,
   type OverQuotaUserCountResponse,
+  type OverviewChainHealthResponse,
   type OverviewData,
   type OverviewServerHealthResponse,
   type OverviewStats,
@@ -122,6 +123,10 @@ import {
   type PublicStatusFailureStreak,
 } from "@/lib/publicStatus";
 import { withBillingVisibility } from "@/lib/publicStatusSettings";
+import {
+  CHAIN_HEALTH_POLL_MS,
+  isChainHealthUnsupported,
+} from "@/lib/chainHealth";
 import { isServerHealthUnsupported } from "@/lib/serverHealth";
 
 /** P4：有升级在途时，服务器列表与升级历史的轮询间隔。 */
@@ -174,6 +179,19 @@ export const queryKeys = {
     [
       "overview",
       "server-health",
+      hours,
+      bucket,
+      [...serverIds].sort().join(","),
+    ] as const,
+  /** 链路时延视图：窗口小时数、桶宽与筛选集合进 key。 */
+  chainHealth: (
+    hours: number,
+    bucket: number,
+    serverIds: readonly string[] = [],
+  ) =>
+    [
+      "overview",
+      "chain-health",
       hours,
       bucket,
       [...serverIds].sort().join(","),
@@ -469,6 +487,41 @@ export function useServerHealth(
     enabled: enabled && hours > 0,
     retry: false,
     staleTime: 60_000,
+  });
+}
+
+/**
+ * 链路时延视图：24h/7d 的链路 P10–P90 / P50 曲线、逐段时延与诊断。
+ *
+ * `serverIds` 非空时交给后端筛选；全选（或未筛选）时传空数组。
+ *
+ * 旧主控没有该接口时返回 404；这里把 404 / 403 转成 `null`（查询成功），
+ * 页面据此显示「该功能需要新版本主控」，而不是报错 + 无意义的重试。
+ * 其它错误（500 / 网络）仍按错误态处理。
+ */
+export function useChainHealth(
+  hours = 24,
+  bucket = 900,
+  serverIds: readonly string[] = [],
+  enabled = true,
+) {
+  return useQuery<OverviewChainHealthResponse | null>({
+    queryKey: queryKeys.chainHealth(hours, bucket, serverIds),
+    queryFn: async () => {
+      try {
+        return await api.overview.chainHealth(hours, bucket, serverIds);
+      } catch (error) {
+        if (isChainHealthUnsupported(error)) return null;
+        throw error;
+      }
+    },
+    enabled: enabled && hours > 0,
+    retry: false,
+    staleTime: CHAIN_HEALTH_POLL_MS,
+    // 旧主控返回 null 后停止轮询：升级前的每次 404 都没有信息量。
+    refetchInterval: (query) =>
+      query.state.data === null ? false : CHAIN_HEALTH_POLL_MS,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -2076,6 +2129,7 @@ export function useChainLatency(
   chainId: string,
   hours: number,
   enabled = true,
+  refetchIntervalMs?: number,
 ) {
   return useQuery<ChainLatencyPoint[]>({
     queryKey: queryKeys.chainLatency(chainId, hours),
@@ -2084,6 +2138,9 @@ export function useChainLatency(
     // 切换时间窗必须重新请求；延迟历史本身是低频数据，不额外缓存旧窗口。
     staleTime: 0,
     retry: false,
+    // 链详情弹窗沿用历史行为不轮询；概览链路时延 tab 传入 30s，跟主查询同步。
+    refetchInterval: refetchIntervalMs ?? false,
+    refetchIntervalInBackground: false,
   });
 }
 

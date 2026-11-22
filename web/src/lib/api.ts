@@ -2185,6 +2185,83 @@ export interface OverviewServerHealthResponse {
   window?: OverviewServerHealthWindow;
 }
 
+/*
+ * 链路时延视图契约：
+ * `GET /api/v1/overview/chain-health?hours=24&bucket=900&server_ids=...`。
+ *
+ * 字段全部按可选处理：旧主控 / 半成品接口可能缺 summary、某条链的 series
+ * 或逐段数据；页面在 `lib/chainHealth.ts` 里统一归一化，缺数据按「无样本」
+ * 显示，绝不伪造成 0ms。
+ */
+export interface OverviewChainHealthPoint {
+  /** 桶起点（Unix 秒）。 */
+  ts?: number;
+  p50?: number | null;
+  p10?: number | null;
+  p90?: number | null;
+  samples?: number | null;
+}
+
+export interface OverviewChainHealthSegment {
+  /** 段号，从 1 开始。 */
+  seq?: number;
+  from?: string | null;
+  to?: string | null;
+  p50?: number | null;
+  delta_ms?: number | null;
+  contribution_pct?: number | null;
+  /** 新契约可能直接给逐段序列；旧主控没有。 */
+  series?: (OverviewChainHealthPoint | null)[] | null;
+}
+
+export interface OverviewChainHealthDiagnosis {
+  /** `single_hop` | `overall` | `unknown`；未知值按 unknown 处理。 */
+  kind?: string;
+  seq?: number | null;
+}
+
+export interface OverviewChainHealthChain {
+  id?: string;
+  name?: string;
+  /** 跳数（逐段行数）。 */
+  hops?: number | null;
+  /** 没有历史数据的跳；最后一跳通常在这里。 */
+  missing_hops?: number[] | null;
+  /** 合计是否由缺失跳估算。 */
+  estimated?: boolean | null;
+  series?: (OverviewChainHealthPoint | null)[] | null;
+  segments?: OverviewChainHealthSegment[] | null;
+  diagnosis?: OverviewChainHealthDiagnosis | null;
+}
+
+export interface OverviewChainHealthHop {
+  chain_id?: string | null;
+  chain_name?: string | null;
+  seq?: number | null;
+  p50_ms?: number | null;
+}
+
+export interface OverviewChainHealthSummary {
+  /** 各链逐段时延的中位数（跳间 P50）。 */
+  hop_p50_ms?: number | null;
+  /** 较上一周期变化（毫秒）；负数是变快。 */
+  delta_ms?: number | null;
+  slow_chains?: number | null;
+  total_chains?: number | null;
+  worst_hop?: OverviewChainHealthHop | null;
+}
+
+export interface OverviewChainHealthResponse {
+  generated_at?: number;
+  hours?: number;
+  bucket?: number;
+  summary?: OverviewChainHealthSummary;
+  chains: OverviewChainHealthChain[];
+  /** 新主控：本次请求实际作用到的服务器范围；旧主控不返回。 */
+  scope?: OverviewScope | null;
+  warnings?: OverviewWarnings | null;
+}
+
 /**
  * P2：节点维度流量，见 docs/PLAN.md「P2：节点维度流量明细」。
  *
@@ -2664,6 +2741,28 @@ export const api = {
       if (ids.length > 0) params.set("server_ids", ids.join(","));
       return request<OverviewServerHealthResponse>(
         `/api/v1/overview/server-health?${params.toString()}`,
+      );
+    },
+    /**
+     * 链路时延视图：每条链的 P10–P90 / P50 曲线、逐段时延与诊断。
+     *
+     * `serverIds` 非空时附加 `server_ids=id1,id2`，后端只返回至少一跳落在
+     * 选中服务器的链；全选时调用方传空数组，避免超长 URL。
+     * 旧主控没有该接口（404），查询层会把它转成「需要新版本主控」。
+     */
+    chainHealth: (
+      hours: number,
+      bucket: number,
+      serverIds: readonly string[] = [],
+    ) => {
+      const params = new URLSearchParams({
+        hours: String(hours),
+        bucket: String(bucket),
+      });
+      const ids = serverIds.map((id) => id.trim()).filter(Boolean);
+      if (ids.length > 0) params.set("server_ids", ids.join(","));
+      return request<OverviewChainHealthResponse>(
+        `/api/v1/overview/chain-health?${params.toString()}`,
       );
     },
   },

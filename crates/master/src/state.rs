@@ -468,6 +468,108 @@ impl ServerHealthCache {
     }
 }
 
+/// 管理员「链路时延」聚合的 30 秒缓存。
+///
+/// 与 [`ServerHealthCache`] 同一策略：聚合结果整份缓存，key 是
+/// `(hours, bucket, 规范化后的请求 server_ids)`。链路样本 15 秒一条、桶宽
+/// 至少 5 分钟，30 秒陈旧不会让页面明显滞后，却能把多个管理员的重复刷新
+/// 压成一次跨链聚合。
+///
+/// `server_ids` 存「命中的 + 未知的」完整请求集合（已排序去重）：`scope` 与
+/// `warnings.unknown_ids` 和 body 一起缓存，只按命中 id 做 key 会让不同的
+/// 未知 id 复用彼此的警告。`None`（不筛选）与 `Some(vec![])`（筛选到空集）
+/// 是不同 key。
+pub const CHAIN_HEALTH_CACHE_TTL: Duration = Duration::from_secs(30);
+
+const CHAIN_HEALTH_CACHE_MAX_ENTRIES: usize = 64;
+
+type ChainHealthKey = (i64, i64, Option<Vec<String>>);
+type ChainHealthEntry = (Instant, Value);
+
+#[derive(Debug, Default)]
+struct ChainHealthStats {
+    hits: AtomicU64,
+    misses: AtomicU64,
+}
+
+/// `GET /api/v1/overview/chain-health` 的 30 秒结果缓存。
+#[derive(Clone)]
+pub struct ChainHealthCache {
+    inner: Arc<Mutex<HashMap<ChainHealthKey, ChainHealthEntry>>>,
+    ttl: Duration,
+    stats: Arc<ChainHealthStats>,
+}
+
+impl Default for ChainHealthCache {
+    fn default() -> Self {
+        Self::with_ttl(CHAIN_HEALTH_CACHE_TTL)
+    }
+}
+
+impl ChainHealthCache {
+    pub fn with_ttl(ttl: Duration) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+            ttl,
+            stats: Arc::new(ChainHealthStats::default()),
+        }
+    }
+
+    /// 命中返回整份响应；任一 key 维度不同都必须 miss。
+    pub fn get(&self, hours: i64, bucket: i64, server_ids: Option<&[String]>) -> Option<Value> {
+        let key = (hours, bucket, server_ids.map(<[String]>::to_vec));
+        let guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let hit = guard
+            .get(&key)
+            .filter(|(at, _)| self.ttl > Duration::ZERO && at.elapsed() < self.ttl)
+            .map(|(_, value)| value.clone());
+        if hit.is_some() {
+            self.stats.hits.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.stats.misses.fetch_add(1, Ordering::Relaxed);
+        }
+        hit
+    }
+
+    pub fn put(&self, hours: i64, bucket: i64, server_ids: Option<&[String]>, value: Value) {
+        if self.ttl.is_zero() {
+            return;
+        }
+        let key = (hours, bucket, server_ids.map(<[String]>::to_vec));
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard.len() >= CHAIN_HEALTH_CACHE_MAX_ENTRIES && !guard.contains_key(&key) {
+            guard.retain(|_, (at, _)| at.elapsed() < self.ttl);
+            while guard.len() >= CHAIN_HEALTH_CACHE_MAX_ENTRIES {
+                let oldest = guard
+                    .iter()
+                    .min_by_key(|(_, (at, _))| *at)
+                    .map(|(key, _)| key.clone());
+                match oldest {
+                    Some(oldest) => {
+                        guard.remove(&oldest);
+                    }
+                    None => break,
+                }
+            }
+        }
+        guard.insert(key, (Instant::now(), value));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stats(&self) -> (u64, u64) {
+        (
+            self.stats.hits.load(Ordering::Relaxed),
+            self.stats.misses.load(Ordering::Relaxed),
+        )
+    }
+}
+
 /// 导出 / 异地备份的数据库大小上限：与恢复共用 512 MB 默认值。
 ///
 /// 可用 `PIERWAVE_MAX_BACKUP_MB` 调整；非法值（0 / 非数字）回落默认值，
@@ -834,6 +936,8 @@ pub struct AppState {
     pub overview_traffic: OverviewTrafficCache,
     /// 管理员「服务器态势」快照缓存（30 秒，按 `(hours, bucket)` 命中）。
     pub server_health: ServerHealthCache,
+    /// 管理员「链路时延」聚合缓存（30 秒，按 `(hours, bucket, server_ids)`）。
+    pub chain_health: ChainHealthCache,
     /// 自动汇率：可注入的抓取器 + 串行化手动覆盖/自动抓取的锁。
     pub fx: crate::fx::FxService,
     /// 告警去抖状态 + 投递器；未配置渠道时所有通知都是 no-op。
@@ -876,6 +980,7 @@ impl AppState {
             public_status: PublicStatusCache::default(),
             overview_traffic: OverviewTrafficCache::with_ttl(overview_cache_ttl_from_env()),
             server_health: ServerHealthCache::default(),
+            chain_health: ChainHealthCache::default(),
             fx: crate::fx::FxService::default(),
             alerts: Alerts::default(),
             updates: UpdateService::default(),
@@ -1294,5 +1399,48 @@ mod tests {
         assert!(cache.get(7, None).is_none());
         let (hits, misses) = cache.stats();
         assert_eq!((hits, misses), (0, 1));
+    }
+
+    /// 链路时延缓存：`hours` / `bucket` / 筛选三者任一不同都必须 miss。
+    ///
+    /// `None`（不筛选）与 `Some([])`（筛选到空集）也是不同 key；同一组 id
+    /// 换顺序命中同一条（路由层已经排序去重）。
+    #[tokio::test]
+    async fn chain_health_cache_is_keyed_by_hours_bucket_and_filter() {
+        let cache = ChainHealthCache::with_ttl(Duration::from_secs(30));
+        let a = vec!["a".to_string()];
+        let ab = vec!["a".to_string(), "b".to_string()];
+
+        cache.put(24, 900, None, serde_json::json!({ "v": 1 }));
+        cache.put(24, 900, Some(&a), serde_json::json!({ "v": 2 }));
+        cache.put(24, 900, Some(&[]), serde_json::json!({ "v": 3 }));
+
+        assert_eq!(cache.get(24, 900, None).unwrap()["v"], 1);
+        assert_eq!(cache.get(24, 900, Some(&a)).unwrap()["v"], 2);
+        assert_eq!(cache.get(24, 900, Some(&[])).unwrap()["v"], 3);
+        assert!(cache.get(1, 900, None).is_none(), "hours 不同必须 miss");
+        assert!(cache.get(24, 300, None).is_none(), "bucket 不同必须 miss");
+        assert!(
+            cache.get(24, 900, Some(&ab)).is_none(),
+            "没缓存过的筛选组合必须 miss"
+        );
+
+        let (hits, misses) = cache.stats();
+        assert_eq!(hits, 3);
+        assert_eq!(misses, 3);
+    }
+
+    /// 30 秒 TTL：过期后不再命中；`0` 关闭缓存。
+    #[tokio::test]
+    async fn chain_health_cache_expires_and_can_be_disabled() {
+        let cache = ChainHealthCache::with_ttl(Duration::from_millis(30));
+        cache.put(24, 900, None, serde_json::json!({ "v": 1 }));
+        assert!(cache.get(24, 900, None).is_some());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(cache.get(24, 900, None).is_none(), "超过 TTL 必须 miss");
+
+        let disabled = ChainHealthCache::with_ttl(Duration::ZERO);
+        disabled.put(24, 900, None, serde_json::json!({ "v": 1 }));
+        assert!(disabled.get(24, 900, None).is_none());
     }
 }

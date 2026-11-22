@@ -353,3 +353,27 @@ bucket also exposes `online_ratio` / `samples` (and each server its current
   not coordinate invalidation.
 - No `web/` changes (another lane owns the filter control and the "global"
   hints), no `proto`/`agent` changes, no migration.
+
+## 8. 链路时延（`/api/v1/overview/chain-health`）
+
+`GET /api/v1/overview/chain-health?hours=&bucket=&server_ids=` 复用同一套
+`server_ids` 解析、归一化、未知 id / 非法 id / 去重后 200 上限语义，并且：
+
+- 保留「至少一个成员落在选中服务器」的链；链内的段仍完整返回，不按服务器
+  拆段（一条链的段本来就跨两台服务器，拆开没有唯一答案）；
+- 空数组 = 空结果（`chains: []`、`summary.total_chains = 0`），不是全站；
+- 未知 id 忽略并进 `warnings.unknown_ids`；非法 id 400；
+- `summary` 按保留的链重算；`scope.server_ids` 是命中库的 id，
+  `servers_matched` 是台数；`filtered` 表示请求是否带参数（空数组也算 true）；
+- 缓存 key = `(hours, bucket, 规范化后的请求 server_ids)`，未知 id 也在 key 里。
+
+完整口径（跳映射、多路径估算、2h 当前值 / 24h 基线、诊断、查询计划）见
+[CHAIN-HEALTH.md](CHAIN-HEALTH.md)。
+
+English: `/api/v1/overview/chain-health` reuses exactly the same `server_ids`
+parsing, normalization, unknown-id, invalid-id and deduplicated-200-cap
+semantics. It keeps chains with at least one selected member, stays a full
+empty result for an empty array (not global), reports unknown ids, recomputes
+`summary` over the kept chains, and caches by
+`(hours, bucket, normalized request server_ids)` including unknown ids. See
+[CHAIN-HEALTH.md](CHAIN-HEALTH.md) for the full contract.

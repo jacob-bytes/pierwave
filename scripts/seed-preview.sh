@@ -68,6 +68,7 @@ BEFORE_PACKAGES="$(count_of packages)"
 BEFORE_USER_PACKAGES="$(count_of user_packages)"
 BEFORE_SUBSCRIPTIONS="$(count_of subscriptions)"
 BEFORE_FORWARDS="$(count_of forwards)"
+BEFORE_CHAINS="$(count_of chains)"
 BEFORE_SAMPLES="$(count_of server_samples)"
 BEFORE_TRAFFIC_DAILY="$(count_of traffic_daily)"
 BEFORE_TRAFFIC_NODE="$(count_of traffic_node_daily)"
@@ -94,6 +95,9 @@ DELETE FROM enforcement_events
 
 -- 固定 id + 先删后插：重复执行后仍是同样 10 台，不累积。
 DELETE FROM servers;
+-- 链没有指向 servers 的外键；成员已随 DELETE servers 级联清掉，这里把
+-- 空的链壳也删掉，避免重复执行留下旧链。
+DELETE FROM chains;
 
 -- 删掉不属于任何现存主机的历史孤行，重复执行不会让计数越滚越大。
 DELETE FROM traffic_daily WHERE server_id NOT IN (SELECT id FROM servers);
@@ -453,6 +457,127 @@ SELECT
   0, last_traffic_in, last_traffic_out
 FROM forwards
 WHERE id LIKE 'c0ffee00-0005-%';
+
+-- ------------------------------------------------------------
+-- 链路拓扑 + 24h 时延样本（链路时延 tab 的预览数据）
+-- ------------------------------------------------------------
+-- 3 条链：
+--   港日中转链   4 组 / 3 个可测段：香港-01 → 东京-01 → 新加坡-01 → 大阪-01
+--   港新直达链   2 组 / 1 个可测段：香港-02 → 新加坡-02
+--   港日多路径   3 组，中间组两台：香港-01 → (东京-01 / 东京-02) → 大阪-01
+-- 港日中转链的第 3 段（新加坡-01 → 大阪-01）最近 2 小时 +25ms，其余段持平，
+-- 用于验证「整体变慢 vs 单段变慢」的诊断。
+--
+-- 端口按 (server_id, listen_port) 全局唯一分配，避免撞迁移 0047 的索引。
+INSERT INTO chains (id, name, target_host, target_port, enabled, created_at, updated_at)
+VALUES
+  ('c0ffee00-0006-4000-8000-000000000601', '港日中转链', '198.51.100.100', 443, 1,
+   CAST(strftime('%s','now') AS INTEGER) - 45 * 86400,
+   CAST(strftime('%s','now') AS INTEGER) - 3600),
+  ('c0ffee00-0006-4000-8000-000000000602', '港新直达链', '192.0.2.100', 443, 1,
+   CAST(strftime('%s','now') AS INTEGER) - 30 * 86400,
+   CAST(strftime('%s','now') AS INTEGER) - 3600),
+  ('c0ffee00-0006-4000-8000-000000000603', '港日多路径', '198.51.100.101', 8443, 1,
+   CAST(strftime('%s','now') AS INTEGER) - 15 * 86400,
+   CAST(strftime('%s','now') AS INTEGER) - 3600);
+
+INSERT INTO chain_groups (id, chain_id, seq, name, strategy, cert_id, public_port, use_internal_address)
+VALUES
+  ('c0ffee00-0006-4000-8000-000000000611', 'c0ffee00-0006-4000-8000-000000000601', 0, '香港入口', 'round_robin', NULL, NULL, 0),
+  ('c0ffee00-0006-4000-8000-000000000612', 'c0ffee00-0006-4000-8000-000000000601', 1, '东京中转', 'round_robin', NULL, NULL, 0),
+  ('c0ffee00-0006-4000-8000-000000000613', 'c0ffee00-0006-4000-8000-000000000601', 2, '新加坡中转', 'round_robin', NULL, NULL, 0),
+  ('c0ffee00-0006-4000-8000-000000000614', 'c0ffee00-0006-4000-8000-000000000601', 3, '大阪出口', 'round_robin', NULL, NULL, 0),
+  ('c0ffee00-0006-4000-8000-000000000621', 'c0ffee00-0006-4000-8000-000000000602', 0, '香港入口', 'round_robin', NULL, NULL, 0),
+  ('c0ffee00-0006-4000-8000-000000000622', 'c0ffee00-0006-4000-8000-000000000602', 1, '新加坡出口', 'round_robin', NULL, NULL, 0),
+  ('c0ffee00-0006-4000-8000-000000000631', 'c0ffee00-0006-4000-8000-000000000603', 0, '香港入口', 'round_robin', NULL, NULL, 0),
+  ('c0ffee00-0006-4000-8000-000000000632', 'c0ffee00-0006-4000-8000-000000000603', 1, '东京中转（双路）', 'round_robin', NULL, NULL, 0),
+  ('c0ffee00-0006-4000-8000-000000000633', 'c0ffee00-0006-4000-8000-000000000603', 2, '大阪出口', 'round_robin', NULL, NULL, 0);
+
+INSERT INTO chain_group_members (group_id, server_id, listen_port, priority, weight)
+VALUES
+  ('c0ffee00-0006-4000-8000-000000000611', 'c0ffee00-0000-4000-8000-000000000001', 21001, 0, 1),
+  ('c0ffee00-0006-4000-8000-000000000612', 'c0ffee00-0000-4000-8000-000000000004', 21002, 0, 1),
+  ('c0ffee00-0006-4000-8000-000000000613', 'c0ffee00-0000-4000-8000-000000000007', 21003, 0, 1),
+  ('c0ffee00-0006-4000-8000-000000000614', 'c0ffee00-0000-4000-8000-000000000006', 21004, 0, 1),
+  ('c0ffee00-0006-4000-8000-000000000621', 'c0ffee00-0000-4000-8000-000000000002', 21101, 0, 1),
+  ('c0ffee00-0006-4000-8000-000000000622', 'c0ffee00-0000-4000-8000-000000000008', 21102, 0, 1),
+  ('c0ffee00-0006-4000-8000-000000000631', 'c0ffee00-0000-4000-8000-000000000001', 21201, 0, 1),
+  ('c0ffee00-0006-4000-8000-000000000632', 'c0ffee00-0000-4000-8000-000000000004', 21202, 0, 1),
+  ('c0ffee00-0006-4000-8000-000000000632', 'c0ffee00-0000-4000-8000-000000000005', 21203, 1, 1),
+  ('c0ffee00-0006-4000-8000-000000000633', 'c0ffee00-0000-4000-8000-000000000006', 21204, 0, 1);
+
+-- 最近 24h，每 5 分钟一条。forward_id 与 DesiredForward 的规则一致：
+-- 单成员组 = chain-<id>-<seq>；多成员组 = chain-<id>-<seq>-<server_id>。
+-- 单成员下一跳的 target_server_id 留空（旧 Agent 兼容字段）；多成员下一跳
+-- 写真实 server_id。最后一跳到链目标的样本也写一部分，验证不会混进段、也不计入 unmapped。
+WITH RECURSIVE slots(n) AS (
+  SELECT 0 UNION ALL SELECT n + 1 FROM slots WHERE n < 288
+)
+-- 港日中转链：第 1 段（香港 → 东京），稳定 ~14ms
+INSERT INTO forward_latency_samples (ts, server_id, forward_id, target_server_id, latency_ms)
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000001',
+       'chain-c0ffee00-0006-4000-8000-000000000601-0', '',
+       14 + (slots.n % 5)
+FROM slots
+UNION ALL
+-- 第 2 段（东京 → 新加坡），稳定 ~20ms
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000004',
+       'chain-c0ffee00-0006-4000-8000-000000000601-1', '',
+       20 + (slots.n % 5)
+FROM slots
+UNION ALL
+-- 第 3 段（新加坡 → 大阪）：基线 ~31ms，最近 2h（n < 24）+25ms
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000007',
+       'chain-c0ffee00-0006-4000-8000-000000000601-2', '',
+       31 + (slots.n % 5) + CASE WHEN slots.n < 24 THEN 25 ELSE 0 END
+FROM slots
+UNION ALL
+-- 港新直达链：1 段，~35ms
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000002',
+       'chain-c0ffee00-0006-4000-8000-000000000602-0', '',
+       35 + (slots.n % 4)
+FROM slots
+UNION ALL
+-- 港日多路径：入口单成员 → 东京两台，Agent 会上报真实目标 id
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000001',
+       'chain-c0ffee00-0006-4000-8000-000000000603-0',
+       'c0ffee00-0000-4000-8000-000000000004',
+       12 + (slots.n % 4)
+FROM slots
+UNION ALL
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000001',
+       'chain-c0ffee00-0006-4000-8000-000000000603-0',
+       'c0ffee00-0000-4000-8000-000000000005',
+       15 + (slots.n % 4)
+FROM slots
+UNION ALL
+-- 多路径第 2 段：东京两台各自上报，target 是单成员大阪 → 空目标
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000004',
+       'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000004', '',
+       22 + (slots.n % 4)
+FROM slots
+UNION ALL
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000005',
+       'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000005', '',
+       24 + (slots.n % 4)
+FROM slots
+UNION ALL
+-- 最后一跳到链目标：没有下一台服务器，聚合时不能混进段、不能当 0ms，也不计入 unmapped。
+-- 只造最近 2h，避免把警告数字灌得太大。
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000006',
+       'chain-c0ffee00-0006-4000-8000-000000000601-3', '',
+       8
+FROM slots WHERE slots.n < 24
+UNION ALL
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000008',
+       'chain-c0ffee00-0006-4000-8000-000000000602-1', '',
+       7
+FROM slots WHERE slots.n < 24
+UNION ALL
+SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000006',
+       'chain-c0ffee00-0006-4000-8000-000000000603-2', '',
+       6
+FROM slots WHERE slots.n < 24;
 
 -- ------------------------------------------------------------
 -- 7 天计费流量：9 台有数据的主机（无数据的探针不产生流量）

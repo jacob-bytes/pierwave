@@ -460,3 +460,59 @@ async fn overview_server_filter_queries_use_their_indexes() {
     )
     .await;
 }
+
+/// 链路时延聚合的读路径：3 条拓扑查询 + 1 条时延样本窗口。
+///
+/// 拓扑查询按 `chains(created_at)` / `chain_groups(chain_id)` / 成员
+/// `(group_id)` 主键各取一次；样本查询用 `forward_id IN (...)`，SQLite 对每个
+/// forward id 做 `(forward_id, ts)` 区间探测，不允许扫整张样本表。
+#[tokio::test]
+async fn chain_health_queries_use_their_indexes() {
+    let pool = setup().await;
+
+    assert_plan_uses_index(
+        &pool,
+        "SELECT * FROM chains ORDER BY created_at ASC, rowid ASC",
+        "idx_chains_created",
+    )
+    .await;
+
+    assert_uses_index(
+        &pool,
+        "SELECT id, chain_id, seq, name, strategy, cert_id, public_port,
+                use_internal_address
+         FROM chain_groups
+         WHERE chain_id = 'c1'
+         ORDER BY seq ASC, rowid ASC",
+        "idx_chain_groups_chain",
+    )
+    .await;
+
+    assert_uses_index(
+        &pool,
+        "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
+                m.server_id, s.name AS server_name, s.address AS server_address,
+                s.internal_address AS server_internal_address,
+                m.listen_port, m.priority, m.weight, s.realm_transport,
+                s.nftables_available, s.tunnel_available,
+                s.protocol_version AS server_protocol_version, s.last_seen_at
+         FROM chain_group_members m
+         JOIN chain_groups g ON g.id = m.group_id
+         JOIN servers s ON s.id = m.server_id
+         WHERE g.chain_id = 'c1'
+         ORDER BY g.seq ASC, m.priority ASC, m.rowid ASC",
+        "sqlite_autoindex_chain_group_members_1",
+    )
+    .await;
+
+    assert_uses_index(
+        &pool,
+        "SELECT ts, server_id, forward_id, target_server_id, latency_ms
+         FROM forward_latency_samples
+         WHERE ts >= 1_700_000_000
+           AND forward_id IN ('chain-c1-0', 'chain-c1-1')
+         ORDER BY ts ASC, forward_id ASC, target_server_id ASC",
+        "idx_forward_latency_samples_forward_ts",
+    )
+    .await;
+}

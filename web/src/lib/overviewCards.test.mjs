@@ -222,29 +222,73 @@ test("成本 tab：三数字 / 12 个月开销柱状图 / Top 3 / 币种构成 /
   );
 });
 
-test("链路 tab：转发链健康 + 即将上线占位，不含其它 tab 的卡片", () => {
+test("链路 tab：时延 KPI + 小多图 + 逐段，不含其它 tab 的卡片", () => {
   assertIncludes(
     chain,
     [
       "overview.chainHealth",
-      "overview.chainLatency.title",
-      "overview.chainLatency.emptyTitle",
+      "overview.chainLatency.hopP50",
+      "overview.chainLatency.slowChains",
+      "overview.chainLatency.worstHop",
+      "useChainHealth",
+      "ChainLatencySparkline",
+      "data-chain-latency-row",
+      "chainDiagnosis",
+      "overview.chainLatency.diagnosisSingle",
+      "overview.chainLatency.missingLastHop",
+      "<NoSamplesCard",
       "<ChainHealthCard",
-      "<ChainPlaceholderCard",
     ],
     "ChainLatencyView",
   );
   assertExcludes(
     chain,
     [
+      "overview.chainLatency.soon",
+      "ChainPlaceholderCard",
       "overview.trendTitle",
       "overview.distributionTitle",
       "overview.leaderboardTitle",
       "overview.cost.total",
-      "TrendCard",
+      "<TrendCard",
       "DistributionCard",
       "LeaderboardCard",
       "PaymentCalendarCard",
+    ],
+    "ChainLatencyView",
+  );
+});
+
+test("链路时延接口带 hours/bucket/server_ids，404 降级为需要新版本主控", () => {
+  assertIncludes(
+    api,
+    [
+      "chainHealth: (",
+      "/api/v1/overview/chain-health",
+      "server_ids",
+      "OverviewChainHealthResponse",
+    ],
+    "api",
+  );
+  assertIncludes(
+    queries,
+    [
+      "queryKeys.chainHealth",
+      "useChainHealth",
+      "isChainHealthUnsupported",
+      "CHAIN_HEALTH_POLL_MS",
+      "query.state.data === null",
+    ],
+    "queries",
+  );
+  assertIncludes(
+    chain,
+    [
+      "query.data === null",
+      "status === \"unsupported\"",
+      "overview.chainLatency.unsupportedTitle",
+      "segmentTrends",
+      "latency.data",
     ],
     "ChainLatencyView",
   );
@@ -263,7 +307,8 @@ test("服务器筛选在 tab 行，四个 tab 共用同一份选中集合", () =
       "filtered={scope.filtered}",
       "<TrafficView",
       "<CostView selectedIds={scope.selectedIds} />",
-      "<ChainLatencyView selectedIds={scope.selectedIds} />",
+      "<ChainLatencyView",
+      "filtered={scope.filtered}",
     ],
     "OverviewInsight",
   );
@@ -291,7 +336,12 @@ test("四个视图都按选中集合过滤，空选时走空态", () => {
   );
   assertIncludes(
     chain,
-    ["filterChainsByScope", "chainHealthStatus", "InsightMetrics", "ChainScopeEmpty"],
+    [
+      "filterChainsByScope",
+      "ChainScopeEmpty",
+      "useChainHealth",
+      "selectedIds",
+    ],
     "ChainLatencyView",
   );
 });
