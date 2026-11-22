@@ -2,20 +2,19 @@ import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { Server } from "@/lib/api";
 import {
-  SCOPE_ALL_LIMIT,
   filterServersByIds,
   isOverviewScopeFiltered,
   resolveOverviewSelection,
-  serializeServerIds,
+  serverIdsSelectionParam,
 } from "@/lib/overviewScope";
 import { useServers } from "@/lib/queries";
 
 /**
  * 概览级服务器筛选的唯一状态源：URL 的 `?servers=id1,id2`。
  *
- * 默认选择由服务器列表算出（≤10 台全选，更多时取问题优先的 8 台），
- * 只有用户实际改动后才写进 URL；因此默认页面链接保持干净，分享链接
- * 会带上明确的选择。参数存在但为空串时表示「明确空选」，用于空态截图。
+ * 默认全选：参数缺失 = 全部服务器；用户主动缩小范围后才写进 URL。
+ * 「全选」按钮会删除该参数，「清空」写成空串（空选择 → 四个 tab 都走空态）。
+ * 全选不写参数也保证 200+ 台服务器时 URL 不会过长。
  */
 export function useOverviewScope() {
   const query = useServers();
@@ -32,7 +31,10 @@ export function useOverviewScope() {
     [servers, selectedIds],
   );
   const filtered = isOverviewScopeFiltered(servers, selectedIds);
-  const defaulted = raw === null && servers.length > SCOPE_ALL_LIMIT;
+  const allSelected = useMemo(
+    () => !isOverviewScopeFiltered(servers, selectedIds),
+    [servers, selectedIds],
+  );
 
   const setSelectedIds = useCallback(
     (ids: readonly string[]) => {
@@ -41,14 +43,16 @@ export function useOverviewScope() {
       setSearchParams(
         (previous) => {
           const next = new URLSearchParams(previous);
-          // 空集合写成 `?servers=`：与「参数缺失 → 默认选择」区分开。
-          next.set("servers", serializeServerIds(ids));
+          const value = serverIdsSelectionParam(servers, ids);
+          if (value === null) next.delete("servers");
+          // 空集合写成 `?servers=`：与「参数缺失 → 全选」区分开。
+          else next.set("servers", value);
           return next;
         },
         { replace: true },
       );
     },
-    [setSearchParams],
+    [servers, setSearchParams],
   );
 
   return {
@@ -56,10 +60,13 @@ export function useOverviewScope() {
     selectedIds,
     selectedServers,
     filtered,
-    defaulted,
+    allSelected,
     ready: query.isSuccess,
     isPending: query.isPending,
     isError: query.isError,
+    error: query.error,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
     setSelectedIds,
   };
 }

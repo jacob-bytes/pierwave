@@ -1341,7 +1341,9 @@ pub struct ServerHealthSummaryRow {
 /// 管理员「服务器态势」接口的一个时间桶（跨服务器一次 GROUP BY）。
 ///
 /// 只返回**有采样**的 `(server, bucket)`；没有采样的桶由接口层补 `null`，
-/// 绝不补 0（0 会被画成「机器好好的、负载为零」）。
+/// 绝不补 0（0 会被画成「机器好好的、负载为零」）。`samples` /
+/// `online_samples` 会原样下发：前端按桶做加权平均时，`online` 的多数判定
+/// 不能替代真实比例（7/12 在线在 `online = true` 下会被误当成 100%）。
 #[derive(Debug, Clone, PartialEq, FromRow)]
 pub struct ServerHealthBucketRow {
     pub server_id: String,

@@ -47,9 +47,10 @@ interface BillingFieldsProps {
  * 非空就显示一句「填写后会在公开状态页展示」。价格用「元」输入、提交转「分」；
  * 币种给出三个常用项 + 自定义（后端只要求 3 位大写字母）。
  *
- * 计费周期是「数量 + 单位」一行：数量 1–1200 的整数，单位 个月 / 年 / 一次性；
- * 选「一次性」时数量固定 1 并禁用。两者都留空 = 未填写（提交两个 null），
- * 只填一半会在行内报错。
+ * 布局按「价格 / 币种」→「计费周期 / 到期日」两行两列；390 单列时保持
+ * 价格 → 币种 → 计费周期 → 到期日的顺序。计费周期是「数量 + 单位」一行：
+ * 数量 1–1200 的整数，单位 个月 / 年 / 一次性；选「一次性」时数量固定 1
+ * 并禁用。两者都留空 = 未填写（提交两个 null），只填一半会在行内报错。
  *
  * 错误只落在对应字段下方（`FormField` 的 error），不走全局 toast —— 用户能
  * 立刻知道是哪一格不对。清空按钮只在有内容时可点，清空后提交会把所有字段
@@ -115,30 +116,6 @@ export function BillingFields({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <FormField
-          label={t("servers.billing.paidUntil")}
-          htmlFor={paidUntilId}
-          error={dateError}
-        >
-          <Input
-            id={paidUntilId}
-            type="date"
-            min={PAID_UNTIL_MIN}
-            max={PAID_UNTIL_MAX}
-            value={value.paidUntil}
-            onChange={(event) => {
-              const next = event.target.value;
-              update({ paidUntil: next });
-              setDateRangeError(
-                next !== "" && !isPaidUntilInRange(next)
-                  ? t("servers.billing.errors.paidUntil")
-                  : null,
-              );
-            }}
-            disabled={disabled}
-          />
-        </FormField>
-
-        <FormField
           label={t("servers.billing.price")}
           htmlFor={priceId}
           error={errors?.price_cents}
@@ -153,6 +130,7 @@ export function BillingFields({
             disabled={disabled}
           />
         </FormField>
+
 
         <FormField
           label={t("servers.billing.currency")}
@@ -232,6 +210,7 @@ export function BillingFields({
           </div>
         </FormField>
 
+
         <FormField
           label={t("servers.billing.cycle")}
           htmlFor={cycleCountId}
@@ -304,6 +283,31 @@ export function BillingFields({
             </Select>
           </div>
         </FormField>
+
+        <FormField
+          label={t("servers.billing.paidUntil")}
+          htmlFor={paidUntilId}
+          error={dateError}
+        >
+          <Input
+            id={paidUntilId}
+            type="date"
+            min={PAID_UNTIL_MIN}
+            max={PAID_UNTIL_MAX}
+            value={value.paidUntil}
+            onChange={(event) => {
+              const next = event.target.value;
+              update({ paidUntil: next });
+              setDateRangeError(
+                next !== "" && !isPaidUntilInRange(next)
+                  ? t("servers.billing.errors.paidUntil")
+                  : null,
+              );
+            }}
+            disabled={disabled}
+          />
+        </FormField>
+
       </div>
 
       {anyFilled ? (

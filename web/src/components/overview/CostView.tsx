@@ -49,17 +49,18 @@ import {
   formatMonthLabel,
   parseFxRates,
   parseFxUpdatedAt,
+  renewalRowsFromScope,
   type CostCurrencyMixRow,
   type CostMonthExpense,
   type RenewalDay,
   type RenewalEvent,
   type RenewalMonth,
+  type RenewalSourceRow,
   type CostOneTimeRow,
   type CostOverview,
   type CostTopRow,
   type FxRates,
 } from "@/lib/costOverview";
-import type { Server } from "@/lib/api";
 import { useServers, useSettings } from "@/lib/queries";
 import { formatAbsoluteTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -137,7 +138,6 @@ export default function CostView({
   return (
     <CostBody
       overview={overview}
-      servers={scopedServers}
       fx={fx}
       fxUpdatedAt={fxUpdatedAt}
       settingsError={settingsQuery.isError}
@@ -149,7 +149,6 @@ export default function CostView({
 
 function CostBody({
   overview,
-  servers,
   fx,
   fxUpdatedAt,
   settingsError,
@@ -157,7 +156,6 @@ function CostBody({
   onRetrySettings,
 }: {
   overview: CostOverview;
-  servers: readonly Partial<Server>[];
   fx: FxRates;
   fxUpdatedAt: number | null;
   settingsError: boolean;
@@ -230,18 +228,17 @@ function CostBody({
         </div>
       </section>
 
-      <section className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <section className="grid items-stretch gap-4 xl:grid-cols-3">
         <CurrencyMixCard
           rows={overview.currencyMix}
           totalCnyCents={overview.totalCnyCents}
           source={fx.source}
           updatedAt={fxUpdatedAt}
           locale={locale}
-          className="h-full"
+          className="h-full xl:col-span-2"
         />
         <RenewalCalendarCard
-          servers={servers}
-          rates={fx.rates}
+          servers={renewalRowsFromScope(overview.scope)}
           months={overview.months}
           locale={locale}
           className="h-full"
@@ -268,46 +265,66 @@ function FxSummary({
   settingsFetching: boolean;
   onRetry: () => void;
 }) {
-  if (!fx.provided) {
-    return (
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-warning">
-        <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden="true" />
-        <span className="min-w-0">
-          {settingsError
-            ? t("overview.cost.fxLoadFailed")
-            : t("overview.cost.fxMissing")}
-        </span>
-        {settingsError ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-6 px-2 text-xs"
-            onClick={onRetry}
-            disabled={settingsFetching}
-          >
-            <RefreshCwIcon
-              className={cn("size-3", settingsFetching && "animate-spin")}
-            />
-            {t("common.retry")}
-          </Button>
-        ) : null}
-      </div>
-    );
-  }
+  // 只有真的用到非 CNY 金额时，「未提供汇率 → 非 CNY 未计入」才是有效警告；
+  // 全 CNY 时不该用一句看不懂的警告占据成本页顶部。
+  const usesForeign =
+    overview.unknownCurrency.length > 0 ||
+    overview.scope.some((row) => row.currency !== "CNY");
 
   return (
     <div
-      className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
+      className={cn(
+        "flex flex-wrap items-center gap-x-2 gap-y-1 text-xs",
+        !fx.provided && usesForeign
+          ? "text-warning"
+          : "text-muted-foreground",
+      )}
       data-cost-fx
+      data-fx-provided={fx.provided || undefined}
     >
-      <span>{t("overview.cost.fxShort")}</span>
+      {!fx.provided && usesForeign ? (
+        <>
+          <TriangleAlertIcon
+            className="size-3.5 shrink-0"
+            aria-hidden="true"
+          />
+          <span className="min-w-0">
+            {settingsError
+              ? t("overview.cost.fxLoadFailed")
+              : t("overview.cost.fxMissing")}
+          </span>
+        </>
+      ) : (
+        <span>
+          {t(
+            fx.provided
+              ? "overview.cost.fxShort"
+              : "overview.cost.fxAllCny",
+          )}
+        </span>
+      )}
+      {/* 无汇率时也要能打开明细：说明缺哪些币种、几台、去哪里配置。 */}
       <FxDetailsPopover
         overview={overview}
         fx={fx}
         fxUpdatedAt={fxUpdatedAt}
         locale={locale}
       />
+      {settingsError ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-xs"
+          onClick={onRetry}
+          disabled={settingsFetching}
+        >
+          <RefreshCwIcon
+            className={cn("size-3", settingsFetching && "animate-spin")}
+          />
+          {t("common.retry")}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -342,7 +359,10 @@ function MonthExpenseCard({
       <CardContent className="flex min-h-0 flex-1 flex-col p-3 sm:p-4">
         <MonthBarChart months={months} locale={locale} />
         {overview.excluded.length > 0 ? (
-          <p className="mt-auto border-t border-border pt-3 text-xs text-muted-foreground">
+          <p
+            data-cost-note="excluded"
+            className="mt-auto border-t border-border pt-3 text-xs leading-normal text-muted-foreground"
+          >
             {t("overview.cost.excluded", { n: overview.excluded.length })}
           </p>
         ) : null}
@@ -694,13 +714,12 @@ function MonthExpenseTooltip({
 
 function RenewalCalendarCard({
   servers,
-  rates,
   months,
   locale,
   className,
 }: {
-  servers: readonly Partial<Server>[];
-  rates: Readonly<Record<string, number>>;
+  /** 只来自成本 scope：离线 / 费用不完整 / 未知币种已被排除。 */
+  servers: readonly RenewalSourceRow[];
   months: number[];
   locale: string;
   className?: string;
@@ -709,8 +728,8 @@ function RenewalCalendarCard({
   const [monthIndex, setMonthIndex] = useState(months[0] ?? 0);
   const [dialogDay, setDialogDay] = useState<RenewalDay | null>(null);
   const month: RenewalMonth = useMemo(
-    () => buildRenewalMonth(servers, rates, monthIndex),
-    [servers, rates, monthIndex],
+    () => buildRenewalMonth(servers, monthIndex),
+    [servers, monthIndex],
   );
   const position = months.indexOf(monthIndex);
   const canPrev = position > 0;
@@ -816,11 +835,16 @@ function RenewalCalendarCard({
         data-cost-card="renewal"
       >
         <CardHeader className="border-b border-border pb-2">
-          <div className="flex min-w-0 items-center justify-between gap-2">
+          {/* 窄屏 / 英文长标题时允许换行：月份与年份选择器整体落到第二行，
+              最后一个 › 不能被卡片的 overflow-hidden 裁掉。 */}
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
             <CardTitle className="shrink-0 text-sm font-medium">
               {t("overview.cost.renewalTitle")}
             </CardTitle>
-            <div className="flex shrink-0 items-center gap-0.5">
+            <div
+              data-renewal-controls
+              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-0.5"
+            >
               <Button
                 type="button"
                 variant="ghost"
@@ -931,7 +955,7 @@ function RenewalCalendarCard({
                   data-renewal-adjacent
                   data-renewal-leading
                   className={cn(
-                    "flex min-h-10 flex-col items-start bg-muted/20 p-1 text-left text-[9px] text-muted-foreground/50",
+                    "flex min-h-11 flex-col items-center justify-center bg-muted/20 p-1 text-center text-sm text-muted-foreground/50",
                     edgeClass(index),
                   )}
                 >
@@ -949,7 +973,7 @@ function RenewalCalendarCard({
                       data-renewal-day-number={day.day}
                       data-renewal-today={isToday(day.day) || undefined}
                       className={cn(
-                        "flex min-h-10 flex-col items-start p-1 text-left text-[9px] text-muted-foreground",
+                        "flex min-h-11 flex-col items-center justify-center p-1 text-center text-sm text-muted-foreground",
                         edgeClass(index),
                         isToday(day.day) &&
                           "shadow-[inset_0_0_0_1px_var(--primary)]",
@@ -983,23 +1007,34 @@ function RenewalCalendarCard({
                     })}
                     onClick={() => setDialogDay(day)}
                     className={cn(
-                      "flex min-h-10 flex-col items-start bg-primary/5 p-1 text-left transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "flex min-h-11 flex-col items-center justify-center bg-primary/5 p-1 text-center text-sm transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       edgeClass(index),
                       isToday(day.day) &&
                         "shadow-[inset_0_0_0_1px_var(--primary)]",
                     )}
                   >
-                    <span className="text-[9px] text-muted-foreground">
+                    <span className="text-sm leading-none text-muted-foreground">
                       {day.day}
                     </span>
                     <span
                       data-renewal-badge
-                      className="mt-0.5 rounded-full bg-primary/10 px-1 text-[8px] text-primary tabular-nums"
+                      className="mt-1 rounded-full bg-primary/10 px-1.5 text-[11px] leading-tight text-primary tabular-nums"
                     >
                       {t("overview.cost.renewalBadge", {
                         n: day.count,
                       })}
                     </span>
+                    {day.unconverted > 0 ? (
+                      <span
+                        data-renewal-unconverted
+                        className="mt-0.5 text-[10px] leading-none text-warning"
+                        title={t("overview.cost.renewalUnconverted", {
+                          n: day.unconverted,
+                        })}
+                      >
+                        !
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
@@ -1014,7 +1049,7 @@ function RenewalCalendarCard({
                     data-renewal-adjacent
                     data-renewal-trailing
                     className={cn(
-                      "flex min-h-10 flex-col items-start bg-muted/20 p-1 text-left text-[9px] text-muted-foreground/50",
+                      "flex min-h-11 flex-col items-center justify-center bg-muted/20 p-1 text-center text-sm text-muted-foreground/50",
                       edgeClass(index),
                     )}
                   >
@@ -1027,7 +1062,8 @@ function RenewalCalendarCard({
 
           <p
             data-renewal-summary
-            className="mt-2 border-t border-border pt-2 text-[10px] leading-normal text-muted-foreground"
+            data-cost-note="renewal"
+            className="mt-2 border-t border-border pt-2 text-xs leading-normal text-muted-foreground"
           >
             {month.activeDays === 0
               ? t("overview.cost.renewalEmpty")
@@ -1038,6 +1074,20 @@ function RenewalCalendarCard({
                   k: month.busiestCount,
                 })}
           </p>
+          {month.days.some((day) => day.unconverted > 0) ? (
+            <p
+              data-renewal-unconverted-note
+              data-cost-note="renewal-unconverted"
+              className="mt-1 text-xs leading-normal text-muted-foreground"
+            >
+              {t("overview.cost.renewalUnconverted", {
+                n: month.days.reduce(
+                  (sum, day) => sum + day.unconverted,
+                  0,
+                ),
+              })}
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -1157,6 +1207,16 @@ function RenewalDayDialog({
             >
               {formatCny(total, locale)}
             </span>
+            {day.unconverted > 0 ? (
+              <span
+                data-renewal-dialog-unconverted
+                className="text-[10px] text-warning"
+              >
+                {t("overview.cost.renewalUnconverted", {
+                  n: day.unconverted,
+                })}
+              </span>
+            ) : null}
           </div>
           <DialogClose asChild>
             <Button type="button" variant="outline" size="sm">
@@ -1472,9 +1532,9 @@ function CurrencyMixCard({
       ) : (
         <CardContent className="relative flex flex-1 flex-col p-3">
           <div className="flex flex-1 items-center">
-            <div className="grid w-full grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <div className="grid w-full grid-cols-1 items-center gap-4 sm:grid-cols-[minmax(0,45fr)_minmax(0,55fr)]">
             <div
-              className="relative mx-auto h-[200px] w-full max-w-[230px]"
+              className="relative mx-auto h-[280px] w-full max-w-[300px]"
               data-currency-pie
             >
               <ResponsiveContainer width="100%" height="100%">
@@ -1484,7 +1544,7 @@ function CurrencyMixCard({
                     dataKey="cnyCents"
                     nameKey="label"
                     innerRadius="60%"
-                    outerRadius="86%"
+                    outerRadius="92%"
                     paddingAngle={2}
                     stroke="none"
                     isAnimationActive={false}
@@ -1512,10 +1572,13 @@ function CurrencyMixCard({
                   activeIndex !== null && "opacity-0",
                 )}
               >
-                <span className="text-[9px] text-muted-foreground">
+                <span className="text-[11px] text-muted-foreground">
                   {t("overview.cost.mixCenter")}
                 </span>
-                <span className="font-mono text-sm tabular-nums text-foreground">
+                <span
+                  data-pie-center-amount
+                  className="font-mono text-lg tabular-nums text-foreground"
+                >
                   {formatCny(totalCnyCents, locale)}
                 </span>
               </div>
@@ -1543,19 +1606,25 @@ function CurrencyMixCard({
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline justify-between gap-2">
-                          <span className="min-w-0 truncate font-mono text-[10px]">
+                          <span
+                            data-pie-legend-code
+                            className="min-w-0 truncate font-mono text-sm"
+                          >
                             {row.label}
-                            <span className="ml-1 text-[9px] text-muted-foreground">
+                            <span className="ml-1 text-[11px] text-muted-foreground">
                               {t("overview.cost.mixServersCount", {
                                 n: row.count,
                               })}
                             </span>
                           </span>
-                          <span className="w-7 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums">
+                          <span
+                            data-pie-legend-share
+                            className="w-8 shrink-0 text-right text-[13px] text-muted-foreground tabular-nums"
+                          >
                             {row.share.toFixed(0)}%
                           </span>
                         </div>
-                        <div className="mt-0.5 flex items-baseline justify-between gap-2 text-[9px] text-muted-foreground">
+                        <div className="mt-0.5 flex items-baseline justify-between gap-2 text-[11px] text-muted-foreground">
                           <span className="min-w-0 truncate font-mono tabular-nums">
                             {row.originalCents === null
                               ? "—"
@@ -1565,7 +1634,10 @@ function CurrencyMixCard({
                                   locale,
                                 )}
                           </span>
-                          <span className="shrink-0 font-mono text-[10px] text-foreground tabular-nums">
+                          <span
+                            data-pie-legend-amount
+                            className="shrink-0 font-mono text-[13px] text-foreground tabular-nums"
+                          >
                             {formatCny(row.cnyCents, locale)}
                           </span>
                         </div>
@@ -1577,7 +1649,8 @@ function CurrencyMixCard({
             </div>
             <p
               data-mix-summary
-              className="mt-2 border-t border-border pt-2 text-[10px] leading-normal text-muted-foreground"
+              data-cost-note="mix"
+              className="mt-2 border-t border-border pt-2 text-xs leading-normal text-muted-foreground"
             >
               {summary}
             </p>
@@ -1687,7 +1760,6 @@ function OneTimeCard({
           <Badge
             variant="outline"
             className="shrink-0 font-normal text-muted-foreground"
-            title={t("overview.cost.oneTimeHint")}
           >
             {t("overview.cost.oneTimeBadge")}
           </Badge>
@@ -1737,6 +1809,12 @@ function OneTimeCard({
           </ul>
         </CardContent>
       )}
+      <p
+        data-cost-note="once"
+        className="px-4 pb-3 text-xs leading-normal text-muted-foreground"
+      >
+        {t("overview.cost.oneTimeHint")}
+      </p>
     </Card>
   );
 }

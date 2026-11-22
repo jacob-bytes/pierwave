@@ -21,6 +21,8 @@ GET /api/v1/overview?days=7&server_ids=<uuid>,<uuid>,...
 - 空项（`a,,b`、首尾逗号、纯空白）直接跳过。
 - 一次最多 **200** 个 id（`MAX_FILTER_SERVERS`）：URL 长度与 SQLite 绑定变量数
   都不该被一个查询参数打穿；超过返回 400 `query.server_ids_too_many`。
+  上限按**去重后**的 id 数判断：同一个 id 重复写 201 次仍只是一个筛选条件，
+  不会 400。
 - 不传 `server_ids` = 全站（`scope.filtered = false`）。
 
 ## 2. 过滤语义表
@@ -160,7 +162,22 @@ enum OverviewTrafficKey {
 **语义边界**：缓存是 TTL 语义，不是强一致。筛选结果与全站一样最多陈旧 12 秒；
 计费/账单/订阅额度始终读原始账本。
 
-## 6. 测试
+## 6. 同一参数也用于服务器态势（`/api/v1/overview/server-health`）
+
+`GET /api/v1/overview/server-health?hours=&bucket=&server_ids=` 复用**完全相同**
+的解析、归一化、未知 id / 非法 id / 200 上限语义，并且：
+
+- `servers` 只返回选中的服务器；
+- `summary` 按筛选集合**重算**（24h 在线率按样本加权、异常台数、最坏磁盘），
+  不需要前端再算一遍；
+- 空数组 = 空结果（`servers: []`，`summary` 三个字段 `null`/`0`），不是全站；
+- 缓存 key = `(hours, bucket, 规范化后的请求 server_ids)`，未知 id 也在 key 里，
+  因为 `scope` / `warnings` 与 body 一起缓存；
+- 每个桶额外下发 `online_ratio` / `samples`（以及每台服务器的当前
+  `status` / `online`），前端可据此做加权展示。细节见
+  [FX-AND-SERVER-HEALTH.md](FX-AND-SERVER-HEALTH.md)。
+
+## 7. 测试
 
 领域层（`crates/domain/src/repo.rs::overview::tests`）：
 
@@ -189,7 +206,15 @@ enum OverviewTrafficKey {
 `state` 层：`overview_cache_key_includes_the_server_filter` /
 `overview_cache_evicts_entries_above_the_cap`。
 
-## 7. 未做项
+服务器态势（同文件 `routes::overview::tests`）：
+`server_health_bucket_exposes_sample_weight_and_online_ratio`（7/12 → 0.5833）、
+`server_health_server_ids_filter_recomputes_summary`（单台/多台/筛选后 summary）、
+`server_health_server_ids_edge_cases_match_overview_semantics`（空/未知/非法/
+去重后 200 上限）、`server_health_cache_is_keyed_by_server_ids`（None 与 Some([])
+隔离、未知 id 不串 warnings）；恢复备份清缓存见
+`routes::backup::tests::successful_restore_clears_overview_and_server_health_caches`。
+
+## 8. 未做项
 
 - **`chains` 不按服务器筛**：一条链的成员可以分布在多台服务器上（还有
   `forwards` / 双向成员），「按服务器切链」没有唯一答案，会产生重复计数；
@@ -221,8 +246,9 @@ non-hyphenated forms are accepted and normalized to lowercase hyphenated form
 (the same representation `Uuid::new_v4().to_string()` produces), then deduped
 and sorted, so `?server_ids=b,a` and `?server_ids=a,b,b` are the same filter and
 the same cache key. Empty entries are skipped. At most **200** ids are accepted
-(`query.server_ids_too_many` otherwise); omitting the parameter means all
-servers (`scope.filtered = false`).
+**after dedupe** (`query.server_ids_too_many` otherwise), so the same id repeated
+201 times is still one filter and is not rejected; omitting the parameter means
+all servers (`scope.filtered = false`).
 
 ## Semantics
 
@@ -302,6 +328,19 @@ capped at 64 entries, dropping expired entries first and then the oldest one.
 `clear()` semantics are unchanged (explicit admin actions only), and billing
 writes still never invalidate the cache. Non-traffic parts are computed on every
 request and never cached.
+
+## The same parameter on `/api/v1/overview/server-health`
+
+The health aggregate accepts `?hours=&bucket=&server_ids=` with exactly the same
+parsing, normalization, unknown/invalid/200-cap semantics. It returns only the
+selected servers, and its `summary` is recomputed over the selected set
+(sample-weighted 24 h uptime, abnormal count, worst disk), so the frontend does
+not have to recompute it. An empty array means an empty result, not the global
+numbers. Its cache key is `(hours, bucket, normalized request server_ids)`, with
+unknown ids included because `scope` / `warnings` are cached with the body. Each
+bucket also exposes `online_ratio` / `samples` (and each server its current
+`status` / `online`) for weighted rendering. See
+[FX-AND-SERVER-HEALTH.md](FX-AND-SERVER-HEALTH.md) for the full contract.
 
 ## Not done
 

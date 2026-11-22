@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue};
 use axum::Json;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -79,6 +79,23 @@ struct ResolvedScope {
     filter: Option<repo::overview::ServerFilter>,
     /// 请求里格式合法、但库里不存在的服务器 id（已忽略）。
     unknown_ids: Vec<String>,
+}
+
+impl ResolvedScope {
+    /// 「服务器态势」缓存 key 用的规范化请求 id：命中的 + 未知的。
+    ///
+    /// 响应把 `warnings.unknown_ids` 与 `scope` 一起缓存，key 只带命中的 id
+    /// 会让 `[已知 A, 未知 B]` 复用 `[已知 A]` 的响应、吞掉 B 的警告；这里
+    /// 用完整的请求集合。两者都已排序去重，合并后再排一次即可。
+    fn cache_ids(&self) -> Option<Vec<String>> {
+        self.filter.as_ref().map(|filter| {
+            let mut ids = filter.ids().to_vec();
+            ids.extend(self.unknown_ids.iter().cloned());
+            ids.sort_unstable();
+            ids.dedup();
+            ids
+        })
+    }
 }
 
 /// 响应里的 `scope`：说明本次数字覆盖了哪些服务器。
@@ -192,7 +209,8 @@ fn days_invalid() -> AppError {
 }
 
 /// 解析 `server_ids`：逗号分隔与重复参数都接受（每个值再按逗号拆），去空、
-/// UUID 归一化（小写连字符）、去重排序。
+/// UUID 归一化（小写连字符）、去重排序。一次最多 [`MAX_FILTER_SERVERS`] 个
+/// **去重后**的 id：同一个 id 重复写不算超限。
 ///
 /// 非法 UUID → 400（`query.server_ids_invalid`），而不是静默忽略：拼错一个
 /// 字符应该立刻看到错误，不能得到一份看起来「正常」但少了服务器的报表。
@@ -214,11 +232,13 @@ fn parse_server_ids(values: &[&str]) -> AppResult<RequestedServers> {
             ids.push(parsed.hyphenated().to_string());
         }
     }
+    // 上限按**去重后**的 id 数判断：同一个 id 写 201 次只是一个筛选条件，
+    // URL/sqlite 绑定变量并没有被打穿，不该 400。
+    ids.sort_unstable();
+    ids.dedup();
     if ids.len() > MAX_FILTER_SERVERS {
         return Err(server_ids_too_many(ids.len()));
     }
-    ids.sort_unstable();
-    ids.dedup();
     Ok(RequestedServers::Ids(ids))
 }
 
@@ -278,20 +298,15 @@ async fn resolve_scope(
     })
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ServerHealthQuery {
-    /// 故意接成字符串：`hours=abc` 要返回带 code 的 400，而不是 axum 的纯文本。
-    pub hours: Option<String>,
-    pub bucket: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 struct ServerHealthSummary {
-    /// 24h 全局可用率（按采样数加权）；窗口内没有采样时是 null，不是 0。
+    /// 24h 可用率（按样本数加权，只统计筛选后的服务器）；窗口内没有采样时是
+    /// null，不是 0。
     online_ratio_24h: Option<f64>,
-    /// 24h 可用率 < 90% 或最坏磁盘 >= 90% 的服务器数；没有采样的服务器不计。
+    /// 24h 可用率 < 90% 或最坏磁盘 >= 90% 的服务器数（筛选后集合内）；
+    /// 没有采样的服务器不计。
     abnormal_servers: i64,
-    /// 24h 内单次采样的最坏磁盘占用比；没有有效分母时是 null。
+    /// 24h 内单次采样的最坏磁盘占用比（筛选后集合内）；没有有效分母时是 null。
     worst_disk_ratio: Option<f64>,
 }
 
@@ -299,7 +314,16 @@ struct ServerHealthSummary {
 struct ServerHealthBucketView {
     ts: i64,
     /// 该桶多数采样在线（`online_samples * 2 >= samples`，平局算在线）。
+    /// 保留给旧前端；真实比例见 `online_ratio`。
     online: bool,
+    /// 该桶按样本加权的在线比例 `online_samples / samples`（0..1）。
+    ///
+    /// 前端要算筛选后的加权 24h 在线率时，必须用
+    /// `Σ(online_ratio * samples) / Σ samples`；只看 `online` 会把 7/12 在线
+    /// 的桶当成 100%。
+    online_ratio: f64,
+    /// 该桶的采样行数（5 分钟粒度）；有桶就 >= 1。
+    samples: i64,
     load1: f64,
     mem_ratio: Option<f64>,
     disk_ratio: Option<f64>,
@@ -309,10 +333,33 @@ struct ServerHealthBucketView {
 struct ServerHealthServer {
     id: String,
     name: String,
+    /// 服务器**当前**状态（`online` / `offline`），直接读 `servers.status`，
+    /// 不让前端从历史桶里推断。
+    status: String,
+    /// `status == "online"` 的布尔形式；与 `status` 同时下发，前端可任选。
+    online: bool,
     /// 请求窗口内的可用率；没有采样时是 null。
     online_ratio: Option<f64>,
     /// 固定长度 = `hours * 3600 / bucket`；没有采样的桶是 null。
     buckets: Vec<Option<ServerHealthBucketView>>,
+}
+
+/// 响应里的筛选元信息：语义与 `/api/v1/overview` 的 `scope` 一致，但
+/// 服务器态势没有「全局口径」字段，因此不带 `global`。
+#[derive(Debug, Clone, Serialize)]
+struct ServerHealthScope {
+    /// 实际生效（命中库）的服务器 id；未筛选时是空数组。
+    server_ids: Vec<String>,
+    /// 命中库的台数；未筛选时是 0。
+    servers_matched: i64,
+    /// 请求是否带了 `server_ids`；空数组也算 `true`。
+    filtered: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ServerHealthWarnings {
+    /// 请求里合法但库里不存在的 id；这些 id 被忽略，不参与筛选。
+    unknown_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -322,32 +369,54 @@ struct ServerHealthResponse {
     bucket: i64,
     summary: ServerHealthSummary,
     servers: Vec<ServerHealthServer>,
+    scope: ServerHealthScope,
+    warnings: ServerHealthWarnings,
 }
 
-/// `GET /api/v1/overview/server-health?hours=168&bucket=3600`（仅管理员）。
+/// `GET /api/v1/overview/server-health?hours=168&bucket=3600&server_ids=a,b`（仅管理员）。
 ///
 /// 聚合口径：
 /// * 桶内 `online` 用**多数**（`AVG(online) >= 0.5`，平局算在线）；5 分钟采样下
 ///   平局只可能是偶数个采样，偏向在线与「可用率分母包含离线时段」的直觉一致；
+///   同时下发 `online_ratio` / `samples`，让前端能按样本重算真实加权比例；
 /// * `load1/mem_ratio/disk_ratio` 取桶内平均；分母为 0 的采样不参与 mem/disk 平均；
 /// * 没有采样的桶返回 `null`（不是 0）：0 会被前端画成「一切正常」；
 /// * 一台服务器的 `buckets` 长度固定等于 `hours * 3600 / bucket`，空桶补 null；
 /// * 24h 汇总独立于请求窗口：`hours=1` 时也能得到真实的 24h 可用率；
-/// * 结果缓存 30 秒（key = `(hours, bucket)`），避免多管理员刷新时重复扫 7 天采样。
+/// * `server_ids` 与 `/api/v1/overview` 同语义：不传 = 全部；空数组 = 空结果；
+///   未知 id 忽略并进 `warnings.unknown_ids`；非法 id 400；上限 200（去重后）。
+///   `summary` / `servers` 都按筛选后的集合重算。
+/// * 结果缓存 30 秒（key = `(hours, bucket, 规范化后的请求 server_ids)`），
+///   避免多管理员/多筛选组合刷新时重复扫 7 天采样。
 pub async fn server_health(
     State(state): State<AppState>,
     user: CurrentUser,
-    Query(query): Query<ServerHealthQuery>,
+    Query(params): Query<Vec<(String, String)>>,
 ) -> AppResult<(HeaderMap, Json<Value>)> {
     user.require_admin()?;
-    let hours = parse_health_hours(query.hours.as_deref())?;
-    let bucket = parse_health_bucket(query.bucket.as_deref(), hours)?;
+    let hours = parse_health_hours(last_query_value(&params, "hours"))?;
+    let bucket = parse_health_bucket(last_query_value(&params, "bucket"), hours)?;
+    let requested = parse_server_ids(&query_values(&params, "server_ids"))?;
+    let scope = resolve_scope(&state.db.pool, requested).await?;
+    // 缓存 key 用「命中的 + 未知的」完整请求集合：warnings/scope 与 body
+    // 一起缓存，只按命中 id 做 key 会让不同未知 id 复用彼此的警告。
+    let cache_ids = scope.cache_ids();
 
-    let (body, cache_hit) = match state.server_health.get(hours, bucket) {
+    let (body, cache_hit) = match state.server_health.get(hours, bucket, cache_ids.as_deref()) {
         Some(value) => (value, true),
         None => {
-            let value = build_server_health(&state, repo::now(), hours, bucket).await?;
-            state.server_health.put(hours, bucket, value.clone());
+            let value = build_server_health(
+                &state,
+                repo::now(),
+                hours,
+                bucket,
+                scope.filter.as_ref(),
+                scope.unknown_ids.clone(),
+            )
+            .await?;
+            state
+                .server_health
+                .put(hours, bucket, cache_ids.as_deref(), value.clone());
             (value, false)
         }
     };
@@ -366,17 +435,23 @@ async fn build_server_health(
     now: i64,
     hours: i64,
     bucket: i64,
+    filter: Option<&repo::overview::ServerFilter>,
+    unknown_ids: Vec<String>,
 ) -> AppResult<Value> {
     let pool = &state.db.pool;
     let count = hours * 3600 / bucket;
     let current = now - now.rem_euclid(bucket);
     let end = current + bucket;
     let start = end - count * bucket;
+    let filter_ids = filter.map(|filter| filter.ids());
 
     // 两条查询都是「跨服务器一次 GROUP BY」：一条 24h 汇总，一条请求窗口的桶。
-    // 不按服务器循环，服务器数增长时查询次数不变。
-    let summary_rows = repo::server_samples::health_summary(pool, now - 86_400, now).await?;
-    let bucket_rows = repo::server_samples::health_buckets(pool, start, end, bucket).await?;
+    // 不按服务器循环，服务器数增长时查询次数不变；筛选条件在 SQL 的
+    // `server_id IN (...)` 里，汇总天然只覆盖选中服务器。
+    let summary_rows =
+        repo::server_samples::health_summary_filtered(pool, now - 86_400, now, filter_ids).await?;
+    let bucket_rows =
+        repo::server_samples::health_buckets_filtered(pool, start, end, bucket, filter_ids).await?;
 
     let mut total_samples = 0_i64;
     let mut total_online = 0_i64;
@@ -415,6 +490,10 @@ async fn build_server_health(
         let bucket = ServerHealthBucketView {
             ts: row.ts,
             online: row.online_samples * 2 >= row.samples,
+            // 有桶就有采样（SQL 的 COUNT(*) >= 1）；这里仍用 max(1) 防 0 除，
+            // 避免未来换成 LEFT JOIN 时静默产生 NaN。
+            online_ratio: row.online_samples as f64 / row.samples.max(1) as f64,
+            samples: row.samples,
             load1: row.load1,
             mem_ratio: row.mem_ratio,
             disk_ratio: row.disk_ratio,
@@ -424,15 +503,26 @@ async fn build_server_health(
             .or_insert_with(|| vec![None; count as usize])[index as usize] = Some(bucket);
     }
 
+    // 服务器列表保持原来的 `created_at DESC` 顺序，只按筛选集合过滤；
+    // 一台服务器都没有采样时仍然返回（buckets 全 null），与未筛选时一致。
+    let scope_set: Option<HashSet<&str>> =
+        filter_ids.map(|ids| ids.iter().map(String::as_str).collect());
     let servers = repo::servers::list(pool)
         .await?
         .into_iter()
+        .filter(|server| {
+            scope_set
+                .as_ref()
+                .is_none_or(|set| set.contains(server.id.as_str()))
+        })
         .map(|server| {
             let (samples, online_samples) =
                 samples_by_server.get(&server.id).copied().unwrap_or((0, 0));
             ServerHealthServer {
                 id: server.id.clone(),
                 name: server.name,
+                online: server.status == "online",
+                status: server.status,
                 online_ratio: (samples > 0).then(|| online_samples as f64 / samples as f64),
                 buckets: buckets_by_server
                     .remove(&server.id)
@@ -452,6 +542,12 @@ async fn build_server_health(
             worst_disk_ratio,
         },
         servers,
+        scope: ServerHealthScope {
+            server_ids: filter_ids.map(<[String]>::to_vec).unwrap_or_default(),
+            servers_matched: filter.map_or(0, |filter| filter.len() as i64),
+            filtered: filter.is_some(),
+        },
+        warnings: ServerHealthWarnings { unknown_ids },
     };
     Ok(serde_json::to_value(response).unwrap_or(Value::Null))
 }
@@ -1407,6 +1503,14 @@ mod tests {
         let (status, body) = request(&app, Some(&admin), &uri).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {body}");
         assert_eq!(body["code"], "query.server_ids_too_many", "{uri}: {body}");
+
+        // 201 个相同 id：去重后只有一个筛选条件，不能因为原文长度 400。
+        let repeated = vec![hk.id.clone(); MAX_FILTER_SERVERS + 1];
+        let uri = format!("/api/v1/overview?server_ids={}", repeated.join(","));
+        let (status, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+        assert_eq!(body["scope"]["servers_matched"], 1, "{uri}: {body}");
+        assert_eq!(body["scope"]["server_ids"], json!([hk.id.clone()]));
     }
 
     /// 非管理员 403（带筛选参数也一样），未登录 401。
@@ -2071,6 +2175,19 @@ mod tests {
         current - hours * 3600
     }
 
+    fn server_health_row<'a>(body: &'a Value, server_id: &str) -> &'a Value {
+        body["servers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == json!(server_id))
+            .unwrap_or_else(|| panic!("响应里没有服务器 {server_id}: {body}"))
+    }
+
+    fn approx(left: f64, right: f64) -> bool {
+        (left - right).abs() < 1e-9
+    }
+
     #[tokio::test]
     async fn server_health_empty_database_is_all_null_not_zero() {
         let (app, state, admin) = setup().await;
@@ -2089,6 +2206,10 @@ mod tests {
         assert!(body["summary"]["worst_disk_ratio"].is_null(), "{body}");
         assert_eq!(body["summary"]["abnormal_servers"], 0);
         assert!(body["servers"].as_array().unwrap().is_empty());
+        assert_eq!(body["scope"]["filtered"], false);
+        assert_eq!(body["scope"]["server_ids"], json!([]));
+        assert_eq!(body["scope"]["servers_matched"], 0);
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
 
         // 有服务器但从未采样：buckets 仍然固定长度、全部 null。
         let (server, _) = servers::create(&state.db.pool, "香港-01", "10.0.0.1", "external")
@@ -2193,12 +2314,19 @@ mod tests {
         assert!(buckets[23].is_null(), "{body}");
         let tie = &buckets[21];
         assert_eq!(tie["online"], true, "0.5 平局算在线：{body}");
+        assert_eq!(tie["samples"], 2, "{body}");
+        assert!(approx(tie["online_ratio"].as_f64().unwrap(), 0.5), "{body}");
         assert!((tie["load1"].as_f64().unwrap() - 2.0).abs() < 1e-9);
         assert!((tie["mem_ratio"].as_f64().unwrap() - 0.375).abs() < 1e-9);
         assert!((tie["disk_ratio"].as_f64().unwrap() - 0.30).abs() < 1e-9);
 
         let down = &buckets[22];
         assert_eq!(down["online"], false, "1/3 在线必须判离线：{body}");
+        assert_eq!(down["samples"], 3, "{body}");
+        assert!(
+            approx(down["online_ratio"].as_f64().unwrap(), 1.0 / 3.0),
+            "桶的真实比例不能被多数判定覆盖：{body}"
+        );
         assert!(
             (down["mem_ratio"].as_f64().unwrap() - 0.35).abs() < 1e-9,
             "分母为 0 的采样不参与平均：{body}"
@@ -2361,5 +2489,393 @@ mod tests {
         );
 
         assert_eq!(state.server_health.stats(), (1, 2), "1 次命中、2 次未命中");
+    }
+
+    /// 桶必须带真实样本权重：同一小时 7/12 在线 → `online_ratio ≈ 0.5833`、
+    /// `samples = 12`、`online = true`（多数）。前端按 `Σ(ratio*samples)/Σsamples`
+    /// 重算出的 24h 在线率必须与 `summary` 一致；0 样本的整桶仍是 null。
+    #[tokio::test]
+    async fn server_health_bucket_exposes_sample_weight_and_online_ratio() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let now = repo::now();
+        let (server, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let hour = hour_before(now, 1);
+        // 12 个 5 分钟采样：前 7 个在线、后 5 个离线。
+        for index in 0..12 {
+            seed_health_sample(
+                pool,
+                &server.id,
+                hour + index * 300,
+                index < 7,
+                1.0,
+                (50, 100),
+                (20, 100),
+            )
+            .await;
+        }
+
+        let (status, _, body) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=24&bucket=3600",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let buckets = body["servers"][0]["buckets"].as_array().unwrap();
+        assert_eq!(buckets.len(), 24);
+        // 当前小时（最后一项）没有采样 = 整桶 null，不是 online=false / 比例 0。
+        assert!(buckets[23].is_null(), "0 样本的桶必须是 null：{body}");
+
+        let weighted = &buckets[22];
+        assert_eq!(weighted["samples"], 12, "{body}");
+        assert!(
+            approx(weighted["online_ratio"].as_f64().unwrap(), 7.0 / 12.0),
+            "7/12 在线必须给出 0.5833，而不是 100%：{body}"
+        );
+        assert_eq!(weighted["online"], true, "7/12 多数在线：{body}");
+
+        // 模拟前端：只遍历非 null 桶，按样本数加权。
+        let mut samples = 0.0;
+        let mut online = 0.0;
+        for bucket in buckets {
+            if bucket.is_null() {
+                continue;
+            }
+            let count = bucket["samples"].as_f64().unwrap();
+            samples += count;
+            online += bucket["online_ratio"].as_f64().unwrap() * count;
+        }
+        let recomputed = online / samples;
+        assert_eq!(samples, 12.0);
+        assert!(approx(recomputed, 7.0 / 12.0), "{body}");
+        assert!(approx(
+            body["summary"]["online_ratio_24h"].as_f64().unwrap(),
+            recomputed
+        ));
+        assert_eq!(body["servers"][0]["online_ratio"], json!(recomputed));
+    }
+
+    /// `server_ids` 与 `/api/v1/overview` 同语义：单台 / 多台只返回选中服务器，
+    /// `summary` 按筛选集合**重算**（样本加权、异常台数、最坏磁盘）。
+    #[tokio::test]
+    async fn server_health_server_ids_filter_recomputes_summary() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let now = repo::now();
+        let (a, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        // A：10 条全在线（上一小时）；此时 B 还不存在，避免 record_round 给 B 写行。
+        let hour_a = hour_before(now, 2);
+        for index in 0..10 {
+            seed_health_sample(
+                pool,
+                &a.id,
+                hour_a + index * 300,
+                true,
+                1.0,
+                (10, 100),
+                (10, 100),
+            )
+            .await;
+        }
+        let (b, _) = servers::create(pool, "日本-01", "10.0.0.2", "external")
+            .await
+            .unwrap();
+        // B：10 条里 5 在线（上一小时）；record_round 同时给 A 写 10 条在线行。
+        let hour_b = hour_before(now, 1);
+        for index in 0..10 {
+            seed_health_sample(
+                pool,
+                &b.id,
+                hour_b + index * 300,
+                index < 5,
+                2.0,
+                (20, 100),
+                (95, 100),
+            )
+            .await;
+        }
+
+        // 全站：A 20/20 + B 5/10 = 25/30；B 可用率 50% 且磁盘 95% → 1 台异常。
+        let (status, _, body) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=24&bucket=3600",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["filtered"], false, "{body}");
+        assert_eq!(body["scope"]["server_ids"], json!([]));
+        assert_eq!(body["scope"]["servers_matched"], 0);
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
+        assert_eq!(body["servers"].as_array().unwrap().len(), 2);
+        assert!(
+            approx(
+                body["summary"]["online_ratio_24h"].as_f64().unwrap(),
+                25.0 / 30.0
+            ),
+            "全站 24h 必须按样本加权：{body}"
+        );
+        assert_eq!(body["summary"]["abnormal_servers"], 1);
+        assert!(approx(
+            body["summary"]["worst_disk_ratio"].as_f64().unwrap(),
+            0.95
+        ));
+        // 每台服务器下发真实当前状态，不让前端从历史桶推断。
+        let a_row = server_health_row(&body, &a.id);
+        let b_row = server_health_row(&body, &b.id);
+        assert_eq!(a_row["status"], "online");
+        assert_eq!(a_row["online"], true);
+        assert_eq!(b_row["status"], "offline");
+        assert_eq!(b_row["online"], false);
+        assert!(approx(a_row["online_ratio"].as_f64().unwrap(), 1.0));
+        assert!(approx(b_row["online_ratio"].as_f64().unwrap(), 0.5));
+
+        // 只筛 A：B 的采样不能进入任何数字。
+        let uri = format!(
+            "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids={}",
+            a.id
+        );
+        let (status, _, body) = request_full(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["filtered"], true);
+        assert_eq!(body["scope"]["server_ids"], json!([a.id.clone()]));
+        assert_eq!(body["scope"]["servers_matched"], 1);
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
+        assert_eq!(body["servers"].as_array().unwrap().len(), 1);
+        assert_eq!(body["servers"][0]["id"], a.id);
+        assert!(approx(
+            body["summary"]["online_ratio_24h"].as_f64().unwrap(),
+            1.0
+        ));
+        assert_eq!(
+            body["summary"]["abnormal_servers"], 0,
+            "只筛 A 时 B 的异常不能算进来：{body}"
+        );
+        assert!(approx(
+            body["summary"]["worst_disk_ratio"].as_f64().unwrap(),
+            0.10
+        ));
+
+        // 只筛 B：手动加权 = 5/10。
+        let uri = format!(
+            "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids={}",
+            b.id
+        );
+        let (status, _, body) = request_full(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["servers"].as_array().unwrap().len(), 1);
+        assert!(approx(
+            body["summary"]["online_ratio_24h"].as_f64().unwrap(),
+            0.5
+        ));
+        assert_eq!(body["summary"]["abnormal_servers"], 1);
+        assert!(approx(
+            body["summary"]["worst_disk_ratio"].as_f64().unwrap(),
+            0.95
+        ));
+
+        // 两台都选 = 全站；scope 记录命中的两台（排序、去重）。
+        let uri = format!(
+            "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids={},{},{}",
+            b.id, a.id, a.id
+        );
+        let (status, _, body) = request_full(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["servers"].as_array().unwrap().len(), 2);
+        let mut expected_ids = vec![a.id.clone(), b.id.clone()];
+        expected_ids.sort();
+        assert_eq!(body["scope"]["server_ids"], json!(expected_ids));
+        assert!(approx(
+            body["summary"]["online_ratio_24h"].as_f64().unwrap(),
+            25.0 / 30.0
+        ));
+    }
+
+    /// 空数组 / 未知 / 非法 / 上限：语义与概览接口逐条对齐。
+    #[tokio::test]
+    async fn server_health_server_ids_edge_cases_match_overview_semantics() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let now = repo::now();
+        let (hk, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        seed_health_sample(
+            pool,
+            &hk.id,
+            hour_before(now, 1) + 300,
+            true,
+            1.0,
+            (10, 100),
+            (10, 100),
+        )
+        .await;
+        let unknown = uuid::Uuid::new_v4().to_string();
+
+        // 空数组：筛选到空集 = 空结果，summary 是 null 而不是全站数字。
+        let (status, _, body) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids=",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["filtered"], true);
+        assert_eq!(body["scope"]["servers_matched"], 0);
+        assert_eq!(body["scope"]["server_ids"], json!([]));
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
+        assert!(body["servers"].as_array().unwrap().is_empty());
+        assert!(body["summary"]["online_ratio_24h"].is_null(), "{body}");
+        assert!(body["summary"]["worst_disk_ratio"].is_null(), "{body}");
+        assert_eq!(body["summary"]["abnormal_servers"], 0);
+
+        // 未知 id：忽略并进 warnings；命中的那台照常返回。
+        let uri = format!(
+            "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids={},{unknown}",
+            hk.id
+        );
+        let (status, _, body) = request_full(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["servers_matched"], 1);
+        assert_eq!(body["warnings"]["unknown_ids"], json!([unknown.clone()]));
+        assert_eq!(body["servers"].as_array().unwrap().len(), 1);
+        assert!(approx(
+            body["summary"]["online_ratio_24h"].as_f64().unwrap(),
+            1.0
+        ));
+
+        // 全部未知 = 空结果，但 warnings 保留请求里的未知 id。
+        let uri =
+            format!("/api/v1/overview/server-health?hours=24&bucket=3600&server_ids={unknown}");
+        let (status, _, body) = request_full(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["filtered"], true);
+        assert_eq!(body["scope"]["servers_matched"], 0);
+        assert!(body["servers"].as_array().unwrap().is_empty());
+        assert!(body["summary"]["online_ratio_24h"].is_null(), "{body}");
+        assert_eq!(body["warnings"]["unknown_ids"], json!([unknown]));
+
+        // 非法 id → 400。
+        let (status, _, body) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=24&server_ids=not-a-uuid",
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+        assert_eq!(body["code"], "query.server_ids_invalid", "{body}");
+
+        // 201 个不同 id → 400；201 个相同 id → 去重后只有一个，必须 200。
+        let many: Vec<String> = (0..=MAX_FILTER_SERVERS)
+            .map(|_| uuid::Uuid::new_v4().to_string())
+            .collect();
+        let uri = format!(
+            "/api/v1/overview/server-health?hours=24&server_ids={}",
+            many.join(",")
+        );
+        let (status, _, body) = request_full(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "body: {body}");
+        assert_eq!(body["code"], "query.server_ids_too_many", "{body}");
+
+        let repeated = vec![hk.id.clone(); MAX_FILTER_SERVERS + 1];
+        let uri = format!(
+            "/api/v1/overview/server-health?hours=24&server_ids={}",
+            repeated.join(",")
+        );
+        let (status, _, body) = request_full(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["servers_matched"], 1, "{body}");
+    }
+
+    /// 服务器态势缓存 key 必须带 server_ids（含未知 id）：先全量后筛选、
+    /// 先筛选后全量、不同未知 id 之间都不能复用彼此的响应。
+    #[tokio::test]
+    async fn server_health_cache_is_keyed_by_server_ids() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let (a, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let (b, _) = servers::create(pool, "日本-01", "10.0.0.2", "external")
+            .await
+            .unwrap();
+        let unknown = uuid::Uuid::new_v4().to_string();
+
+        let all_uri = "/api/v1/overview/server-health?hours=24&bucket=3600";
+        let a_uri = format!(
+            "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids={}",
+            a.id
+        );
+        let b_uri = format!(
+            "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids={}",
+            b.id
+        );
+        let a_unknown_uri = format!(
+            "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids={},{}",
+            a.id, unknown
+        );
+        // 空数组与「不传」必须是两个 key：前者是空结果，后者是全站。
+        let empty_uri = "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids=";
+
+        let cache_header = |headers: &HeaderMap| {
+            headers
+                .get("x-server-health-cache")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string)
+        };
+
+        // 先请求空筛选（miss，空结果），再请求全量（miss，2 台）：空数组不能
+        // 复用全站条目，也不能把全站条目当成空结果。
+        let (_, headers, body) = request_full(&app, Some(&admin), empty_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("miss"));
+        assert!(body["servers"].as_array().unwrap().is_empty());
+
+        let (_, headers, body) = request_full(&app, Some(&admin), all_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("miss"));
+        assert_eq!(body["servers"].as_array().unwrap().len(), 2);
+
+        // 空筛选再次请求命中自己的条目，仍然是空结果。
+        let (_, headers, body) = request_full(&app, Some(&admin), empty_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("hit"));
+        assert!(body["servers"].as_array().unwrap().is_empty());
+
+        // 全量 → 筛 A：不同 key，必须 miss，且只返回 A。
+        let (_, headers, body) = request_full(&app, Some(&admin), &a_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("miss"));
+        assert_eq!(body["servers"].as_array().unwrap().len(), 1);
+        assert_eq!(body["servers"][0]["id"], a.id);
+
+        // 回到全量：命中自己的 key，仍是 2 台。
+        let (_, headers, body) = request_full(&app, Some(&admin), all_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("hit"));
+        assert_eq!(body["servers"].as_array().unwrap().len(), 2);
+
+        // 再筛 A：命中自己的 key。
+        let (_, headers, _) = request_full(&app, Some(&admin), &a_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("hit"));
+
+        // B 是第三个 key。
+        let (_, headers, body) = request_full(&app, Some(&admin), &b_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("miss"));
+        assert_eq!(body["servers"][0]["id"], b.id);
+
+        // 同一个 A 加未知 id 必须另起 key：warnings 随 body 缓存，不能吞掉。
+        let (_, headers, body) = request_full(&app, Some(&admin), &a_unknown_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("miss"));
+        assert_eq!(body["warnings"]["unknown_ids"], json!([unknown.clone()]));
+
+        let (_, headers, cached) = request_full(&app, Some(&admin), &a_unknown_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("hit"));
+        assert_eq!(cached["warnings"]["unknown_ids"], json!([unknown]));
+
+        // 不带未知 id 的 A 仍然命中原来的条目，没被带 warning 的响应污染。
+        let (_, headers, body) = request_full(&app, Some(&admin), &a_uri).await;
+        assert_eq!(cache_header(&headers).as_deref(), Some("hit"));
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
     }
 }

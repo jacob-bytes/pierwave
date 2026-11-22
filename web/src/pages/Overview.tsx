@@ -7,6 +7,7 @@ import {
   PlusIcon,
   RefreshCwIcon,
   ServerIcon,
+  TriangleAlertIcon,
   UsersIcon,
 } from "lucide-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -22,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import OverviewInsight from "@/components/overview/OverviewInsight";
 import { useOverviewScope } from "@/components/overview/useOverviewScope";
 import { useOverview, useOverviewStats, useTraffic } from "@/lib/queries";
+import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import { statsErrorText } from "@/lib/overviewErrors";
 import { OVERVIEW_TRAFFIC_DAYS } from "@/lib/overviewViews";
@@ -153,10 +155,12 @@ function OverviewSkeleton() {
 }
 
 function OverviewError({
+  title,
   message,
   retrying,
   onRetry,
 }: {
+  title?: string;
   message: string;
   retrying: boolean;
   onRetry: () => void;
@@ -165,7 +169,7 @@ function OverviewError({
     <Card>
       <CardContent>
         <ListError
-          title={t("overview.loadFailed")}
+          title={title ?? t("overview.loadFailed")}
           message={message}
           retrying={retrying}
           onRetry={onRetry}
@@ -256,6 +260,8 @@ export default function OverviewPage() {
       ? scopedOverview.data
       : undefined;
   const trafficScoped = scopedAggregate?.scope?.filtered === true;
+  // 后端会忽略请求里不认识的 id；这里提示一次，避免用户以为筛选坏了。
+  const unknownServerIds = scopedAggregate?.warnings?.unknown_ids ?? [];
   const scopeUnsupported =
     scope.filtered &&
     scope.selectedIds.length > 0 &&
@@ -313,10 +319,37 @@ export default function OverviewPage() {
           retrying={statsQuery.isFetching}
           onRetry={() => void statsQuery.refetch()}
         />
+      ) : scope.isError ? (
+        // 服务器列表失败时不能显示「未选择 / 没有服务器」：那是假空态。
+        <OverviewError
+          title={t("servers.loadFailed")}
+          message={errorText(scope.error, t("servers.loadFailed"))}
+          retrying={scope.isFetching}
+          onRetry={() => void scope.refetch()}
+        />
+      ) : !scope.ready ? (
+        // 筛选范围还没算出来时先显示骨架，四个 tab 不渲染空态。
+        <OverviewSkeleton />
       ) : isNewInstall ? (
         <EmptyOverview />
       ) : stats ? (
         <>
+          {unknownServerIds.length > 0 ? (
+            <div
+              data-overview-unknown-ids
+              className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs leading-normal text-warning"
+            >
+              <TriangleAlertIcon
+                aria-hidden="true"
+                className="mt-0.5 size-3.5 shrink-0"
+              />
+              <span>
+                {t("overview.scope.unknownIds", {
+                  n: unknownServerIds.length,
+                })}
+              </span>
+            </div>
+          ) : null}
           <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
             <KpiCard
               label={t("overview.onlineServers")}

@@ -2544,36 +2544,45 @@ S3/OSS/B2 等对象存储不在本期范围。
 - 校验 `result=success`、`base_code=CNY`、每个报价/反算汇率在 `0.0001..=10000`、
   `USD/EUR/JPY` 必须存在；任何失败都保留旧值，不覆盖。
 - 手动覆盖会把 `fetched_at` 写成当前时间、`source` 写成 `manual`；24h 内自动
-  任务不覆盖，满 24h 后恢复自动。不提供 `fx_auto` 开关：手动覆盖 ≈ 一次成功
-  抓取，只保留一条规则。
+  任务不覆盖，之后最多再等一轮 6h 检查（实际存活 **24–30h**）恢复自动。
+  不提供 `fx_auto` 开关：手动覆盖 ≈ 一次成功抓取，只保留一条规则。
 - 生产路径用系统 `curl`（与版本检测/告警/WebDAV 一致），不新增 HTTP 客户端依赖；
   测试注入 fetcher，不联网。
 
 ### 服务器态势
 
-`GET /api/v1/overview/server-health?hours=168&bucket=3600`（require_admin）：
+`GET /api/v1/overview/server-health?hours=168&bucket=3600&server_ids=…`（require_admin）：
 
 - `hours` 1..=168（默认 24），`bucket` 300..=86400 且能整除 `hours*3600`
   （默认 3600）；非法参数 400。
 - `buckets` 长度固定 = `hours*3600/bucket`，当前桶可在进行中；无采样桶是
   `null`（不是 0）。
 - 桶内 `online` 用多数判定（`online_samples*2 >= samples`，平局算在线）；
+  同时下发 `online_ratio`（真实比例）与 `samples`，便于前端按样本加权；
   `load1/mem_ratio/disk_ratio` 取平均，分母为 0 的采样不参与 mem/disk 平均。
-- 每台服务器 `online_ratio` = 窗口内按采样数加权的可用率；`summary` 的
-  `online_ratio_24h` 独立于 `hours`，始终是最近 24h 的加权值。
+- 每台服务器 `online_ratio` = 窗口内按采样数加权的可用率，并带当前
+  `status` / `online`；`summary` 的 `online_ratio_24h` 独立于 `hours`，
+  始终是最近 24h 的加权值。
+- `server_ids` 与 `/api/v1/overview` 同语义：不传 = 全部、空数组 = 空结果、
+  未知 id 进 `warnings.unknown_ids`、非法 400、去重后上限 200；`summary` /
+  `servers` 按筛选集合重算。
 - `abnormal_servers` = 24h 可用率 < 90% 或最坏磁盘 >= 90% 的服务器数；
   窗口内无采样的服务器不计。`worst_disk_ratio` 是 24h 单次采样最大值。
-- 两条 SQL 都是跨服务器一次 `GROUP BY`，窗口条件命中
-  `idx_server_samples_ts`；域层测试锁定 `EXPLAIN QUERY PLAN`。
-- 结果缓存 30 秒（key = `(hours, bucket)`），响应头
+- 两条 SQL 都是跨服务器一次 `GROUP BY`：未筛选走
+  `idx_server_samples_ts`，带 `server_ids` 走 `(server_id, ts)` 主键；
+  域层测试锁定两种 `EXPLAIN QUERY PLAN`，都不全表扫描。
+- 结果缓存 30 秒（key = `(hours, bucket, server_ids)`），响应头
   `X-Server-Health-Cache: hit|miss`。
 
 English: P19 adds an automatic FX cache in `settings` (fetched in the background
 from open.er-api.com over https, kept on any failure, exposed as a JSON string
-plus a read-only timestamp, with manual overrides lasting 24 hours) and an admin
-`/api/v1/overview/server-health` aggregate. The aggregate returns fixed-length
-hourly (or custom-width) buckets with `null` for missing samples, uses majority
-vote for online, averages load/memory/disk, performs two cross-server `GROUP BY`
-queries backed by `idx_server_samples_ts`, and caches the response for 30 seconds.
-No migration is needed; full contract and query plan are in
-[FX-AND-SERVER-HEALTH.md](FX-AND-SERVER-HEALTH.md).
+plus a read-only timestamp, with manual overrides surviving for 24–30 hours)
+and an admin `/api/v1/overview/server-health` aggregate. The aggregate returns
+fixed-length hourly (or custom-width) buckets with `null` for missing samples,
+uses majority vote for `online` but also exposes `online_ratio` / `samples` for
+sample-weighted rendering, averages load/memory/disk, returns each server's real
+`status`, and supports the same `server_ids` filter as `/api/v1/overview` with
+`summary` recomputed over the selected set. It uses two cross-server `GROUP BY`
+queries backed by `idx_server_samples_ts` and caches the response for 30 seconds
+per `(hours, bucket, server_ids)`. No migration is needed; full contract and
+query plan are in [FX-AND-SERVER-HEALTH.md](FX-AND-SERVER-HEALTH.md).

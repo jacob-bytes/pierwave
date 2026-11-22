@@ -10327,6 +10327,23 @@ pub mod server_samples {
         .await?)
     }
 
+    /// 把 `server_id IN (...)` 追加到已有 `WHERE`；调用方保证 `server_ids` 非空。
+    ///
+    /// SQLite 的 `IN ()` 不是合法语法，所以「筛选到空集」在入口直接返回空结果
+    /// （见 [`health_summary_filtered`] / [`health_buckets_filtered`]），不拼
+    /// `IN (NULL)` 这种隐式写法。
+    fn push_server_filter<'a>(
+        builder: &mut sqlx::QueryBuilder<'a, sqlx::Sqlite>,
+        server_ids: &'a [String],
+    ) {
+        builder.push(" AND server_id IN (");
+        let mut separated = builder.separated(", ");
+        for id in server_ids {
+            separated.push_bind(id.as_str());
+        }
+        separated.push_unseparated(")");
+    }
+
     /// 管理员「服务器态势」的 24h 汇总：**一次 GROUP BY 跨服务器**算完，
     /// 不按服务器循环（没有 N+1）。
     ///
@@ -10338,7 +10355,24 @@ pub mod server_samples {
         since: i64,
         until: i64,
     ) -> anyhow::Result<Vec<ServerHealthSummaryRow>> {
-        Ok(sqlx::query_as::<_, ServerHealthSummaryRow>(
+        health_summary_filtered(pool, since, until, None).await
+    }
+
+    /// 同 [`health_summary`]，但只统计 `server_ids` 里的服务器。
+    ///
+    /// `None` = 全站；`Some([])` = 筛选到空集，直接返回空数组（不查库）。
+    /// 汇总（加权可用率、最坏磁盘、异常台数）由调用方基于返回行重算，
+    /// 因此筛选后天然只覆盖选中的服务器。
+    pub async fn health_summary_filtered(
+        pool: &SqlitePool,
+        since: i64,
+        until: i64,
+        server_ids: Option<&[String]>,
+    ) -> anyhow::Result<Vec<ServerHealthSummaryRow>> {
+        if server_ids.is_some_and(|ids| ids.is_empty()) {
+            return Ok(Vec::new());
+        }
+        let mut builder = sqlx::QueryBuilder::new(
             "SELECT server_id,
                     COUNT(*) AS samples,
                     SUM(online) AS online_samples,
@@ -10346,13 +10380,19 @@ pub mod server_samples {
                              THEN CAST(disk_used AS REAL) / disk_total
                         END) AS worst_disk_ratio
              FROM server_samples
-             WHERE ts >= ? AND ts <= ?
-             GROUP BY server_id",
-        )
-        .bind(since)
-        .bind(until)
-        .fetch_all(pool)
-        .await?)
+             WHERE ts >= ",
+        );
+        builder.push_bind(since);
+        builder.push(" AND ts <= ");
+        builder.push_bind(until);
+        if let Some(ids) = server_ids {
+            push_server_filter(&mut builder, ids);
+        }
+        builder.push(" GROUP BY server_id");
+        Ok(builder
+            .build_query_as::<ServerHealthSummaryRow>()
+            .fetch_all(pool)
+            .await?)
     }
 
     /// 管理员「服务器态势」的窗口桶：按 `bucket` 秒聚合，**一次 GROUP BY
@@ -10368,9 +10408,31 @@ pub mod server_samples {
         until: i64,
         bucket: i64,
     ) -> anyhow::Result<Vec<ServerHealthBucketRow>> {
-        Ok(sqlx::query_as::<_, ServerHealthBucketRow>(
+        health_buckets_filtered(pool, since, until, bucket, None).await
+    }
+
+    /// 同 [`health_buckets`]，但只统计 `server_ids` 里的服务器。
+    ///
+    /// `None` = 全站；`Some([])` = 筛选到空集，直接返回空数组（不查库）。
+    pub async fn health_buckets_filtered(
+        pool: &SqlitePool,
+        since: i64,
+        until: i64,
+        bucket: i64,
+        server_ids: Option<&[String]>,
+    ) -> anyhow::Result<Vec<ServerHealthBucketRow>> {
+        if server_ids.is_some_and(|ids| ids.is_empty()) {
+            return Ok(Vec::new());
+        }
+        let mut builder = sqlx::QueryBuilder::new(
             "SELECT server_id,
-                    (ts / ?) * ? AS ts,
+                    (ts / ",
+        );
+        builder.push_bind(bucket);
+        builder.push(") * ");
+        builder.push_bind(bucket);
+        builder.push(
+            " AS ts,
                     COUNT(*) AS samples,
                     SUM(online) AS online_samples,
                     AVG(load1) AS load1,
@@ -10381,17 +10443,22 @@ pub mod server_samples {
                              THEN CAST(disk_used AS REAL) / disk_total
                         END) AS disk_ratio
              FROM server_samples
-             WHERE ts >= ? AND ts < ?
-             GROUP BY server_id, (ts / ?) * ?",
-        )
-        .bind(bucket)
-        .bind(bucket)
-        .bind(since)
-        .bind(until)
-        .bind(bucket)
-        .bind(bucket)
-        .fetch_all(pool)
-        .await?)
+             WHERE ts >= ",
+        );
+        builder.push_bind(since);
+        builder.push(" AND ts < ");
+        builder.push_bind(until);
+        if let Some(ids) = server_ids {
+            push_server_filter(&mut builder, ids);
+        }
+        builder.push(" GROUP BY server_id, (ts / ");
+        builder.push_bind(bucket);
+        builder.push(") * ");
+        builder.push_bind(bucket);
+        Ok(builder
+            .build_query_as::<ServerHealthBucketRow>()
+            .fetch_all(pool)
+            .await?)
     }
 
     /// `[since, until)` 内按 5 分钟桶聚合的公开迷你图数据，只返回有在线采样的桶。
@@ -10658,7 +10725,64 @@ pub mod server_samples {
             assert!(empty.is_empty(), "窗口内没有采样时返回空数组");
         }
 
-        /// 两条 SQL 都必须走 `idx_server_samples_ts`，不能全表扫描。
+        /// 带服务器筛选的两条查询：只返回选中服务器；空数组不查库、直接空结果。
+        #[tokio::test]
+        async fn health_queries_filter_by_server_ids_and_empty_filter_is_empty() {
+            let (pool, first) = setup().await;
+            let (second, _) = servers::create(&pool, "日本-01", "10.0.0.2", "external")
+                .await
+                .unwrap();
+            let now = crate::time::now();
+            let hour = now - now.rem_euclid(3600);
+            // 两台在同一个小时各一条采样，在线状态与磁盘不同。
+            sample(&pool, &first, hour - 3600, true, 1.0, (10, 100), (10, 100)).await;
+            sample(
+                &pool,
+                &second.id,
+                hour - 3600,
+                false,
+                2.0,
+                (20, 100),
+                (95, 100),
+            )
+            .await;
+
+            let only_first = vec![first.clone()];
+            let summary = health_summary_filtered(&pool, now - 86_400, now, Some(&only_first))
+                .await
+                .unwrap();
+            assert_eq!(summary.len(), 1, "只返回选中服务器：{summary:?}");
+            assert_eq!(summary[0].server_id, first);
+            assert_eq!(summary[0].samples, 1);
+            assert_eq!(summary[0].online_samples, 1);
+
+            let both = vec![first.clone(), second.id.clone()];
+            let summary = health_summary_filtered(&pool, now - 86_400, now, Some(&both))
+                .await
+                .unwrap();
+            assert_eq!(summary.len(), 2);
+            let buckets =
+                health_buckets_filtered(&pool, hour - 3600, hour, 3600, Some(&only_first))
+                    .await
+                    .unwrap();
+            assert!(
+                buckets.iter().all(|row| row.server_id == first),
+                "桶查询也必须只返回选中服务器：{buckets:?}"
+            );
+
+            let empty: &[String] = &[];
+            let summary = health_summary_filtered(&pool, now - 86_400, now, Some(empty))
+                .await
+                .unwrap();
+            assert!(summary.is_empty(), "空筛选 = 空结果，不回落全站");
+            let buckets = health_buckets_filtered(&pool, hour - 3600, hour, 3600, Some(empty))
+                .await
+                .unwrap();
+            assert!(buckets.is_empty(), "空筛选 = 空结果，不回落全站");
+        }
+
+        /// 健康查询必须走索引，不能全表扫描：未筛选走 `idx_server_samples_ts`，
+        /// 带 `server_ids` 走 `(server_id, ts)` 主键前缀。
         #[tokio::test]
         async fn health_queries_use_the_timestamp_index() {
             let db = Db::connect("sqlite::memory:").await.unwrap();
@@ -10678,6 +10802,14 @@ pub mod server_samples {
                  FROM server_samples
                  WHERE ts >= 0 AND ts < 3600
                  GROUP BY server_id, (ts / 3600) * 3600",
+                "EXPLAIN QUERY PLAN
+                 SELECT server_id, COUNT(*), SUM(online),
+                        MAX(CASE WHEN disk_total > 0
+                                 THEN CAST(disk_used AS REAL) / disk_total END)
+                 FROM server_samples
+                 WHERE ts >= 0 AND ts <= 3600
+                   AND server_id IN ('a', 'b')
+                 GROUP BY server_id",
             ] {
                 let plan: Vec<(i64, i64, i64, String)> =
                     sqlx::query_as(sql).fetch_all(&db.pool).await.unwrap();
@@ -10687,8 +10819,9 @@ pub mod server_samples {
                     .collect::<Vec<_>>()
                     .join(" | ");
                 assert!(
-                    detail.contains("idx_server_samples_ts"),
-                    "必须命中时间索引：{detail}"
+                    detail.contains("idx_server_samples_ts")
+                        || detail.contains("sqlite_autoindex_server_samples_1"),
+                    "必须命中时间索引或 (server_id, ts) 主键索引：{detail}"
                 );
                 assert!(
                     !detail.contains("SCAN server_samples") || detail.contains("USING INDEX"),

@@ -66,6 +66,7 @@ export function FxDetailsPopover({
         collisionPadding={12}
         className="w-[min(22rem,calc(100vw-2rem))] gap-0 p-0"
         data-fx-popover
+        data-fx-missing={!fx.provided || undefined}
       >
         <div className="border-b border-border px-3 py-2 text-xs font-medium">
           {t("overview.cost.fxDetailsTitle")}
@@ -74,7 +75,11 @@ export function FxDetailsPopover({
         <div className="max-h-64 overflow-y-auto" data-fx-list>
           {details.rows.length === 0 ? (
             <p className="px-3 py-4 text-xs text-muted-foreground">
-              {t("overview.cost.fxNoCurrencies")}
+              {t(
+                fx.provided
+                  ? "overview.cost.fxNoCurrencies"
+                  : "overview.cost.fxNoUsableCurrencies",
+              )}
             </p>
           ) : (
             details.rows.map((row) => (
@@ -122,24 +127,29 @@ export function FxDetailsPopover({
               aria-hidden="true"
             />
             <span>
-              {t(
-                details.unknownCount === 1
-                  ? "overview.cost.fxUnknownInlineOne"
-                  : "overview.cost.fxUnknownInline",
-                {
-                  n: details.unknownCount,
-                  codes: details.unknownCodes.join(" · "),
-                },
-              )}
+              {t("overview.cost.unknownCurrencies", {
+                n: details.unknownCount,
+                codes: details.unknownCodes.join(" · "),
+              })}
             </span>
           </div>
         ) : null}
+
+        {fx.provided ? null : (
+          <div
+            data-fx-missing-hint
+            className="border-t border-border bg-muted/30 px-3 py-2 text-[10px] leading-normal text-muted-foreground"
+          >
+            <p>{t("overview.cost.fxNotConfigured")}</p>
+            <p className="mt-0.5">{t("overview.cost.fxHowToConfigure")}</p>
+          </div>
+        )}
 
         <div
           data-fx-footer
           className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground"
         >
-          {updated ?? source}
+          {fx.provided ? (updated ?? source) : t("overview.cost.fxMissingShort")}
         </div>
       </PopoverContent>
     </Popover>

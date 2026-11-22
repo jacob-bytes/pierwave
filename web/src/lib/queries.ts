@@ -165,9 +165,19 @@ export const queryKeys = {
    */
   overview: (days: number, serverIds: readonly string[] = []) =>
     ["overview", days, [...serverIds].sort().join(",")] as const,
-  /** 服务器状态视图：窗口小时数与桶宽进 key。 */
-  serverHealth: (hours: number, bucket: number) =>
-    ["overview", "server-health", hours, bucket] as const,
+  /** 服务器状态视图：窗口小时数、桶宽与筛选集合进 key。 */
+  serverHealth: (
+    hours: number,
+    bucket: number,
+    serverIds: readonly string[] = [],
+  ) =>
+    [
+      "overview",
+      "server-health",
+      hours,
+      bucket,
+      [...serverIds].sort().join(","),
+    ] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
   /** 管理员转发日表对账；窗口天数进 key，切换窗口即换查询。 */
   forwardUsage: (days: number) => ["forward-traffic", days] as const,
@@ -434,21 +444,29 @@ export function useOverview(
 /**
  * 服务器状态视图：7 天 × 1 小时桶。
  *
+ * `serverIds` 非空时交给后端筛选；全选（或未筛选）时传空数组。
+ *
  * 旧主控没有该接口时返回 404；这里把 404 转成 `null`（查询成功），
  * 页面据此显示「该功能需要新版本主控」，而不是报错 + 无意义的重试。
  * 其它错误（500 / 网络）仍按错误态处理。
  */
-export function useServerHealth(hours = 168, bucket = 3600) {
+export function useServerHealth(
+  hours = 168,
+  bucket = 3600,
+  serverIds: readonly string[] = [],
+  enabled = true,
+) {
   return useQuery<OverviewServerHealthResponse | null>({
-    queryKey: queryKeys.serverHealth(hours, bucket),
+    queryKey: queryKeys.serverHealth(hours, bucket, serverIds),
     queryFn: async () => {
       try {
-        return await api.overview.serverHealth(hours, bucket);
+        return await api.overview.serverHealth(hours, bucket, serverIds);
       } catch (error) {
         if (isServerHealthUnsupported(error)) return null;
         throw error;
       }
     },
+    enabled: enabled && hours > 0,
     retry: false,
     staleTime: 60_000,
   });

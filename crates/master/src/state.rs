@@ -350,14 +350,22 @@ fn overview_cache_ttl_from_env() -> Duration {
 /// 管理员「服务器态势」快照的短缓存：30 秒。
 ///
 /// 采样本身 5 分钟才写一行，30 秒缓存不会让页面明显滞后，却能把「多个管理员
-/// 同时刷新」从 N 次 7 天窗口聚合压成 1 次。key 是 `(hours, bucket)`：不同
-/// 窗口/桶宽的结果不能互相复用。
+/// 同时刷新」从 N 次 7 天窗口聚合压成 1 次。key 是 `(hours, bucket, server_ids)`：
+/// 不同窗口/桶宽/筛选集合的结果不能互相复用。
+///
+/// `server_ids` 存**规范化后的请求 id**（命中的 + 未知的，已排序去重）：
+/// `warnings.unknown_ids` 与 `scope` 一起缓存在 body 里，若只按命中的 id 做
+/// key，`[已知 A, 未知 B]` 会复用 `[已知 A]` 的响应，把 B 的警告吞掉。
+/// `None`（不筛选）与 `Some(vec![])`（筛选到空集）是不同 key。
 ///
 /// **不做写穿透**：新采样最多晚 30 秒出现在响应里；`generated_at` 也随快照
 /// 一起缓存（同一份数据的时间戳必须一致）。轮询频率远高于 30 秒时命中率接近 1。
 pub const SERVER_HEALTH_CACHE_TTL: Duration = Duration::from_secs(30);
 
-type ServerHealthKey = (i64, i64);
+/// 筛选组合可能很多：条目上限与概览缓存一致，超过时先清过期、再淘汰最早写入。
+const SERVER_HEALTH_CACHE_MAX_ENTRIES: usize = 64;
+
+type ServerHealthKey = (i64, i64, Option<Vec<String>>);
 type ServerHealthEntry = (Instant, Value);
 
 #[derive(Debug, Default)]
@@ -391,13 +399,16 @@ impl ServerHealthCache {
         }
     }
 
-    pub fn get(&self, hours: i64, bucket: i64) -> Option<Value> {
+    /// 命中返回整份响应；`hours` / `bucket` / 规范化后的 `server_ids` 任一不同
+    /// 都是不同的 key。`None` = 不筛选，`Some([])` = 筛选到空集。
+    pub fn get(&self, hours: i64, bucket: i64, server_ids: Option<&[String]>) -> Option<Value> {
+        let key = (hours, bucket, server_ids.map(<[String]>::to_vec));
         let guard = self
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let hit = guard
-            .get(&(hours, bucket))
+            .get(&key)
             .filter(|(at, _)| self.ttl > Duration::ZERO && at.elapsed() < self.ttl)
             .map(|(_, value)| value.clone());
         if hit.is_some() {
@@ -408,14 +419,43 @@ impl ServerHealthCache {
         hit
     }
 
-    pub fn put(&self, hours: i64, bucket: i64, value: Value) {
+    /// 写入整份响应；同一 key 覆盖旧条目。
+    ///
+    /// 筛选组合可能很多（每台服务器一种），超过上限时先清过期条目，仍超就
+    /// 淘汰最早写入的一条：30 秒 TTL 下不值得引入 LRU。
+    pub fn put(&self, hours: i64, bucket: i64, server_ids: Option<&[String]>, value: Value) {
         if self.ttl.is_zero() {
             return;
         }
+        let key = (hours, bucket, server_ids.map(<[String]>::to_vec));
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard.len() >= SERVER_HEALTH_CACHE_MAX_ENTRIES && !guard.contains_key(&key) {
+            guard.retain(|_, (at, _)| at.elapsed() < self.ttl);
+            while guard.len() >= SERVER_HEALTH_CACHE_MAX_ENTRIES {
+                let oldest = guard
+                    .iter()
+                    .min_by_key(|(_, (at, _))| *at)
+                    .map(|(key, _)| key.clone());
+                match oldest {
+                    Some(oldest) => {
+                        guard.remove(&oldest);
+                    }
+                    None => break,
+                }
+            }
+        }
+        guard.insert(key, (Instant::now(), value));
+    }
+
+    /// 立刻失效：只给管理员动作（恢复备份等）用，采样写入不要调用。
+    pub fn clear(&self) {
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert((hours, bucket), (Instant::now(), value));
+            .clear();
     }
 
     /// (hits, misses)；只给测试断言用。

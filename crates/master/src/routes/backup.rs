@@ -310,9 +310,10 @@ pub async fn restore(
             )
         },
     )?;
-    // 恢复要重启才真正替换数据库；先清掉概览短缓存，避免管理员在重启前
-    // 看到旧流量数字。
+    // 恢复要重启才真正替换数据库；先清掉概览/服务器态势短缓存，避免管理员在
+    // 重启前看到旧流量数字与旧健康聚合。
     state.overview_traffic.clear();
+    state.server_health.clear();
 
     audit::record(
         &state,
@@ -1892,6 +1893,45 @@ mod tests {
         assert_eq!(payload["servers_needing_token_refresh"]["count"], 0);
         assert_eq!(payload["servers_needing_token_refresh"]["names"], json!([]));
         assert!(backup::pending_path(&dir.db_path()).exists());
+    }
+
+    /// 恢复会替换数据库：概览与服务器态势的进程内短缓存都必须清空，
+    /// 避免管理员在重启前看到旧库的流量数字 / 健康聚合。
+    #[tokio::test]
+    async fn successful_restore_clears_overview_and_server_health_caches() {
+        let (_dir, app, state, cookie) = setup("restore-clears-caches").await;
+        let backup = export_bytes(&app, &cookie).await;
+
+        state.overview_traffic.put(7, None, Default::default());
+        state
+            .server_health
+            .put(24, 3600, None, json!({ "generated_at": 1 }));
+        assert!(state.overview_traffic.get(7, None).is_some());
+        assert!(state.server_health.get(24, 3600, None).is_some());
+
+        let (status, _, response) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/backup/restore",
+            backup,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+
+        assert!(
+            state.overview_traffic.get(7, None).is_none(),
+            "恢复后概览缓存必须清空"
+        );
+        assert!(
+            state.server_health.get(24, 3600, None).is_none(),
+            "恢复后服务器态势缓存必须清空"
+        );
     }
 
     /// R1：落位阶段的目录 fsync 失败必须返回可读错误且不留下 pending；

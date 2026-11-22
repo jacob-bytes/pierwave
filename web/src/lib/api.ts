@@ -2149,7 +2149,10 @@ export interface OverviewServerHealthBucket {
 export interface OverviewServerHealthServer {
   id: string;
   name: string;
+  /** 后端新契约：真实在线状态；缺失时前端从最新桶推断。 */
   status?: string;
+  /** 后端新契约：请求窗口内的可用率（0..1）。 */
+  online_ratio?: number | null;
   current?: OverviewServerHealthCurrent | null;
   buckets?: OverviewServerHealthBucket[] | null;
 }
@@ -2641,14 +2644,28 @@ export const api = {
     },
     /**
      * 服务器状态视图：每台服务器的小时桶 + 汇总。
+     *
+     * `serverIds` 非空时附加 `server_ids=id1,id2`，后端据此筛选并在
+     * `summary` 里给出筛选后的 KPI；旧主控会忽略该参数（前端容忍）。
+     * 全选时调用方必须传空数组，避免 200+ 台的超长 URL 与 400。
+     *
      * 旧主控没有该接口（404），查询层会把它转成「需要新版本主控」。
      */
-    serverHealth: (hours: number, bucket: number) =>
-      request<OverviewServerHealthResponse>(
-        `/api/v1/overview/server-health?hours=${encodeURIComponent(
-          String(hours),
-        )}&bucket=${encodeURIComponent(String(bucket))}`,
-      ),
+    serverHealth: (
+      hours: number,
+      bucket: number,
+      serverIds: readonly string[] = [],
+    ) => {
+      const params = new URLSearchParams({
+        hours: String(hours),
+        bucket: String(bucket),
+      });
+      const ids = serverIds.map((id) => id.trim()).filter(Boolean);
+      if (ids.length > 0) params.set("server_ids", ids.join(","));
+      return request<OverviewServerHealthResponse>(
+        `/api/v1/overview/server-health?${params.toString()}`,
+      );
+    },
   },
   stats: {
     overview: () => request<OverviewStats>("/api/v1/stats/overview"),

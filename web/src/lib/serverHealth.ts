@@ -47,6 +47,12 @@ export interface ServerHealthBucket {
   ts: number;
   /** 0..1；没有采样时为 null。 */
   onlineRatio: number | null;
+  /**
+   * 在线率是否由 `online` 布尔（或 outage_samples）近似得到。
+   * 后端新契约会给桶内 `online_ratio`；缺失时只能回退到 0/1，
+   * 热力图图例会注明「近似」，避免 5 档色阶被误读成真实分档。
+   */
+  ratioApproximate: boolean;
   /** 平均 1 分钟负载；没有采样时为 null。 */
   load1: number | null;
   /** 桶内最大 1 分钟负载；没有采样时为 null。 */
@@ -74,6 +80,8 @@ export interface ServerHealthServer {
   id: string;
   name: string;
   status: "online" | "offline" | "unknown";
+  /** 请求窗口内的可用率（后端新增字段）；缺失时为 null。 */
+  onlineRatio: number | null;
   current: ServerHealthCurrent;
   buckets: ServerHealthBucket[];
 }
@@ -104,6 +112,8 @@ export interface ServerHealthSnapshot {
   /** 所有桶里最新的时间戳；没有采样时为 null。 */
   latestTs: number | null;
   hasSamples: boolean;
+  /** 至少一个桶的在线率来自 `online` 布尔近似（后端缺 `online_ratio`）。 */
+  approximateUptime: boolean;
 }
 
 export type ServerHealthParseResult =
@@ -266,10 +276,15 @@ function normalizeBucket(raw: unknown): ServerHealthBucket | null {
     diskRatio !== null;
   // 新契约的桶只有 online 布尔；按 1 个采样计数，供加权在线率使用。
   const resolvedSamples = samples ?? (hasValue ? 1 : 0);
+  // 只有后端明确给了桶内 online_ratio 才算真实分档；布尔/outage 推导都是近似。
+  const ratioApproximate =
+    ratio(firstField(raw, ["online_ratio", "onlineRatio"])) === null &&
+    onlineRatio !== null;
 
   return {
     ts,
     onlineRatio,
+    ratioApproximate,
     load1,
     load1Max,
     memRatio,
@@ -316,20 +331,26 @@ function normalizeServer(raw: unknown): ServerHealthServer | null {
   for (const bucket of buckets) byTs.set(bucket.ts, bucket);
   const sorted = [...byTs.values()].sort((a, b) => a.ts - b.ts);
 
+  // 后端新增的真实状态优先；缺失时才从最新桶 / 窗口在线率推断。
   let status: ServerHealthServer["status"] =
     raw.status === "online" || raw.status === "offline"
       ? raw.status
       : "unknown";
+  const onlineRatio = ratio(firstField(raw, ["online_ratio", "onlineRatio"]));
   if (status === "unknown" && sorted.length > 0) {
     const latest = sorted.at(-1);
     if (latest?.onlineRatio === 1) status = "online";
     else if (latest?.onlineRatio === 0) status = "offline";
+  }
+  if (status === "unknown" && onlineRatio !== null) {
+    status = onlineRatio >= 0.5 ? "online" : "offline";
   }
 
   return {
     id,
     name,
     status,
+    onlineRatio,
     current: normalizeCurrent(raw.current),
     buckets: sorted,
   };
@@ -640,6 +661,7 @@ function buildSnapshot(
 
   let latestTs: number | null = null;
   let hasSamples = false;
+  let approximateUptime = false;
   let serversWithoutSamples = 0;
   for (const server of servers) {
     const latest = server.buckets.at(-1)?.ts ?? null;
@@ -650,6 +672,14 @@ function buildSnapshot(
       hasSamples = true;
     } else {
       serversWithoutSamples += 1;
+    }
+    if (
+      !approximateUptime &&
+      server.buckets.some(
+        (bucket) => bucket.samples > 0 && bucket.ratioApproximate,
+      )
+    ) {
+      approximateUptime = true;
     }
   }
 
@@ -718,6 +748,7 @@ function buildSnapshot(
     },
     latestTs,
     hasSamples,
+    approximateUptime,
   };
 }
 
@@ -769,33 +800,6 @@ export function normalizeServerHealth(
     : { status: "ok", snapshot };
 }
 
-/**
- * 按概览级筛选缩小快照：只保留选中服务器，并用同一套口径重算汇总。
- *
- * 后端返回的 `summary` 是全量口径，不能直接拿来当筛选后的 KPI；
- * 这里丢掉原 summary，用剩下的服务器重新算在线率 / 异常台数 / 磁盘最高。
- * 未发生筛选（选中集合等于全部）时原样返回，避免无谓重算。
- */
-export function scopeServerHealthSnapshot(
-  snapshot: ServerHealthSnapshot,
-  serverIds: readonly string[],
-): ServerHealthSnapshot {
-  const selected = new Set(serverIds);
-  if (
-    snapshot.servers.length === serverIds.length &&
-    snapshot.servers.every((server) => selected.has(server.id))
-  ) {
-    return snapshot;
-  }
-
-  const servers = snapshot.servers.filter((server) => selected.has(server.id));
-  return buildSnapshot(servers, {
-    hours: snapshot.window.hours,
-    bucket: snapshot.window.bucketSecs,
-    generated_at: snapshot.window.generatedAt ?? undefined,
-  });
-}
-
 /** 单台服务器某个资源指标的当前值：优先 current，缺失时回落到最后一个桶。 */
 export function currentResourceValue(
   server: ServerHealthServer,
@@ -820,49 +824,6 @@ export function currentResourceValue(
     default:
       return null;
   }
-}
-
-/** 默认热力图/折线图最多显示的服务器数量。 */
-export const DEFAULT_SERVER_SELECTION_LIMIT = 8;
-
-/**
- * 默认筛选：离线 / 当前资源超阈值优先，其余按名称补足，最多 `limit` 台。
- * 这样几十台服务器时首屏先看到有问题的，而不是随机的前 8 台。
- */
-export function defaultServerSelection(
-  snapshot: ServerHealthSnapshot,
-  limit = DEFAULT_SERVER_SELECTION_LIMIT,
-): string[] {
-  const max = Math.max(0, Math.floor(limit));
-  if (max === 0) return [];
-
-  const ranked = snapshot.servers.map((server) => {
-    const offline =
-      server.status === "offline" ||
-      server.buckets.some(
-        (bucket) =>
-          bucket.onlineRatio !== null && bucket.onlineRatio <= 0,
-      );
-    const resourceIssue = server.buckets.some(
-      (bucket) =>
-        (bucket.load1 ?? bucket.load1Max ?? 0) >=
-          SERVER_HEALTH_THRESHOLDS.loadBad ||
-        (bucket.memRatio ?? 0) >= SERVER_HEALTH_THRESHOLDS.memBad ||
-        (bucket.diskRatio ?? 0) >= SERVER_HEALTH_THRESHOLDS.diskBad ||
-        (bucket.onlineRatio !== null && bucket.onlineRatio < 1),
-    );
-    const rank = offline ? 0 : resourceIssue ? 1 : 2;
-    return { server, rank };
-  });
-
-  return ranked
-    .sort(
-      (a, b) =>
-        a.rank - b.rank ||
-        a.server.name.localeCompare(b.server.name),
-    )
-    .slice(0, max)
-    .map((item) => item.server.id);
 }
 
 /**

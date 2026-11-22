@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  SCOPE_ALL_LIMIT,
-  SCOPE_DEFAULT_LIMIT,
   chainMatchesScope,
   defaultOverviewSelection,
   filterChainsByScope,
@@ -15,6 +13,7 @@ import {
   selectedOnlineCount,
   selectedScopeGroupKey,
   serializeServerIds,
+  serverIdsSelectionParam,
 } from "./overviewScope.ts";
 
 function server(id, overrides = {}) {
@@ -45,48 +44,63 @@ test("写回 URL：保留用户顺序、去重，空集合写成空串", () => {
   assert.equal(serializeServerIds([" a ", "", "b"]), "a,b");
 });
 
-test("≤10 台默认全选，保持服务器列表顺序", () => {
-  const servers = Array.from({ length: SCOPE_ALL_LIMIT }, (_, index) =>
-    server(`s${index}`),
-  );
-  assert.deepEqual(
-    defaultOverviewSelection(servers),
-    servers.map((item) => item.id),
-  );
+test("默认全选：无论多少台都保持服务器列表顺序", () => {
+  for (const count of [0, 1, 10, 12, 250]) {
+    const servers = Array.from({ length: count }, (_, index) =>
+      server(`s${index}`),
+    );
+    assert.deepEqual(
+      defaultOverviewSelection(servers),
+      servers.map((item) => item.id),
+    );
+  }
 });
 
-test(">10 台默认选问题优先的 8 台：离线 → 资源告警 → 名称", () => {
+test(">10 台也默认全选，不再挑「问题优先的 8 台」", () => {
   const servers = [
     server("ok-1", { name: "a" }),
     server("offline", { name: "z", status: "offline" }),
     server("load", { name: "y", load1: 9 }),
-    server("mem", { name: "x", mem_used: 9, mem_total: 10 }),
-    server("disk", { name: "w", disk_used: 9.5, disk_total: 10 }),
-    ...Array.from({ length: 7 }, (_, index) =>
+    ...Array.from({ length: 20 }, (_, index) =>
       server(`ok-${index + 2}`, { name: `b${index}` }),
     ),
   ];
   const selected = defaultOverviewSelection(servers);
-  assert.equal(selected.length, SCOPE_DEFAULT_LIMIT);
-  assert.equal(selected[0], "offline");
-  assert.deepEqual(new Set(selected.slice(1, 4)), new Set(["load", "mem", "disk"]));
-  assert.ok(selected.includes("ok-1"));
-  assert.equal(selected.includes("ok-2"), true);
+  assert.equal(selected.length, servers.length);
+  assert.deepEqual(selected, servers.map((item) => item.id));
+});
+
+test("URL 参数：全选删除参数，空选写空串，部分选择写 id 列表", () => {
+  const servers = [server("a"), server("b"), server("c")];
+  assert.equal(serverIdsSelectionParam(servers, ["c", "a", "b"]), null);
+  assert.equal(serverIdsSelectionParam(servers, []), "");
+  assert.equal(serverIdsSelectionParam(servers, ["b", "a"]), "b,a");
+  // 服务器列表为空时，「全选」同样不写参数。
+  assert.equal(serverIdsSelectionParam([], []), null);
 });
 
 test("参数缺失用默认；空串就是空选择；失效 id 被剔除", () => {
   const servers = Array.from({ length: 12 }, (_, index) =>
     server(`s${index}`),
   );
-  const fallback = defaultOverviewSelection(servers);
+  const fallback = servers.map((item) => item.id);
   assert.deepEqual(resolveOverviewSelection(servers, null), fallback);
   assert.deepEqual(resolveOverviewSelection(servers, ""), []);
   assert.deepEqual(resolveOverviewSelection(servers, "s1,deleted,s3"), [
     "s1",
     "s3",
   ]);
-  // 全部失效（例如分享链接来自另一套环境）时回落到默认，而不是空态。
+  // 全部失效（例如分享链接来自另一套环境）时回落到全选，而不是空态。
   assert.deepEqual(resolveOverviewSelection(servers, "gone,missing"), fallback);
+  // 参数里恰好包含全部服务器时也等价于全选。
+  assert.deepEqual(resolveOverviewSelection(servers, fallback.join(",")), fallback);
+  assert.equal(
+    isOverviewScopeFiltered(
+      servers,
+      resolveOverviewSelection(servers, fallback.join(",")),
+    ),
+    false,
+  );
 });
 
 test("分组行按名称排序、未分组最后，并带组内数量", () => {

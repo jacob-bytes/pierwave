@@ -155,6 +155,21 @@ export interface CostMonthExpense {
   oneTimeCount: number;
 }
 
+/** 续费日历的输入行；只允许来自成本 scope（在线 + 费用完整 + 汇率可换算）。 */
+export interface RenewalSourceRow {
+  serverId: string;
+  name: string;
+  currency: string;
+  paidUntil: string | null;
+  /** 周期数量；一次性为 1。 */
+  cycleCount: number | null;
+  cycleUnit: "month" | "year" | "once" | null;
+  /** 一个周期的原币金额（分）。 */
+  amountOriginalCents: number | null;
+  /** 一个周期的 CNY 金额（分）；缺失时仍计入台数但不计入金额。 */
+  amountCnyCents: number | null;
+}
+
 /** 续费日历的一台服务器（按 paid_until 当天到期）。 */
 export interface RenewalEvent {
   serverId: string;
@@ -175,6 +190,8 @@ export interface RenewalDay {
   events: RenewalEvent[];
   totalCnyCents: number;
   count: number;
+  /** 当天金额里含无法折算的事件数；正常应为 0，非 0 时界面显式标注。 */
+  unconverted: number;
 }
 
 export interface RenewalMonth {
@@ -409,6 +426,27 @@ export function monthIndexOf(unixSeconds: number): number {
   return date.getUTCFullYear() * 12 + date.getUTCMonth();
 }
 
+/** Unix 秒 → UTC+8 的「天序号」（1970-01-01 起）。 */
+export function dayIndexOf(unixSeconds: number): number {
+  return Math.floor((unixSeconds + UTC8_OFFSET_SECONDS) / 86400);
+}
+
+/** `YYYY-MM-DD` → UTC+8 的「天序号」；格式非法返回 null。 */
+export function dayIndexOfDate(
+  value: string | null | undefined,
+): number | null {
+  if (typeof value !== "string") return null;
+  const match = ISO_DATE_PATTERN.exec(value.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || month < 1 || month > 12) return null;
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (!Number.isInteger(day) || day < 1 || day > daysInMonth) return null;
+  return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
+}
+
 /** `YYYY-MM-DD` → 月份序号；格式非法返回 null。 */
 export function monthIndexOfDate(value: string | null | undefined): number | null {
   if (typeof value !== "string") return null;
@@ -556,36 +594,41 @@ export function formatFxRateDisplay(
   }).format(rate);
 }
 
-function renewalCycle(server: Partial<Server>): {
-  count: number | null;
-  unit: "month" | "year" | "once" | null;
-} {
-  const unit =
-    server.billing_cycle_unit === "month" ||
-    server.billing_cycle_unit === "year" ||
-    server.billing_cycle_unit === "once"
-      ? server.billing_cycle_unit
-      : null;
-  const count =
-    typeof server.billing_cycle_count === "number" &&
-    Number.isFinite(server.billing_cycle_count) &&
-    server.billing_cycle_count > 0
-      ? Math.floor(server.billing_cycle_count)
-      : null;
-  if (unit) return { unit, count: unit === "once" ? 1 : count };
-  if (server.billing_cycle === "monthly") return { unit: "month", count: 1 };
-  if (server.billing_cycle === "yearly") return { unit: "year", count: 1 };
-  if (server.billing_cycle === "once") return { unit: "once", count: 1 };
-  return { unit: null, count: null };
+/**
+ * 成本 scope → 续费日历输入。
+ *
+ * 只使用 `overview.scope`：它已经排除了离线、费用不完整与未知币种的服务器，
+ * 因此日历的台数与金额不会混入无法解释的数据。
+ */
+export function renewalRowsFromScope(
+  scope: readonly CostScopeRow[],
+): RenewalSourceRow[] {
+  return scope.map((row) => {
+    const once = row.kind === "once";
+    const months = row.cycleMonths ?? 0;
+    const yearly = !once && months > 0 && months % 12 === 0;
+    return {
+      serverId: row.serverId,
+      name: row.name,
+      currency: row.currency,
+      paidUntil: row.paidUntil,
+      cycleCount: once ? 1 : yearly ? months / 12 : months || null,
+      cycleUnit: once ? "once" : yearly ? "year" : months > 0 ? "month" : null,
+      amountOriginalCents: row.cycleOriginalCents,
+      amountCnyCents: row.cycleCnyCents,
+    };
+  });
 }
 
 /**
- * 续费日历：只统计传入服务器范围内填了 `paid_until` 的服务器。
- * 金额按一个周期价格折算成 CNY；缺价格 / 汇率时仍展示台数，金额显示为 —。
+ * 续费日历：只统计传入范围内填了 `paid_until` 的服务器。
+ *
+ * 调用方必须传 `renewalRowsFromScope(overview.scope)`，不能直接传服务器列表：
+ * 离线 / 费用不完整 / 未知币种不应出现在台数与金额里。
+ * 金额缺失时仍展示台数，并在当天与弹窗里显式标注无法折算。
  */
 export function buildRenewalMonth(
-  servers: readonly Partial<Server>[],
-  rates: Readonly<Record<string, number>>,
+  rows: readonly RenewalSourceRow[],
   monthIndex: number,
 ): RenewalMonth {
   const year = Math.floor(monthIndex / 12);
@@ -598,10 +641,11 @@ export function buildRenewalMonth(
     events: [] as RenewalEvent[],
     totalCnyCents: 0,
     count: 0,
+    unconverted: 0,
   }));
 
-  for (const server of servers) {
-    const raw = server.paid_until;
+  for (const row of rows) {
+    const raw = row.paidUntil;
     if (typeof raw !== "string" || raw.trim() === "") continue;
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw.trim());
     if (!match) continue;
@@ -617,28 +661,16 @@ export function buildRenewalMonth(
       continue;
     }
 
-    const currency = normalizeCurrency(server.currency);
-    const price = normalizeCents(server.price_cents);
-    const rate =
-      currency === "CNY" ? 1 : currency ? rates[currency] : undefined;
-    const amountCnyCents =
-      price !== null && price > 0 && rate !== undefined && rate > 0
-        ? Math.round(price * rate)
-        : null;
-    const cycle = renewalCycle(server);
     const event: RenewalEvent = {
-      serverId: server.id ?? "",
-      name:
-        typeof server.name === "string" && server.name.trim()
-          ? server.name.trim()
-          : (server.id ?? ""),
+      serverId: row.serverId,
+      name: row.name,
       paidUntil: raw.trim(),
       day: paidDay,
-      currency,
-      amountOriginalCents: price !== null && price > 0 ? price : null,
-      cycleCount: cycle.count,
-      cycleUnit: cycle.unit,
-      amountCnyCents,
+      currency: row.currency,
+      amountOriginalCents: row.amountOriginalCents,
+      cycleCount: row.cycleCount,
+      cycleUnit: row.cycleUnit,
+      amountCnyCents: row.amountCnyCents,
     };
     const bucket = days[paidDay - 1];
     if (!bucket) continue;
@@ -659,6 +691,9 @@ export function buildRenewalMonth(
         a.name.localeCompare(b.name),
     );
     bucket.count = bucket.events.length;
+    bucket.unconverted = bucket.events.filter(
+      (event) => event.amountCnyCents === null,
+    ).length;
     bucket.totalCnyCents = bucket.events.reduce(
       (sum, event) => sum + (event.amountCnyCents ?? 0),
       0,
@@ -788,6 +823,7 @@ export function buildCostOverview(
   now = Date.now() / 1000,
 ): CostOverview {
   const todayMonth = monthIndexOf(now);
+  const todayDay = dayIndexOf(now);
   const currentMonth = monthIndexParts(todayMonth).month + 1;
   const remainingMonths = 12 - currentMonth;
   const months = Array.from({ length: 12 }, (_, index) => todayMonth + index);
@@ -931,9 +967,18 @@ export function buildCostOverview(
       });
     } else {
       // 一次性：按到期日一次性计入；没有 paid_until 视为当前月到期。
-      // 已经过期的单次费用视为已付，不进未来 12 个月。
+      // 已经过期的单次费用视为已付，不进未来 12 个月；
+      // 同月但日期早于今天也算过期（不能把本月已付的钱再排一次）。
       const dueMonth = paidMonth ?? todayMonth;
+      const dueDay = dayIndexOfDate(row.paidUntil);
       if (dueMonth < todayMonth || dueMonth > endMonth) continue;
+      if (
+        dueMonth === todayMonth &&
+        dueDay !== null &&
+        dueDay < todayDay
+      ) {
+        continue;
+      }
       const cell = {
         monthIndex: dueMonth,
         amountCnyCents: row.cycleCnyCents,
@@ -1014,7 +1059,10 @@ export function buildCostOverview(
     .filter((row) => row.kind === "once")
     .map((row) => {
       const paidMonth = monthIndexOfDate(row.paidUntil);
+      const dueDay = dayIndexOfDate(row.paidUntil);
       const dueMonth = paidMonth ?? todayMonth;
+      const expiredThisMonth =
+        dueMonth === todayMonth && dueDay !== null && dueDay < todayDay;
       return {
         serverId: row.serverId,
         name: row.name,
@@ -1024,6 +1072,7 @@ export function buildCostOverview(
         paidUntil: row.paidUntil,
         dueMonth,
         inNext12:
+          !expiredThisMonth &&
           dueMonth >= todayMonth &&
           dueMonth <= endMonth,
       };

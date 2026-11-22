@@ -418,6 +418,47 @@ function makeManyHealth() {
   };
 }
 
+/** 模拟新主控：按 `server_ids` 过滤并给出筛选后的 summary。 */
+function scopeHealth(body, ids) {
+  if (ids.length === 0) return body;
+  const selected = new Set(ids);
+  const servers = body.servers.filter((server) => selected.has(server.id));
+  const ratios = servers
+    .map((server) => server.online_ratio)
+    .filter((value) => typeof value === "number");
+  const disks = servers
+    .flatMap((server) =>
+      (server.buckets ?? [])
+        .filter(Boolean)
+        .map((bucket) => bucket.disk_ratio),
+    )
+    .filter((value) => typeof value === "number");
+  return {
+    ...body,
+    servers,
+    summary: {
+      online_ratio_24h:
+        ratios.length > 0
+          ? ratios.reduce((sum, value) => sum + value, 0) / ratios.length
+          : null,
+      abnormal_servers: servers.filter(
+        (server) =>
+          (typeof server.online_ratio === "number" &&
+            server.online_ratio < 0.9) ||
+          (server.buckets ?? []).some(
+            (bucket) =>
+              bucket &&
+              (bucket.online_ratio < 0.99 ||
+                bucket.load1 >= 4 ||
+                bucket.mem_ratio >= 0.9 ||
+                bucket.disk_ratio >= 0.9),
+          ),
+      ).length,
+      worst_disk_ratio: disks.length > 0 ? Math.max(...disks) : null,
+    },
+  };
+}
+
 function makeHealth(mock) {
   if (mock === "serverBands") return makeBandsHealth();
   if (mock === "serverMany") return makeManyHealth();
@@ -843,7 +884,13 @@ async function handleApi(route, mock) {
         servers: [],
       });
     }
-    return json(route, makeHealth(mock));
+    const ids =
+      url.searchParams
+        .get("server_ids")
+        ?.split(",")
+        .map((id) => id.trim())
+        .filter(Boolean) ?? [];
+    return json(route, scopeHealth(makeHealth(mock), ids));
   }
   if (path === "/api/v1/overview") {
     if (mock === "scopeReady") {
@@ -962,7 +1009,7 @@ async function handleApi(route, mock) {
     return json(route, { days: TRAFFIC_DAYS });
   }
   if (path === "/api/v1/servers") {
-    if (mock === "costError") {
+    if (mock === "costError" || mock === "serversError") {
       return json(route, { error: "internal error" }, 500);
     }
     if (mock === "costEmpty") {
@@ -973,6 +1020,12 @@ async function handleApi(route, mock) {
   if (path === "/api/v1/settings") {
     if (mock === "costManyCurrencies") {
       return json(route, { items: MANY_SETTINGS, secret_errors: null });
+    }
+    if (mock === "costNoFx") {
+      return json(route, {
+        items: { ...SETTINGS, fx_rates: "", fx_rates_updated_at: 0 },
+        secret_errors: null,
+      });
     }
     if (mock === "costManual") {
       return json(route, {
@@ -1163,7 +1216,13 @@ const SCENARIOS = [
   { id: "chain-light-1440", view: "chain", theme: "light", width: 1440, mock: "normal" },
   { id: "chain-dark-390", view: "chain", theme: "dark", width: 390, mock: "normal" },
   { id: "server-en-390", view: "server", theme: "dark", width: 390, mock: "normal", locale: "en" },
+  { id: "server-heatmap-hover-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "heatmapHover" },
+  { id: "server-heatmap-hover-light-1440", view: "server", theme: "light", width: 1440, mock: "normal", action: "heatmapHover" },
+  { id: "server-heatmap-touch-390", view: "server", theme: "dark", width: 390, mock: "normal", action: "heatmapTouch" },
   { id: "cost-en-390", view: "cost", theme: "dark", width: 390, mock: "normal", locale: "en" },
+  { id: "scope-error-1440", view: null, theme: "dark", width: 1440, mock: "serversError" },
+  { id: "cost-fx-missing-1440", view: "cost", theme: "dark", width: 1440, mock: "costNoFx", servers: "all", action: "fxOpen", expectedFxRows: 1 },
+  { id: "cost-fx-missing-390", view: "cost", theme: "dark", width: 390, mock: "costNoFx", servers: "all", action: "fxOpen", expectedFxRows: 1 },
   { id: "cost-fx-open-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "fxOpen", expectedFxRows: 4 },
   { id: "cost-fx-open-390", view: "cost", theme: "dark", width: 390, mock: "normal", action: "fxOpen", expectedFxRows: 4 },
   { id: "cost-fx-open-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", action: "fxOpen", expectedFxRows: 4 },
@@ -1187,6 +1246,7 @@ const SCENARIOS = [
   { id: "cost-pie-three-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
   { id: "cost-pie-three-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
   { id: "cost-pie-three-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
+  { id: "cost-pie-three-light-390", view: "cost", theme: "light", width: 390, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
   { id: "cost-pie-single-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: ["srv-hk-01"] },
   { id: "cost-pie-single-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: ["srv-hk-01"] },
   { id: "cost-pie-single-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: ["srv-hk-01"] },
@@ -1200,6 +1260,8 @@ const SCENARIOS = [
   { id: "cost-onetime-empty-light-390", view: "cost", theme: "light", width: 390, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01"] },
   { id: "cost-renewal-single-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalHoverSingle" },
   { id: "cost-renewal-single-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalHoverSingle" },
+  { id: "cost-renewal-single-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: "all", action: "renewalHoverSingle" },
+  { id: "cost-renewal-single-light-390", view: "cost", theme: "light", width: 390, mock: "normal", servers: "all", action: "renewalHoverSingle" },
   { id: "cost-renewal-multi-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalHoverMulti" },
   { id: "cost-renewal-multi-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalHoverMulti" },
   { id: "cost-renewal-multi-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: "all", action: "renewalHoverMulti" },
@@ -1212,8 +1274,8 @@ const SCENARIOS = [
   { id: "cost-renewal-bounds-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalBounds" },
   { id: "cost-bar-tooltip-multi-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "barHoverMulti" },
   { id: "cost-bar-tooltip-single-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverSingle" },
-  { id: "cost-bar-tooltip-empty-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barHoverEmpty" },
-  { id: "cost-bar-tooltip-empty-390", view: "cost", theme: "dark", width: 390, mock: "normal", action: "barFocusEmpty" },
+  { id: "cost-bar-tooltip-empty-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: ["srv-hk-01"], action: "barHoverEmpty" },
+  { id: "cost-bar-tooltip-empty-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: ["srv-hk-01"], action: "barFocusEmpty" },
   { id: "cost-bar-tooltip-keyboard-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "barFocus" },
   { id: "cost-manual-1440", view: "cost", theme: "dark", width: 1440, mock: "costManual" },
   { id: "cost-dec-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", clockMs: Date.UTC(2026, 11, 15, 4, 0, 0) },
@@ -1237,6 +1299,7 @@ const report = {
 const errors = [];
 
 for (const scenario of activeScenarios) {
+  let actionTiming = null;
   const page = await browser.newPage({
     viewport: { width: scenario.width, height: 900 },
     deviceScaleFactor: 1,
@@ -1310,14 +1373,16 @@ for (const scenario of activeScenarios) {
   const url = urlParams.size > 0 ? `${base}/?${urlParams.toString()}` : `${base}/`;
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(
-    () => document.querySelector("[data-overview-insight-section]") !== null,
+    () =>
+      document.querySelector("[data-overview-insight-section]") !== null ||
+      document.querySelector('[data-slot="list-error"]') !== null,
     undefined,
     { timeout: 20000 },
   );
   await page.waitForFunction(
     () => {
       const section = document.querySelector("[data-overview-insight-section]");
-      if (!section) return false;
+      if (!section) return true;
       return Boolean(
         section.querySelector(
           '[data-heatmap], [data-traffic-view], [data-cost-view], [data-chain-view], [data-slot="empty-state"], [data-slot="list-error"]',
@@ -1366,12 +1431,16 @@ for (const scenario of activeScenarios) {
   if (scenario.action === "indeterminateGroup") {
     await page.locator("[data-server-filter-trigger]").click();
     await page.waitForSelector("[data-server-filter-content]");
-    await page
-      .locator(
-        `[data-server-filter-group="${scenario.group ?? "group:香港"}"] button`,
-      )
-      .first()
-      .click();
+    const groupKey = scenario.group ?? "group:香港";
+    const groupRow = page.locator(`[data-server-filter-group="${groupKey}"]`);
+    // 默认全选：先取消整组，再勾回一台，得到「半选」而不是全选。
+    await groupRow.locator('[data-slot="checkbox"]').first().click();
+    await groupRow.locator("button").first().click();
+    await page.waitForTimeout(100);
+    const section = page
+      .locator("[data-server-filter-section]")
+      .filter({ has: page.locator(`[data-server-filter-group="${groupKey}"]`) });
+    await section.locator("[data-server-filter-item-checkbox]").first().click();
     await page.waitForTimeout(200);
   }
   if (scenario.action === "emptySelection") {
@@ -1391,6 +1460,89 @@ for (const scenario of activeScenarios) {
       .click();
     await page.keyboard.press("Escape");
     await page.waitForTimeout(250);
+  }
+  if (
+    scenario.action === "heatmapHover" ||
+    scenario.action === "heatmapTouch"
+  ) {
+    await page.waitForSelector("[data-heatmap-cell]");
+    const started = Date.now();
+    const measured = await page.evaluate(async (kind) => {
+      const cells = document.querySelectorAll("[data-heatmap-cell]");
+      const target = cells[200] ?? cells[0];
+      if (!target) return { delayMs: -1, text: "" };
+      const start = performance.now();
+      if (kind === "heatmapTouch") {
+        target.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            pointerType: "touch",
+            isPrimary: true,
+            bubbles: true,
+            cancelable: true,
+            view: window,
+          }),
+        );
+      } else {
+        target.dispatchEvent(
+          new MouseEvent("mouseover", {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            relatedTarget: document.body,
+          }),
+        );
+      }
+      let delayMs = -1;
+      for (let index = 0; index < 240; index += 1) {
+        const tip = document.querySelector("[data-heatmap-tooltip]:not([hidden])");
+        if (tip) {
+          delayMs = performance.now() - start;
+          return { delayMs, text: tip.textContent?.trim() ?? "" };
+        }
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => resolve(null)),
+        );
+      }
+      return { delayMs, text: "" };
+    }, scenario.action);
+    const wallDelayMs = Date.now() - started;
+    await page
+      .waitForSelector("[data-heatmap-tooltip]:not([hidden])", {
+        state: "visible",
+        timeout: 2000,
+      })
+      .catch(() => {});
+    let followed = null;
+    if (scenario.action === "heatmapHover") {
+      followed = await page.evaluate(async (previous) => {
+        const cells = document.querySelectorAll("[data-heatmap-cell]");
+        const target = cells[300] ?? cells[cells.length - 1];
+        if (!target) return false;
+        target.dispatchEvent(
+          new MouseEvent("mouseover", {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            relatedTarget: document.body,
+          }),
+        );
+        for (let index = 0; index < 120; index += 1) {
+          const tip = document.querySelector("[data-heatmap-tooltip]:not([hidden])");
+          if (tip && tip.textContent?.trim() !== previous) return true;
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => resolve(null)),
+          );
+        }
+        return false;
+      }, measured.text);
+    }
+    actionTiming = {
+      kind: scenario.action,
+      delayMs: measured.delayMs,
+      wallDelayMs,
+      text: measured.text,
+      followed,
+    };
   }
   if (scenario.action === "resourceMemory") {
     await page
@@ -1699,6 +1851,31 @@ for (const scenario of activeScenarios) {
         return {
           height: element.getBoundingClientRect().height,
           text: element.textContent?.trim() ?? "",
+        };
+      })(),
+      heatmapTooltip: (() => {
+        const tip = document.querySelector("[data-heatmap-tooltip]:not([hidden])");
+        if (!tip) return null;
+        const tipRect = tip.getBoundingClientRect();
+        const card = document.querySelector("[data-heatmap-card]");
+        const cardRect = card?.getBoundingClientRect() ?? null;
+        return {
+          text: tip.textContent?.trim() ?? "",
+          rect: {
+            left: tipRect.left,
+            right: tipRect.right,
+            top: tipRect.top,
+            bottom: tipRect.bottom,
+            width: tipRect.width,
+            height: tipRect.height,
+          },
+          insideCard:
+            cardRect === null
+              ? null
+              : tipRect.left >= cardRect.left - 0.5 &&
+                tipRect.right <= cardRect.right + 0.5 &&
+                tipRect.top >= cardRect.top - 0.5 &&
+                tipRect.bottom <= cardRect.bottom + 0.5,
         };
       })(),
       resourceChart: (() => {
@@ -2037,6 +2214,77 @@ for (const scenario of activeScenarios) {
             card.querySelector("[data-renewal-next]")?.hasAttribute(
               "disabled",
             ) ?? null,
+          cellStyle: (() => {
+            const day = card.querySelector("[data-renewal-day]");
+            const adjacent = card.querySelector("[data-renewal-adjacent]");
+            const target = day ?? adjacent;
+            if (!target) return null;
+            const dateEl = target.querySelector("span");
+            const badge = target.querySelector("[data-renewal-badge]");
+            const dayRect = target.getBoundingClientRect();
+            const dateRect = dateEl?.getBoundingClientRect() ?? null;
+            const badgeRect = badge?.getBoundingClientRect() ?? null;
+            const style = getComputedStyle(target);
+            const dateStyle = dateEl ? getComputedStyle(dateEl) : null;
+            const badgeStyle = badge ? getComputedStyle(badge) : null;
+            return {
+              height: dayRect.height,
+              width: dayRect.width,
+              textAlign: style.textAlign,
+              justifyContent: style.justifyContent,
+              alignItems: style.alignItems,
+              dateFontSize: dateStyle
+                ? Number.parseFloat(dateStyle.fontSize)
+                : null,
+              badgeFontSize: badgeStyle
+                ? Number.parseFloat(badgeStyle.fontSize)
+                : null,
+              dateCenterDelta: dateRect
+                ? Math.abs(
+                    dateRect.left +
+                      dateRect.width / 2 -
+                      (dayRect.left + dayRect.width / 2),
+                  )
+                : null,
+              badgeCenterDelta: badgeRect
+                ? Math.abs(
+                    badgeRect.left +
+                      badgeRect.width / 2 -
+                      (dayRect.left + dayRect.width / 2),
+                  )
+                : null,
+              adjacentTextAlign: adjacent
+                ? getComputedStyle(adjacent).textAlign
+                : null,
+              adjacentJustify: adjacent
+                ? getComputedStyle(adjacent).justifyContent
+                : null,
+            };
+          })(),
+          header: (() => {
+            const header = card.querySelector('[data-slot="card-header"]');
+            const controls = card.querySelector("[data-renewal-controls]");
+            const next = card.querySelector("[data-renewal-next]");
+            if (!header || !controls || !next) return null;
+            const headerRect = header.getBoundingClientRect();
+            const controlsRect = controls.getBoundingClientRect();
+            const nextRect = next.getBoundingClientRect();
+            const cardRect = card.getBoundingClientRect();
+            return {
+              controlsTop: controlsRect.top,
+              headerTop: headerRect.top,
+              nextTop: nextRect.top,
+              nextRight: nextRect.right,
+              nextWidth: nextRect.width,
+              headerRight: headerRect.right,
+              cardRight: cardRect.right,
+              wrapped: controlsRect.top > headerRect.top + 8,
+              nextVisible:
+                nextRect.width > 0 &&
+                nextRect.right <= cardRect.right + 0.5 &&
+                nextRect.left >= cardRect.left - 0.5,
+            };
+          })(),
           tooltip: tooltip
             ? {
                 rows: tooltip.querySelectorAll("[data-renewal-tooltip-row]")
@@ -2119,6 +2367,50 @@ for (const scenario of activeScenarios) {
             : null,
         };
       })(),
+      costLayout: (() => {
+        const rect = (element) => {
+          if (!element) return null;
+          const box = element.getBoundingClientRect();
+          return {
+            left: box.left,
+            right: box.right,
+            top: box.top,
+            bottom: box.bottom,
+            width: box.width,
+            height: box.height,
+          };
+        };
+        const month = rect(document.querySelector('[data-cost-card="month"]'));
+        const right = rect(
+          document.querySelector("[data-cost-right-column]"),
+        );
+        const mix = rect(document.querySelector('[data-cost-card="mix"]'));
+        const renewal = rect(
+          document.querySelector('[data-cost-card="renewal"]'),
+        );
+        return {
+          month,
+          right,
+          mix,
+          renewal,
+          leftDelta:
+            month && mix ? Math.abs(month.left - mix.left) : null,
+          rightDelta:
+            right && renewal ? Math.abs(right.right - renewal.right) : null,
+        };
+      })(),
+      costNotes: [...document.querySelectorAll("[data-cost-note]")].map(
+        (note) => {
+          const style = getComputedStyle(note);
+          return {
+            key: note.getAttribute("data-cost-note"),
+            text: note.textContent?.trim() ?? "",
+            fontSize: Number.parseFloat(style.fontSize),
+            lineHeight: Number.parseFloat(style.lineHeight),
+            color: style.color,
+          };
+        },
+      ),
       currencyPie: (() => {
         const chart = document.querySelector("[data-currency-pie]");
         const legend = document.querySelector("[data-pie-legend]");
@@ -2133,6 +2425,34 @@ for (const scenario of activeScenarios) {
           ].map((row) => row.textContent?.trim() ?? ""),
           center: chart.textContent?.trim() ?? "",
           chartWidth: chartRect.width,
+          chartHeight: chartRect.height,
+          ring: (() => {
+            const paths = [...chart.querySelectorAll("[data-pie-sector]")];
+            if (paths.length === 0) return null;
+            const rects = paths.map((path) => path.getBoundingClientRect());
+            const left = Math.min(...rects.map((rect) => rect.left));
+            const right = Math.max(...rects.map((rect) => rect.right));
+            const top = Math.min(...rects.map((rect) => rect.top));
+            const bottom = Math.max(...rects.map((rect) => rect.bottom));
+            return {
+              width: right - left,
+              height: bottom - top,
+            };
+          })(),
+          fontSizes: (() => {
+            const read = (selector) => {
+              const element = chart.parentElement?.querySelector(selector) ??
+                document.querySelector(selector);
+              if (!element) return null;
+              return Number.parseFloat(getComputedStyle(element).fontSize);
+            };
+            return {
+              code: read("[data-pie-legend-code]"),
+              share: read("[data-pie-legend-share]"),
+              amount: read("[data-pie-legend-amount]"),
+              center: read("[data-pie-center-amount]"),
+            };
+          })(),
           legendWidth: legendRect.width,
           tooltip: tooltip
             ? {
@@ -2314,12 +2634,119 @@ for (const scenario of activeScenarios) {
           errors.push(`${scenario.id}: cleared groups still checked`);
         }
       }
-      if (
-        scenario.id === "scope-filter-default-many-1440" &&
-        !metrics.filterTree.defaultHint
-      ) {
-        errors.push(`${scenario.id}: missing problem-first default hint`);
+    }
+  }
+  if (metrics.renewal?.cellStyle) {
+    const style = metrics.renewal.cellStyle;
+    if (style.textAlign !== "center") {
+      errors.push(`${scenario.id}: renewal date is not centered (${style.textAlign})`);
+    }
+    if (style.justifyContent !== "center" || style.alignItems !== "center") {
+      errors.push(
+        `${scenario.id}: renewal cell not centered (${style.justifyContent}/${style.alignItems})`,
+      );
+    }
+    if (style.dateFontSize !== null && style.dateFontSize < 14) {
+      errors.push(
+        `${scenario.id}: renewal date font ${style.dateFontSize}px < 14px`,
+      );
+    }
+    if (style.badgeFontSize !== null && style.badgeFontSize < 10) {
+      errors.push(
+        `${scenario.id}: renewal badge font ${style.badgeFontSize}px < 10px`,
+      );
+    }
+    if (style.dateCenterDelta !== null && style.dateCenterDelta > 1.5) {
+      errors.push(
+        `${scenario.id}: renewal date off-center by ${style.dateCenterDelta}px`,
+      );
+    }
+    if (style.badgeCenterDelta !== null && style.badgeCenterDelta > 1.5) {
+      errors.push(
+        `${scenario.id}: renewal badge off-center by ${style.badgeCenterDelta}px`,
+      );
+    }
+    if (style.adjacentTextAlign !== null && style.adjacentTextAlign !== "center") {
+      errors.push(
+        `${scenario.id}: adjacent renewal cell not centered (${style.adjacentTextAlign})`,
+      );
+    }
+  }
+  if (metrics.currencyPie?.ring) {
+    const { ring, fontSizes } = metrics.currencyPie;
+    if (ring.width < 240 || ring.width > 250) {
+      errors.push(
+        `${scenario.id}: pie ring ${ring.width}px outside 240–250px`,
+      );
+    }
+    if (fontSizes.code !== null && fontSizes.code < 14) {
+      errors.push(`${scenario.id}: pie legend code ${fontSizes.code}px < 14px`);
+    }
+    if (fontSizes.share !== null && fontSizes.share < 13) {
+      errors.push(`${scenario.id}: pie legend share ${fontSizes.share}px < 13px`);
+    }
+    if (fontSizes.amount !== null && fontSizes.amount < 13) {
+      errors.push(`${scenario.id}: pie legend amount ${fontSizes.amount}px < 13px`);
+    }
+    if (fontSizes.center !== null && fontSizes.center < 18) {
+      errors.push(`${scenario.id}: pie center ${fontSizes.center}px < 18px`);
+    }
+  }
+  if (
+    scenario.action === "heatmapHover" ||
+    scenario.action === "heatmapTouch"
+  ) {
+    if (!metrics.heatmapTooltip) {
+      errors.push(`${scenario.id}: heatmap tooltip missing`);
+    } else {
+      if (metrics.heatmapTooltip.insideCard !== true) {
+        errors.push(`${scenario.id}: heatmap tooltip leaves the card`);
       }
+      if (
+        !["在线率", "离线", "无采样"].some((word) =>
+          metrics.heatmapTooltip.text.includes(word),
+        )
+      ) {
+        errors.push(
+          `${scenario.id}: heatmap tooltip text ${metrics.heatmapTooltip.text}`,
+        );
+      }
+    }
+    if (!(actionTiming && actionTiming.delayMs >= 0 && actionTiming.delayMs < 150)) {
+      errors.push(
+        `${scenario.id}: heatmap tooltip delay ${actionTiming?.delayMs}ms >= 150ms`,
+      );
+    }
+    if (
+      scenario.action === "heatmapHover" &&
+      actionTiming?.followed !== true
+    ) {
+      errors.push(`${scenario.id}: heatmap tooltip did not follow to new cell`);
+    }
+  }
+
+  if (metrics.costLayout) {
+    const { leftDelta, rightDelta } = metrics.costLayout;
+    if (leftDelta !== null && leftDelta > 1) {
+      errors.push(`${scenario.id}: cost left edges differ by ${leftDelta}px`);
+    }
+    if (rightDelta !== null && rightDelta > 1) {
+      errors.push(`${scenario.id}: cost right edges differ by ${rightDelta}px`);
+    }
+  }
+  if (metrics.costNotes.length > 0) {
+    for (const note of metrics.costNotes) {
+      if (note.fontSize !== 12) {
+        errors.push(
+          `${scenario.id}: cost note ${note.key} font ${note.fontSize}px != 12px`,
+        );
+      }
+    }
+    const heights = [...new Set(metrics.costNotes.map((note) => note.lineHeight))];
+    if (heights.length > 1) {
+      errors.push(
+        `${scenario.id}: cost note line-heights differ ${heights.join(",")}`,
+      );
     }
   }
   if (explicitServers !== null) {
@@ -2343,12 +2770,16 @@ for (const scenario of activeScenarios) {
     }
   }
   if (
-    (scenario.action === "selectGroup" ||
-      scenario.action === "selectAllServers" ||
-      false) &&
+    scenario.action === "selectGroup" &&
     !metrics.search.includes("servers=")
   ) {
-    errors.push(`${scenario.id}: selection not written to URL`);
+    errors.push(`${scenario.id}: partial selection not written to URL`);
+  }
+  if (
+    scenario.action === "selectAllServers" &&
+    metrics.search.includes("servers=")
+  ) {
+    errors.push(`${scenario.id}: select-all should clear the servers param`);
   }
   if (
     scenario.id === "scope-traffic-filtered-1440" &&
@@ -2414,14 +2845,14 @@ for (const scenario of activeScenarios) {
     !["openFilter", "expandGroup", "indeterminateGroup", "emptySelection"].includes(
       scenario.action ?? "",
     ) &&
-    explicitServers?.length !== 0
+    explicitServers === null
   ) {
     const selected = Number(
       metrics.selectedText?.match(/(\d+)\//)?.[1] ?? Number.NaN,
     );
-    if (!Number.isFinite(selected) || selected > 8) {
+    if (selected !== 12) {
       errors.push(
-        `${scenario.id}: default selected ${selected} > 8 (${metrics.selectedText})`,
+        `${scenario.id}: default should select all 12, got ${selected} (${metrics.selectedText})`,
       );
     }
     if (metrics.heatmapTabs !== 0) {
@@ -2469,10 +2900,10 @@ for (const scenario of activeScenarios) {
     }
   }
   if (scenario.mock === "serverMany" && scenario.action === undefined) {
-    if (metrics.heatmapRows !== 8) {
-      errors.push(`${scenario.id}: many default rows ${metrics.heatmapRows} != 8`);
+    if (metrics.heatmapRows !== 40) {
+      errors.push(`${scenario.id}: many default rows ${metrics.heatmapRows} != 40`);
     }
-    if (!metrics.selectedText?.includes("已选 8/40")) {
+    if (!metrics.selectedText?.includes("已选 40/40")) {
       errors.push(`${scenario.id}: many default count ${metrics.selectedText}`);
     }
   }
@@ -2496,7 +2927,7 @@ for (const scenario of activeScenarios) {
     (scenario.view ?? null) === "cost" &&
     scenario.mock === "normal" &&
     scenario.action !== "fxOpen" &&
-    explicitServers?.length !== 0
+    explicitServers === null
   ) {
     if (metrics.fx.popoverOpen) {
       errors.push(`${scenario.id}: FX popover open by default`);
@@ -2594,13 +3025,13 @@ for (const scenario of activeScenarios) {
       }
       if (mix && renewal) {
         const widthRatio = mix.width / renewal.width;
-        if (widthRatio < 1.35 || widthRatio > 1.65) {
+        if (widthRatio < 1.9 || widthRatio > 2.1) {
           errors.push(
             `${scenario.id}: mix/renewal width ratio ${widthRatio.toFixed(2)}`,
           );
         }
       }
-      if (month && month.height > 500) {
+      if (month && month.height > 640) {
         errors.push(
           `${scenario.id}: month card height ${month.height} not compressed`,
         );
@@ -2755,7 +3186,7 @@ for (const scenario of activeScenarios) {
     if (
       metrics.viewportWidth >= 1280 &&
       renewal.cellWidth !== null &&
-      (renewal.cellWidth < 54 || renewal.cellWidth > 68)
+      (renewal.cellWidth < 40 || renewal.cellWidth > 60)
     ) {
       errors.push(
         `${scenario.id}: desktop renewal cell width ${renewal.cellWidth}`,
@@ -2784,7 +3215,10 @@ for (const scenario of activeScenarios) {
           `${scenario.id}: renewal summary format (${renewal.summary})`,
         );
       }
-    } else if (!renewal.summary?.includes("本月没有需要续费的服务器")) {
+    } else if (
+      !renewal.summary?.includes("本月没有需要续费的服务器") &&
+      !renewal.summary?.includes("No servers need renewal this month")
+    ) {
       errors.push(
         `${scenario.id}: renewal empty summary (${renewal.summary})`,
       );
@@ -2990,6 +3424,7 @@ for (const scenario of activeScenarios) {
     apiPaths: [...new Set(apiPaths)],
     httpErrors,
     ...metrics,
+    actionTiming,
     pageHeightDelta,
   });
   await page.close();

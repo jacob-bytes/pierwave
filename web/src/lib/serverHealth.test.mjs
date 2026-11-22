@@ -10,12 +10,10 @@ import {
   formatHourTick,
   formatMonthDayHour,
   formatPercent,
-  defaultServerSelection,
   heatmapCell,
   isServerHealthUnsupported,
   normalizeServerHealth,
   resourceServerRows,
-  scopeServerHealthSnapshot,
   uptimeHeatmapStep,
 } from "./serverHealth.ts";
 
@@ -180,37 +178,6 @@ test("heatmapCell: 在线率 0–4 色阶 + 无采样 + 离线", () => {
     heatmapCell(row, BASE + 6 * HOUR, HOUR).state,
     "offline",
   );
-});
-
-test("defaultServerSelection: 离线/资源问题优先，按名称补足，最多 8 台", () => {
-  const result = normalizeServerHealth(
-    health([
-      server("a", [bucket(BASE)], { name: "a" }),
-      server(
-        "b",
-        [bucket(BASE, { online_ratio: 0 }), bucket(BASE + HOUR, { online_ratio: 1 })],
-        { name: "b" },
-      ),
-      server("c", [bucket(BASE, { disk_ratio_max: 0.95 })], { name: "c" }),
-      server("d", [bucket(BASE, { mem_ratio_max: 0.91 })], { name: "d" }),
-      server("e", [bucket(BASE)], { name: "e" }),
-      server("f", [bucket(BASE)], { name: "f" }),
-      server("g", [bucket(BASE)], { name: "g" }),
-      server("h", [bucket(BASE)], { name: "h" }),
-      server("i", [bucket(BASE)], { name: "i" }),
-      server("j", [bucket(BASE)], { name: "j" }),
-    ]),
-  ).snapshot;
-
-  const ids = defaultServerSelection(result);
-  assert.equal(ids.length, 8);
-  assert.deepEqual(ids.slice(0, 3), ["b", "c", "d"]);
-  assert.ok(ids.includes("a"));
-  assert.ok(!ids.includes("i"));
-  assert.ok(!ids.includes("j"));
-
-  assert.deepEqual(defaultServerSelection(result, 2), ["b", "c"]);
-  assert.deepEqual(defaultServerSelection(result, 0), []);
 });
 
 test("uptimeHeatmapStep: 在线率越高颜色越深（0 最浅 / 4 最深）", () => {
@@ -474,47 +441,138 @@ test("isServerHealthUnsupported: 404 / 403 是能力未上线，其它错误仍�
   assert.equal(isServerHealthUnsupported(null), false);
 });
 
-test("scopeServerHealthSnapshot：只保留选中服务器并重算 KPI", () => {
-  const result = normalizeServerHealth(
-    health(
-      [
-        server("a", [bucket(BASE, { online_ratio: 0.5 })]),
-        server("b", [bucket(BASE, { online_ratio: 1, disk_ratio_max: 0.95 })], {
-          current: {
-            load1: 0.4,
-            mem_used: 2,
-            mem_total: 10,
-            disk_used: 9.5,
-            disk_total: 10,
-            latency_ms: 20,
-          },
-        }),
-        server("c", []),
-      ],
-      // 全量 summary 故意给出与选中集合无关的数字，确认不会被沿用。
-      { online_ratio_24h: 1, abnormal_servers: 99, worst_disk_ratio: 0.1 },
-    ),
-  );
+test("后端 summary 直接保留：筛选后的 KPI 不在前端重算", () => {
+  const result = normalizeServerHealth({
+    generated_at: BASE + 10 * HOUR,
+    hours: 168,
+    bucket: HOUR,
+    summary: {
+      online_ratio_24h: 0.8123,
+      abnormal_servers: 2,
+      worst_disk_ratio: 0.97,
+    },
+    servers: [
+      server("a", [bucket(BASE, { online_ratio: 0.5 })]),
+      server("b", [bucket(BASE, { online_ratio: 1 })]),
+    ],
+  });
+  assert.equal(result.status, "ok");
+  // 与桶里重算出来的 0.75 / 1 不同，证明用的是后端 summary。
+  assert.equal(result.snapshot.summary.uptime24h, 0.8123);
+  assert.equal(result.snapshot.summary.anomalyServers, 2);
+  assert.equal(result.snapshot.summary.diskMax, 0.97);
+});
 
-  const scoped = scopeServerHealthSnapshot(result.snapshot, ["a"]);
-  assert.deepEqual(
-    scoped.servers.map((item) => item.id),
-    ["a"],
-  );
-  assert.equal(scoped.summary.uptime24h, 0.5);
-  assert.equal(scoped.summary.uptime7d, 0.5);
-  assert.equal(scoped.summary.diskMax, 0.5);
-  assert.equal(scoped.summary.anomalyServers, 1);
+test("热力图读桶内 online_ratio：0.5833 也是独立色阶，而非布尔近似", () => {
+  const result = normalizeServerHealth({
+    generated_at: BASE + 2 * HOUR,
+    hours: 168,
+    bucket: HOUR,
+    summary: {},
+    servers: [
+      server("a", [
+        {
+          ts: BASE,
+          online: true,
+          online_ratio: 0.5833,
+          samples: 12,
+          load1: 0.4,
+          mem_ratio: 0.4,
+          disk_ratio: 0.4,
+        },
+        {
+          ts: BASE + HOUR,
+          online: true,
+          online_ratio: 0.98,
+          samples: 12,
+          load1: 0.4,
+          mem_ratio: 0.4,
+          disk_ratio: 0.4,
+        },
+      ]),
+    ],
+  });
+  assert.equal(result.status, "ok");
+  const row = result.snapshot.servers[0];
+  // 0.5833 < 90% → step 0；0.98 → 97–99% 档 step 3。若被布尔化只会是 4。
+  assert.equal(heatmapCell(row, BASE, HOUR).step, 0);
+  assert.equal(heatmapCell(row, BASE + HOUR, HOUR).step, 3);
+  assert.equal(row.buckets[0].ratioApproximate, false);
+  assert.equal(result.snapshot.approximateUptime, false);
+});
 
-  const empty = scopeServerHealthSnapshot(result.snapshot, []);
-  assert.equal(empty.servers.length, 0);
-  assert.equal(empty.summary.uptime24h, null);
-  assert.equal(empty.summary.diskMax, null);
-  assert.equal(empty.hasSamples, false);
+test("桶只有 online 布尔时标记近似，图例据此注明", () => {
+  const result = normalizeServerHealth({
+    generated_at: BASE,
+    hours: 168,
+    bucket: HOUR,
+    summary: {},
+    servers: [
+      server("a", [
+        {
+          ts: BASE,
+          online: true,
+          load1: 0.4,
+          mem_ratio: 0.4,
+          disk_ratio: 0.4,
+        },
+      ]),
+    ],
+  });
+  assert.equal(result.status, "ok");
+  assert.equal(result.snapshot.servers[0].buckets[0].ratioApproximate, true);
+  assert.equal(result.snapshot.approximateUptime, true);
+  assert.equal(result.snapshot.servers[0].buckets[0].onlineRatio, 1);
+});
 
-  // 全选时原样返回，避免重算破坏后端提供的精确 summary。
-  assert.equal(
-    scopeServerHealthSnapshot(result.snapshot, ["a", "b", "c"]),
-    result.snapshot,
-  );
+test("行首状态用后端真实 status；缺失时才回退推断", () => {
+  const explicit = normalizeServerHealth({
+    generated_at: BASE,
+    hours: 168,
+    bucket: HOUR,
+    summary: {},
+    servers: [
+      server("online", [bucket(BASE, { online_ratio: 0 })], {
+        status: "online",
+      }),
+      server("offline", [bucket(BASE, { online_ratio: 1 })], {
+        status: "offline",
+      }),
+    ],
+  });
+  assert.equal(explicit.snapshot.servers[0].status, "online");
+  assert.equal(explicit.snapshot.servers[1].status, "offline");
+
+  const inferred = normalizeServerHealth({
+    generated_at: BASE,
+    hours: 168,
+    bucket: HOUR,
+    summary: {},
+    servers: [
+      server("infer-online", [bucket(BASE, { online_ratio: 1 })], {
+        status: undefined,
+      }),
+      server("infer-offline", [bucket(BASE, { online_ratio: 0 })], {
+        status: undefined,
+      }),
+    ],
+  });
+  assert.equal(inferred.snapshot.servers[0].status, "online");
+  assert.equal(inferred.snapshot.servers[1].status, "offline");
+});
+
+test("服务器级 online_ratio 在缺 status 且缺桶时也能推断状态", () => {
+  const result = normalizeServerHealth({
+    generated_at: BASE,
+    hours: 168,
+    bucket: HOUR,
+    summary: {},
+    servers: [
+      server("a", [], { status: undefined, online_ratio: 0.98 }),
+      server("b", [], { status: undefined, online_ratio: 0.2 }),
+    ],
+  });
+  assert.equal(result.snapshot.servers[0].status, "online");
+  assert.equal(result.snapshot.servers[1].status, "offline");
+  assert.equal(result.snapshot.servers[0].onlineRatio, 0.98);
 });

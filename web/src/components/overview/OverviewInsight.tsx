@@ -101,14 +101,16 @@ export default function OverviewInsight({
               servers={scope.servers}
               selectedIds={scope.selectedIds}
               onChange={scope.setSelectedIds}
-              defaulted={scope.defaulted}
             />
           </div>
         </div>
 
         <TabsContent value="server" className="min-w-0">
           <Suspense fallback={<InsightFallback />}>
-            <ServerHealthView selectedIds={scope.selectedIds} />
+            <ServerHealthView
+              selectedIds={scope.selectedIds}
+              filtered={scope.filtered}
+            />
           </Suspense>
         </TabsContent>
         <TabsContent value="traffic" className="min-w-0">

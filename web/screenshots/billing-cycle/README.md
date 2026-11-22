@@ -37,6 +37,13 @@ BASE=http://127.0.0.1:8797 node web/screenshots/billing-cycle/shots.mjs
 
 ## 表单 / Form
 
+**布局 / Layout:** 两行两列 —— 第一行「价格（元）| 币种」，第二行「计费周期 | 到期日」；
+390 单列时按 价格 → 币种 → 计费周期 → 到期日 堆叠。
+
+Two-row, two-column layout: **price | currency** on the first row and
+**billing cycle | paid until** on the second. At 390px the fields stack in that
+same order.
+
 | 控件 / Control | 规则 / Rule | 提交 / Payload |
 |---|---|---|
 | 数量 / Count | 纯数字输入，整数 `1–1200`；空串 = 未填写 | `billing_cycle_count`，空 = `null` |

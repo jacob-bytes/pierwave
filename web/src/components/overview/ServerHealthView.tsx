@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Link } from "react-router-dom";
-import { ServerIcon, ServerOffIcon } from "lucide-react";
+import { ServerIcon, ServerOffIcon, TriangleAlertIcon } from "lucide-react";
 import { EmptyState, ListError } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,6 @@ import {
   normalizeServerHealth,
   resolveResourceMetric,
   resourceServerRows,
-  scopeServerHealthSnapshot,
   type AnomalyWindow,
   type ResourceMetric,
   type ServerHealthParseResult,
@@ -90,13 +89,24 @@ const ANOMALY_META: Record<
 
 export default function ServerHealthView({
   selectedIds,
+  filtered,
 }: {
   /** 概览级筛选的选中集合；四个 tab 共用。 */
   selectedIds: readonly string[];
+  /** 选中集合是否真的缩小了范围；全选时不传 `server_ids`。 */
+  filtered: boolean;
 }) {
   useI18n();
-  const query = useServerHealth(168, 3600);
+  // 全选（filtered=false）不传 server_ids：与「不筛选」等价，也避免 URL 过长。
+  const scoped = filtered && selectedIds.length > 0;
+  const query = useServerHealth(
+    168,
+    3600,
+    scoped ? selectedIds : [],
+    scoped || !filtered,
+  );
 
+  if (filtered && selectedIds.length === 0) return <EmptyServerHealthScope />;
   if (query.isPending) return <ServerHealthSkeleton />;
 
   if (query.isError) {
@@ -128,6 +138,7 @@ export default function ServerHealthView({
     <ServerHealthBody
       snapshot={parsed.snapshot}
       selectedIds={selectedIds}
+      filtered={filtered}
     />
   );
 }
@@ -135,15 +146,27 @@ export default function ServerHealthView({
 function ServerHealthBody({
   snapshot,
   selectedIds,
+  filtered,
 }: {
   snapshot: ServerHealthSnapshot;
   selectedIds: readonly string[];
+  filtered: boolean;
 }) {
   const desktop = useIsDesktop();
-  // 后端的 summary 是全量口径；这里按选中集合重算 KPI、热力图与折线图。
+  // KPI 直接用后端 summary：筛选已由 `server_ids` 交给后端，前端不再重算。
+  // 旧主控忽略筛选时，行数据仍按选中集合过滤，避免热力图混入范围外服务器。
+  const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const scopedSnapshot = useMemo(
-    () => scopeServerHealthSnapshot(snapshot, selectedIds),
-    [snapshot, selectedIds],
+    () =>
+      filtered
+        ? {
+            ...snapshot,
+            servers: snapshot.servers.filter((server) =>
+              selected.has(server.id),
+            ),
+          }
+        : snapshot,
+    [snapshot, selected, filtered],
   );
   const selectedServers = scopedSnapshot.servers;
   const effectiveSelectedIds = useMemo(
@@ -153,9 +176,10 @@ function ServerHealthBody({
 
   const uptime24 = scopedSnapshot.summary.uptime24h;
   const uptime7d = scopedSnapshot.summary.uptime7d;
-  const sampleServers =
-    scopedSnapshot.servers.length -
-    scopedSnapshot.summary.serversWithoutSamples;
+  const sampleServers = Math.max(
+    0,
+    selectedServers.length - scopedSnapshot.summary.serversWithoutSamples,
+  );
   const anomalyHint =
     scopedSnapshot.summary.offlineServers +
       scopedSnapshot.summary.resourceServers >
@@ -267,7 +291,7 @@ function LegendTexture({
   );
 }
 
-function UptimeLegend() {
+function UptimeLegend({ approximate }: { approximate: boolean }) {
   return (
     <div
       data-heatmap-legend
@@ -301,6 +325,16 @@ function UptimeLegend() {
         kind="nosample"
         label={t("overview.serverHealth.legendNoSample")}
       />
+      {approximate ? (
+        <span
+          data-heatmap-approx
+          className="inline-flex items-center gap-1 whitespace-nowrap text-warning"
+          title={t("overview.serverHealth.legendApproximateHint")}
+        >
+          <TriangleAlertIcon className="size-3" aria-hidden="true" />
+          {t("overview.serverHealth.legendApproximate")}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -379,10 +413,48 @@ function HeatmapCard({
   }, [dayGroups]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const tipWrapRef = useRef<HTMLDivElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
   const [focus, setFocus] = useState({
     row: 0,
     col: Math.max(0, columns.length - 1),
   });
+
+  /**
+   * 悬停 / 聚焦 / 触摸都立即显示。原生 `title` 有 1–3 秒延迟，不能用于
+   * 「鼠标进入格子 → 提示出现」的即时反馈，因此改成受控浮层。
+   *
+   * 这里直接写 DOM 而不是 `useState`：热力图有 12×168 个格子，置 state 会
+   * 让整张网格重渲染，反而把「立即显示」拖到 100ms 以上。
+   */
+  function showTip(target: HTMLElement, label: string) {
+    const wrap = tipWrapRef.current;
+    const tip = tipRef.current;
+    if (!wrap || !tip) return;
+    const wrapRect = wrap.getBoundingClientRect();
+    const cellRect = target.getBoundingClientRect();
+    const width = Math.min(288, Math.max(160, wrapRect.width - 16));
+    const left = Math.min(
+      Math.max(4, cellRect.left - wrapRect.left + cellRect.width / 2 - width / 2),
+      Math.max(4, wrapRect.width - width - 4),
+    );
+    const aboveTop = cellRect.top - wrapRect.top - 6;
+    const belowTop = cellRect.bottom - wrapRect.top + 6;
+    const above = aboveTop >= 36;
+    const top = above
+      ? aboveTop
+      : Math.min(belowTop, Math.max(4, wrapRect.height - 34));
+    tip.textContent = label;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+    tip.style.width = `${width}px`;
+    tip.style.transform = above ? "translateY(-100%)" : "none";
+    tip.hidden = false;
+  }
+
+  function hideTip() {
+    if (tipRef.current) tipRef.current.hidden = true;
+  }
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -457,7 +529,7 @@ function HeatmapCard({
             {t("overview.serverHealth.metricUptime")}
           </Badge>
         </div>
-        <UptimeLegend />
+        <UptimeLegend approximate={snapshot.approximateUptime} />
       </CardHeader>
 
       <CardContent className="min-w-0 p-2 sm:p-4">
@@ -471,12 +543,15 @@ function HeatmapCard({
           />
         ) : (
           <div
+            ref={tipWrapRef}
             role="group"
             aria-label={t("overview.serverHealth.heatmapAria", {
               n: servers.length,
             })}
             data-heatmap
             style={heatmapVars}
+            className="relative"
+            onMouseLeave={hideTip}
           >
             <div
               className="max-h-[420px] overflow-y-auto pr-1"
@@ -525,6 +600,7 @@ function HeatmapCard({
                   ref={scrollRef}
                   className="min-w-0 flex-1 overflow-x-auto pb-1"
                   data-heatmap-scroll
+                  onScroll={hideTip}
                 >
                   <div style={{ width: "max-content" }}>
                     <div
@@ -571,6 +647,7 @@ function HeatmapCard({
                       className="mt-0.5 flex flex-col"
                       style={{ gap: "var(--heatmap-gap)" }}
                       onKeyDown={moveFocus}
+                      onMouseLeave={hideTip}
                     >
                       {servers.map((server, rowIndex) => (
                         <div
@@ -606,13 +683,23 @@ function HeatmapCard({
                                 data-state={cell.state}
                                 data-step={cell.step ?? ""}
                                 aria-label={label}
-                                title={label}
-                                onFocus={() =>
+                                onMouseEnter={(event) =>
+                                  showTip(event.currentTarget, label)
+                                }
+                                onPointerDown={(event) => {
+                                  // 390 触摸端没有 hover；点按也要立即出提示。
+                                  if (event.pointerType !== "mouse") {
+                                    showTip(event.currentTarget, label);
+                                  }
+                                }}
+                                onFocus={(event) => {
                                   setFocus({
                                     row: rowIndex,
                                     col: colIndex,
-                                  })
-                                }
+                                  });
+                                  showTip(event.currentTarget, label);
+                                }}
+                                onBlur={hideTip}
                                 className={cn(
                                   "aspect-square w-full rounded-[3px] outline-none transition-[box-shadow] duration-100 focus-visible:ring-2 focus-visible:ring-ring",
                                   heatmapCellClass(
@@ -653,6 +740,13 @@ function HeatmapCard({
                 {t("overview.serverHealth.heatmapNoSamples")}
               </p>
             )}
+            <div
+              ref={tipRef}
+              data-heatmap-tooltip
+              role="tooltip"
+              hidden
+              className="pointer-events-none absolute top-0 left-0 z-20 rounded-md border border-border bg-popover px-2 py-1 text-[10px] leading-normal text-popover-foreground shadow-md/30"
+            />
           </div>
         )}
       </CardContent>
@@ -866,6 +960,22 @@ function UnsupportedServerHealth() {
           icon={ServerIcon}
           title={t("overview.serverHealth.unsupportedTitle")}
           description={t("overview.serverHealth.unsupportedDesc")}
+          className="py-16"
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyServerHealthScope() {
+  return (
+    <Card>
+      <CardContent>
+        <EmptyState
+          size="sm"
+          icon={ServerOffIcon}
+          title={t("overview.scope.emptyTitle")}
+          description={t("overview.scope.emptyDesc")}
           className="py-16"
         />
       </CardContent>

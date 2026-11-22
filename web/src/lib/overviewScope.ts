@@ -3,24 +3,16 @@
  *
  * 四个 tab（资源状态 / 流量趋势 / 成本开支 / 链路时延）共用同一份选中集合，
  * 选中集合只有一个来源：`?servers=id1,id2`。
- * - 参数缺失 → 默认选择（≤10 台全选；更多时取「有问题优先」的 8 台）；
- * - 参数为空串 → 明确的全选空集（用于空态，不能回落到默认值）；
- * - 参数里的服务器已被删除 → 只保留仍存在的；全部失效时回落到默认选择。
+ * - 参数缺失 → 默认全选（KPI / 图表永远是全站数字）；
+ * - 参数为空串 → 明确的空选择（用于空态，不能回落到默认值）；
+ * - 参数里的服务器已被删除 → 只保留仍存在的；全部失效时回落到全选。
+ *
+ * 「全选」写回 URL 时删除参数（与「参数缺失」等价），因此默认链接保持干净，
+ * 也避免 200+ 台服务器时把整份 id 列表塞进 URL。
  *
  * 这里不碰 React / i18n / DOM，方便 `node:test` 直接覆盖边界。
  */
 import type { Chain } from "./api.ts";
-
-/** 默认全选的上限：不超过 10 台时没有理由只选一部分。 */
-export const SCOPE_ALL_LIMIT = 10;
-
-/** 超过上限时默认展示的服务器数量（有问题的优先）。 */
-export const SCOPE_DEFAULT_LIMIT = 8;
-
-/** 与服务器状态视图一致的「资源有问题」阈值，避免两处口径漂移。 */
-export const SCOPE_LOAD_BAD = 4;
-export const SCOPE_MEM_BAD = 0.9;
-export const SCOPE_DISK_BAD = 0.9;
 
 /** 只依赖筛选需要的字段，便于测试与旧后端缺字段时降级。 */
 export interface ScopeServer {
@@ -70,64 +62,32 @@ export function serializeServerIds(ids: readonly string[]): string {
   return parts.join(",");
 }
 
-function ratio(
-  used: number | null | undefined,
-  total: number | null | undefined,
-): number | null {
-  if (
-    typeof used !== "number" ||
-    typeof total !== "number" ||
-    !Number.isFinite(used) ||
-    !Number.isFinite(total) ||
-    total <= 0
-  ) {
-    return null;
-  }
-  return used / total;
-}
-
 /**
- * 默认选择的排序键：离线 → 资源告警 → 其余。
- * 同组按名称排序，保证多次打开页面看到的是同一批服务器。
+ * 选中集合 → URL 里的 `servers` 参数值。
+ *
+ * - 全选（或服务器列表为空）→ `null`：调用方应删除该参数；
+ * - 其余（含空选）→ 序列化后的字符串；空选是 `""`。
+ *
+ * 全选不写参数既让默认链接干净，也让 >200 台服务器时不会拼出超长 URL。
  */
-function issueRank(server: ScopeServer): number {
-  if (server.status === "offline") return 0;
-  const load = typeof server.load1 === "number" ? server.load1 : null;
-  const mem = ratio(server.mem_used, server.mem_total);
-  const disk = ratio(server.disk_used, server.disk_total);
-  if (
-    (load !== null && load >= SCOPE_LOAD_BAD) ||
-    (mem !== null && mem >= SCOPE_MEM_BAD) ||
-    (disk !== null && disk >= SCOPE_DISK_BAD)
-  ) {
-    return 1;
-  }
-  return 2;
+export function serverIdsSelectionParam(
+  servers: readonly ScopeServer[],
+  ids: readonly string[],
+): string | null {
+  if (!isOverviewScopeFiltered(servers, ids)) return null;
+  return serializeServerIds(ids);
 }
 
 /**
- * 默认选择：≤10 台全选；更多时取「有问题优先」的 8 台。
- * 服务器顺序沿用列表顺序（服务端通常按名称 / 创建时间返回）。
+ * 默认选择：全部服务器。
+ *
+ * 概览上的 KPI / 图表必须是全站口径；部分选择会静默变成局部数字。
+ * 用户主动缩小范围后才写 `?servers=`。
  */
 export function defaultOverviewSelection(
   servers: readonly ScopeServer[],
-  limit = SCOPE_DEFAULT_LIMIT,
 ): string[] {
-  if (servers.length === 0) return [];
-  if (servers.length <= SCOPE_ALL_LIMIT) return servers.map((server) => server.id);
-
-  const max = Math.max(0, Math.floor(limit));
-  if (max === 0) return [];
-  return servers
-    .map((server, index) => ({ server, index, rank: issueRank(server) }))
-    .sort(
-      (a, b) =>
-        a.rank - b.rank ||
-        a.server.name.localeCompare(b.server.name) ||
-        a.index - b.index,
-    )
-    .slice(0, max)
-    .map((entry) => entry.server.id);
+  return servers.map((server) => server.id);
 }
 
 /**

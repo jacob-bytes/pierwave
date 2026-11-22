@@ -16,6 +16,9 @@ const cost = read("../components/overview/CostView.tsx");
 const chain = read("../components/overview/ChainLatencyView.tsx");
 const line = read("../components/overview/ResourceLineChart.tsx");
 const fxPopover = read("../components/overview/FxDetailsPopover.tsx");
+const scopeHook = read("../components/overview/useOverviewScope.ts");
+const api = read("../lib/api.ts");
+const queries = read("../lib/queries.ts");
 const css = read("../index.css");
 const zh = read("../i18n/zh-CN.ts");
 const en = read("../i18n/en.ts");
@@ -68,6 +71,34 @@ test("成本汇率明细收在 popover，默认不铺完整汇率表", () => {
   assertIncludes(
     fxPopover,
     ["buildFxDetails", "data-fx-row", "data-fx-unknown", "max-h-64"],
+    "FxDetailsPopover",
+  );
+});
+
+test("F4：无汇率时仍可打开明细，并说明缺哪些币种与去哪里配置", () => {
+  assertIncludes(
+    cost,
+    ["usesForeign", "overview.cost.fxMissing", "<FxDetailsPopover"],
+    "CostView",
+  );
+  // 不能像旧实现那样在 !fx.provided 时直接 return 掉 popover。
+  const fxSummary = cost.slice(
+    cost.indexOf("function FxSummary"),
+    cost.indexOf("function MonthExpenseCard"),
+  );
+  assert.ok(
+    !fxSummary.includes("if (!fx.provided) {"),
+    "FxSummary must not early-return without the popover",
+  );
+  assertIncludes(
+    fxPopover,
+    [
+      "data-fx-missing",
+      "data-fx-missing-hint",
+      "overview.cost.fxNotConfigured",
+      "overview.cost.fxHowToConfigure",
+      "overview.cost.unknownCurrencies",
+    ],
     "FxDetailsPopover",
   );
 });
@@ -228,7 +259,8 @@ test("服务器筛选在 tab 行，四个 tab 共用同一份选中集合", () =
       "<ServerFilter",
       "selectedIds={scope.selectedIds}",
       "onChange={scope.setSelectedIds}",
-      "<ServerHealthView selectedIds={scope.selectedIds} />",
+      "selectedIds={scope.selectedIds}",
+      "filtered={scope.filtered}",
       "<TrafficView",
       "<CostView selectedIds={scope.selectedIds} />",
       "<ChainLatencyView selectedIds={scope.selectedIds} />",
@@ -242,9 +274,11 @@ test("服务器筛选在 tab 行，四个 tab 共用同一份选中集合", () =
 test("四个视图都按选中集合过滤，空选时走空态", () => {
   assertIncludes(
     server,
-    ["scopeServerHealthSnapshot", "overview.scope.emptyTitle"],
+    ["filtered", "useServerHealth", "overview.scope.emptyTitle"],
     "ServerHealthView",
   );
+  // F2：筛选后的 KPI 直接用后端 summary，不再前端丢 summary 重算。
+  assertExcludes(server, ["scopeServerHealthSnapshot"], "ServerHealthView");
   assertIncludes(
     cost,
     ["selectedIds", "buildCostOverview(scopedServers", "EmptyCostScope"],
@@ -292,14 +326,173 @@ test("URL 保存筛选结果，切 tab 时保留 servers 参数", () => {
     ['applyOverviewView(previous, resolveOverviewView(value))'],
     "OverviewInsight",
   );
+  // F1/F9：全选删除参数，空选保留空串。
+  assertIncludes(
+    scopeHook,
+    ["serverIdsSelectionParam", 'next.delete("servers")', 'next.set("servers", value)'],
+    "useOverviewScope",
+  );
   assertIncludes(
     zh,
-    ['trigger: "已选 {selected}/{total}"', 'defaultHint:', 'emptyTitle: "未选择服务器"'],
+    ['trigger: "已选 {selected}/{total}"', 'emptyTitle: "未选择服务器"'],
     "zh-CN",
   );
   assertIncludes(
     en,
-    ['trigger: "Selected {selected}/{total}"', "defaultHint:", 'emptyTitle: "No servers selected"'],
+    ['trigger: "Selected {selected}/{total}"', 'emptyTitle: "No servers selected"'],
     "en",
+  );
+});
+
+test("F2：server-health 走后端筛选与后端 summary", () => {
+  assertIncludes(
+    api,
+    ["serverIds: readonly string[] = []", 'params.set("server_ids"'],
+    "api.ts",
+  );
+  assertIncludes(
+    queries,
+    ["queryKeys.serverHealth(hours, bucket, serverIds)"],
+    "queries.ts",
+  );
+  assertIncludes(
+    server,
+    [
+      "scoped ? selectedIds : []",
+      "snapshot.approximateUptime",
+      "overview.serverHealth.legendApproximate",
+      "overview.serverHealth.legendApproximateHint",
+    ],
+    "ServerHealthView",
+  );
+  // F9：全选时四个视图都不传 server_ids。
+  assertIncludes(traffic, ["filtered ? selectedIds : []"], "TrafficView");
+  assertIncludes(overview, ["scope.filtered ? scope.selectedIds : []"], "Overview page");
+});
+
+test("F5：scope 未 ready 显示骨架，失败显示错误 + 重试", () => {
+  assertIncludes(
+    overview,
+    ["scope.isError", "scope.refetch", "!scope.ready", "servers.loadFailed"],
+    "Overview page",
+  );
+});
+
+test("F6：全站口径标注与未知 id 提示只消费一次", () => {
+  assertIncludes(
+    traffic,
+    [
+      "aggregateGlobal",
+      "overview.scope.sitewide",
+      "data-alert-sitewide",
+      "data-alert-card-sitewide",
+    ],
+    "TrafficView",
+  );
+  assertIncludes(
+    overview,
+    ["warnings?.unknown_ids", "data-overview-unknown-ids", "overview.scope.unknownIds"],
+    "Overview page",
+  );
+});
+
+test("热力图浮层无延迟：悬停 / 聚焦 / 触摸都走受控浮层", () => {
+  const heatmap = server.slice(
+    server.indexOf("function HeatmapCard"),
+    server.indexOf("function CurrentResourcesCard"),
+  );
+  assertIncludes(
+    heatmap,
+    [
+      "data-heatmap-tooltip",
+      "onMouseEnter",
+      "onPointerDown",
+      "pointerType",
+      "onFocus",
+      "tipRef",
+    ],
+    "HeatmapCard",
+  );
+  // 原生 title 有 1–3 秒延迟，不能再挂在格子上。
+  assert.ok(
+    !heatmap.includes("title={label}"),
+    "heatmap cells must not use the native title delay",
+  );
+});
+
+test("续费日历单元格居中、日期 14px、徽标 11px", () => {
+  const renewal = cost.slice(
+    cost.indexOf("function RenewalCalendarCard"),
+    cost.indexOf("function RenewalDayDialog"),
+  );
+  assertIncludes(
+    renewal,
+    [
+      "min-h-11",
+      "items-center justify-center",
+      "text-center text-sm",
+      "text-[11px]",
+    ],
+    "RenewalCalendarCard",
+  );
+  assert.ok(
+    !renewal.includes("flex-col items-start"),
+    "renewal cells must not align to the top-left",
+  );
+});
+
+test("币种构成环形图 ≥260px，图例字号调大且 390 上下堆叠", () => {
+  assertIncludes(
+    cost,
+    [
+      "h-[280px]",
+      "max-w-[300px]",
+      'outerRadius="92%"',
+      "sm:grid-cols-[minmax(0,45fr)_minmax(0,55fr)]",
+      "data-pie-legend-code",
+      "text-sm",
+      "text-[13px]",
+      "data-pie-center-amount",
+      "text-lg",
+    ],
+    "CostView",
+  );
+});
+
+test("成本页两行共用同一套三列网格，底部注释统一 12px", () => {
+  assertIncludes(
+    cost,
+    [
+      "xl:grid-cols-3",
+      'className="xl:col-span-2"',
+      'className="h-full xl:col-span-2"',
+      'data-cost-note="excluded"',
+      'data-cost-note="once"',
+      'data-cost-note="mix"',
+      'data-cost-note="renewal"',
+      "text-xs leading-normal text-muted-foreground",
+    ],
+    "CostView",
+  );
+  // 两行不能再各自定义不同列宽。
+  assert.ok(
+    !cost.includes("xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]"),
+    "cost rows must share the same 3-column grid",
+  );
+});
+
+test("F7：续费日历卡头可换行，不裁掉最后一个箭头", () => {
+  const renewal = cost.slice(
+    cost.indexOf("function RenewalCalendarCard"),
+    cost.indexOf("function RenewalDayDialog"),
+  );
+  assertIncludes(
+    renewal,
+    ["data-renewal-controls", "flex-wrap", "data-renewal-next"],
+    "RenewalCalendarCard",
+  );
+  assert.ok(
+    !renewal.includes('className="flex min-w-0 items-center justify-between gap-2"'),
+    "renewal header must wrap instead of overflow",
   );
 });

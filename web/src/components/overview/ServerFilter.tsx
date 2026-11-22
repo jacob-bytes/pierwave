@@ -53,13 +53,10 @@ export function ServerFilter({
   servers,
   selectedIds,
   onChange,
-  defaulted = false,
 }: {
   servers: readonly ScopeServer[];
   selectedIds: readonly string[];
   onChange: (ids: string[]) => void;
-  /** 默认选择是「问题优先的 8 台」时给出可调整提示。 */
-  defaulted?: boolean;
 }) {
   const { locale } = useI18n();
   const [open, setOpen] = useState(false);
@@ -439,17 +436,6 @@ export function ServerFilter({
               },
             )}
           </p>
-          {defaulted && !searching ? (
-            <p
-              data-server-filter-default-hint
-              className="mt-0.5 text-[10px] leading-normal text-muted-foreground"
-            >
-              {t("overview.scope.defaultHint", {
-                total: servers.length,
-                n: selectedIds.length,
-              })}
-            </p>
-          ) : null}
         </div>
       </PopoverContent>
     </Popover>

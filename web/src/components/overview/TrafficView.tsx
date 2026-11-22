@@ -736,6 +736,8 @@ interface AlertItem {
   tone: AlertTone;
   /** 行尾的批量操作入口；目前只有「过期套餐实例」带。 */
   action?: ReactNode;
+  /** 数字来自全站 stats / 全局 chains，不随服务器筛选变化。 */
+  sitewide?: boolean;
 }
 
 function AlertRow({
@@ -746,6 +748,7 @@ function AlertRow({
   hint,
   tone,
   action,
+  sitewide,
   onNavigate,
 }: {
   to: string;
@@ -754,6 +757,8 @@ function AlertRow({
   count: number;
   hint: string;
   tone: AlertTone;
+  /** 数字来自全站 stats / 全局 chains，不随服务器筛选变化。 */
+  sitewide?: boolean;
   /** 行尾的批量操作入口；按钮不能嵌在 Link 里，所以单独作为兄弟节点。 */
   action?: ReactNode;
   /** 在弹窗里点击后关掉弹窗。 */
@@ -779,11 +784,19 @@ function AlertRow({
         <div className="min-w-0 flex-1">
           <p
             className={cn(
-              "truncate text-sm",
+              "flex min-w-0 items-center gap-1.5 text-sm",
               !active && "text-muted-foreground",
             )}
           >
-            {label}
+            <span className="truncate">{label}</span>
+            {sitewide ? (
+              <span
+                data-alert-sitewide
+                className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-[9px] leading-none text-muted-foreground"
+              >
+                {t("overview.scope.sitewide")}
+              </span>
+            ) : null}
           </p>
           <p className="truncate text-xs text-muted-foreground">
             {active ? hint : t("common.none")}
@@ -822,9 +835,10 @@ export default function TrafficView({
   filtered: boolean;
 }) {
   useI18n();
+  // 全选等价于「不筛选」：不把整份 id 列表塞进 URL/查询参数。
   const aggregate = useOverview(
     OVERVIEW_TRAFFIC_DAYS,
-    selectedIds,
+    filtered ? selectedIds : [],
     selectedIds.length > 0,
   );
   const traffic = useTraffic(OVERVIEW_TRAFFIC_DAYS);
@@ -833,7 +847,12 @@ export default function TrafficView({
     events.data?.filter((event) => event.kind === "removed").length ?? 0;
 
   const scopeFiltered = filtered && selectedIds.length > 0;
-  const scopeReady = aggregate.data?.scope?.filtered === true;
+  const aggregateScope = aggregate.data?.scope ?? null;
+  const scopeReady = aggregateScope?.filtered === true;
+  // `scope.global` 明确说明 `global` / `chains` 是全局口径；旧主控不返回
+  // scope 时按「未筛选」处理，同样标成全站，绝不把它伪装成选中范围。
+  const aggregateGlobal =
+    scopeFiltered && (aggregateScope?.global === true || aggregateScope === null);
   // 后端应用了 server_ids 后，趋势图用同一份过滤后的 series，避免 KPI 已缩小
   // 而图表仍是全站数字；旧主控（无 scope）继续用 /stats/traffic 的全量值。
   const trendDays =
@@ -873,6 +892,7 @@ export default function TrafficView({
       count: stats.alerts.expired_instances,
       hint: t("overview.expiredHint"),
       tone: "warning",
+      sitewide: scopeFiltered,
       action: (
         <Button
           type="button"
@@ -896,6 +916,7 @@ export default function TrafficView({
       count: stats.alerts.exhausted_instances,
       hint: t("overview.exhaustedHint"),
       tone: "destructive",
+      sitewide: scopeFiltered,
       action: (
         <Button
           type="button"
@@ -919,6 +940,7 @@ export default function TrafficView({
       count: stats.alerts.offline_servers,
       hint: t("overview.offlineHint"),
       tone: "destructive",
+      sitewide: scopeFiltered,
     },
     ...(expiringCerts > 0
       ? [
@@ -930,6 +952,7 @@ export default function TrafficView({
             count: expiringCerts,
             hint: t("overview.expiringHint", { n: expiringCerts }),
             tone: "warning" as const,
+            sitewide: scopeFiltered,
           },
         ]
       : []),
@@ -949,6 +972,7 @@ export default function TrafficView({
           : "overview.handshakeFailuresHint",
       ),
       tone: "warning" as const,
+      sitewide: aggregateGlobal,
     })),
   ];
   const previewAlerts = alertItems.slice(0, ALERT_PREVIEW);
@@ -1057,22 +1081,33 @@ export default function TrafficView({
             {t("overview.alertsDesc")}
           </CardDescription>
           <CardAction>
-            {alertTotal > 0 ? (
-              <Badge
-                variant="outline"
-                className="border-transparent bg-warning/10 font-normal text-warning"
-              >
-                {t("overview.pendingCount", { n: alertTotal })}
-              </Badge>
-            ) : (
-              <Badge
-                variant="outline"
-                className="gap-1 border-transparent bg-primary/10 font-normal text-primary"
-              >
-                <CheckCircle2Icon className="size-3" />
-                {t("overview.allNormal")}
-              </Badge>
-            )}
+            <div className="flex items-center gap-1.5">
+              {scopeFiltered ? (
+                <Badge
+                  data-alert-card-sitewide
+                  variant="outline"
+                  className="font-normal text-muted-foreground"
+                >
+                  {t("overview.scope.sitewide")}
+                </Badge>
+              ) : null}
+              {alertTotal > 0 ? (
+                <Badge
+                  variant="outline"
+                  className="border-transparent bg-warning/10 font-normal text-warning"
+                >
+                  {t("overview.pendingCount", { n: alertTotal })}
+                </Badge>
+              ) : (
+                <Badge
+                  variant="outline"
+                  className="gap-1 border-transparent bg-primary/10 font-normal text-primary"
+                >
+                  <CheckCircle2Icon className="size-3" />
+                  {t("overview.allNormal")}
+                </Badge>
+              )}
+            </div>
           </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-1 p-2">
@@ -1086,6 +1121,7 @@ export default function TrafficView({
               hint={alert.hint}
               tone={alert.tone}
               action={alert.action}
+              sitewide={alert.sitewide}
             />
           ))}
           {hiddenAlertCount > 0 ? (
@@ -1156,6 +1192,7 @@ export default function TrafficView({
                 count={alert.count}
                 hint={alert.hint}
                 tone={alert.tone}
+                sitewide={alert.sitewide}
                 onNavigate={() => setAllAlertsOpen(false)}
               />
             ))}

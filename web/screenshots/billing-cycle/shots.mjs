@@ -352,6 +352,67 @@ for (const theme of ["dark", "light"]) {
       );
       return { count, unit };
     });
+    await check(`字段顺序：价格 → 币种 → 计费周期 → 到期日（${theme}-${width}）`, async () => {
+      const rects = await dialog.evaluate((node) => {
+        const box = (selector) => {
+          const element = node.querySelector(selector);
+          const rect = element.getBoundingClientRect();
+          return {
+            top: rect.top,
+            left: rect.left,
+            right: rect.right,
+            bottom: rect.bottom,
+          };
+        };
+        return {
+          price: box("#server-create-billing-price"),
+          currency: box("#server-create-billing-currency"),
+          cycle: box("#server-create-billing-cycle-count"),
+          paidUntil: box("#server-create-billing-paid-until"),
+        };
+      });
+
+      if (width >= 640) {
+        // 第一行：价格 | 币种；第二行：计费周期 | 到期日。
+        assert.ok(
+          Math.abs(rects.price.top - rects.currency.top) < 2,
+          `价格与币种应同一行：${JSON.stringify(rects)}`,
+        );
+        assert.ok(
+          Math.abs(rects.cycle.top - rects.paidUntil.top) < 2,
+          `计费周期与到期日应同一行：${JSON.stringify(rects)}`,
+        );
+        assert.ok(rects.price.top < rects.cycle.top, "价格行应在计费周期行之前");
+        assert.ok(rects.price.left < rects.currency.left, "价格应在币种左侧");
+        assert.ok(
+          Math.abs(rects.price.left - rects.cycle.left) < 2,
+          "两行第一列应左对齐",
+        );
+        assert.ok(
+          Math.abs(rects.currency.left - rects.paidUntil.left) < 2,
+          "两行第二列应左对齐",
+        );
+      } else {
+        // 390：单列按同一顺序堆叠。
+        const order = [
+          rects.price.top,
+          rects.currency.top,
+          rects.cycle.top,
+          rects.paidUntil.top,
+        ];
+        for (let index = 1; index < order.length; index += 1) {
+          assert.ok(
+            order[index] > order[index - 1],
+            `390 单列顺序错误：${JSON.stringify(rects)}`,
+          );
+        }
+        assert.ok(
+          Math.abs(rects.price.left - rects.paidUntil.left) < 2,
+          "390 单列应左对齐",
+        );
+      }
+      return rects;
+    });
     await shotGroup(group, `form-empty-${theme}-${width}.png`);
     // 完整对话框（含名称 / 地址等上下文）。
     await dialog.screenshot({

@@ -6,6 +6,7 @@ import {
   buildMonthExpenses,
   buildRenewalMonth,
   costCycleOf,
+  dayIndexOfDate,
   formatCnyCompact,
   formatFxRateDisplay,
   formatMonthIndex,
@@ -13,6 +14,7 @@ import {
   monthIndexOfDate,
   parseFxRates,
   parseFxUpdatedAt,
+  renewalRowsFromScope,
 } from "./costOverview.ts";
 
 const AUG = Date.UTC(2026, 7, 15, 4, 0, 0) / 1000; // 2026-08-15 12:00 UTC+8
@@ -322,6 +324,46 @@ test("一次性到期日超出 12 个月 / 已过期：不进未来 12 个月，
   assert.equal(past.next12CnyCents, 0);
 });
 
+test("一次性 paid_until 早于今天（同月）视为已付，不再计入未来 12 个月", () => {
+  // AUG = 2026-08-15 12:00 UTC+8：同月 1 日已经过去，15 日仍在今天。
+  assert.equal(dayIndexOfDate("2026-08-01"), dayIndexOfDate("2026-08-15") - 14);
+  assert.equal(dayIndexOfDate("2026-08-32"), null);
+
+  const expired = buildCostOverview(
+    [
+      server("expired-today-month", {
+        price_cents: 199900,
+        currency: "CNY",
+        billing_cycle_count: 1,
+        billing_cycle_unit: "once",
+        paid_until: "2026-08-01",
+      }),
+    ],
+    RATES.rates,
+    AUG,
+  );
+  assert.equal(expired.next12CnyCents, 0);
+  assert.equal(expired.calendarRows.length, 0);
+  assert.equal(expired.oneTime[0].inNext12, false);
+
+  // 今天到期仍然要计入（不能把当天该付的钱吞掉）。
+  const today = buildCostOverview(
+    [
+      server("due-today", {
+        price_cents: 199900,
+        currency: "CNY",
+        billing_cycle_count: 1,
+        billing_cycle_unit: "once",
+        paid_until: "2026-08-15",
+      }),
+    ],
+    RATES.rates,
+    AUG,
+  );
+  assert.equal(today.next12CnyCents, 199900);
+  assert.equal(today.oneTime[0].inNext12, true);
+});
+
 test("未来 12 个月：只包含在线且费用完整的服务器；预付不重复；一次性按到期日", () => {
   const overview = buildCostOverview(
     [
@@ -450,18 +492,69 @@ test("只有离线 / 未填费用时不显示正常视图；只有未知币种�
 
 test("buildRenewalMonth: 按 paid_until 归日、金额降序、摘要与空月", () => {
   const month = 2026 * 12 + 11; // 2026-12
-  const result = buildRenewalMonth(
-    [
-      { id: "a", name: "alpha", paid_until: "2026-12-05", price_cents: 10000, currency: "CNY" },
-      { id: "b", name: "beta", paid_until: "2026-12-05", price_cents: 200, currency: "USD" },
-      { id: "c", name: "charlie", paid_until: "2026-12-05" },
-      { id: "d", name: "delta", paid_until: "2026-12-20", price_cents: 5000, currency: "CNY" },
-      { id: "e", name: "ignored", paid_until: "2026-12-32" },
-      { id: "f", name: "other-month", paid_until: "2027-01-02" },
-    ],
-    { USD: 7.2, CNY: 1 },
-    month,
-  );
+  const rows = [
+    {
+      serverId: "a",
+      name: "alpha",
+      currency: "CNY",
+      paidUntil: "2026-12-05",
+      cycleCount: 1,
+      cycleUnit: "month",
+      amountOriginalCents: 10000,
+      amountCnyCents: 10000,
+    },
+    {
+      serverId: "b",
+      name: "beta",
+      currency: "USD",
+      paidUntil: "2026-12-05",
+      cycleCount: 1,
+      cycleUnit: "month",
+      amountOriginalCents: 200,
+      amountCnyCents: 1440,
+    },
+    {
+      serverId: "c",
+      name: "charlie",
+      currency: "CNY",
+      paidUntil: "2026-12-05",
+      cycleCount: 1,
+      cycleUnit: "month",
+      amountOriginalCents: null,
+      amountCnyCents: null,
+    },
+    {
+      serverId: "d",
+      name: "delta",
+      currency: "CNY",
+      paidUntil: "2026-12-20",
+      cycleCount: 2,
+      cycleUnit: "month",
+      amountOriginalCents: 5000,
+      amountCnyCents: 5000,
+    },
+    {
+      serverId: "e",
+      name: "ignored",
+      currency: "CNY",
+      paidUntil: "2026-12-32",
+      cycleCount: 1,
+      cycleUnit: "month",
+      amountOriginalCents: 100,
+      amountCnyCents: 100,
+    },
+    {
+      serverId: "f",
+      name: "other-month",
+      currency: "CNY",
+      paidUntil: "2027-01-02",
+      cycleCount: 1,
+      cycleUnit: "month",
+      amountOriginalCents: 100,
+      amountCnyCents: 100,
+    },
+  ];
+  const result = buildRenewalMonth(rows, month);
   assert.equal(result.daysInMonth, 31);
   assert.equal(result.firstWeekday, 1); // 2026-12-01 是周二
   assert.equal(result.activeDays, 2);
@@ -473,13 +566,50 @@ test("buildRenewalMonth: 按 paid_until 归日、金额降序、摘要与空月"
     result.days[4].events.map((event) => event.name),
     ["alpha", "beta", "charlie"],
   );
+  // 无法折算的 charlie 计入台数但不计入金额，并显式标记。
+  assert.equal(result.days[4].unconverted, 1);
   assert.equal(result.days[4].totalCnyCents, 10000 + 1440);
   assert.equal(result.days[19].count, 1);
 
-  const empty = buildRenewalMonth([], {}, month);
+  const empty = buildRenewalMonth([], month);
   assert.equal(empty.activeDays, 0);
   assert.equal(empty.totalServers, 0);
   assert.equal(empty.busiestDay, null);
+});
+
+test("续费日历只吃成本 scope：离线 / 费用不完整 / 未知币种都不出现", () => {
+  const overview = buildCostOverview(
+    [
+      billed("keep", { paid_until: "2026-12-05" }),
+      billed("offline", { status: "offline", paid_until: "2026-12-05" }),
+      server("no-billing", { status: "online", paid_until: "2026-12-05" }),
+      server("aed", {
+        status: "online",
+        currency: "AED",
+        price_cents: 32000,
+        billing_cycle_count: 1,
+        billing_cycle_unit: "month",
+        paid_until: "2026-12-05",
+      }),
+    ],
+    RATES.rates,
+    AUG,
+  );
+  assert.equal(overview.scopeCount, 1);
+  assert.equal(overview.unknownCurrency.length, 1);
+
+  const rows = renewalRowsFromScope(overview.scope);
+  assert.deepEqual(
+    rows.map((row) => row.serverId),
+    ["keep"],
+  );
+  const month = buildRenewalMonth(rows, 2026 * 12 + 11);
+  assert.equal(month.totalServers, 1);
+  assert.deepEqual(
+    month.days[4].events.map((event) => event.serverId),
+    ["keep"],
+  );
+  assert.equal(month.days[4].unconverted, 0);
 });
 
 test("buildMonthExpenses: 12 个月合计、服务器降序、>8 提示与空月", () => {
@@ -551,6 +681,33 @@ test("buildFxDetails: 只列在用币种，CNY 在前，未知币种单独返回
   // 未使用的 JPY 不出现
   assert.ok(!details.rows.some((row) => row.currency === "JPY"));
   assert.equal(formatFxRateDisplay(7.2), "7.20");
+});
+
+test("fx.provided=false：未知币种仍可列出，全 CNY 时不制造假警告", () => {
+  const noRates = parseFxRates("");
+  assert.equal(noRates.provided, false);
+
+  const foreign = buildCostOverview(
+    [
+      billed("cny"),
+      billed("usd", { currency: "USD" }),
+      billed("aed", { currency: "AED" }),
+    ],
+    noRates.rates,
+    AUG,
+  );
+  const details = buildFxDetails(foreign, noRates.rates);
+  // CNY 仍可折算；USD/AED 都进未知列表，数量与币种都可展示。
+  assert.deepEqual(details.rows.map((row) => row.currency), ["CNY"]);
+  assert.deepEqual(details.unknownCodes, ["AED", "USD"]);
+  assert.equal(details.unknownCount, 2);
+  assert.equal(foreign.scope.some((row) => row.currency !== "CNY"), false);
+
+  const allCny = buildCostOverview([billed("cny")], noRates.rates, AUG);
+  const cnyDetails = buildFxDetails(allCny, noRates.rates);
+  assert.equal(cnyDetails.unknownCount, 0);
+  assert.deepEqual(cnyDetails.unknownCodes, []);
+  assert.equal(allCny.scope.some((row) => row.currency !== "CNY"), false);
 });
 
 test("月份标签：中文 / 英文短月份，月份序号可解析", () => {
