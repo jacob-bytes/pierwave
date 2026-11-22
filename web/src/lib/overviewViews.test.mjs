@@ -9,12 +9,12 @@ import {
   resolveOverviewView,
 } from "./overviewViews.ts";
 
-test("概览视图顺序与默认值是服务器状态", () => {
+test("概览视图顺序与默认值是资源状态", () => {
   assert.deepEqual(OVERVIEW_VIEWS, ["server", "traffic", "cost", "chain"]);
   assert.equal(DEFAULT_OVERVIEW_VIEW, "server");
 });
 
-test("合法视图原样保留，非法值 / 空值回落到服务器状态", () => {
+test("合法视图原样保留，非法值 / 空值回落到资源状态", () => {
   for (const view of OVERVIEW_VIEWS) {
     assert.equal(isOverviewView(view), true);
     assert.equal(resolveOverviewView(view), view);

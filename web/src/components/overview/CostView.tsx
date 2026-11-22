@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FxDetailsPopover } from "./FxDetailsPopover";
 import { InsightMetrics } from "./InsightMetrics";
 import { errorText } from "@/lib/errors";
 import {
@@ -18,7 +19,6 @@ import {
   formatCny,
   formatCnyCompact,
   formatCurrency,
-  formatFxRate,
   formatMonthIndex,
   formatMonthLabel,
   parseFxRates,
@@ -32,7 +32,6 @@ import {
   type FxRates,
 } from "@/lib/costOverview";
 import { useServers, useSettings } from "@/lib/queries";
-import { formatAbsoluteTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -45,7 +44,12 @@ const MIX_BAR_CLASS = [
   "bg-muted-foreground/25",
 ];
 
-export default function CostView() {
+export default function CostView({
+  selectedIds,
+}: {
+  /** 概览级筛选的选中集合；只统计这些服务器的费用。 */
+  selectedIds: readonly string[];
+}) {
   useI18n();
   const serversQuery = useServers();
   const settingsQuery = useSettings();
@@ -59,10 +63,15 @@ export default function CostView() {
       fx.fetchedAt,
     [settingsQuery.data?.fx_rates_updated_at, fx.fetchedAt],
   );
+  const scopedServers = useMemo(() => {
+    const selected = new Set(selectedIds);
+    return (serversQuery.data ?? []).filter((server) =>
+      selected.has(server.id),
+    );
+  }, [serversQuery.data, selectedIds]);
   const overview = useMemo(
-    () =>
-      buildCostOverview(serversQuery.data ?? [], fx.rates),
-    [serversQuery.data, fx.rates],
+    () => buildCostOverview(scopedServers, fx.rates),
+    [scopedServers, fx.rates],
   );
 
   if (serversQuery.isPending || settingsQuery.isPending) {
@@ -87,6 +96,7 @@ export default function CostView() {
     );
   }
 
+  if (selectedIds.length === 0) return <EmptyCostScope />;
   if (!overview.hasData) return <EmptyCost />;
 
   return (
@@ -149,7 +159,8 @@ function CostBody({
         ]}
       />
 
-      <FxNote
+      <FxSummary
+        overview={overview}
         fx={fx}
         fxUpdatedAt={fxUpdatedAt}
         locale={locale}
@@ -157,10 +168,6 @@ function CostBody({
         settingsFetching={settingsFetching}
         onRetry={onRetrySettings}
       />
-
-      {overview.unknownCurrency.length > 0 ? (
-        <UnknownCurrencyWarning rows={overview.unknownCurrency} />
-      ) : null}
 
       <section className="grid gap-4 xl:grid-cols-3">
         <PaymentCalendarCard
@@ -181,7 +188,8 @@ function CostBody({
   );
 }
 
-function FxNote({
+function FxSummary({
+  overview,
   fx,
   fxUpdatedAt,
   locale,
@@ -189,6 +197,7 @@ function FxNote({
   settingsFetching,
   onRetry,
 }: {
+  overview: CostOverview;
   fx: FxRates;
   fxUpdatedAt: number | null;
   locale: string;
@@ -224,55 +233,18 @@ function FxNote({
     );
   }
 
-  const rates = Object.entries(fx.rates)
-    .filter(([currency]) => currency !== "CNY")
-    .sort(([a], [b]) => a.localeCompare(b));
-  const rateText = rates
-    .map(([currency, rate]) => `${currency} ${formatFxRate(rate, locale)}`)
-    .join(" / ");
-  const updatedText =
-    fxUpdatedAt === null
-      ? null
-      : t("overview.cost.fxUpdated", {
-          time: formatAbsoluteTime(fxUpdatedAt),
-        });
-
   return (
-    <p className="text-xs leading-normal text-muted-foreground">
-      {t(
-        fx.source?.toLowerCase() === "manual"
-          ? "overview.cost.fxNoteManual"
-          : "overview.cost.fxNote",
-      )}
-      {rateText === ""
-        ? null
-        : t(
-            updatedText === null
-              ? "overview.cost.fxRatesInlineNoTime"
-              : "overview.cost.fxRatesInline",
-            { rates: rateText, updated: updatedText ?? "" },
-          )}
-    </p>
-  );
-}
-
-function UnknownCurrencyWarning({
-  rows,
-}: {
-  rows: CostOverview["unknownCurrency"];
-}) {
-  const codes = [...new Set(rows.map((row) => row.currency))].join(" · ");
-  return (
-    <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2.5 text-xs text-warning">
-      <TriangleAlertIcon className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-      <p className="min-w-0">
-        {t(
-          rows.length === 1
-            ? "overview.cost.unknownCurrenciesOne"
-            : "overview.cost.unknownCurrencies",
-          { n: rows.length, codes },
-        )}
-      </p>
+    <div
+      className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground"
+      data-cost-fx
+    >
+      <span>{t("overview.cost.fxShort")}</span>
+      <FxDetailsPopover
+        overview={overview}
+        fx={fx}
+        fxUpdatedAt={fxUpdatedAt}
+        locale={locale}
+      />
     </div>
   );
 }
@@ -740,6 +712,22 @@ function OneTimeCard({
             </li>
           ))}
         </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmptyCostScope() {
+  return (
+    <Card>
+      <CardContent>
+        <EmptyState
+          size="sm"
+          icon={WalletIcon}
+          title={t("overview.scope.emptyTitle")}
+          description={t("overview.scope.emptyDesc")}
+          className="py-16"
+        />
       </CardContent>
     </Card>
   );

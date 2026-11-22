@@ -198,12 +198,24 @@ const SERVER_DEFS = [
   },
 ];
 
+/** 截图用分组：覆盖多组 + 一个未分组（曼谷）的情况。 */
+function groupForServer(id) {
+  if (id.includes("hk")) return "香港";
+  if (id.includes("tokyo") || id.includes("osaka")) return "日本";
+  if (id.includes("sg")) return "东南亚";
+  if (id.includes("fra")) return "欧洲";
+  if (id.includes("us")) return "北美";
+  if (id.includes("dubai")) return "中东";
+  return null;
+}
+
 const SERVER_LIST = SERVER_DEFS.map((def, index) => ({
   id: def.id,
   name: def.name,
   address: `10.0.0.${index + 1}`,
   xray_mode: "auto",
   status: def.status ?? "online",
+  group_name: groupForServer(def.id),
   last_seen_at: NOW - (def.status === "offline" ? 7 * HOUR : 30),
   config_version: 3,
   created_at: NOW - 30 * 86400,
@@ -247,6 +259,49 @@ const SERVER_LIST = SERVER_DEFS.map((def, index) => ({
   billing_cycle_unit: def.billing_cycle_unit ?? null,
 }));
 
+/** 7 台「色阶演示」服务器，与 makeBandsHealth() 的 id / 名称一一对应。 */
+const BAND_SERVER_LIST = [
+  { id: "band-0", name: "节点-88", group_name: "演示组", status: "online" },
+  { id: "band-1", name: "节点-92", group_name: "演示组", status: "online" },
+  { id: "band-2", name: "节点-96", group_name: "演示组", status: "online" },
+  { id: "band-3", name: "节点-98", group_name: "演示组", status: "online" },
+  { id: "band-4", name: "节点-100", group_name: "演示组", status: "online" },
+  { id: "band-offline", name: "离线-01", group_name: "异常组", status: "offline" },
+  { id: "band-nosample", name: "无采样-01", group_name: "异常组", status: "online" },
+].map((server, index) => ({
+  ...server,
+  address: `10.1.0.${index + 1}`,
+  xray_mode: "auto",
+  last_seen_at: NOW - 30,
+  config_version: 1,
+  created_at: NOW - 30 * 86400,
+  load1: 0.4,
+}));
+
+/** 40 台「数量演示」服务器，与 makeManyHealth() 的 id / 名称一一对应。 */
+const MANY_HEALTH_SERVER_LIST = Array.from({ length: 40 }, (_, index) => {
+  const offline = index < 4;
+  return {
+    id: `many-${index + 1}`,
+    name: `节点-${String(index + 1).padStart(2, "0")}`,
+    address: `10.2.0.${index + 1}`,
+    xray_mode: "auto",
+    status: offline ? "offline" : "online",
+    group_name: ["香港", "日本", "东南亚", "欧洲"][index % 4],
+    last_seen_at: NOW - (offline ? 7 * HOUR : 30),
+    config_version: 1,
+    created_at: NOW - 30 * 86400,
+    load1: index >= 4 && index < 8 ? 5 : 0.3,
+  };
+});
+
+function serverItemsFor(mock) {
+  if (mock === "serverBands") return BAND_SERVER_LIST;
+  if (mock === "serverMany") return MANY_HEALTH_SERVER_LIST;
+  if (mock === "costManyCurrencies") return MANY_SERVER_LIST;
+  return SERVER_LIST;
+}
+
 function healthServer(def, index = 0) {
   const current = def.current;
   const baseLoad = current?.load1 ?? 0.42;
@@ -284,7 +339,89 @@ function healthServer(def, index = 0) {
   };
 }
 
+function makeBandsHealth() {
+  const bands = [
+    { id: "band-0", name: "节点-88", ratio: 0.88 },
+    { id: "band-1", name: "节点-92", ratio: 0.92 },
+    { id: "band-2", name: "节点-96", ratio: 0.96 },
+    { id: "band-3", name: "节点-98", ratio: 0.98 },
+    { id: "band-4", name: "节点-100", ratio: 1 },
+  ];
+  const full = (ratio) =>
+    Array.from({ length: 168 }, (_, index) => ({
+      ts: START + index * HOUR,
+      online_ratio: ratio,
+      load1: 0.4,
+      mem_ratio: 0.5,
+      disk_ratio: 0.6,
+      samples: 12,
+    }));
+  const servers = bands.map((band) => ({
+    id: band.id,
+    name: band.name,
+    online_ratio: band.ratio,
+    buckets: full(band.ratio),
+  }));
+  servers.push({
+    id: "band-offline",
+    name: "离线-01",
+    online_ratio: 0,
+    buckets: full(0),
+  });
+  servers.push({
+    id: "band-nosample",
+    name: "无采样-01",
+    online_ratio: null,
+    buckets: Array.from({ length: 168 }, () => null),
+  });
+  return {
+    generated_at: NOW,
+    hours: 168,
+    bucket: HOUR,
+    summary: {
+      online_ratio_24h: 0.958,
+      abnormal_servers: 5,
+      worst_disk_ratio: 0.6,
+    },
+    servers,
+  };
+}
+
+function makeManyHealth() {
+  const servers = Array.from({ length: 40 }, (_, index) => {
+    const offline = index < 4;
+    const issue = index >= 4 && index < 8;
+    return {
+      id: `many-${index + 1}`,
+      name: `节点-${String(index + 1).padStart(2, "0")}`,
+      online_ratio: offline ? 0 : 1,
+      buckets: Array.from({ length: 168 }, (_, bucketIndex) => ({
+        ts: START + bucketIndex * HOUR,
+        online: !offline,
+        load1: issue ? 5 : 0.3 + (index % 5) * 0.1,
+        mem_ratio: issue ? 0.92 : 0.5,
+        disk_ratio: 0.6,
+        samples: 12,
+      })),
+    };
+  });
+  return {
+    generated_at: NOW,
+    hours: 168,
+    bucket: HOUR,
+    summary: {
+      online_ratio_24h: 0.9,
+      abnormal_servers: 8,
+      worst_disk_ratio: 0.6,
+    },
+    servers,
+  };
+}
+
 function makeHealth(mock) {
+  if (mock === "serverBands") return makeBandsHealth();
+  if (mock === "serverMany") return makeManyHealth();
+
   const servers =
     mock === "serverResourceEmpty"
       ? SERVER_DEFS.map((def) => ({
@@ -600,6 +737,54 @@ const SETTINGS = {
   fx_rates_updated_at: NOW - HOUR,
 };
 
+const MANY_CURRENCIES = [
+  "CNY",
+  "USD",
+  "EUR",
+  "JPY",
+  "GBP",
+  "AUD",
+  "CAD",
+  "CHF",
+  "HKD",
+  "SGD",
+];
+
+const MANY_CURRENCY_RATES = Object.fromEntries(
+  MANY_CURRENCIES.map((currency, index) => [
+    currency,
+    currency === "CNY" ? 1 : 0.9 + index * 0.37,
+  ]),
+);
+
+const MANY_SERVER_LIST = MANY_CURRENCIES.map((currency, index) => ({
+  id: `many-fx-${currency.toLowerCase()}`,
+  name: `${currency} 节点`,
+  address: `10.20.0.${index + 1}`,
+  xray_mode: "auto",
+  status: "online",
+  last_seen_at: NOW - 30,
+  config_version: 1,
+  created_at: NOW - 30 * 86400,
+  price_cents: 10000 + index * 100,
+  currency,
+  billing_cycle: "monthly",
+  billing_cycle_count: 1,
+  billing_cycle_unit: "month",
+  paid_until: "2027-01-31",
+}));
+
+const MANY_SETTINGS = {
+  ...SETTINGS,
+  fx_rates: JSON.stringify({
+    base: "CNY",
+    rates: MANY_CURRENCY_RATES,
+    fetched_at: NOW - HOUR,
+    source: "open.er-api.com",
+  }),
+  fx_rates_updated_at: NOW - HOUR,
+};
+
 function emptyBilling(server) {
   const copy = { ...server };
   for (const key of [
@@ -661,6 +846,73 @@ async function handleApi(route, mock) {
     return json(route, makeHealth(mock));
   }
   if (path === "/api/v1/overview") {
+    if (mock === "scopeReady") {
+      const ids =
+        url.searchParams
+          .get("server_ids")
+          ?.split(",")
+          .map((id) => id.trim())
+          .filter(Boolean) ?? [];
+      // 按选中台数近似缩放，让 KPI 与图表在截图里互相对得上。
+      const ratio = ids.length > 0 ? Math.min(1, Math.max(2, ids.length) / 12) : 1;
+      const scale = (value) => Math.round(value * ratio);
+      const selectedDefs = SERVER_LIST.filter((server) =>
+        ids.includes(server.id),
+      );
+      return json(route, {
+        ...AGGREGATE,
+        kpi: {
+          ...AGGREGATE.kpi,
+          servers_online: selectedDefs.filter(
+            (server) => server.status === "online",
+          ).length,
+          servers_total: ids.length,
+          traffic_today: scale(AGGREGATE.kpi.traffic_today),
+          traffic_month: scale(AGGREGATE.kpi.traffic_month),
+        },
+        series: AGGREGATE.series.map((point) => ({
+          ...point,
+          uplink: scale(point.uplink),
+          downlink: scale(point.downlink),
+        })),
+        protocol_series: AGGREGATE.protocol_series.map((row) => ({
+          ...row,
+          days: row.days.map((day) => ({ ...day, bytes: scale(day.bytes) })),
+        })),
+        protocols: AGGREGATE.protocols.map((row) => ({
+          ...row,
+          traffic_7d: scale(row.traffic_7d),
+        })),
+        top: selectedDefs.slice(0, 5).map((server, index) => ({
+          kind: "server",
+          server_id: server.id,
+          name: server.name,
+          traffic_7d: (index + 1) * 3 * 1024 ** 3,
+          load1: server.load1 ?? null,
+          online: server.status === "online",
+          rates: [],
+        })),
+        top_users: AGGREGATE.top_users.map((row) => ({
+          ...row,
+          traffic_7d: scale(row.traffic_7d),
+        })),
+        top_nodes: AGGREGATE.top_nodes.map((row) => ({
+          ...row,
+          traffic_7d: scale(row.traffic_7d),
+        })),
+        package_split: AGGREGATE.package_split.map((row) => ({
+          ...row,
+          traffic_7d: scale(row.traffic_7d),
+        })),
+        scope: {
+          server_ids: ids,
+          servers_matched: ids.length,
+          filtered: ids.length > 0,
+          global: true,
+        },
+        warnings: { unknown_ids: [] },
+      });
+    }
     if (mock === "trafficError") {
       return json(route, { error: "internal error" }, 500);
     }
@@ -716,9 +968,12 @@ async function handleApi(route, mock) {
     if (mock === "costEmpty") {
       return json(route, { items: SERVER_LIST.map(emptyBilling) });
     }
-    return json(route, { items: SERVER_LIST });
+    return json(route, { items: serverItemsFor(mock) });
   }
   if (path === "/api/v1/settings") {
+    if (mock === "costManyCurrencies") {
+      return json(route, { items: MANY_SETTINGS, secret_errors: null });
+    }
     if (mock === "costManual") {
       return json(route, {
         items: {
@@ -809,21 +1064,22 @@ function startStaticServer() {
 }
 
 const EXPECTED_API = {
+  // 概览级筛选会在所有 tab 复用 /servers；范围筛选时还会请求 /overview。
   server: {
     present: ["/api/v1/overview/server-health"],
-    absent: ["/api/v1/overview", "/api/v1/chains", "/api/v1/servers", "/api/v1/settings"],
+    absent: ["/api/v1/chains", "/api/v1/settings"],
   },
   traffic: {
     present: ["/api/v1/overview", "/api/v1/stats/traffic", "/api/v1/enforcement/events"],
-    absent: ["/api/v1/chains", "/api/v1/overview/server-health", "/api/v1/servers", "/api/v1/settings"],
+    absent: ["/api/v1/chains", "/api/v1/overview/server-health", "/api/v1/settings"],
   },
   cost: {
     present: ["/api/v1/servers", "/api/v1/settings"],
-    absent: ["/api/v1/overview", "/api/v1/chains", "/api/v1/overview/server-health"],
+    absent: ["/api/v1/chains", "/api/v1/overview/server-health"],
   },
   chain: {
     present: ["/api/v1/chains"],
-    absent: ["/api/v1/overview", "/api/v1/overview/server-health", "/api/v1/servers", "/api/v1/settings"],
+    absent: ["/api/v1/overview/server-health", "/api/v1/settings"],
   },
 };
 
@@ -833,6 +1089,19 @@ const EXPECTED_CARD_TITLES = {
   cost: ["未来 12 个月付款日历", "开销大头", "币种构成", "一次性费用"],
   chain: ["转发链健康", "链路时延"],
 };
+
+/** 东南亚组（新加坡-01/02 + 曼谷-01）：包含一条降级链的中间跳。 */
+const SOUTHEAST_ASIA_IDS = SERVER_LIST.filter(
+  (server) => server.group_name === "东南亚",
+).map((server) => server.id);
+
+function scenarioServerIds(scenario) {
+  if (scenario.servers === "all") {
+    return serverItemsFor(scenario.mock).map((server) => server.id);
+  }
+  if (Array.isArray(scenario.servers)) return scenario.servers;
+  return null;
+}
 
 const SCENARIOS = [
   { id: "server-dark-1440", view: null, theme: "dark", width: 1440, mock: "normal" },
@@ -851,8 +1120,35 @@ const SCENARIOS = [
   { id: "traffic-error-1440", view: "traffic", theme: "dark", width: 1440, mock: "trafficError" },
   { id: "chain-empty-1440", view: "chain", theme: "dark", width: 1440, mock: "chainEmpty" },
   { id: "chain-error-1440", view: "chain", theme: "dark", width: 1440, mock: "chainError" },
-  { id: "server-memory-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "heatmapMemory" },
-  { id: "server-filter-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "resourceFilter" },
+  { id: "server-bands-dark-1440", view: "server", theme: "dark", width: 1440, mock: "serverBands" },
+  { id: "server-bands-light-1440", view: "server", theme: "light", width: 1440, mock: "serverBands" },
+  { id: "server-bands-dark-390", view: "server", theme: "dark", width: 390, mock: "serverBands" },
+  { id: "server-bands-light-390", view: "server", theme: "light", width: 390, mock: "serverBands" },
+  { id: "scope-filter-default-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "openFilter" },
+  { id: "scope-filter-default-light-1440", view: "server", theme: "light", width: 1440, mock: "normal", action: "openFilter" },
+  { id: "scope-filter-expanded-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "expandGroup" },
+  { id: "scope-filter-expanded-390", view: "server", theme: "dark", width: 390, mock: "normal", action: "expandGroup" },
+  { id: "scope-filter-partial-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "indeterminateGroup" },
+  { id: "scope-filter-default-many-1440", view: "server", theme: "dark", width: 1440, mock: "serverMany", action: "openFilter" },
+  { id: "scope-filter-empty-390", view: "server", theme: "dark", width: 390, mock: "normal", action: "emptySelection" },
+  { id: "scope-server-filtered-1440", view: "server", theme: "dark", width: 1440, mock: "normal", servers: SOUTHEAST_ASIA_IDS },
+  { id: "scope-server-filtered-390", view: "server", theme: "dark", width: 390, mock: "normal", servers: SOUTHEAST_ASIA_IDS },
+  { id: "scope-traffic-filtered-1440", view: "traffic", theme: "dark", width: 1440, mock: "normal", servers: SOUTHEAST_ASIA_IDS },
+  { id: "scope-traffic-ready-1440", view: "traffic", theme: "dark", width: 1440, mock: "scopeReady", servers: SOUTHEAST_ASIA_IDS },
+  { id: "scope-cost-filtered-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: SOUTHEAST_ASIA_IDS },
+  { id: "scope-chain-filtered-1440", view: "chain", theme: "dark", width: 1440, mock: "normal", servers: SOUTHEAST_ASIA_IDS },
+  { id: "scope-empty-server-1440", view: "server", theme: "dark", width: 1440, mock: "normal", servers: [] },
+  { id: "scope-empty-traffic-1440", view: "traffic", theme: "dark", width: 1440, mock: "normal", servers: [] },
+  { id: "scope-empty-cost-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: [] },
+  { id: "scope-empty-chain-1440", view: "chain", theme: "dark", width: 1440, mock: "normal", servers: [] },
+  { id: "scope-empty-server-390", view: "server", theme: "dark", width: 390, mock: "normal", servers: [] },
+  { id: "server-filter-open-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "openFilter" },
+  { id: "server-filter-open-390", view: "server", theme: "dark", width: 390, mock: "normal", action: "openFilter" },
+  { id: "server-filter-search-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "searchFilter" },
+  { id: "server-many-1440", view: "server", theme: "dark", width: 1440, mock: "serverMany" },
+  { id: "server-many-all-1440", view: "server", theme: "dark", width: 1440, mock: "serverMany", action: "selectAllServers" },
+  { id: "server-filter-clear-1440", view: "server", theme: "dark", width: 1440, mock: "serverMany", action: "clearServers" },
+  { id: "server-line-filtered-1440", view: "server", theme: "dark", width: 1440, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-sg-01"] },
   { id: "server-resource-memory-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "resourceMemory" },
   { id: "server-resource-empty-1440", view: "server", theme: "dark", width: 1440, mock: "serverResourceEmpty" },
   { id: "server-empty-1440", view: "server", theme: "dark", width: 1440, mock: "serverEmpty" },
@@ -868,6 +1164,11 @@ const SCENARIOS = [
   { id: "chain-dark-390", view: "chain", theme: "dark", width: 390, mock: "normal" },
   { id: "server-en-390", view: "server", theme: "dark", width: 390, mock: "normal", locale: "en" },
   { id: "cost-en-390", view: "cost", theme: "dark", width: 390, mock: "normal", locale: "en" },
+  { id: "cost-fx-open-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", action: "fxOpen", expectedFxRows: 4 },
+  { id: "cost-fx-open-390", view: "cost", theme: "dark", width: 390, mock: "normal", action: "fxOpen", expectedFxRows: 4 },
+  { id: "cost-fx-open-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", action: "fxOpen", expectedFxRows: 4 },
+  { id: "cost-fx-open-light-390", view: "cost", theme: "light", width: 390, mock: "normal", action: "fxOpen", expectedFxRows: 4 },
+  { id: "cost-fx-many-1440", view: "cost", theme: "dark", width: 1440, mock: "costManyCurrencies", servers: "all", action: "fxOpen", expectedFxRows: 10 },
   { id: "cost-manual-1440", view: "cost", theme: "dark", width: 1440, mock: "costManual" },
   { id: "cost-dec-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", clockMs: Date.UTC(2026, 11, 15, 4, 0, 0) },
   { id: "cost-dec-390", view: "cost", theme: "dark", width: 390, mock: "normal", clockMs: Date.UTC(2026, 11, 15, 4, 0, 0) },
@@ -954,9 +1255,13 @@ for (const scenario of activeScenarios) {
   });
   await page.route("**/api/v1/**", (route) => handleApi(route, scenario.mock));
 
-  const url = scenario.view
-    ? `${base}/?view=${scenario.view}`
-    : `${base}/`;
+  const urlParams = new URLSearchParams();
+  if (scenario.view) urlParams.set("view", scenario.view);
+  const explicitServers = scenarioServerIds(scenario);
+  if (explicitServers !== null) {
+    urlParams.set("servers", explicitServers.join(","));
+  }
+  const url = urlParams.size > 0 ? `${base}/?${urlParams.toString()}` : `${base}/`;
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(
     () => document.querySelector("[data-overview-insight-section]") !== null,
@@ -976,12 +1281,70 @@ for (const scenario of activeScenarios) {
     undefined,
     { timeout: 20000 },
   );
-  if (scenario.action === "heatmapMemory") {
+  if (scenario.action === "openFilter") {
+    await page.locator("[data-server-filter-trigger]").click();
+    await page.waitForSelector("[data-server-filter-content]");
+    await page.waitForTimeout(200);
+  }
+  if (scenario.action === "searchFilter") {
+    await page.locator("[data-server-filter-trigger]").click();
+    await page.waitForSelector("[data-server-filter-content]");
+    await page.locator("[data-server-filter-search]").fill("香港");
+    await page.waitForTimeout(200);
+  }
+  if (scenario.action === "selectAllServers") {
+    await page.locator("[data-server-filter-trigger]").click();
+    await page.waitForSelector("[data-server-filter-content]");
+    await page.locator("[data-server-filter-all]").click();
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+  }
+  if (scenario.action === "clearServers") {
+    await page.locator("[data-server-filter-trigger]").click();
+    await page.waitForSelector("[data-server-filter-content]");
+    await page.locator("[data-server-filter-clear]").click();
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
+  }
+  if (scenario.action === "expandGroup") {
+    await page.locator("[data-server-filter-trigger]").click();
+    await page.waitForSelector("[data-server-filter-content]");
     await page
-      .locator("[data-heatmap-card] [data-slot=\"tabs-trigger\"]")
-      .filter({ hasText: "内存" })
+      .locator(
+        `[data-server-filter-group="${scenario.group ?? "group:日本"}"] button`,
+      )
+      .first()
       .click();
     await page.waitForTimeout(200);
+  }
+  if (scenario.action === "indeterminateGroup") {
+    await page.locator("[data-server-filter-trigger]").click();
+    await page.waitForSelector("[data-server-filter-content]");
+    await page
+      .locator(
+        `[data-server-filter-group="${scenario.group ?? "group:香港"}"] button`,
+      )
+      .first()
+      .click();
+    await page.waitForTimeout(200);
+  }
+  if (scenario.action === "emptySelection") {
+    await page.locator("[data-server-filter-trigger]").click();
+    await page.waitForSelector("[data-server-filter-content]");
+    await page.locator("[data-server-filter-clear]").click();
+    await page.waitForTimeout(200);
+  }
+  if (scenario.action === "selectGroup") {
+    await page.locator("[data-server-filter-trigger]").click();
+    await page.waitForSelector("[data-server-filter-content]");
+    await page
+      .locator(
+        `[data-server-filter-group="${scenario.group ?? "group:东南亚"}"] [data-slot="checkbox"]`,
+      )
+      .first()
+      .click();
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(250);
   }
   if (scenario.action === "resourceMemory") {
     await page
@@ -990,11 +1353,10 @@ for (const scenario of activeScenarios) {
       .click();
     await page.waitForTimeout(250);
   }
-  if (scenario.action === "resourceFilter") {
-    await page.locator("[data-resource-filter]").click();
-    const chips = page.locator("[data-resource-chip]");
-    if ((await chips.count()) > 1) await chips.nth(1).click();
-    await page.waitForTimeout(200);
+  if (scenario.action === "fxOpen") {
+    await page.locator("[data-cost-fx-trigger]").click();
+    await page.waitForSelector("[data-fx-popover]");
+    await page.waitForTimeout(250);
   }
   await page.evaluate(() => document.fonts?.ready);
   await page.waitForTimeout(250);
@@ -1112,6 +1474,141 @@ for (const scenario of activeScenarios) {
         const rect = element.getBoundingClientRect();
         return { width: rect.width, height: rect.height };
       })(),
+      selectedText:
+        document
+          .querySelector("[data-server-filter-trigger]")
+          ?.textContent?.trim() ?? null,
+      search: window.location.search,
+      filterLayout: (() => {
+        const tabs = document.querySelector("[data-overview-view-tabs]");
+        const trigger = document.querySelector("[data-server-filter-trigger]");
+        if (!tabs || !trigger) return null;
+        const tabsRect = tabs.getBoundingClientRect();
+        const filterRect = trigger.getBoundingClientRect();
+        return {
+          tabsTop: tabsRect.top,
+          tabsBottom: tabsRect.bottom,
+          tabsRight: tabsRect.right,
+          filterTop: filterRect.top,
+          filterRight: filterRect.right,
+          sameRow: Math.abs(filterRect.top - tabsRect.top) < 8,
+        };
+      })(),
+      kpiValues: [...document.querySelectorAll("[data-kpi-value]")].map(
+        (node) => node.textContent?.trim() ?? "",
+      ),
+      kpiLabels: [...document.querySelectorAll("[data-kpi-label]")].map(
+        (node) => node.textContent?.trim() ?? "",
+      ),
+      globalLabels: [...document.querySelectorAll("[data-kpi-global]")].map(
+        (node) => node.textContent?.trim() ?? "",
+      ),
+      hasEmptyState: Boolean(
+        document.querySelector(
+          '[data-overview-insight-section] [data-slot="empty-state"]',
+        ),
+      ),
+      trafficWarning: Boolean(
+        document.querySelector("[data-traffic-scope-warning]"),
+      ),
+      filterTree: (() => {
+        const content = document.querySelector("[data-server-filter-content]");
+        if (!content) return null;
+        const rect = content.getBoundingClientRect();
+        const groups = [
+          ...content.querySelectorAll("[data-server-filter-group]"),
+        ].map((row) => ({
+          key: row.getAttribute("data-server-filter-group"),
+          expanded: row.getAttribute("aria-expanded"),
+          state:
+            row
+              .querySelector('[data-slot="checkbox"]')
+              ?.getAttribute("data-state") ?? null,
+        }));
+        return {
+          modeTabs: content.querySelectorAll("[data-server-filter-mode]")
+            .length,
+          groups,
+          serverRows: content.querySelectorAll("[data-server-filter-item]")
+            .length,
+          defaultHint: Boolean(
+            content.querySelector("[data-server-filter-default-hint]"),
+          ),
+          rect: {
+            top: rect.top,
+            bottom: rect.bottom,
+            left: rect.left,
+            right: rect.right,
+            height: rect.height,
+          },
+        };
+      })(),
+      heatmapRows: document.querySelectorAll("[data-heatmap-row]").length,
+      heatmapTabs: document.querySelectorAll(
+        '[data-heatmap-card] [data-slot="tabs-trigger"]',
+      ).length,
+      heatmapRowScroll: (() => {
+        const element = document.querySelector("[data-heatmap-row-scroll]");
+        if (!element) return null;
+        return {
+          scrollHeight: element.scrollHeight,
+          clientHeight: element.clientHeight,
+          scrollable: element.scrollHeight > element.clientHeight + 1,
+        };
+      })(),
+      heatmapStepColors: [0, 1, 2, 3, 4].map((step) => {
+        const cell = document.querySelector(
+          `[data-heatmap-cell][data-step="${step}"]`,
+        );
+        return cell ? getComputedStyle(cell).backgroundColor : null;
+      }),
+      lineSeries: document.querySelectorAll(
+        "[data-resource-chart] .recharts-line",
+      ).length,
+      areaSeries: document.querySelectorAll(
+        "[data-resource-chart] .recharts-area",
+      ).length,
+      fx: (() => {
+        const popover = document.querySelector("[data-fx-popover]");
+        const list = document.querySelector("[data-fx-list]");
+        const rect = popover?.getBoundingClientRect();
+        const rows = [...document.querySelectorAll("[data-fx-row]")];
+        return {
+          defaultText:
+            document
+              .querySelector("[data-cost-fx]")
+              ?.textContent?.trim() ?? null,
+          popoverOpen: Boolean(popover),
+          rows: rows.length,
+          rowTexts: rows.map((row) => row.textContent?.trim() ?? ""),
+          unknownText:
+            document
+              .querySelector("[data-fx-unknown]")
+              ?.textContent?.trim() ?? null,
+          footerText:
+            document
+              .querySelector("[data-fx-footer]")
+              ?.textContent?.trim() ?? null,
+          rect: rect
+            ? {
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                bottom: rect.bottom,
+                width: rect.width,
+                height: rect.height,
+              }
+            : null,
+          list: list
+            ? {
+                scrollHeight: list.scrollHeight,
+                clientHeight: list.clientHeight,
+                scrollable: list.scrollHeight > list.clientHeight + 1,
+              }
+            : null,
+          bodyHasRateLine: document.body.innerText.includes("1 USD ="),
+        };
+      })(),
       costCalendar: costCalendar
         ? {
             cellWidth: costRect?.width ?? null,
@@ -1200,7 +1697,156 @@ for (const scenario of activeScenarios) {
     };
   });
 
-  if (scenario.mock === "normal") {
+  if (scenario.mock === "normal" || scenario.mock === "scopeReady") {
+    if (metrics.globalLabels.length !== 2) {
+      errors.push(
+        `${scenario.id}: global KPI annotations ${JSON.stringify(metrics.globalLabels)} != 2`,
+      );
+    }
+    if (metrics.filterLayout) {
+      if (scenario.width >= 768 && !metrics.filterLayout.sameRow) {
+        errors.push(`${scenario.id}: filter is not on the tab row`);
+      }
+      if (
+        scenario.width >= 768 &&
+        metrics.filterLayout.filterRight - metrics.filterLayout.tabsRight > 320
+      ) {
+        errors.push(`${scenario.id}: filter drifted away from the tabs`);
+      }
+      if (
+        scenario.width < 768 &&
+        metrics.filterLayout.filterTop <= metrics.filterLayout.tabsBottom
+      ) {
+        errors.push(`${scenario.id}: mobile filter should wrap below tabs`);
+      }
+    }
+    if (metrics.filterTree) {
+      if (metrics.filterTree.modeTabs !== 0) {
+        errors.push(`${scenario.id}: three-mode selector still present`);
+      }
+      const rect = metrics.filterTree.rect;
+      if (rect.bottom > metrics.viewportHeight + 1 || rect.top < -1) {
+        errors.push(
+          `${scenario.id}: filter popover overflows viewport ${JSON.stringify(rect)}`,
+        );
+      }
+      if (rect.right > metrics.viewportWidth + 1 || rect.left < -1) {
+        errors.push(`${scenario.id}: filter popover horizontal overflow`);
+      }
+      if (rect.height > 470) {
+        errors.push(`${scenario.id}: filter popover too tall ${rect.height}`);
+      }
+      if (
+        ["openFilter", "expandGroup", "indeterminateGroup", "emptySelection"].includes(
+          scenario.action ?? "",
+        ) &&
+        metrics.filterTree.groups.length === 0
+      ) {
+        errors.push(`${scenario.id}: filter tree has no groups`);
+      }
+      if (scenario.action === "openFilter") {
+        if (metrics.filterTree.serverRows !== 0) {
+          errors.push(
+            `${scenario.id}: collapsed tree shows ${metrics.filterTree.serverRows} servers`,
+          );
+        }
+      }
+      if (scenario.action === "expandGroup") {
+        if (metrics.filterTree.serverRows === 0) {
+          errors.push(`${scenario.id}: expanded group shows no servers`);
+        }
+        if (
+          !metrics.filterTree.groups.some((group) => group.expanded === "true")
+        ) {
+          errors.push(`${scenario.id}: no group expanded`);
+        }
+      }
+      if (scenario.action === "searchFilter") {
+        if (metrics.filterTree.serverRows === 0) {
+          errors.push(`${scenario.id}: search did not expand matching group`);
+        }
+      }
+      if (scenario.action === "indeterminateGroup") {
+        if (
+          !metrics.filterTree.groups.some(
+            (group) => group.state === "indeterminate",
+          )
+        ) {
+          errors.push(`${scenario.id}: no indeterminate group`);
+        }
+      }
+      if (scenario.action === "emptySelection") {
+        if (
+          metrics.filterTree.groups.some(
+            (group) =>
+              group.state === "checked" || group.state === "indeterminate",
+          )
+        ) {
+          errors.push(`${scenario.id}: cleared groups still checked`);
+        }
+      }
+      if (
+        scenario.id === "scope-filter-default-many-1440" &&
+        !metrics.filterTree.defaultHint
+      ) {
+        errors.push(`${scenario.id}: missing problem-first default hint`);
+      }
+    }
+  }
+  if (explicitServers !== null) {
+    if (!metrics.search.includes("servers=")) {
+      errors.push(`${scenario.id}: URL missing servers= (${metrics.search})`);
+    }
+    if (explicitServers.length === 0) {
+      if (metrics.metrics.length !== 0) {
+        errors.push(
+          `${scenario.id}: empty selection still renders ${metrics.metrics.length} KPIs`,
+        );
+      }
+      if (!metrics.hasEmptyState) {
+        errors.push(`${scenario.id}: empty selection missing empty state`);
+      }
+      if (metrics.kpiValues[0] !== "—" || metrics.kpiValues[3] !== "—") {
+        errors.push(
+          `${scenario.id}: empty selection KPI ${JSON.stringify(metrics.kpiValues)} should be —`,
+        );
+      }
+    }
+  }
+  if (
+    (scenario.action === "selectGroup" ||
+      scenario.action === "selectAllServers" ||
+      false) &&
+    !metrics.search.includes("servers=")
+  ) {
+    errors.push(`${scenario.id}: selection not written to URL`);
+  }
+  if (
+    scenario.id === "scope-traffic-filtered-1440" &&
+    !metrics.trafficWarning
+  ) {
+    errors.push(`${scenario.id}: missing needs-newer-controller warning`);
+  }
+  if (scenario.id === "scope-traffic-ready-1440") {
+    if (metrics.trafficWarning) {
+      errors.push(`${scenario.id}: scope-ready response should not warn`);
+    }
+    if (
+      metrics.kpiValues[3] === "—" ||
+      metrics.kpiValues[3]?.startsWith("32")
+    ) {
+      errors.push(
+        `${scenario.id}: filtered traffic KPI ${metrics.kpiValues[3]} still global`,
+      );
+    }
+  }
+  if (scenario.id === "scope-chain-filtered-1440" && metrics.metrics.length !== 3) {
+    errors.push(
+      `${scenario.id}: chain KPIs ${metrics.metrics.length} != 3`,
+    );
+  }
+
+  if (scenario.mock === "normal" && explicitServers?.length !== 0) {
     const view = scenario.view ?? "server";
     const expectedApi = EXPECTED_API[view];
     const paths = new Set(apiPaths);
@@ -1217,7 +1863,9 @@ for (const scenario of activeScenarios) {
   }
   if (
     (scenario.mock === "normal" || scenario.mock === "costManual") &&
-    (scenario.locale ?? "zh-CN") === "zh-CN"
+    (scenario.locale ?? "zh-CN") === "zh-CN" &&
+    explicitServers === null &&
+    !metrics.hasEmptyState
   ) {
     const view = scenario.view ?? "server";
     const expected = EXPECTED_CARD_TITLES[view];
@@ -1228,6 +1876,136 @@ for (const scenario of activeScenarios) {
       errors.push(
         `${scenario.id}: card titles ${JSON.stringify(metrics.cardTitles)} != ${JSON.stringify(expected)}`,
       );
+    }
+  }
+
+  if (
+    (scenario.view ?? "server") === "server" &&
+    scenario.mock === "normal" &&
+    !["openFilter", "expandGroup", "indeterminateGroup", "emptySelection"].includes(
+      scenario.action ?? "",
+    ) &&
+    explicitServers?.length !== 0
+  ) {
+    const selected = Number(
+      metrics.selectedText?.match(/(\d+)\//)?.[1] ?? Number.NaN,
+    );
+    if (!Number.isFinite(selected) || selected > 8) {
+      errors.push(
+        `${scenario.id}: default selected ${selected} > 8 (${metrics.selectedText})`,
+      );
+    }
+    if (metrics.heatmapTabs !== 0) {
+      errors.push(
+        `${scenario.id}: heatmap still has ${metrics.heatmapTabs} metric tabs`,
+      );
+    }
+    if (metrics.heatmapRows !== selected) {
+      errors.push(
+        `${scenario.id}: heatmap rows ${metrics.heatmapRows} != selected ${selected}`,
+      );
+    }
+    if (metrics.lineSeries > 5) {
+      errors.push(
+        `${scenario.id}: line chart defaults to ${metrics.lineSeries} series`,
+      );
+    }
+  }
+  if (metrics.areaSeries !== 0) {
+    errors.push(`${scenario.id}: resource chart still renders area series`);
+  }
+  if (scenario.mock === "serverBands") {
+    if (metrics.heatmapRows !== 7) {
+      errors.push(`${scenario.id}: band rows ${metrics.heatmapRows} != 7`);
+    }
+    const colors = metrics.heatmapStepColors.filter(Boolean);
+    if (colors.length !== 5 || new Set(colors).size !== 5) {
+      errors.push(
+        `${scenario.id}: 5 band colors missing (${JSON.stringify(colors)})`,
+      );
+    }
+    const lightness = colors.map((color) =>
+      Number(color.match(/oklab\(([\d.]+)/)?.[1] ?? Number.NaN),
+    );
+    if (
+      lightness.some(
+        (value, index) =>
+          !Number.isFinite(value) ||
+          (index > 0 && value >= lightness[index - 1]),
+      )
+    ) {
+      errors.push(
+        `${scenario.id}: band lightness is not increasing (${lightness})`,
+      );
+    }
+  }
+  if (scenario.mock === "serverMany" && scenario.action === undefined) {
+    if (metrics.heatmapRows !== 8) {
+      errors.push(`${scenario.id}: many default rows ${metrics.heatmapRows} != 8`);
+    }
+    if (!metrics.selectedText?.includes("已选 8/40")) {
+      errors.push(`${scenario.id}: many default count ${metrics.selectedText}`);
+    }
+  }
+  if (scenario.mock === "serverMany" && scenario.action === "selectAllServers") {
+    if (metrics.heatmapRows !== 40) {
+      errors.push(`${scenario.id}: all-selected rows ${metrics.heatmapRows} != 40`);
+    }
+    if (!metrics.heatmapRowScroll?.scrollable) {
+      errors.push(`${scenario.id}: heatmap should scroll with 40 rows`);
+    }
+  }
+  if (scenario.mock === "serverMany" && scenario.action === "clearServers") {
+    if (metrics.heatmapRows !== 0) {
+      errors.push(`${scenario.id}: cleared rows ${metrics.heatmapRows} != 0`);
+    }
+    if (metrics.selectedText?.includes("已选 0/40") !== true) {
+      errors.push(`${scenario.id}: clear count ${metrics.selectedText}`);
+    }
+  }
+  if (
+    (scenario.view ?? null) === "cost" &&
+    scenario.mock === "normal" &&
+    scenario.action !== "fxOpen" &&
+    explicitServers?.length !== 0
+  ) {
+    if (metrics.fx.popoverOpen) {
+      errors.push(`${scenario.id}: FX popover open by default`);
+    }
+    const shortFx =
+      (scenario.locale ?? "zh-CN") === "en"
+        ? "Converted to CNY at FX rates"
+        : "按汇率折算为 CNY";
+    if (!metrics.fx.defaultText?.includes(shortFx)) {
+      errors.push(`${scenario.id}: missing short FX sentence`);
+    }
+    if (metrics.fx.bodyHasRateLine) {
+      errors.push(`${scenario.id}: full FX rate line visible by default`);
+    }
+  }
+  if (scenario.action === "fxOpen") {
+    if (!metrics.fx.popoverOpen) {
+      errors.push(`${scenario.id}: FX popover did not open`);
+    }
+    if (metrics.fx.rows !== scenario.expectedFxRows) {
+      errors.push(
+        `${scenario.id}: FX rows ${metrics.fx.rows} != ${scenario.expectedFxRows}`,
+      );
+    }
+    if (metrics.fx.rect && metrics.fx.rect.right > metrics.viewportWidth + 1) {
+      errors.push(`${scenario.id}: FX popover overflows viewport`);
+    }
+    if (metrics.fx.rect && metrics.fx.rect.left < -1) {
+      errors.push(`${scenario.id}: FX popover left overflow`);
+    }
+    if (scenario.mock === "normal" && !metrics.fx.unknownText) {
+      errors.push(`${scenario.id}: missing unknown-currency warning`);
+    }
+    if (
+      scenario.mock === "costManyCurrencies" &&
+      !metrics.fx.list?.scrollable
+    ) {
+      errors.push(`${scenario.id}: FX list should scroll with many currencies`);
     }
   }
 
@@ -1261,6 +2039,9 @@ for (const scenario of activeScenarios) {
   await page.close();
 }
 
+if (process.env.APP_SHOTS_SKIP_URL === "1") {
+  report.urlBehavior = null;
+} else {
 // 运行时断言：默认 tab、?view= 写入/清除、切换不整页刷新。
 const urlPage = await browser.newPage({
   viewport: { width: 1440, height: 900 },
@@ -1295,7 +2076,7 @@ const urlBehavior = {
 await urlPage.evaluate(() => {
   window.__spaMarker = "kept";
 });
-await urlPage.getByRole("tab", { name: /成本开销/ }).click();
+await urlPage.getByRole("tab", { name: /成本开支/ }).click();
 await urlPage.waitForFunction(
   () =>
     location.search === "?view=cost" &&
@@ -1303,7 +2084,7 @@ await urlPage.waitForFunction(
       .querySelector(
         '[data-overview-view-tabs] [data-slot="tabs-trigger"][aria-selected="true"]',
       )
-      ?.textContent?.includes("成本开销"),
+      ?.textContent?.includes("成本开支"),
 );
 urlBehavior.costSearch = await urlPage.evaluate(() => location.search);
 urlBehavior.costSelected = await urlPage.evaluate(
@@ -1317,7 +2098,7 @@ urlBehavior.costSelected = await urlPage.evaluate(
 urlBehavior.sameDocument = await urlPage.evaluate(
   () => window.__spaMarker === "kept",
 );
-await urlPage.getByRole("tab", { name: /服务器状态/ }).click();
+await urlPage.getByRole("tab", { name: /资源状态/ }).click();
 await urlPage.waitForFunction(
   () =>
     location.search === "" &&
@@ -1325,7 +2106,7 @@ await urlPage.waitForFunction(
       .querySelector(
         '[data-overview-view-tabs] [data-slot="tabs-trigger"][aria-selected="true"]',
       )
-      ?.textContent?.includes("服务器状态"),
+      ?.textContent?.includes("资源状态"),
 );
 urlBehavior.serverSearch = await urlPage.evaluate(() => location.search);
 urlBehavior.serverSelected = await urlPage.evaluate(
@@ -1339,9 +2120,224 @@ urlBehavior.serverSelected = await urlPage.evaluate(
 urlBehavior.sameDocumentAfterReturn = await urlPage.evaluate(
   () => window.__spaMarker === "kept",
 );
+
+// 空选时四个 tab 都走空态，顶部 KPI 不把缺失数据画成 0。
+await urlPage.locator("[data-server-filter-trigger]").click();
+await urlPage.waitForSelector("[data-server-filter-content]");
+await urlPage.locator("[data-server-filter-clear]").click();
+await urlPage.keyboard.press("Escape");
+await urlPage.waitForFunction(
+  () =>
+    new URLSearchParams(location.search).has("servers") &&
+    new URLSearchParams(location.search).get("servers") === "" &&
+    document
+      .querySelector("[data-server-filter-trigger]")
+      ?.textContent?.includes("已选 0/") &&
+    document.querySelector("[data-kpi-value]")?.textContent?.trim() === "—",
+);
+urlBehavior.emptySearch = await urlPage.evaluate(() => location.search);
+urlBehavior.emptyKpis = await urlPage.evaluate(() =>
+  [...document.querySelectorAll("[data-kpi-value]")].map(
+    (node) => node.textContent?.trim() ?? "",
+  ),
+);
+urlBehavior.emptyViews = {};
+for (const [tab, view] of [
+  ["资源状态", "server"],
+  ["流量趋势", "traffic"],
+  ["成本开支", "cost"],
+  ["链路时延", "chain"],
+]) {
+  await urlPage.getByRole("tab", { name: tab }).click();
+  await urlPage.waitForTimeout(200);
+  await urlPage.waitForFunction(
+    (next) => {
+      const search = new URLSearchParams(location.search);
+      return (
+        (next === null || search.get("view") === next) &&
+        search.get("servers") === "" &&
+        Boolean(
+          document.querySelector(
+            '[data-overview-insight-section] [data-slot="empty-state"]',
+          ),
+        )
+      );
+    },
+    view === "server" ? null : view,
+  );
+  urlBehavior.emptyViews[view] = await urlPage.evaluate(() => ({
+    search: location.search,
+    emptyState: Boolean(
+      document.querySelector(
+        '[data-overview-insight-section] [data-slot="empty-state"]',
+      ),
+    ),
+    insightMetrics: document.querySelectorAll("[data-insight-metric]").length,
+  }));
+}
+for (const [view, state] of Object.entries(urlBehavior.emptyViews)) {
+  if (!state.emptyState || state.insightMetrics !== 0) {
+    errors.push(`urlBehavior: ${view} empty state missing`);
+  }
+}
+if (urlBehavior.emptyKpis[0] !== "—" || urlBehavior.emptyKpis[3] !== "—") {
+  errors.push(
+    `urlBehavior: empty KPI ${JSON.stringify(urlBehavior.emptyKpis)} should hide 0`,
+  );
+}
+
+// 组复选框选中整组；取消组内一台后变成半选。
+await urlPage.locator("[data-server-filter-trigger]").click();
+await urlPage.waitForSelector("[data-server-filter-content]");
+const japanRow = urlPage.locator(
+  '[data-server-filter-group="group:日本"]',
+);
+await japanRow.locator('[data-slot="checkbox"]').click();
+await urlPage.waitForFunction(
+  () =>
+    new URLSearchParams(location.search)
+      .get("servers")
+      ?.includes("srv-tokyo-01") &&
+    document
+      .querySelector("[data-server-filter-trigger]")
+      ?.textContent?.includes("已选 3/12"),
+);
+urlBehavior.groupToggleSearch = await urlPage.evaluate(() => location.search);
+await japanRow.locator("button").first().click();
+const japanServers = urlPage.locator(
+  '[data-server-filter-section]:has([data-server-filter-group="group:日本"]) [data-server-filter-item]',
+);
+await japanServers.first().locator('[data-slot="checkbox"]').click();
+await urlPage.waitForFunction(
+  () =>
+    document
+      .querySelector(
+        '[data-server-filter-group="group:日本"] [data-slot="checkbox"]',
+      )
+      ?.getAttribute("data-state") === "indeterminate" &&
+    document
+      .querySelector("[data-server-filter-trigger]")
+      ?.textContent?.includes("已选 2/12"),
+);
+urlBehavior.partialState = await urlPage.evaluate(() =>
+  document
+    .querySelector(
+      '[data-server-filter-group="group:日本"] [data-slot="checkbox"]',
+    )
+    ?.getAttribute("data-state"),
+);
+await urlPage.locator("[data-server-filter-clear]").click();
+await urlPage.waitForFunction(
+  () =>
+    document
+      .querySelector("[data-server-filter-trigger]")
+      ?.textContent?.includes("已选 0/12"),
+);
+
+// 键盘：焦点在搜索框时 ↓ 进入第一组，空格勾选整组，再按一次取消。
+await urlPage.locator("[data-server-filter-search]").focus();
+await urlPage.keyboard.press("ArrowDown");
+urlBehavior.keyboardFocus = await urlPage.evaluate(() =>
+  document.activeElement?.getAttribute("data-server-filter-group"),
+);
+await urlPage.keyboard.press(" ");
+await urlPage.waitForFunction(
+  () =>
+    new URLSearchParams(location.search)
+      .get("servers")
+      ?.includes("srv-us-01") &&
+    document
+      .querySelector("[data-server-filter-trigger]")
+      ?.textContent?.includes("已选 1/12"),
+);
+urlBehavior.keyboardSearch = await urlPage.evaluate(() => location.search);
+await urlPage
+  .locator('[data-server-filter-group="group:北美"]')
+  .focus();
+await urlPage.keyboard.press(" ");
+await urlPage.waitForFunction(
+  () =>
+    document
+      .querySelector("[data-server-filter-trigger]")
+      ?.textContent?.includes("已选 0/12"),
+);
+await urlPage.keyboard.press("Escape");
+await urlPage.waitForFunction(
+  () => document.querySelector("[data-server-filter-content]") === null,
+);
+urlBehavior.keyboardEscape = await urlPage.evaluate(
+  () => document.querySelector("[data-server-filter-content]") === null,
+);
+
+// 选一个分组 → URL 带 servers= → 切 tab 仍保留同一选择。
+await urlPage.locator("[data-server-filter-trigger]").click();
+await urlPage.waitForSelector("[data-server-filter-content]");
+await urlPage
+  .locator(
+    '[data-server-filter-group="group:东南亚"] [data-slot="checkbox"]',
+  )
+  .first()
+  .click();
+await urlPage.keyboard.press("Escape");
+await urlPage.waitForFunction(
+  () =>
+    new URLSearchParams(location.search)
+      .get("servers")
+      ?.includes("srv-sg-01") &&
+    document
+      .querySelector("[data-server-filter-trigger]")
+      ?.textContent?.includes("已选 2/12"),
+);
+urlBehavior.groupSearch = await urlPage.evaluate(() => location.search);
+urlBehavior.groupSelected = await urlPage.evaluate(
+  () =>
+    document.querySelector("[data-server-filter-trigger]")?.textContent?.trim() ??
+    null,
+);
+await urlPage.getByRole("tab", { name: /成本开支/ }).click();
+await urlPage.waitForFunction(
+  () =>
+    location.search.includes("view=cost") &&
+    new URLSearchParams(location.search).get("servers")?.includes("srv-sg-01") &&
+    document
+      .querySelector("[data-server-filter-trigger]")
+      ?.textContent?.includes("已选 2/12"),
+);
+urlBehavior.costKeepsServers = await urlPage.evaluate(() => location.search);
+urlBehavior.costSelected = await urlPage.evaluate(
+  () =>
+    document.querySelector("[data-server-filter-trigger]")?.textContent?.trim() ??
+    null,
+);
+urlBehavior.sameDocumentAfterFilter = await urlPage.evaluate(
+  () => window.__spaMarker === "kept",
+);
+if (urlBehavior.groupSelected !== urlBehavior.costSelected) {
+  errors.push(
+    `urlBehavior: selection lost across tabs (${urlBehavior.groupSelected} -> ${urlBehavior.costSelected})`,
+  );
+}
+if (urlBehavior.partialState !== "indeterminate") {
+  errors.push(`urlBehavior: group half-state ${urlBehavior.partialState}`);
+}
+if (urlBehavior.keyboardFocus !== "group:北美") {
+  errors.push(`urlBehavior: keyboard focus ${urlBehavior.keyboardFocus}`);
+}
+if (!urlBehavior.keyboardEscape) {
+  errors.push("urlBehavior: Escape did not close the filter");
+}
+if (
+  !urlBehavior.groupToggleSearch?.includes("srv-tokyo-01") ||
+  !urlBehavior.groupToggleSearch?.includes("srv-osaka-01")
+) {
+  errors.push(
+    `urlBehavior: group checkbox did not select children (${urlBehavior.groupToggleSearch})`,
+  );
+}
 await urlPage.close();
 report.urlBehavior = urlBehavior;
 
+}
 await browser.close();
 await new Promise((resolvePromise) => server.close(resolvePromise));
 

@@ -15,25 +15,10 @@ import { ApiError } from "./apiError.ts";
  * 所有计算都不依赖 React / DOM / i18n，便于单测。
  */
 
-/** 热力图指标；顺序即切换控件的顺序。 */
-export const HEATMAP_METRICS = ["uptime", "load", "memory", "disk"] as const;
-export type HeatmapMetric = (typeof HEATMAP_METRICS)[number];
-
-export function isHeatmapMetric(value: unknown): value is HeatmapMetric {
-  return (
-    typeof value === "string" &&
-    (HEATMAP_METRICS as readonly string[]).includes(value)
-  );
-}
-
-export function resolveHeatmapMetric(value: unknown): HeatmapMetric {
-  return isHeatmapMetric(value) ? value : "uptime";
-}
-
-/** 热力图格子的非数值状态；有采样时用 0–4 的色阶。 */
+/** 热力图格子的非数值状态；在线率有采样时用 0–4 的色阶。 */
 export type HeatmapCellState = "sample" | "offline" | "nosample";
 
-/** 颜色阶数：0 = 最好（主色最浅），4 = 最差（主色最深）。 */
+/** 颜色阶数：0 = 在线率最低（最浅），4 = 在线率最高（最深）。 */
 export const HEATMAP_STEP_COUNT = 5;
 
 /** 「当前资源」面积图可切换的指标。 */
@@ -132,9 +117,9 @@ export interface HeatmapColumn {
 
 export interface HeatmapCell {
   state: HeatmapCellState;
-  /** 0–4；无采样 / 离线时为 null。 */
+  /** 0 = 在线率最低（浅），4 = 在线率最高（深）；无采样 / 离线时为 null。 */
   step: number | null;
-  /** 当前指标值：在线率 / 负载 / 内存比 / 硬盘比。 */
+  /** 桶内在线率 0..1。 */
   value: number | null;
   bucket: ServerHealthBucket | null;
 }
@@ -355,69 +340,21 @@ function ratioOf(used: number | null, total: number | null): number | null {
   return Math.max(0, Math.min(1, used / total));
 }
 
-function bucketMetricValue(
-  bucket: ServerHealthBucket,
-  metric: HeatmapMetric,
-): number | null {
-  switch (metric) {
-    case "uptime":
-      return bucket.onlineRatio;
-    case "load":
-      return bucket.load1 ?? bucket.load1Max;
-    case "memory":
-      return bucket.memRatio;
-    case "disk":
-      return bucket.diskRatio;
-    default:
-      return null;
-  }
-}
-
 /**
- * 指标值 → 0–4 的色阶（0 = 最好 / 最浅，4 = 最差 / 最深）。
+ * 在线率 → 0–4 的色阶。**数字越大 = 在线率越高 = 颜色越深**。
  *
- * 负载没有 CPU 核数，按 8 核满载近似（`load1 / 8`），图注与 tooltip 会说明；
- * 内存 / 硬盘直接用 0..1 的占用比。阈值只影响颜色，不改变 tooltip 里的原值。
+ * 0: <90% / 1: 90–95% / 2: 95–97% / 3: 97–99% / 4: ≥99%
  */
-export function heatmapStep(
-  metric: HeatmapMetric,
-  value: number | null,
-): number | null {
+export function uptimeHeatmapStep(value: number | null): number | null {
   if (value === null || !Number.isFinite(value)) return null;
-
-  switch (metric) {
-    case "uptime":
-      if (value >= 0.99) return 0;
-      if (value >= 0.97) return 1;
-      if (value >= 0.95) return 2;
-      if (value >= 0.9) return 3;
-      return 4;
-    case "load": {
-      const ratio = Math.min(Math.max(value / RESOURCE_LOAD_APPROX_CORES, 0), 1);
-      if (ratio < 0.125) return 0;
-      if (ratio < 0.25) return 1;
-      if (ratio < 0.5) return 2;
-      if (ratio < 0.75) return 3;
-      return 4;
-    }
-    case "memory":
-      if (value < 0.5) return 0;
-      if (value < 0.65) return 1;
-      if (value < 0.8) return 2;
-      if (value < 0.9) return 3;
-      return 4;
-    case "disk":
-      if (value < 0.5) return 0;
-      if (value < 0.7) return 1;
-      if (value < 0.8) return 2;
-      if (value < 0.9) return 3;
-      return 4;
-    default:
-      return null;
-  }
+  if (value >= 0.99) return 4;
+  if (value >= 0.97) return 3;
+  if (value >= 0.95) return 2;
+  if (value >= 0.9) return 1;
+  return 0;
 }
 
-/** 资源面积图 / 当前资源排序用的原值（负载为 load1，其余为 0..1）。 */
+/** 资源图 / 当前资源排序用的原值（负载为 load1，其余为 0..1）。 */
 export function resourceBucketValue(
   bucket: ServerHealthBucket | null,
   metric: ResourceMetric,
@@ -435,7 +372,7 @@ export function resourceBucketValue(
   }
 }
 
-/** 资源值 → 面积图 y 轴百分比：负载按 8 核近似，内存 / 硬盘直接乘 100。 */
+/** 资源值 → 折线图 y 轴百分比：负载按 8 核近似，内存 / 硬盘直接乘 100。 */
 export function resourcePercent(
   metric: ResourceMetric,
   value: number | null,
@@ -468,26 +405,30 @@ export function bucketAt(
   return best && bestDistance <= tolerance ? best : null;
 }
 
-/** 单个格子的状态：无采样 / 离线 / 有采样（带 0–4 色阶）。 */
+/** 单个格子的状态：无采样 / 离线 / 在线率（0 最浅，4 最深）。 */
 export function heatmapCell(
   server: ServerHealthServer,
   ts: number,
-  metric: HeatmapMetric,
   stepSecs: number,
 ): HeatmapCell {
   const bucket = bucketAt(server, ts, stepSecs);
-  if (!bucket || bucket.samples <= 0) {
+  if (!bucket || bucket.samples <= 0 || bucket.onlineRatio === null) {
     return { state: "nosample", step: null, value: null, bucket };
   }
-  const value = bucketMetricValue(bucket, metric);
-  // 离线优先于指标值：切到负载/内存/硬盘时，离线小时仍然保留独立纹理。
-  if (bucket.onlineRatio !== null && bucket.onlineRatio <= 0) {
-    return { state: "offline", step: null, value, bucket };
+  if (bucket.onlineRatio <= 0) {
+    return {
+      state: "offline",
+      step: null,
+      value: bucket.onlineRatio,
+      bucket,
+    };
   }
-  if (value === null) {
-    return { state: "nosample", step: null, value: null, bucket };
-  }
-  return { state: "sample", step: heatmapStep(metric, value), value, bucket };
+  return {
+    state: "sample",
+    step: uptimeHeatmapStep(bucket.onlineRatio),
+    value: bucket.onlineRatio,
+    bucket,
+  };
 }
 
 /** 生成连续的桶时间列；缺桶由 [`heatmapCell`] 画成无采样。 */
@@ -828,6 +769,33 @@ export function normalizeServerHealth(
     : { status: "ok", snapshot };
 }
 
+/**
+ * 按概览级筛选缩小快照：只保留选中服务器，并用同一套口径重算汇总。
+ *
+ * 后端返回的 `summary` 是全量口径，不能直接拿来当筛选后的 KPI；
+ * 这里丢掉原 summary，用剩下的服务器重新算在线率 / 异常台数 / 磁盘最高。
+ * 未发生筛选（选中集合等于全部）时原样返回，避免无谓重算。
+ */
+export function scopeServerHealthSnapshot(
+  snapshot: ServerHealthSnapshot,
+  serverIds: readonly string[],
+): ServerHealthSnapshot {
+  const selected = new Set(serverIds);
+  if (
+    snapshot.servers.length === serverIds.length &&
+    snapshot.servers.every((server) => selected.has(server.id))
+  ) {
+    return snapshot;
+  }
+
+  const servers = snapshot.servers.filter((server) => selected.has(server.id));
+  return buildSnapshot(servers, {
+    hours: snapshot.window.hours,
+    bucket: snapshot.window.bucketSecs,
+    generated_at: snapshot.window.generatedAt ?? undefined,
+  });
+}
+
 /** 单台服务器某个资源指标的当前值：优先 current，缺失时回落到最后一个桶。 */
 export function currentResourceValue(
   server: ServerHealthServer,
@@ -852,6 +820,49 @@ export function currentResourceValue(
     default:
       return null;
   }
+}
+
+/** 默认热力图/折线图最多显示的服务器数量。 */
+export const DEFAULT_SERVER_SELECTION_LIMIT = 8;
+
+/**
+ * 默认筛选：离线 / 当前资源超阈值优先，其余按名称补足，最多 `limit` 台。
+ * 这样几十台服务器时首屏先看到有问题的，而不是随机的前 8 台。
+ */
+export function defaultServerSelection(
+  snapshot: ServerHealthSnapshot,
+  limit = DEFAULT_SERVER_SELECTION_LIMIT,
+): string[] {
+  const max = Math.max(0, Math.floor(limit));
+  if (max === 0) return [];
+
+  const ranked = snapshot.servers.map((server) => {
+    const offline =
+      server.status === "offline" ||
+      server.buckets.some(
+        (bucket) =>
+          bucket.onlineRatio !== null && bucket.onlineRatio <= 0,
+      );
+    const resourceIssue = server.buckets.some(
+      (bucket) =>
+        (bucket.load1 ?? bucket.load1Max ?? 0) >=
+          SERVER_HEALTH_THRESHOLDS.loadBad ||
+        (bucket.memRatio ?? 0) >= SERVER_HEALTH_THRESHOLDS.memBad ||
+        (bucket.diskRatio ?? 0) >= SERVER_HEALTH_THRESHOLDS.diskBad ||
+        (bucket.onlineRatio !== null && bucket.onlineRatio < 1),
+    );
+    const rank = offline ? 0 : resourceIssue ? 1 : 2;
+    return { server, rank };
+  });
+
+  return ranked
+    .sort(
+      (a, b) =>
+        a.rank - b.rank ||
+        a.server.name.localeCompare(b.server.name),
+    )
+    .slice(0, max)
+    .map((item) => item.server.id);
 }
 
 /**

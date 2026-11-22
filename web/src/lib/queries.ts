@@ -159,8 +159,12 @@ export const queryKeys = {
   statsOverview: ["stats", "overview"] as const,
   /** 概览「超额用户」预检人数；对话框打开时才请求，和统计分开缓存。 */
   overQuotaUsers: ["users", "over-quota", "count"] as const,
-  /** 概览聚合（P14）：窗口天数进 key，切换窗口即换查询。 */
-  overview: (days: number) => ["overview", days] as const,
+  /**
+   * 概览聚合（P14）：窗口天数 + 服务器筛选进 key。
+   * 选中集按字典序归一化，避免「先选 A 再选 B」与「先选 B 再选 A」重复请求。
+   */
+  overview: (days: number, serverIds: readonly string[] = []) =>
+    ["overview", days, [...serverIds].sort().join(",")] as const,
   /** 服务器状态视图：窗口小时数与桶宽进 key。 */
   serverHealth: (hours: number, bucket: number) =>
     ["overview", "server-health", hours, bucket] as const,
@@ -413,11 +417,15 @@ export function useOverviewStats() {
  * 与 `useOverviewStats` 分开缓存：新接口尚未上线时只让新增卡片降级，
  * 既有 KPI / 告警卡仍可用。`days` 必须为正数。
  */
-export function useOverview(days: number) {
+export function useOverview(
+  days: number,
+  serverIds: readonly string[] = [],
+  enabled = true,
+) {
   return useQuery<OverviewData>({
-    queryKey: queryKeys.overview(days),
-    queryFn: () => api.overview.get(days),
-    enabled: days > 0,
+    queryKey: queryKeys.overview(days, serverIds),
+    queryFn: () => api.overview.get(days, serverIds),
+    enabled: enabled && days > 0,
     placeholderData: keepPreviousData,
     staleTime: 30_000,
   });

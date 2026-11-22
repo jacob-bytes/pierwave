@@ -27,6 +27,24 @@ export interface FxRates {
   fetchedAt: number | null;
 }
 
+/** 汇率明细 popover 的一行：只用纳管服务器实际用到的币种。 */
+export interface CostFxDetailRow {
+  currency: string;
+  /** CNY / 原币；CNY 行为 1。 */
+  rate: number;
+  /** 使用该币种的服务器台数。 */
+  count: number;
+}
+
+export interface CostFxDetails {
+  /** 有汇率、可折算的币种；CNY 固定在前，其余按字母。 */
+  rows: CostFxDetailRow[];
+  /** 没有汇率、未计入总额的币种（去重、排序）。 */
+  unknownCodes: string[];
+  /** 未计入总额的服务器台数。 */
+  unknownCount: number;
+}
+
 export interface CostCycleMonths {
   kind: "months";
   months: number;
@@ -422,6 +440,57 @@ export function formatCnyCompact(cents: number, locale = "zh-CN"): string {
 /** 汇率展示：最多 4 位小数，去掉无意义的尾零。 */
 export function formatFxRate(rate: number, locale = "zh-CN"): string {
   return safeNumberFormat(locale, {
+    maximumFractionDigits: 4,
+  }).format(rate);
+}
+
+/**
+ * 汇率明细：只从成本 scope 与未知币种里取币种，不展开整张 FX 表。
+ * 行数 = 有汇率且实际用到的去重币种数；未知币种单独返回。
+ */
+export function buildFxDetails(
+  overview: Pick<CostOverview, "scope" | "unknownCurrency">,
+  rates: Record<string, number>,
+): CostFxDetails {
+  const groups = new Map<string, { rate: number; count: number }>();
+  for (const row of overview.scope) {
+    const rate = row.currency === "CNY" ? 1 : rates[row.currency];
+    if (!Number.isFinite(rate) || rate <= 0) continue;
+    const existing = groups.get(row.currency);
+    if (existing) existing.count += 1;
+    else groups.set(row.currency, { rate, count: 1 });
+  }
+
+  const rows = [...groups.entries()]
+    .map(([currency, value]) => ({
+      currency,
+      rate: value.rate,
+      count: value.count,
+    }))
+    .sort((a, b) => {
+      if (a.currency === "CNY") return -1;
+      if (b.currency === "CNY") return 1;
+      return a.currency.localeCompare(b.currency);
+    });
+
+  const unknownCodes = [
+    ...new Set(overview.unknownCurrency.map((row) => row.currency)),
+  ].sort((a, b) => a.localeCompare(b));
+
+  return {
+    rows,
+    unknownCodes,
+    unknownCount: overview.unknownCurrency.length,
+  };
+}
+
+/** 汇率展示：至少两位小数，最多四位，便于「1 USD = ¥7.20」。 */
+export function formatFxRateDisplay(
+  rate: number,
+  locale = "zh-CN",
+): string {
+  return safeNumberFormat(locale, {
+    minimumFractionDigits: 2,
     maximumFractionDigits: 4,
   }).format(rate);
 }

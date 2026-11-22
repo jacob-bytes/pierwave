@@ -1,19 +1,26 @@
-//! 概览聚合：`GET /api/v1/overview?days=7`（管理员）。
+//! 概览聚合：`GET /api/v1/overview?days=7&server_ids=a,b`（管理员）。
 //!
 //! 一个请求替代概览页原来并行的 4 个请求（KPI / 趋势 / 节点 / 链路），
 //! 避免每块卡片各自 loading。SQL 全在 `pierwave_domain::repo::overview`；
-//! 这里只做 `days` 解析与把仓储结果序列化成 JSON。
+//! 这里只做查询参数解析与把仓储结果序列化成 JSON。
 //!
 //! 与旧接口的差异：`days` 非法（非整数或不在 1..=90）一律 400，错误码沿用
 //! `query.*` 风格，而不是像 `/stats/traffic` 那样夹到边界。
+//!
+//! `server_ids` 同时接受**逗号分隔**（`?server_ids=a,b,c`）与**重复参数**
+//!（`?server_ids=a&server_ids=b`）：两种写法合并后去重、排序。语义见
+//! `docs/OVERVIEW-SERVER-FILTER.md`：服务器/流量相关字段只统计选中服务器，
+//! `global` 与 `chains` 是全局口径；空数组 = 筛选后没有任何服务器（空结果），
+//! 未知 id 忽略并进 `warnings.unknown_ids`，非法 UUID → 400。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 use pierwave_domain::repo;
 
@@ -23,6 +30,9 @@ use crate::state::AppState;
 
 const DEFAULT_DAYS: i64 = 7;
 const MAX_DAYS: i64 = 90;
+/// `server_ids` 一次最多多少个：URL 长度与 SQLite 绑定变量数都不该被一个
+/// 查询参数打穿；超过直接 400，而不是让 SQL 在运行时失败。
+const MAX_FILTER_SERVERS: usize = 200;
 
 /// 服务器态势的窗口上限：采样只保留 7 天，再大也查不到数据。
 const HEALTH_MAX_HOURS: i64 = 168;
@@ -36,34 +46,120 @@ const HEALTH_DEFAULT_BUCKET: i64 = 3600;
 const ABNORMAL_ONLINE_RATIO: f64 = 0.9;
 const ABNORMAL_DISK_RATIO: f64 = 0.9;
 
-#[derive(Deserialize)]
-pub struct OverviewQuery {
-    /// 天数；缺省 7，给值必须落在 1..=90。
-    pub days: Option<String>,
+/// 取某个查询参数的**最后一个**值：与旧行为一致（重复时后写的赢）。
+fn last_query_value<'a>(params: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    params
+        .iter()
+        .rev()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.as_str())
+}
+
+/// 收集某个查询参数的**全部**值（重复参数按出现顺序），保持原顺序。
+fn query_values<'a>(params: &'a [(String, String)], name: &str) -> Vec<&'a str> {
+    params
+        .iter()
+        .filter(|(key, _)| key == name)
+        .map(|(_, value)| value.as_str())
+        .collect()
+}
+
+/// 请求里的 `server_ids` 解析结果。
+enum RequestedServers {
+    /// 没传参数：全站口径。
+    All,
+    /// 传了参数：已规范化（小写连字符）、去重、升序；**可能为空**
+    /// （`?server_ids=` 或只有逗号/空白）。
+    Ids(Vec<String>),
+}
+
+/// 一次请求的筛选作用域。
+struct ResolvedScope {
+    /// `None` = 不筛选；`Some` = 只统计这些服务器（可能为空 = 筛选到空集）。
+    filter: Option<repo::overview::ServerFilter>,
+    /// 请求里格式合法、但库里不存在的服务器 id（已忽略）。
+    unknown_ids: Vec<String>,
+}
+
+/// 响应里的 `scope`：说明本次数字覆盖了哪些服务器。
+#[derive(Debug, Serialize)]
+struct Scope {
+    /// 实际生效（命中库）的服务器 id；未筛选时是空数组。
+    server_ids: Vec<String>,
+    /// 命中库的台数；未筛选（`filtered = false`）时是 0。
+    servers_matched: i64,
+    /// 请求是否带了 `server_ids`；空数组也算 `true`（筛选后没有数据）。
+    filtered: bool,
+    /// 固定 true：响应里的 `global` 与 `chains` 是全局口径，不随筛选变化。
+    global: bool,
+}
+
+/// 响应里的 `warnings`。
+#[derive(Debug, Serialize)]
+struct Warnings {
+    /// 请求里合法但库里不存在的 id；这些 id 被忽略，不参与筛选。
+    unknown_ids: Vec<String>,
+}
+
+/// 最终响应：概览字段原样展开，再追加 `scope` / `warnings`（其余形状不变）。
+#[derive(Debug, Serialize)]
+struct OverviewResponse {
+    #[serde(flatten)]
+    snapshot: repo::overview::OverviewSnapshot,
+    scope: Scope,
+    warnings: Warnings,
 }
 
 pub async fn overview(
     State(state): State<AppState>,
     user: CurrentUser,
-    Query(query): Query<OverviewQuery>,
-) -> AppResult<(HeaderMap, Json<repo::overview::OverviewSnapshot>)> {
+    Query(params): Query<Vec<(String, String)>>,
+) -> AppResult<(HeaderMap, Json<Value>)> {
     user.require_admin()?;
-    let days = parse_days(query.days.as_deref())?;
-    let now = repo::now();
+    let days = parse_days(last_query_value(&params, "days"))?;
+    let requested = parse_server_ids(&query_values(&params, "server_ids"))?;
+    let filtered = matches!(requested, RequestedServers::Ids(_));
     let pool = &state.db.pool;
+    let scope = resolve_scope(pool, requested).await?;
+    let now = repo::now();
 
-    // 流量派生的部分走 12 秒短缓存：key 只有 `days`，计费入账不主动失效，
-    // 因此生产里持续上报也不会让缓存永远 miss。代价是最多 12 秒陈旧，
-    // 计费/账单仍直接读原始账本。
-    let (traffic, cache_hit) = match state.overview_traffic.get(days) {
+    // 流量派生的部分走 12 秒短缓存：key 是 `(days, server_ids)`，计费入账
+    // 不主动失效，因此生产里持续上报也不会让缓存永远 miss。代价是最多 12 秒
+    // 陈旧，计费/账单仍直接读原始账本。
+    //
+    // 服务器筛选必须进 key：否则「先看全量、再筛一台」会在 TTL 内拿到全站数字。
+    let cache_ids = scope.filter.as_ref().map(|filter| filter.ids().to_vec());
+    let (traffic, cache_hit) = match state.overview_traffic.get(days, cache_ids.as_deref()) {
         Some(traffic) => (traffic, true),
         None => {
-            let traffic = repo::overview::traffic_snapshot(pool, now, days).await?;
-            state.overview_traffic.put(days, traffic.clone());
+            let traffic =
+                repo::overview::traffic_snapshot_filtered(pool, now, days, scope.filter.as_ref())
+                    .await?;
+            state
+                .overview_traffic
+                .put(days, cache_ids.as_deref(), traffic.clone());
             (traffic, false)
         }
     };
-    let snapshot = repo::overview::compose(pool, now, days, traffic).await?;
+    let snapshot =
+        repo::overview::compose_filtered(pool, now, days, traffic, scope.filter.as_ref()).await?;
+
+    let body = OverviewResponse {
+        snapshot,
+        scope: Scope {
+            server_ids: cache_ids.unwrap_or_default(),
+            servers_matched: scope
+                .filter
+                .as_ref()
+                .map_or(0, |filter| filter.len() as i64),
+            filtered,
+            global: true,
+        },
+        warnings: Warnings {
+            unknown_ids: scope.unknown_ids,
+        },
+    };
+    let body = serde_json::to_value(body).map_err(|error| AppError::Internal(error.into()))?;
 
     let mut headers = HeaderMap::new();
     // 响应是管理员专属且 /api/ 已带 no-store；`Vary: Cookie` 是给共享缓存
@@ -73,7 +169,7 @@ pub async fn overview(
         HeaderName::from_static("x-overview-cache"),
         HeaderValue::from_static(if cache_hit { "hit" } else { "miss" }),
     );
-    Ok((headers, Json(snapshot)))
+    Ok((headers, Json(body)))
 }
 
 fn parse_days(raw: Option<&str>) -> AppResult<i64> {
@@ -93,6 +189,93 @@ fn days_invalid() -> AppError {
         Some(json!({ "min": 1, "max": MAX_DAYS })),
         format!("days 必须是 1-{MAX_DAYS} 的整数"),
     )
+}
+
+/// 解析 `server_ids`：逗号分隔与重复参数都接受（每个值再按逗号拆），去空、
+/// UUID 归一化（小写连字符）、去重排序。
+///
+/// 非法 UUID → 400（`query.server_ids_invalid`），而不是静默忽略：拼错一个
+/// 字符应该立刻看到错误，不能得到一份看起来「正常」但少了服务器的报表。
+fn parse_server_ids(values: &[&str]) -> AppResult<RequestedServers> {
+    if values.is_empty() {
+        // 参数完全没出现：全站口径。
+        return Ok(RequestedServers::All);
+    }
+    let mut ids = Vec::new();
+    for raw in values {
+        for part in raw.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            let parsed = Uuid::parse_str(part).map_err(|_| server_ids_invalid(part))?;
+            // 库里 id 由 `Uuid::new_v4().to_string()` 生成（小写连字符）；同一 id
+            // 的其它写法必须归一，否则缓存 key 会分叉、`IN (...)` 也匹配不上。
+            ids.push(parsed.hyphenated().to_string());
+        }
+    }
+    if ids.len() > MAX_FILTER_SERVERS {
+        return Err(server_ids_too_many(ids.len()));
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(RequestedServers::Ids(ids))
+}
+
+fn server_ids_invalid(value: &str) -> AppError {
+    AppError::coded(
+        "query.server_ids_invalid",
+        Some(json!({ "value": value })),
+        format!(
+            "server_ids 里有一项不是合法 UUID：{value} / \
+             server_ids contains an invalid UUID: {value}"
+        ),
+    )
+}
+
+fn server_ids_too_many(count: usize) -> AppError {
+    AppError::coded(
+        "query.server_ids_too_many",
+        Some(json!({ "max": MAX_FILTER_SERVERS, "count": count })),
+        format!(
+            "server_ids 一次最多 {MAX_FILTER_SERVERS} 个，实际 {count} 个 / \
+             at most {MAX_FILTER_SERVERS} server_ids per request, got {count}"
+        ),
+    )
+}
+
+/// 把请求 id 与库里的服务器对账：命中的进筛选，未知的进 `warnings`。
+///
+/// 一次 `IN (...)` 查完（`repo::servers::missing_ids`），不按 id 循环。
+async fn resolve_scope(
+    pool: &sqlx::SqlitePool,
+    requested: RequestedServers,
+) -> AppResult<ResolvedScope> {
+    let RequestedServers::Ids(ids) = requested else {
+        return Ok(ResolvedScope {
+            filter: None,
+            unknown_ids: Vec::new(),
+        });
+    };
+    if ids.is_empty() {
+        // `?server_ids=`：参数存在但没有任何 id —— 空结果，不是全站。
+        return Ok(ResolvedScope {
+            filter: Some(repo::overview::ServerFilter::default()),
+            unknown_ids: Vec::new(),
+        });
+    }
+
+    let unknown = repo::servers::missing_ids(pool, &ids).await?;
+    let unknown_set: HashSet<&str> = unknown.iter().map(String::as_str).collect();
+    let matched = ids
+        .iter()
+        .filter(|id| !unknown_set.contains(id.as_str()))
+        .cloned()
+        .collect();
+    Ok(ResolvedScope {
+        filter: Some(repo::overview::ServerFilter::new(matched)),
+        unknown_ids: unknown,
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -579,16 +762,25 @@ mod tests {
             keys,
             vec![
                 "chains",
+                "global",
                 "kpi",
                 "package_split",
                 "protocol_series",
                 "protocols",
+                "scope",
                 "series",
                 "top",
                 "top_nodes",
                 "top_users",
+                "warnings",
             ]
         );
+        // 未传 `server_ids`：全站口径，scope 明确说明没有筛选。
+        assert_eq!(body["scope"]["server_ids"], json!([]));
+        assert_eq!(body["scope"]["servers_matched"], 0);
+        assert_eq!(body["scope"]["filtered"], false);
+        assert_eq!(body["scope"]["global"], true);
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
 
         assert_eq!(body["kpi"]["servers_online"], 1);
         assert_eq!(body["kpi"]["servers_total"], 1);
@@ -955,6 +1147,11 @@ mod tests {
             assert_eq!(status, StatusCode::OK, "{uri}: {body}");
             assert_eq!(body["series"].as_array().unwrap().len(), expected);
         }
+
+        // 重复 days：后写的赢（与改用原始 query pairs 解析前的行为一致）。
+        let (status, body) = request(&app, Some(&admin), "/api/v1/overview?days=7&days=30").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["series"].as_array().unwrap().len(), 30);
     }
 
     #[tokio::test]
@@ -996,6 +1193,297 @@ mod tests {
         let cookie = format!("{}={token}", crate::auth::SESSION_COOKIE);
         let (status, body) = request(&app, Some(&cookie), "/api/v1/overview").await;
         assert_eq!(status, StatusCode::FORBIDDEN, "body: {body}");
+    }
+
+    // ---- 服务器筛选：`?server_ids=` ----
+    //
+    // 语义见 `docs/OVERVIEW-SERVER-FILTER.md`：服务器/流量相关字段只统计选中
+    // 服务器；`global` 与 `chains` 是全局口径；空数组是「空结果」；非法 id 400。
+
+    fn cache_header(headers: &HeaderMap) -> Option<&str> {
+        headers
+            .get("x-overview-cache")
+            .and_then(|value| value.to_str().ok())
+    }
+
+    /// 两台各 100：筛一台得 100，筛两台得 200；scope 与 warnings 同时对上。
+    #[tokio::test]
+    async fn overview_server_ids_filter_traffic_and_scope() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let today = time::business_date(repo::now());
+
+        let (hk, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let (jp, _) = servers::create(pool, "日本-01", "10.0.0.2", "external")
+            .await
+            .unwrap();
+        servers::mark_online(pool, &hk.id).await.unwrap();
+        add_node(pool, &hk.id, "hk-vless", "vless").await;
+        add_node(pool, &jp.id, "jp-vless", "vless").await;
+        let alice = add_user(pool, "alice").await;
+        let bob = add_user(pool, "bob").await;
+        // 两台各 100（原始上下行合计 = weighted）。
+        traffic::accumulate_daily(pool, &today, &hk.id, &alice, 40, 60, 100)
+            .await
+            .unwrap();
+        traffic::accumulate_daily(pool, &today, &jp.id, &bob, 40, 60, 100)
+            .await
+            .unwrap();
+
+        let uri = format!("/api/v1/overview?days=7&server_ids={}", hk.id);
+        let (status, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["server_ids"], json!([hk.id.clone()]));
+        assert_eq!(body["scope"]["servers_matched"], 1);
+        assert_eq!(body["scope"]["filtered"], true);
+        assert_eq!(body["scope"]["global"], true);
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
+        assert_eq!(body["kpi"]["traffic_today"], 100);
+        assert_eq!(body["kpi"]["traffic_month"], 100);
+        assert_eq!(body["kpi"]["servers_total"], 1);
+        assert_eq!(body["kpi"]["servers_online"], 1);
+        assert_eq!(body["top"].as_array().unwrap().len(), 1);
+        assert_eq!(body["top"][0]["server_id"], hk.id);
+        let last = body["series"].as_array().unwrap().last().unwrap();
+        assert_eq!(last["uplink"], 40);
+        assert_eq!(last["downlink"], 60);
+        let top_users = body["top_users"].as_array().unwrap();
+        assert_eq!(top_users.len(), 1, "日本上的 bob 不能进榜：{body}");
+        assert_eq!(top_users[0]["username"], "alice");
+
+        // 两台都选中：等于全站。
+        let uri = format!("/api/v1/overview?days=7&server_ids={},{}", hk.id, jp.id);
+        let (status, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["servers_matched"], 2);
+        assert_eq!(body["kpi"]["traffic_today"], 200);
+        assert_eq!(body["kpi"]["servers_total"], 2);
+        assert_eq!(body["top"].as_array().unwrap().len(), 2);
+
+        // 同一组 id 换顺序 / 重复：规范化后结果相同（也是同一个缓存 key）。
+        let uri = format!(
+            "/api/v1/overview?days=7&server_ids={},{},{}",
+            jp.id, hk.id, hk.id
+        );
+        let (status, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["servers_matched"], 2);
+        assert_eq!(body["kpi"]["traffic_today"], 200);
+
+        // 重复参数与逗号分隔等价（两种写法合并）。
+        let uri = format!(
+            "/api/v1/overview?days=7&server_ids={}&server_ids={}",
+            hk.id, jp.id
+        );
+        let (status, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["servers_matched"], 2);
+        assert_eq!(body["kpi"]["traffic_today"], 200);
+    }
+
+    /// 空数组 = 筛选后没有任何服务器：空结果 + warnings，但全局计数不变。
+    #[tokio::test]
+    async fn overview_server_ids_empty_array_returns_empty_result_and_keeps_globals() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let today = time::business_date(repo::now());
+        let (hk, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        add_node(pool, &hk.id, "hk-vless", "vless").await;
+        let alice = add_user(pool, "alice").await;
+        traffic::accumulate_daily(pool, &today, &hk.id, &alice, 40, 60, 100)
+            .await
+            .unwrap();
+        let package = create_package(pool, "月卡").await;
+        bind_package(pool, &alice, &package).await;
+
+        let (_, all) = request(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(all["kpi"]["traffic_today"], 100);
+        assert_eq!(all["global"]["users_total"], 2, "admin + alice");
+        assert_eq!(all["global"]["package_instances"], 1);
+        assert_eq!(all["global"]["package_templates"], 1);
+
+        let (status, body) =
+            request(&app, Some(&admin), "/api/v1/overview?days=7&server_ids=").await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["server_ids"], json!([]));
+        assert_eq!(body["scope"]["servers_matched"], 0);
+        assert_eq!(
+            body["scope"]["filtered"], true,
+            "空数组也要明确表达「筛选了」"
+        );
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
+        assert_eq!(body["kpi"]["traffic_today"], 0);
+        assert_eq!(body["kpi"]["traffic_month"], 0);
+        assert_eq!(body["kpi"]["servers_total"], 0);
+        assert_eq!(body["kpi"]["servers_online"], 0);
+        assert_eq!(body["kpi"]["nodes"], 0);
+        assert!(body["top"].as_array().unwrap().is_empty());
+        assert!(body["protocols"].as_array().unwrap().is_empty());
+        assert!(body["protocol_series"].as_array().unwrap().is_empty());
+        assert!(body["top_users"].as_array().unwrap().is_empty());
+        assert!(body["top_nodes"].as_array().unwrap().is_empty());
+        assert!(body["package_split"].as_array().unwrap().is_empty());
+        let series = body["series"].as_array().unwrap();
+        assert_eq!(series.len(), 7);
+        assert!(
+            series
+                .iter()
+                .all(|point| point["uplink"] == 0 && point["downlink"] == 0),
+            "空筛选的日期仍然补齐、值为 0：{body}"
+        );
+
+        // 全局项与链路健康不受筛选影响。
+        assert_eq!(body["global"], all["global"]);
+        assert_eq!(body["chains"], all["chains"]);
+    }
+
+    /// 未知 id：忽略并计入 `warnings.unknown_ids`；全部未知时是空结果。
+    #[tokio::test]
+    async fn overview_server_ids_unknown_are_reported_and_ignored() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let today = time::business_date(repo::now());
+        let (hk, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let alice = add_user(pool, "alice").await;
+        traffic::accumulate_daily(pool, &today, &hk.id, &alice, 40, 60, 100)
+            .await
+            .unwrap();
+        let unknown = uuid::Uuid::new_v4().to_string();
+
+        let uri = format!("/api/v1/overview?days=7&server_ids={},{}", hk.id, unknown);
+        let (status, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["server_ids"], json!([hk.id.clone()]));
+        assert_eq!(body["scope"]["servers_matched"], 1);
+        assert_eq!(
+            body["warnings"]["unknown_ids"],
+            json!([unknown.clone()]),
+            "{body}"
+        );
+        assert_eq!(body["kpi"]["traffic_today"], 100);
+
+        let uri = format!("/api/v1/overview?days=7&server_ids={unknown}");
+        let (status, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["filtered"], true);
+        assert_eq!(body["scope"]["servers_matched"], 0);
+        assert_eq!(body["warnings"]["unknown_ids"], json!([unknown]));
+        assert_eq!(body["kpi"]["traffic_today"], 0);
+        assert!(body["top"].as_array().unwrap().is_empty());
+    }
+
+    /// 非法 UUID → 400；个数超过上限也是 400（不要让 SQL 在运行时失败）。
+    #[tokio::test]
+    async fn overview_rejects_invalid_server_ids_with_400() {
+        let (app, state, admin) = setup().await;
+        let (hk, _) = servers::create(&state.db.pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+
+        let mut cases = vec![
+            "not-a-uuid".to_string(),
+            "1".to_string(),
+            "hk".to_string(),
+            format!("{},zzz", hk.id),
+        ];
+        for raw in cases.drain(..) {
+            let uri = format!("/api/v1/overview?server_ids={raw}");
+            let (status, body) = request(&app, Some(&admin), &uri).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {body}");
+            assert_eq!(body["code"], "query.server_ids_invalid", "{uri}: {body}");
+            assert!(body["params"]["value"].is_string(), "{uri}: {body}");
+        }
+
+        let many: Vec<String> = (0..=MAX_FILTER_SERVERS)
+            .map(|_| uuid::Uuid::new_v4().to_string())
+            .collect();
+        let uri = format!("/api/v1/overview?server_ids={}", many.join(","));
+        let (status, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {body}");
+        assert_eq!(body["code"], "query.server_ids_too_many", "{uri}: {body}");
+    }
+
+    /// 非管理员 403（带筛选参数也一样），未登录 401。
+    #[tokio::test]
+    async fn overview_server_ids_requires_admin() {
+        let (app, state, _admin) = setup().await;
+        let (hk, _) = servers::create(&state.db.pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let uri = format!("/api/v1/overview?server_ids={}", hk.id);
+
+        let plain = add_user(&state.db.pool, "plain").await;
+        let (token, _) = sessions::create(&state.db.pool, &plain, 3600, None)
+            .await
+            .unwrap();
+        let cookie = format!("{}={token}", crate::auth::SESSION_COOKIE);
+        let (status, body) = request(&app, Some(&cookie), &uri).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "body: {body}");
+
+        let (status, body) = request(&app, None, &uri).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "body: {body}");
+    }
+
+    /// 缓存 key 必须包含 server_ids：先全量、再筛选不能拿到旧结果，
+    /// 反过来筛选结果也不能污染全量请求。
+    #[tokio::test]
+    async fn overview_cache_is_keyed_by_server_ids() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let today = time::business_date(repo::now());
+        let (hk, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let (jp, _) = servers::create(pool, "日本-01", "10.0.0.2", "external")
+            .await
+            .unwrap();
+        let alice = add_user(pool, "alice").await;
+        let bob = add_user(pool, "bob").await;
+        traffic::accumulate_daily(pool, &today, &hk.id, &alice, 40, 60, 100)
+            .await
+            .unwrap();
+        traffic::accumulate_daily(pool, &today, &jp.id, &bob, 40, 60, 100)
+            .await
+            .unwrap();
+
+        let hk_uri = format!("/api/v1/overview?days=7&server_ids={}", hk.id);
+        let jp_uri = format!("/api/v1/overview?days=7&server_ids={}", jp.id);
+
+        let (_, headers, body) = request_full(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(cache_header(&headers), Some("miss"));
+        assert_eq!(body["kpi"]["traffic_today"], 200);
+
+        // 先全量再筛选：必须 miss 并返回筛选后的 100。
+        let (_, headers, body) = request_full(&app, Some(&admin), &hk_uri).await;
+        assert_eq!(cache_header(&headers), Some("miss"), "筛选是另一个缓存 key");
+        assert_eq!(body["kpi"]["traffic_today"], 100);
+
+        // 回到全量：命中自己的 key，仍然是 200（没有被筛选结果覆盖）。
+        let (_, headers, body) = request_full(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(cache_header(&headers), Some("hit"));
+        assert_eq!(
+            body["kpi"]["traffic_today"], 200,
+            "筛选结果不能串到全量请求"
+        );
+
+        // 再筛香港：命中自己的 key。
+        let (_, headers, body) = request_full(&app, Some(&admin), &hk_uri).await;
+        assert_eq!(cache_header(&headers), Some("hit"));
+        assert_eq!(body["kpi"]["traffic_today"], 100);
+
+        // 另一台是第三个 key。
+        let (_, headers, body) = request_full(&app, Some(&admin), &jp_uri).await;
+        assert_eq!(cache_header(&headers), Some("miss"));
+        assert_eq!(body["kpi"]["traffic_today"], 100);
+        let top = body["top"].as_array().unwrap();
+        assert_eq!(top.len(), 1);
+        assert_eq!(top[0]["server_id"], jp.id);
     }
 
     /// 空库不能 panic：数组为空、数字为 0，`series` 仍然补齐 7 天。

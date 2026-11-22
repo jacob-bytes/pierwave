@@ -145,8 +145,9 @@ Top 用户/套餐共用 `user_traffic` CTE：早期版本在 `top_user` 分支�
 
 - 只缓存**流量派生**的 `TrafficSnapshot`（趋势、协议、Top 用户/节点/套餐、
   KPI 流量）；Top 服务器与网速采样每次现算，保持在线状态实时；
-- **key 只有 `days`**，默认 TTL 12 秒（`PIERWAVE_OVERVIEW_CACHE_SECS` 可覆盖，
-  `0` 关闭）；
+- key 是 `(days, 规范化后的 server_ids)`（服务器筛选见
+  `docs/OVERVIEW-SERVER-FILTER.md`；不传参数时第二项为 `None`），默认 TTL
+  12 秒（`PIERWAVE_OVERVIEW_CACHE_SECS` 可覆盖，`0` 关闭）；
 - **计费入账不参与缓存 key，也不主动清缓存**。生产里 Agent 持续上报，如果按
   `generation` 作为 key（或每次写入都 `clear()`），缓存会几乎永远 miss；
 - `put()` 用同一 `days` 覆盖旧条目；
@@ -312,9 +313,11 @@ history `UPDATE`/`DELETE`, and idempotent rebuild/repair.
 ## Cache (TTL semantics)
 
 `OverviewTrafficCache` stores only the traffic-derived snapshot (trend,
-protocols, Top users/nodes/packages, KPI traffic). The key is **only `days`**;
-the 12 s TTL (`PIERWAVE_OVERVIEW_CACHE_SECS`, `0` disables it) is the only
-expiry mechanism. Billing writes neither enter the key nor call `clear()`:
+protocols, Top users/nodes/packages, KPI traffic). The key is
+`(days, normalized server_ids)` (see `docs/OVERVIEW-SERVER-FILTER.md`; the
+second component is `None` when the parameter is absent); the 12 s TTL
+(`PIERWAVE_OVERVIEW_CACHE_SECS`, `0` disables it) is the only expiry
+mechanism. Billing writes neither enter the key nor call `clear()`:
 production agents report continuously, so a `(days, generation)` key or a
 clear-on-write would make the cache miss almost every time. `put()` overwrites
 the entry for the same `days`. `clear()` remains for explicit admin actions;

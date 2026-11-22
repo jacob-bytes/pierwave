@@ -1,16 +1,20 @@
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { WaypointsIcon } from "lucide-react";
 import { EmptyState } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { InsightMetrics } from "@/components/overview/InsightMetrics";
 import { PanelError } from "@/components/overview/PanelError";
 import type { Chain } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import {
   chainHealthRows,
+  chainHealthStatus,
   type ChainHealthStatus,
 } from "@/lib/overview";
+import { filterChainsByScope } from "@/lib/overviewScope";
 import { useChains } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
@@ -182,15 +186,73 @@ function ChainPlaceholderCard() {
 /**
  * 「链路时延」tab：先放从原概览搬来的转发链健康卡，其余保持占位。
  * 只有这个 tab 挂载时才请求 `/api/v1/chains`。
+ *
+ * 服务器筛选口径：链的任意一跳落在选中服务器即保留；
+ * 顶部的三个数字按过滤后的链重算，空选择时走空态而不是显示 0。
  */
-export default function ChainLatencyView() {
+export default function ChainLatencyView({
+  selectedIds,
+}: {
+  selectedIds: readonly string[];
+}) {
   useI18n();
   const chains = useChains();
+  const scopedChains = useMemo(
+    () => filterChainsByScope(chains.data ?? [], selectedIds),
+    [chains.data, selectedIds],
+  );
+  const healthy = scopedChains.filter(
+    (chain) => chainHealthStatus(chain) === "ok",
+  ).length;
+  const attention = scopedChains.length - healthy;
+
+  if (selectedIds.length === 0) {
+    return (
+      <div className="space-y-4" data-chain-view>
+        <ChainScopeEmpty
+          title={t("overview.scope.emptyTitle")}
+          description={t("overview.scope.emptyDesc")}
+        />
+      </div>
+    );
+  }
+
+  if (!chains.isPending && !chains.isError && scopedChains.length === 0) {
+    return (
+      <div className="space-y-4" data-chain-view>
+        <ChainScopeEmpty
+          title={t("overview.chainLatency.emptyScopeTitle")}
+          description={t("overview.chainLatency.emptyScopeDesc")}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4" data-chain-view>
+      {chains.isPending || chains.isError ? null : (
+        <InsightMetrics
+          items={[
+            {
+              label: t("overview.chainLatency.metricChains"),
+              value: scopedChains.length,
+              hint: t("overview.chainLatency.metricChainsHint"),
+            },
+            {
+              label: t("overview.chainLatency.metricHealthy"),
+              value: healthy,
+              hint: t("overview.chainLatency.metricHealthyHint"),
+            },
+            {
+              label: t("overview.chainLatency.metricAttention"),
+              value: attention,
+              hint: t("overview.chainLatency.metricAttentionHint"),
+            },
+          ]}
+        />
+      )}
       <ChainHealthCard
-        chains={chains.data}
+        chains={scopedChains}
         isPending={chains.isPending}
         error={chains.isError ? chains.error : null}
         retrying={chains.isFetching}
@@ -198,5 +260,27 @@ export default function ChainLatencyView() {
       />
       <ChainPlaceholderCard />
     </div>
+  );
+}
+
+function ChainScopeEmpty({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <Card>
+      <CardContent>
+        <EmptyState
+          size="sm"
+          icon={WaypointsIcon}
+          title={title}
+          description={description}
+          className="py-16"
+        />
+      </CardContent>
+    </Card>
   );
 }

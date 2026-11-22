@@ -382,3 +382,81 @@ async fn inbound_counts_use_the_nodes_server_index() {
     )
     .await;
 }
+
+/// 概览按服务器筛选（`GET /api/v1/overview?server_ids=a,b`）的四条读路径。
+///
+/// 期望的计划（主控不跑 `ANALYZE`，这里也不跑）：
+/// * `server` scope 的 KPI / 日趋势：`(scope, day, key)` 主键上的日期区间，
+///   `key IN (...)` 在区间内过滤（行数上限 = 服务器数 × 天数，与全站同阶）；
+///   有统计信息时规划器会改走 `idx_traffic_daily_rollup_key_day`，见 docs；
+/// * Top 服务器：每台服务器按 `(scope, day)` 主键取自己的日期区间
+///   （有统计信息时改走 `idx_traffic_daily_rollup_key_day`，见
+///   `docs/OVERVIEW-PERF.md` 的基准）；
+/// * Top 用户/套餐与协议/节点维度：回原始账本的 `(server_id, day)` 索引。
+#[tokio::test]
+async fn overview_server_filter_queries_use_their_indexes() {
+    let pool = setup().await;
+
+    // KPI：`day = ?` 的等值查询 + `key IN (...)`。
+    assert_uses_index(
+        &pool,
+        "SELECT COALESCE(SUM(weighted), 0)
+         FROM traffic_daily_rollup
+         WHERE scope = 'server' AND day = '2026-01-01' AND key IN ('s1', 's2')",
+        "PRIMARY KEY",
+    )
+    .await;
+
+    // 日趋势：`scope + day` 区间 + `key IN (...)`。
+    assert_uses_index(
+        &pool,
+        "SELECT day, COALESCE(SUM(uplink), 0)
+         FROM traffic_daily_rollup
+         WHERE scope = 'server' AND day >= '2026-01-01' AND day <= '2026-01-31'
+           AND key IN ('s1', 's2')
+         GROUP BY day",
+        "PRIMARY KEY",
+    )
+    .await;
+
+    // Top 服务器（带筛选）：LEFT JOIN 仍按 `(scope, key, day)` 取每台的区间。
+    assert_uses_index(
+        &pool,
+        "SELECT s.id, COALESCE(SUM(t.uplink + t.downlink), 0)
+         FROM servers s
+         LEFT JOIN traffic_daily_rollup t
+           ON t.scope = 'server' AND t.key = s.id
+          AND t.day >= '2026-01-01' AND t.day <= '2026-01-31'
+         WHERE s.id IN ('s1', 's2')
+         GROUP BY s.id, s.name, s.load1, s.status, s.created_at
+         ORDER BY 2 DESC, s.created_at ASC, s.id ASC
+         LIMIT 5",
+        "PRIMARY KEY",
+    )
+    .await;
+
+    // Top 用户 / 套餐：`subject` scope 没有服务器维度，回原始账本按服务器过滤。
+    assert_uses_index(
+        &pool,
+        "SELECT subject, COALESCE(SUM(uplink + downlink), 0)
+         FROM traffic_daily
+         WHERE server_id IN ('s1', 's2')
+           AND day >= '2026-01-01' AND day <= '2026-01-31'
+         GROUP BY subject",
+        "idx_traffic_daily_server_day",
+    )
+    .await;
+
+    // 协议归属 / Top 节点：原始节点切片按服务器过滤。
+    assert_uses_index(
+        &pool,
+        "SELECT t.day, COALESCE(n.protocol, 'unknown'), SUM(t.uplink)
+         FROM traffic_node_daily t
+         LEFT JOIN nodes n ON n.server_id = t.server_id AND n.tag = t.node_tag
+         WHERE t.server_id IN ('s1', 's2')
+           AND t.day >= '2026-01-01' AND t.day <= '2026-01-31'
+         GROUP BY t.day, n.protocol",
+        "idx_traffic_node_daily_server_day",
+    )
+    .await;
+}

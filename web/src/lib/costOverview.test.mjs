@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildCostOverview,
+  buildFxDetails,
   costCycleOf,
   formatCnyCompact,
+  formatFxRateDisplay,
   formatMonthIndex,
   formatMonthLabel,
   monthIndexOfDate,
@@ -420,6 +422,34 @@ test("只有离线 / 未填费用时不显示正常视图；只有未知币种�
   assert.equal(unknownOnly.hasData, true);
   assert.equal(unknownOnly.totalCnyCents, 0);
   assert.equal(unknownOnly.unknownCurrency.length, 1);
+});
+
+test("buildFxDetails: 只列在用币种，CNY 在前，未知币种单独返回", () => {
+  const overview = buildCostOverview(
+    [
+      billed("cny"),
+      billed("usd-1", { currency: "USD" }),
+      billed("usd-2", { currency: "USD" }),
+      billed("eur", { currency: "EUR" }),
+      billed("aed", { currency: "AED" }),
+      billed("xxx", { currency: "XXX" }),
+    ],
+    RATES.rates,
+    AUG,
+  );
+  const details = buildFxDetails(overview, RATES.rates);
+  assert.deepEqual(
+    details.rows.map((row) => row.currency),
+    ["CNY", "EUR", "USD"],
+  );
+  assert.equal(details.rows[0].count, 1);
+  assert.equal(details.rows[1].count, 1);
+  assert.equal(details.rows[2].count, 2);
+  assert.deepEqual(details.unknownCodes, ["AED", "XXX"]);
+  assert.equal(details.unknownCount, 2);
+  // 未使用的 JPY 不出现
+  assert.ok(!details.rows.some((row) => row.currency === "JPY"));
+  assert.equal(formatFxRateDisplay(7.2), "7.20");
 });
 
 test("月份标签：中文 / 英文短月份，月份序号可解析", () => {

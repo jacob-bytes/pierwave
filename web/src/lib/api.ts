@@ -2055,6 +2055,26 @@ export interface OverviewPackageSplit {
   traffic_7d: number;
 }
 
+/**
+ * 概览聚合的筛选作用域（新主控）。
+ *
+ * `server_ids` 是后端实际应用的集合；`filtered = false` 表示没有按服务器
+ * 过滤（请求未带参数或旧主控）。旧主控完全不返回该字段，前端必须按
+ * 「筛选能力未就绪」降级，不能把它当成空筛选。
+ */
+export interface OverviewScope {
+  server_ids?: string[];
+  servers_matched?: number;
+  filtered?: boolean;
+  /** true = 响应里的 `global` 与 `chains` 是全局口径，不随筛选变化。 */
+  global?: boolean;
+}
+
+/** 筛选参数的告警；`unknown_ids` 是请求里主控不认识的服务器。 */
+export interface OverviewWarnings {
+  unknown_ids?: string[];
+}
+
 export interface OverviewData {
   kpi: OverviewKpi;
   series: OverviewSeriesPoint[];
@@ -2074,6 +2094,10 @@ export interface OverviewData {
   top_nodes: OverviewTopNode[];
   /** 套餐用量分布，最多 5 条，按流量降序；没有套餐流量时是空数组。 */
   package_split: OverviewPackageSplit[];
+  /** 新主控：本次请求实际作用到的服务器范围；旧主控不返回。 */
+  scope?: OverviewScope | null;
+  /** 新主控：未知 server_ids 等非致命告警；旧主控不返回。 */
+  warnings?: OverviewWarnings | null;
 }
 
 /*
@@ -2605,10 +2629,16 @@ export const api = {
     ),
   /** 概览聚合（P14）：图表、协议分布、链路健康度与 Top 5。 */
   overview: {
-    get: (days: number) =>
-      request<OverviewData>(
-        `/api/v1/overview?days=${encodeURIComponent(String(days))}`,
-      ),
+    /**
+     * 概览聚合。`serverIds` 非空时附加 `server_ids=id1,id2`；
+     * 旧主控会忽略该参数（响应不带 `scope`），调用方按「筛选未就绪」降级。
+     */
+    get: (days: number, serverIds: readonly string[] = []) => {
+      const params = new URLSearchParams({ days: String(days) });
+      const ids = serverIds.map((id) => id.trim()).filter(Boolean);
+      if (ids.length > 0) params.set("server_ids", ids.join(","));
+      return request<OverviewData>(`/api/v1/overview?${params.toString()}`);
+    },
     /**
      * 服务器状态视图：每台服务器的小时桶 + 汇总。
      * 旧主控没有该接口（404），查询层会把它转成「需要新版本主控」。

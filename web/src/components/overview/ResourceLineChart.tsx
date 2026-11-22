@@ -1,8 +1,8 @@
 import { useState } from "react";
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -18,7 +18,7 @@ import { formatMonthDayHour } from "@/lib/serverHealth";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
-/** 多序列面积图的固定色板；全部走 shadcn chart token，不写死色值。 */
+/** 多序列折线图的固定色板；全部走 shadcn chart token，不写死色值。 */
 const CHART_COLORS = [
   "var(--chart-1)",
   "var(--chart-2)",
@@ -86,21 +86,30 @@ function ResourceTooltip({
 }
 
 /**
- * 「当前资源」的多序列面积图。
+ * 「当前资源」多序列折线图。
  *
- * y 轴统一为百分比：内存 / 硬盘直接用占用比；负载按 `load1 / 8` 近似
- * （没有 CPU 核数），tooltip 与卡片脚注会说明。无采样的点保持 null，
- * Recharts 会断开而不是画一条 0 线。
+ * 共用服务器筛选器的选中集合；默认只显示当前值最高的 5 台，
+ * 其余选中项在图例里置灰，点一下即可显示。y 轴固定 0–100%。
+ * 负载按 `load1 / 8` 近似（没有 CPU 核数），tooltip 与脚注会说明。
  */
-export function ResourceAreaChart({
+export function ResourceLineChart({
   data,
   metric,
+  defaultVisibleIds,
 }: {
   data: ResourceChartData;
   metric: ResourceMetric;
+  defaultVisibleIds: readonly string[];
 }) {
   useI18n();
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [hidden, setHidden] = useState<Set<string>>(
+    () =>
+      new Set(
+        data.series
+          .filter((series) => !defaultVisibleIds.includes(series.id))
+          .map((series) => series.id),
+      ),
+  );
   const visible = data.series.filter((series) => !hidden.has(series.id));
 
   function toggle(id: string) {
@@ -125,7 +134,10 @@ export function ResourceAreaChart({
 
   return (
     <div data-resource-chart>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pb-2">
+      <div
+        className="flex max-h-24 flex-wrap items-center gap-x-3 gap-y-1 overflow-y-auto pb-2"
+        data-resource-legend
+      >
         {data.series.map((series, index) => {
           const hiddenHere = hidden.has(series.id);
           return (
@@ -139,6 +151,7 @@ export function ResourceAreaChart({
                 hiddenHere ? "opacity-35" : "opacity-100",
               )}
               title={series.name}
+              data-resource-legend-item
             >
               <span
                 aria-hidden="true"
@@ -164,7 +177,7 @@ export function ResourceAreaChart({
       ) : (
         <div className="h-[220px] w-full sm:h-[260px]">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart
+            <LineChart
               data={data.points}
               margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
             >
@@ -187,14 +200,8 @@ export function ResourceAreaChart({
                 tickLine={false}
               />
               <YAxis
-                domain={[
-                  0,
-                  (dataMax: number) =>
-                    Math.min(
-                      100,
-                      Math.max(10, Math.ceil(dataMax / 10) * 10),
-                    ),
-                ]}
+                domain={[0, 100]}
+                ticks={[0, 25, 50, 75, 100]}
                 tickFormatter={(value: number) => `${value}%`}
                 width={34}
                 tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
@@ -217,14 +224,12 @@ export function ResourceAreaChart({
                     (index < 0 ? 0 : index) % CHART_COLORS.length
                   ];
                 return (
-                  <Area
+                  <Line
                     key={series.id}
                     type="monotone"
                     dataKey={series.id}
                     name={series.name}
                     stroke={color}
-                    fill={color}
-                    fillOpacity={metric === "load" ? 0.1 : 0.14}
                     strokeWidth={1.5}
                     dot={false}
                     activeDot={{ r: 3 }}
@@ -233,7 +238,7 @@ export function ResourceAreaChart({
                   />
                 );
               })}
-            </AreaChart>
+            </LineChart>
           </ResponsiveContainer>
         </div>
       )}

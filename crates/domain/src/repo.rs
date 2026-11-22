@@ -11321,6 +11321,7 @@ pub mod overview {
     use std::collections::HashMap;
 
     use serde::Serialize;
+    use sqlx::QueryBuilder;
 
     use super::*;
 
@@ -11341,6 +11342,41 @@ pub mod overview {
     const TOP_PROTOCOLS: usize = 4;
     /// 超出 [`TOP_PROTOCOLS`] 的协议合并到这个桶。
     const OTHER_PROTOCOL: &str = "other";
+
+    /// 概览的服务器筛选：只统计选中的服务器。
+    ///
+    /// 与 `Option<ServerFilter>` 配合表达三种语义：
+    /// * `None`：不筛选（全站）；
+    /// * `Some(filter)` 且 [`Self::is_empty`]：筛选后没有任何服务器——所有
+    ///   服务器/流量维度都必须是 0 或空数组，不能回落到全站数字；
+    /// * `Some(filter)` 非空：只统计 `ids` 里的服务器（`IN (...)`，不按 id 循环）。
+    ///
+    /// `ids` 由调用方规范化（UUID 小写连字符形式）后传入，构造时再去重排序，
+    /// 保证「同样的集合」只有一个缓存 key。
+    #[derive(Debug, Clone, Default, PartialEq, Eq)]
+    pub struct ServerFilter {
+        ids: Vec<String>,
+    }
+
+    impl ServerFilter {
+        pub fn new(mut ids: Vec<String>) -> Self {
+            ids.sort_unstable();
+            ids.dedup();
+            Self { ids }
+        }
+
+        pub fn ids(&self) -> &[String] {
+            &self.ids
+        }
+
+        pub fn len(&self) -> usize {
+            self.ids.len()
+        }
+
+        pub fn is_empty(&self) -> bool {
+            self.ids.is_empty()
+        }
+    }
 
     #[derive(Debug, Clone, PartialEq, Serialize)]
     pub struct Kpi {
@@ -11449,6 +11485,21 @@ pub mod overview {
         pub tx_bps: Option<f64>,
     }
 
+    /// 全局口径计数：**不受 `server_ids` 筛选影响**，永远统计全站。
+    ///
+    /// 概览页把这三张卡标成「全局」（响应里 `scope.global = true`），避免管理员
+    /// 选了某台服务器后误以为用户/套餐数也被筛掉了。字段与
+    /// `/api/v1/stats/overview` 的 `users.total` / `packages.instances` /
+    /// `packages.total` 同口径。
+    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+    pub struct GlobalCounts {
+        pub users_total: i64,
+        /// 套餐实例数（`user_packages` 行数）。
+        pub package_instances: i64,
+        /// 套餐模板数（`packages` 行数）。
+        pub package_templates: i64,
+    }
+
     #[derive(Debug, Clone, PartialEq, Serialize)]
     pub struct OverviewSnapshot {
         pub kpi: Kpi,
@@ -11464,6 +11515,8 @@ pub mod overview {
         pub top_nodes: Vec<TopNodeRow>,
         /// 套餐用量分布（最多 5 条，按流量降序）；没有任何套餐流量时是空数组。
         pub package_split: Vec<PackageSplitRow>,
+        /// 全局计数：带 `server_ids` 时**不变**。
+        pub global: GlobalCounts,
     }
 
     /// 一次 `traffic_node_daily` + 历史兜底的聚合结果（按天、按协议）。
@@ -11500,22 +11553,75 @@ pub mod overview {
 
     /// 完整的概览响应（无缓存路径；测试与内部调用用）。
     ///
-    /// 请求路径见 `routes/overview.rs`：它把 [`traffic_snapshot`] 放进短缓存，
-    /// 再调用 [`compose`] 拼上非流量部分。
+    /// 请求路径见 `routes/overview.rs`：它把 [`traffic_snapshot_filtered`] 放进
+    /// 短缓存，再调用 [`compose_filtered`] 拼上非流量部分。
     pub async fn snapshot(
         pool: &SqlitePool,
         now: i64,
         days: i64,
     ) -> anyhow::Result<OverviewSnapshot> {
-        let traffic = traffic_snapshot(pool, now, days).await?;
-        compose(pool, now, days, traffic).await
+        snapshot_filtered(pool, now, days, None).await
     }
 
-    /// 只聚合流量派生的部分：KPI 今日/本月、日趋势、协议分布/趋势、四张 Top 卡。
+    /// 同 [`snapshot`]，但只统计 `filter` 选中的服务器（`None` = 全站）。
+    pub async fn snapshot_filtered(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+        filter: Option<&ServerFilter>,
+    ) -> anyhow::Result<OverviewSnapshot> {
+        let traffic = traffic_snapshot_filtered(pool, now, days, filter).await?;
+        compose_filtered(pool, now, days, traffic, filter).await
+    }
+
+    /// 只聚合流量派生的部分（**全站口径**；带筛选的入口见
+    /// [`traffic_snapshot_filtered`]）。
     ///
     /// 查询次数固定（与数据量无关）：KPI 标量 1 条、趋势 1 条、协议归属 1 条、
     /// Top 卡 1 条，共 **4 条**；Top 服务器与网速采样在 [`compose`] 里现算。
     pub async fn traffic_snapshot(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+    ) -> anyhow::Result<TrafficSnapshot> {
+        traffic_snapshot_all(pool, now, days).await
+    }
+
+    /// 带服务器筛选的流量快照：`None` = 全站，`Some`（含空数组）= 只统计选中服务器。
+    ///
+    /// 空数组直接返回「窗口内全 0 + 空列表」，不查库：这是「筛选后没有数据」的
+    /// 明确表达。响应里的 `scope.filtered = true` / `servers_matched = 0` 与之配套，
+    /// 前端据此显示空态，而不是把全站数字当成筛选结果。
+    pub async fn traffic_snapshot_filtered(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+        filter: Option<&ServerFilter>,
+    ) -> anyhow::Result<TrafficSnapshot> {
+        match filter {
+            None => traffic_snapshot_all(pool, now, days).await,
+            Some(filter) if filter.is_empty() => Ok(empty_traffic_snapshot(now, days)),
+            Some(filter) => traffic_snapshot_scoped(pool, now, days, filter).await,
+        }
+    }
+
+    /// 「筛选后没有任何服务器」的流量快照：数字全 0、列表全空，日期仍然补齐。
+    fn empty_traffic_snapshot(now: i64, days: i64) -> TrafficSnapshot {
+        TrafficSnapshot {
+            series: window_days(now, days)
+                .into_iter()
+                .map(|day| SeriesPoint {
+                    day,
+                    uplink: 0,
+                    downlink: 0,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// 全站流量快照（旧路径：读日汇总 `traffic_daily_rollup`）。
+    async fn traffic_snapshot_all(
         pool: &SqlitePool,
         now: i64,
         days: i64,
@@ -11573,7 +11679,8 @@ pub mod overview {
         // 协议归属只聚合一次：分布卡（窗口合计）与趋势卡（按天）共用。
         let protocol_traffic = protocol_traffic(pool, &start_date, &end_date).await?;
         let protocol_series = protocol_series(&protocol_traffic, now, days);
-        let (top_users, top_nodes, package_split) = top_cards(pool, &start_date, &end_date).await?;
+        let (top_users, top_nodes, package_split) =
+            top_cards(pool, &start_date, &end_date, None).await?;
 
         Ok(TrafficSnapshot {
             traffic_today,
@@ -11587,7 +11694,189 @@ pub mod overview {
         })
     }
 
-    /// 把缓存好的流量快照与非流量部分拼成完整响应。
+    /// 把 `id` 列表拼成 `IN (...)` 并绑定参数（不拼接字符串，避免注入）。
+    ///
+    /// 空列表拼成 `(NULL)`：`x IN (NULL)` 永远不为真，于是所有查询自然得到
+    /// 「没有匹配行」的结果，不需要为「筛选到空集」写第二套 SQL。
+    fn push_in_list(builder: &mut QueryBuilder<'_, sqlx::Sqlite>, ids: &[String]) {
+        if ids.is_empty() {
+            builder.push("(NULL)");
+            return;
+        }
+        builder.push("(");
+        for (index, id) in ids.iter().enumerate() {
+            if index > 0 {
+                builder.push(", ");
+            }
+            builder.push_bind(id.clone());
+        }
+        builder.push(")");
+    }
+
+    /// 只统计选中服务器的流量快照。
+    ///
+    /// 索引选择（`EXPLAIN QUERY PLAN` 见 `crates/domain/tests/query_plan.rs`）：
+    /// * KPI 与日趋势读 `server` scope：`(scope, day)` 主键上的日期区间 +
+    ///   `key IN (...)` 过滤，行数上限仍是「服务器数 × 天数」，与全站口径同阶
+    ///   （不会退化成「用户数 × 天数」）；有 `ANALYZE` 统计信息时规划器会改走
+    ///   `idx_traffic_daily_rollup_key_day`，只扫选中服务器的日区间；
+    /// * Top 用户/套餐与协议归属必须回原始账本：`subject` scope 没有服务器维度，
+    ///   `node` / `legacy` scope 的 key 是 `server_id\x1fnode_tag`（前缀无法用
+    ///   `IN` 表达），只有原始表的 `(server_id, day)` 索引能直接命中。
+    ///
+    /// 两条路径的数字在触发器维护下逐字段一致（未筛选时已有
+    /// `traffic_daily_rollup` 一致性校验）。
+    async fn traffic_snapshot_scoped(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+        filter: &ServerFilter,
+    ) -> anyhow::Result<TrafficSnapshot> {
+        let days = days.clamp(1, 90);
+        let today = crate::time::business_date(now);
+        let (month_start, month_end) = crate::time::business_month_bounds(now);
+        let (start_date, end_date) = super::stats::day_window(now, days);
+
+        // 今日/本月：与全站口径同一个 scope，只是 key 限定在选中的服务器上。
+        let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT
+                (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+                  WHERE scope = 'server' AND day = ",
+        );
+        qb.push_bind(&today);
+        qb.push(" AND key IN ");
+        push_in_list(&mut qb, filter.ids());
+        qb.push(
+            "),
+                (SELECT COALESCE(SUM(weighted), 0) FROM traffic_daily_rollup
+                  WHERE scope = 'server' AND day >= ",
+        );
+        qb.push_bind(&month_start);
+        qb.push(" AND day <= ");
+        qb.push_bind(&month_end);
+        qb.push(" AND key IN ");
+        push_in_list(&mut qb, filter.ids());
+        qb.push(")");
+        let (traffic_today, traffic_month): (i64, i64) =
+            qb.build_query_as().fetch_one(pool).await?;
+
+        // 日趋势：同样按 `(scope, key, day)` 逐台取日期区间，再按天汇总。
+        let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT day,
+                    COALESCE(SUM(uplink), 0),
+                    COALESCE(SUM(downlink), 0)
+             FROM traffic_daily_rollup
+             WHERE scope = 'server' AND day >= ",
+        );
+        qb.push_bind(&start_date);
+        qb.push(" AND day <= ");
+        qb.push_bind(&end_date);
+        qb.push(" AND key IN ");
+        push_in_list(&mut qb, filter.ids());
+        qb.push(" GROUP BY day");
+        let rows: Vec<(String, i64, i64)> = qb.build_query_as().fetch_all(pool).await?;
+        let mut by_day: HashMap<String, (i64, i64)> = rows
+            .into_iter()
+            .map(|(day, uplink, downlink)| (day, (uplink, downlink)))
+            .collect();
+        let series = window_days(now, days)
+            .into_iter()
+            .map(|day| {
+                let (uplink, downlink) = by_day.remove(&day).unwrap_or((0, 0));
+                SeriesPoint {
+                    day,
+                    uplink,
+                    downlink,
+                }
+            })
+            .collect();
+
+        let protocol_traffic =
+            protocol_traffic_scoped(pool, &start_date, &end_date, filter).await?;
+        let protocol_series = protocol_series(&protocol_traffic, now, days);
+        let (top_users, top_nodes, package_split) =
+            top_cards(pool, &start_date, &end_date, Some(filter)).await?;
+
+        Ok(TrafficSnapshot {
+            traffic_today,
+            traffic_month,
+            series,
+            protocol_traffic,
+            protocol_series,
+            top_users,
+            top_nodes,
+            package_split,
+        })
+    }
+
+    /// 带服务器筛选的「按天 × 协议」流量；口径与 [`protocol_traffic`] 逐条对齐，
+    /// 只是数据源换成原始账本（`server_id IN (...)` 走 `(server_id, day)` 索引）。
+    ///
+    /// 历史兜底（`subject` 里带 `@` 的旧行）仍然保留：用「同一天同一
+    /// `(server_id, node_tag)` 是否已有节点切片」判重，与汇总表的
+    /// `NOT EXISTS(node)` 语义一致，避免把归因失败的原始 email 算两次。
+    async fn protocol_traffic_scoped(
+        pool: &SqlitePool,
+        start_date: &str,
+        end_date: &str,
+        filter: &ServerFilter,
+    ) -> anyhow::Result<Vec<ProtocolTrafficRow>> {
+        let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
+            "WITH effective AS (
+                 SELECT t.day AS day,
+                        COALESCE(n.protocol, 'unknown') AS protocol,
+                        t.uplink AS uplink,
+                        t.downlink AS downlink
+                 FROM traffic_node_daily t
+                 LEFT JOIN nodes n
+                   ON n.server_id = t.server_id AND n.tag = t.node_tag
+                 WHERE t.server_id IN ",
+        );
+        push_in_list(&mut qb, filter.ids());
+        qb.push(" AND t.day >= ");
+        qb.push_bind(start_date);
+        qb.push(" AND t.day <= ");
+        qb.push_bind(end_date);
+        qb.push(
+            "
+                 UNION ALL
+                 SELECT td.day,
+                        COALESCE(n.protocol, 'unknown'),
+                        td.uplink,
+                        td.downlink
+                 FROM traffic_daily td
+                 LEFT JOIN nodes n
+                   ON n.server_id = td.server_id
+                  AND n.tag = substr(td.subject, instr(td.subject, '@') + 1)
+                 WHERE td.server_id IN ",
+        );
+        push_in_list(&mut qb, filter.ids());
+        qb.push(" AND td.day >= ");
+        qb.push_bind(start_date);
+        qb.push(" AND td.day <= ");
+        qb.push_bind(end_date);
+        qb.push(
+            " AND instr(td.subject, '@') > 0
+                   AND NOT EXISTS (
+                     SELECT 1 FROM traffic_node_daily nd
+                     WHERE nd.day = td.day
+                       AND nd.server_id = td.server_id
+                       AND nd.node_tag = substr(td.subject, instr(td.subject, '@') + 1)
+                   )
+             )
+             SELECT day, protocol,
+                    COALESCE(SUM(uplink), 0) AS uplink,
+                    COALESCE(SUM(downlink), 0) AS downlink
+             FROM effective
+             GROUP BY day, protocol",
+        );
+        Ok(qb
+            .build_query_as::<ProtocolTrafficRow>()
+            .fetch_all(pool)
+            .await?)
+    }
+
+    /// 把缓存好的流量快照与非流量部分拼成完整响应（全站口径）。
     ///
     /// 非流量部分每次现算：服务器/节点计数、24h 可用率、协议节点数、链路健康。
     /// 它们不随流量写入变化，又都很便宜，缓存它们只会让「新建节点/链路状态」
@@ -11598,34 +11887,35 @@ pub mod overview {
         days: i64,
         traffic: TrafficSnapshot,
     ) -> anyhow::Result<OverviewSnapshot> {
-        // 一条 SQL 拿齐三张表的标量，顺带把 24h 可用率算出来：可用率 =
-        // 「每台有采样的服务器 24h 均值」再求平均，等价于原来的
-        // uptime_all + Rust 求和，空集合回落 0。
-        let (servers_total, servers_online, nodes, uptime_24h): (i64, i64, i64, f64) =
-            sqlx::query_as(
-                "SELECT
-                    (SELECT COUNT(*) FROM servers),
-                    (SELECT COUNT(*) FROM servers WHERE status = 'online'),
-                    (SELECT COUNT(*) FROM nodes),
-                    (SELECT COALESCE(AVG(u), 0.0) FROM (
-                        SELECT AVG(CASE WHEN ts >= ? THEN online END) AS u
-                        FROM server_samples
-                        WHERE ts >= ? AND ts <= ?
-                        GROUP BY server_id
-                    ))",
-            )
-            .bind(now - 86_400)
-            .bind(now - super::server_samples::RETENTION_SECS)
-            .bind(now)
-            .fetch_one(pool)
-            .await?;
+        compose_filtered(pool, now, days, traffic, None).await
+    }
 
-        let protocols = protocol_rows(pool, &traffic.protocol_traffic).await?;
+    /// 同 [`compose`]，但服务器相关部分只统计 `filter` 选中的服务器。
+    ///
+    /// 过滤范围（与 `docs/OVERVIEW-SERVER-FILTER.md` 的语义表一致）：
+    /// * 受影响：在线/总数、节点数、24h 可用率、协议分布里的节点数、Top 服务器；
+    /// * 不受影响：`chains`（链可跨多台服务器，按服务器切分会重复计数）与
+    ///   `global`（用户/套餐模板/套餐实例）；
+    /// * 流量部分已经在 [`traffic_snapshot_filtered`] 里按服务器算好了。
+    pub async fn compose_filtered(
+        pool: &SqlitePool,
+        now: i64,
+        days: i64,
+        traffic: TrafficSnapshot,
+        filter: Option<&ServerFilter>,
+    ) -> anyhow::Result<OverviewSnapshot> {
+        let (servers_total, servers_online, nodes, uptime_24h) =
+            server_counts(pool, now, filter).await?;
+        let global = global_counts(pool).await?;
+
+        let protocols = protocol_rows(pool, &traffic.protocol_traffic, filter).await?;
+        // 链路健康是全局口径：一条链的成员可以分布在多台服务器上，
+        // 「按服务器过滤链」没有唯一答案，本轮不筛。
         let chains = chain_row(pool, now).await?;
         // Top 服务器卡带实时在线状态与网速采样，不进缓存：日汇总让它变成
         // 「服务器数 × 天数」行的聚合，现算成本可以忽略。
         let (start_date, end_date) = super::stats::day_window(now, days.clamp(1, 90));
-        let top = top_servers(pool, &start_date, &end_date, now).await?;
+        let top = top_servers(pool, &start_date, &end_date, now, filter).await?;
 
         Ok(OverviewSnapshot {
             kpi: Kpi {
@@ -11644,7 +11934,92 @@ pub mod overview {
             top_users: traffic.top_users,
             top_nodes: traffic.top_nodes,
             package_split: traffic.package_split,
+            global,
         })
+    }
+
+    /// 全局计数（用户数 / 套餐实例数 / 套餐模板数）；**不接收筛选**，
+    /// 保证管理员选了服务器后这三张卡仍然是全站数字。
+    async fn global_counts(pool: &SqlitePool) -> anyhow::Result<GlobalCounts> {
+        let (users_total, package_instances, package_templates): (i64, i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM users),
+                (SELECT COUNT(*) FROM user_packages),
+                (SELECT COUNT(*) FROM packages)",
+        )
+        .fetch_one(pool)
+        .await?;
+        Ok(GlobalCounts {
+            users_total,
+            package_instances,
+            package_templates,
+        })
+    }
+
+    /// 服务器数 / 在线数 / 节点数 / 24h 可用率。
+    ///
+    /// `filter = None` 是全站口径；`Some` 时三条标量都限定在选中的服务器上。
+    /// 24h 可用率 = 「每台有采样的服务器 24h 均值」再求平均，空集合回落 0；
+    /// 筛选到空集时 `IN (NULL)` 让四个值全部归零，不会回落到全站数字。
+    async fn server_counts(
+        pool: &SqlitePool,
+        now: i64,
+        filter: Option<&ServerFilter>,
+    ) -> anyhow::Result<(i64, i64, i64, f64)> {
+        let Some(filter) = filter else {
+            // 一条 SQL 拿齐三张表的标量，顺带把 24h 可用率算出来。
+            return Ok(sqlx::query_as(
+                "SELECT
+                    (SELECT COUNT(*) FROM servers),
+                    (SELECT COUNT(*) FROM servers WHERE status = 'online'),
+                    (SELECT COUNT(*) FROM nodes),
+                    (SELECT COALESCE(AVG(u), 0.0) FROM (
+                        SELECT AVG(CASE WHEN ts >= ? THEN online END) AS u
+                        FROM server_samples
+                        WHERE ts >= ? AND ts <= ?
+                        GROUP BY server_id
+                    ))",
+            )
+            .bind(now - 86_400)
+            .bind(now - super::server_samples::RETENTION_SECS)
+            .bind(now)
+            .fetch_one(pool)
+            .await?);
+        };
+
+        let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
+            "SELECT
+                (SELECT COUNT(*) FROM servers WHERE id IN ",
+        );
+        push_in_list(&mut qb, filter.ids());
+        qb.push(
+            "),
+                (SELECT COUNT(*) FROM servers WHERE status = 'online' AND id IN ",
+        );
+        push_in_list(&mut qb, filter.ids());
+        qb.push(
+            "),
+                (SELECT COUNT(*) FROM nodes WHERE server_id IN ",
+        );
+        push_in_list(&mut qb, filter.ids());
+        qb.push(
+            "),
+                (SELECT COALESCE(AVG(u), 0.0) FROM (
+                    SELECT AVG(CASE WHEN ts >= ",
+        );
+        qb.push_bind(now - 86_400);
+        qb.push(
+            " THEN online END) AS u
+                    FROM server_samples
+                    WHERE ts >= ",
+        );
+        qb.push_bind(now - super::server_samples::RETENTION_SECS);
+        qb.push(" AND ts <= ");
+        qb.push_bind(now);
+        qb.push(" AND server_id IN ");
+        push_in_list(&mut qb, filter.ids());
+        qb.push(" GROUP BY server_id ))");
+        Ok(qb.build_query_as().fetch_one(pool).await?)
     }
 
     /// 窗口内「按天 × 协议」的原始流量，供协议分布与协议趋势共用。
@@ -11706,14 +12081,21 @@ pub mod overview {
     /// 协议分布：节点数来自 `nodes`，流量来自 [`protocol_traffic`]。
     /// 两者在 Rust 里按协议合并，保证「配了但没流量」的协议以
     /// `traffic_7d = 0` 出现，已删节点的流量落到 `unknown`。
+    ///
+    /// `filter` 只影响节点数（`nodes.server_id IN (...)`）：流量行已经由调用方
+    /// 按服务器筛过。筛选到空集时节点数为 0，协议列表只由流量行决定（也是空）。
     async fn protocol_rows(
         pool: &SqlitePool,
         traffic: &[ProtocolTrafficRow],
+        filter: Option<&ServerFilter>,
     ) -> anyhow::Result<Vec<ProtocolRow>> {
-        let node_counts: Vec<(String, i64)> =
-            sqlx::query_as("SELECT protocol, COUNT(*) FROM nodes GROUP BY protocol")
-                .fetch_all(pool)
-                .await?;
+        let mut qb = QueryBuilder::<sqlx::Sqlite>::new("SELECT protocol, COUNT(*) FROM nodes");
+        if let Some(filter) = filter {
+            qb.push(" WHERE server_id IN ");
+            push_in_list(&mut qb, filter.ids());
+        }
+        qb.push(" GROUP BY protocol");
+        let node_counts: Vec<(String, i64)> = qb.build_query_as().fetch_all(pool).await?;
 
         let mut by_protocol: HashMap<String, ProtocolRow> = node_counts
             .into_iter()
@@ -11850,10 +12232,15 @@ pub mod overview {
     ///
     /// 用户合计与 Top 用户共用同一个 CTE：早期版本在 `top_user` 里又扫了一遍
     /// 原始日账本，实测占概览冷查询的一半。
+    ///
+    /// `filter = Some` 时只把 `user_traffic` 与 `top_node` 的数据源换成按
+    /// `traffic_daily.server_id` / `traffic_node_daily.server_id` 过滤的原始表
+    /// （`subject` scope 没有服务器维度，汇总表过滤不了），其余 CTE 完全复用。
     async fn top_cards(
         pool: &SqlitePool,
         start_date: &str,
         end_date: &str,
+        filter: Option<&ServerFilter>,
     ) -> anyhow::Result<(Vec<TopUserRow>, Vec<TopNodeRow>, Vec<PackageSplitRow>)> {
         #[derive(sqlx::FromRow)]
         struct Row {
@@ -11869,14 +12256,37 @@ pub mod overview {
         // 每个分支在子查询里 `ORDER BY ... LIMIT ?`（top-N 排序），再把三个
         // 小结果 UNION ALL。这样既只发一条 SQL，又保留原来「只排序前 5 条」
         // 的代价；用 `ROW_NUMBER()` 排名会强制窗口函数处理全部分组，实测慢 3 倍。
-        let rows = sqlx::query_as::<_, Row>(
-            "WITH user_traffic AS (
-                 SELECT key AS user_id,
-                        COALESCE(SUM(uplink + downlink), 0) AS bytes
-                 FROM traffic_daily_rollup
-                 WHERE scope = 'subject' AND day >= ? AND day <= ?
-                 GROUP BY key
-                 HAVING SUM(uplink + downlink) > 0
+        let mut qb = QueryBuilder::<sqlx::Sqlite>::new("WITH user_traffic AS (");
+        match filter {
+            None => {
+                qb.push(
+                    "SELECT key AS user_id,
+                            COALESCE(SUM(uplink + downlink), 0) AS bytes
+                     FROM traffic_daily_rollup
+                     WHERE scope = 'subject' AND day >= ",
+                );
+                qb.push_bind(start_date);
+                qb.push(" AND day <= ");
+                qb.push_bind(end_date);
+                qb.push(" GROUP BY key");
+            }
+            Some(filter) => {
+                qb.push(
+                    "SELECT subject AS user_id,
+                            COALESCE(SUM(uplink + downlink), 0) AS bytes
+                     FROM traffic_daily
+                     WHERE server_id IN ",
+                );
+                push_in_list(&mut qb, filter.ids());
+                qb.push(" AND day >= ");
+                qb.push_bind(start_date);
+                qb.push(" AND day <= ");
+                qb.push_bind(end_date);
+                qb.push(" GROUP BY subject");
+            }
+        }
+        qb.push(
+            " HAVING SUM(uplink + downlink) > 0
              ),
              current_instance AS (
                  SELECT up.user_id AS user_id,
@@ -11895,23 +12305,55 @@ pub mod overview {
                  FROM user_traffic ut
                  JOIN users u ON u.id = ut.user_id
                  ORDER BY ut.bytes DESC, u.id ASC
-                 LIMIT ?
-             ),
+                 LIMIT ",
+        );
+        qb.push_bind(TOP_USERS);
+        qb.push(
+            "),
              top_node AS (
                  SELECT 'node' AS kind, n.id AS id, n.name AS name,
                         s.name AS sub, n.protocol AS protocol, 0 AS users,
                         COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic
-                 FROM traffic_daily_rollup t
-                 JOIN nodes n
-                   ON n.server_id = substr(t.key, 1, instr(t.key, char(31)) - 1)
-                  AND n.tag = substr(t.key, instr(t.key, char(31)) + 1)
-                 JOIN servers s ON s.id = n.server_id
-                 WHERE t.scope = 'node' AND t.day >= ? AND t.day <= ?
-                 GROUP BY n.id, n.name, n.protocol, s.name
+                 FROM ",
+        );
+        match filter {
+            None => {
+                qb.push(
+                    "traffic_daily_rollup t
+                     JOIN nodes n
+                       ON n.server_id = substr(t.key, 1, instr(t.key, char(31)) - 1)
+                      AND n.tag = substr(t.key, instr(t.key, char(31)) + 1)
+                     JOIN servers s ON s.id = n.server_id
+                     WHERE t.scope = 'node' AND t.day >= ",
+                );
+                qb.push_bind(start_date);
+                qb.push(" AND t.day <= ");
+                qb.push_bind(end_date);
+            }
+            Some(filter) => {
+                qb.push(
+                    "traffic_node_daily t
+                     JOIN nodes n
+                       ON n.server_id = t.server_id AND n.tag = t.node_tag
+                     JOIN servers s ON s.id = n.server_id
+                     WHERE t.server_id IN ",
+                );
+                push_in_list(&mut qb, filter.ids());
+                qb.push(" AND t.day >= ");
+                qb.push_bind(start_date);
+                qb.push(" AND t.day <= ");
+                qb.push_bind(end_date);
+            }
+        }
+        qb.push(
+            " GROUP BY n.id, n.name, n.protocol, s.name
                  HAVING SUM(t.uplink + t.downlink) > 0
                  ORDER BY traffic DESC, n.id ASC
-                 LIMIT ?
-             ),
+                 LIMIT ",
+        );
+        qb.push_bind(TOP_NODES);
+        qb.push(
+            "),
              top_package AS (
                  SELECT 'package' AS kind, p.id AS id, p.name AS name,
                         '' AS sub, '' AS protocol, COUNT(*) AS users,
@@ -11923,24 +12365,19 @@ pub mod overview {
                  GROUP BY p.id, p.name
                  HAVING SUM(ut.bytes) > 0
                  ORDER BY traffic DESC, p.id ASC
-                 LIMIT ?
-             )
+                 LIMIT ",
+        );
+        qb.push_bind(TOP_PACKAGES);
+        qb.push(
+            ")
              SELECT kind, id, name, sub, protocol, users, traffic FROM top_user
              UNION ALL
              SELECT kind, id, name, sub, protocol, users, traffic FROM top_node
              UNION ALL
              SELECT kind, id, name, sub, protocol, users, traffic FROM top_package
              ORDER BY kind ASC, traffic DESC, id ASC",
-        )
-        .bind(start_date)
-        .bind(end_date)
-        .bind(TOP_USERS)
-        .bind(start_date)
-        .bind(end_date)
-        .bind(TOP_NODES)
-        .bind(TOP_PACKAGES)
-        .fetch_all(pool)
-        .await?;
+        );
+        let rows = qb.build_query_as::<Row>().fetch_all(pool).await?;
 
         let mut top_users = Vec::new();
         let mut top_nodes = Vec::new();
@@ -12047,11 +12484,15 @@ pub mod overview {
     ///
     /// 流量来自 `server` scope（每台服务器每天一行）；`idx_..._key_day` 让每台
     /// 服务器只取窗口内的几十行，而不是 30 天的全部用户行。
+    ///
+    /// `filter = Some` 时 `WHERE s.id IN (...)` 把候选集缩到选中的服务器；
+    /// 筛选到空集时 `IN (NULL)` 返回空数组（不是「全站 Top 5」）。
     async fn top_servers(
         pool: &SqlitePool,
         start_date: &str,
         end_date: &str,
         now: i64,
+        filter: Option<&ServerFilter>,
     ) -> anyhow::Result<Vec<TopRow>> {
         #[derive(sqlx::FromRow)]
         struct Row {
@@ -12061,7 +12502,7 @@ pub mod overview {
             load1: Option<f64>,
             online: bool,
         }
-        let rows = sqlx::query_as::<_, Row>(
+        let mut qb = QueryBuilder::<sqlx::Sqlite>::new(
             "SELECT s.id AS id,
                     s.name AS name,
                     COALESCE(SUM(t.uplink + t.downlink), 0) AS traffic_7d,
@@ -12070,16 +12511,22 @@ pub mod overview {
              FROM servers s
              LEFT JOIN traffic_daily_rollup t
                ON t.scope = 'server' AND t.key = s.id
-              AND t.day >= ? AND t.day <= ?
-             GROUP BY s.id, s.name, s.load1, s.status, s.created_at
+              AND t.day >= ",
+        );
+        qb.push_bind(start_date);
+        qb.push(" AND t.day <= ");
+        qb.push_bind(end_date);
+        if let Some(filter) = filter {
+            qb.push(" WHERE s.id IN ");
+            push_in_list(&mut qb, filter.ids());
+        }
+        qb.push(
+            " GROUP BY s.id, s.name, s.load1, s.status, s.created_at
              ORDER BY traffic_7d DESC, s.created_at ASC, s.id ASC
-             LIMIT ?",
-        )
-        .bind(start_date)
-        .bind(end_date)
-        .bind(TOP_SERVERS)
-        .fetch_all(pool)
-        .await?;
+             LIMIT ",
+        );
+        qb.push_bind(TOP_SERVERS);
+        let rows = qb.build_query_as::<Row>().fetch_all(pool).await?;
 
         let ids: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
         let mut rates = load_rate_series(pool, &ids, now).await?;
@@ -12955,6 +13402,249 @@ pub mod overview {
                 snapshot.kpi.traffic_month, 350,
                 "month 覆盖 11-01..11-15，不含 10-31"
             );
+        }
+
+        // ---- 服务器筛选（`?server_ids=`） ----
+        //
+        // 语义见 `docs/OVERVIEW-SERVER-FILTER.md`：服务器/流量相关字段只统计
+        // 选中服务器；`global` 与 `chains` 是全局口径，不随筛选变化。
+
+        async fn create_package(pool: &SqlitePool, name: &str) -> crate::models::Package {
+            super::super::packages::create(
+                pool,
+                super::super::packages::NewPackage {
+                    name: name.into(),
+                    quota_bytes: Some(10_000),
+                    period_days: Some(30),
+                    direction: "both".into(),
+                    node_ratio: 1.0,
+                    rule_template_id: None,
+                    subscription_template_id: None,
+                    speed_limit_kbps: None,
+                    node_ids: None,
+                },
+            )
+            .await
+            .unwrap()
+        }
+
+        async fn bind_package(pool: &SqlitePool, user_id: &str, package: &crate::models::Package) {
+            super::super::user_packages::create(
+                pool,
+                user_id,
+                super::super::user_packages::NewUserPackage {
+                    package_id: package.id.clone(),
+                    quota_override: None,
+                    expires_at: None,
+                    reset_day: None,
+                },
+                package,
+            )
+            .await
+            .unwrap();
+        }
+
+        #[test]
+        fn server_filter_normalizes_and_deduplicates_ids() {
+            let filter = ServerFilter::new(vec!["b".into(), "a".into(), "b".into()]);
+            assert_eq!(filter.ids(), ["a", "b"]);
+            assert_eq!(filter.len(), 2);
+            assert!(!filter.is_empty());
+            assert!(ServerFilter::default().is_empty());
+        }
+
+        /// 按服务器筛选：服务器相关与流量相关字段只统计选中服务器；
+        /// 用户/套餐这些全局计数不受影响。
+        #[tokio::test]
+        async fn server_filter_scopes_server_and_traffic_but_not_global_counts() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let today = crate::time::business_date(now);
+
+            let (hk, _) = super::super::servers::create(&pool, "hk", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            let (jp, _) = super::super::servers::create(&pool, "jp", "10.0.0.2", "external")
+                .await
+                .unwrap();
+            add_node(&pool, &hk.id, "hk-vless", "vless").await;
+            add_node(&pool, &hk.id, "hk-trojan", "trojan").await;
+            add_node(&pool, &jp.id, "jp-vless", "vless").await;
+
+            let alice = add_user(&pool, "alice").await;
+            let bob = add_user(&pool, "bob").await;
+            let hk_package = create_package(&pool, "香港套餐").await;
+            let jp_package = create_package(&pool, "日本套餐").await;
+            bind_package(&pool, &alice, &hk_package).await;
+            bind_package(&pool, &bob, &jp_package).await;
+
+            // 两台各 100（原始上下行合计），weighted 同值。
+            seed(&pool, &today, &hk.id, &alice, (40, 60, 100)).await;
+            seed_node(&pool, &today, &hk.id, "hk-vless", &alice, (40, 60, 100)).await;
+            seed(&pool, &today, &jp.id, &bob, (40, 60, 100)).await;
+            seed_node(&pool, &today, &jp.id, "jp-vless", &bob, (40, 60, 100)).await;
+
+            super::super::servers::mark_online(&pool, &hk.id)
+                .await
+                .unwrap();
+            super::super::servers::mark_online(&pool, &jp.id)
+                .await
+                .unwrap();
+            super::super::server_samples::record_round(&pool, now - 300)
+                .await
+                .unwrap();
+            super::super::servers::mark_offline(&pool, &jp.id)
+                .await
+                .unwrap();
+            super::super::server_samples::record_round(&pool, now)
+                .await
+                .unwrap();
+
+            let all = super::snapshot(&pool, now, 7).await.unwrap();
+            assert_eq!(all.kpi.traffic_today, 200);
+            assert_eq!(all.kpi.nodes, 3);
+            assert_eq!(all.kpi.uptime_24h, 0.75, "香港 1.0、日本 0.5");
+            assert_eq!(all.global.users_total, 2, "alice + bob");
+            assert_eq!(all.global.package_instances, 2);
+            assert_eq!(all.global.package_templates, 2);
+
+            let filter = ServerFilter::new(vec![hk.id.clone()]);
+            let hk_view = super::snapshot_filtered(&pool, now, 7, Some(&filter))
+                .await
+                .unwrap();
+
+            // 服务器相关：只算香港。
+            assert_eq!(hk_view.kpi.servers_total, 1);
+            assert_eq!(hk_view.kpi.servers_online, 1);
+            assert_eq!(hk_view.kpi.nodes, 2);
+            assert_eq!(hk_view.kpi.uptime_24h, 1.0);
+            assert_eq!(hk_view.top.len(), 1);
+            assert_eq!(hk_view.top[0].server_id, hk.id);
+            assert_eq!(hk_view.top[0].traffic_7d, 100);
+
+            // 流量相关：今日/本月/趋势/协议/四张 Top 卡都只算香港的 100。
+            assert_eq!(hk_view.kpi.traffic_today, 100);
+            assert_eq!(hk_view.kpi.traffic_month, 100);
+            let last = hk_view.series.last().unwrap();
+            assert_eq!((last.uplink, last.downlink), (40, 60));
+            let protocols: Vec<(&str, i64, i64)> = hk_view
+                .protocols
+                .iter()
+                .map(|row| (row.protocol.as_str(), row.nodes, row.traffic_7d))
+                .collect();
+            assert_eq!(protocols, vec![("vless", 1, 100), ("trojan", 1, 0)]);
+            assert_eq!(hk_view.top_users.len(), 1);
+            assert_eq!(hk_view.top_users[0].username, "alice");
+            assert_eq!(hk_view.top_users[0].traffic_7d, 100);
+            assert_eq!(hk_view.top_nodes.len(), 1);
+            assert_eq!(hk_view.top_nodes[0].name, "hk-vless");
+            assert_eq!(hk_view.package_split.len(), 1);
+            assert_eq!(hk_view.package_split[0].name, "香港套餐");
+            assert_eq!(hk_view.package_split[0].traffic_7d, 100);
+
+            // 全局：用户/套餐计数与链路健康完全不变。
+            assert_eq!(hk_view.global, all.global);
+            assert_eq!(hk_view.chains, all.chains);
+
+            // 多台：两台都选中 → 数字回到全站。
+            let both = ServerFilter::new(vec![hk.id.clone(), jp.id.clone()]);
+            let both_view = super::snapshot_filtered(&pool, now, 7, Some(&both))
+                .await
+                .unwrap();
+            assert_eq!(both_view.kpi.traffic_today, 200);
+            assert_eq!(both_view.kpi.servers_total, 2);
+            assert_eq!(both_view.kpi.nodes, 3);
+            assert_eq!(both_view.top.len(), 2);
+            assert_eq!(both_view.top_users.len(), 2);
+        }
+
+        /// 筛选到空集：空结果 + 全 0，不是「回落到全站」。
+        #[tokio::test]
+        async fn empty_server_filter_returns_empty_result_but_keeps_global_counts() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let today = crate::time::business_date(now);
+
+            let (hk, _) = super::super::servers::create(&pool, "hk", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            let alice = add_user(&pool, "alice").await;
+            let package = create_package(&pool, "月卡").await;
+            bind_package(&pool, &alice, &package).await;
+            seed(&pool, &today, &hk.id, &alice, (40, 60, 100)).await;
+
+            let all = super::snapshot(&pool, now, 7).await.unwrap();
+            let empty = super::snapshot_filtered(&pool, now, 7, Some(&ServerFilter::default()))
+                .await
+                .unwrap();
+
+            assert_eq!(empty.kpi.servers_total, 0);
+            assert_eq!(empty.kpi.servers_online, 0);
+            assert_eq!(empty.kpi.nodes, 0);
+            assert_eq!(empty.kpi.traffic_today, 0);
+            assert_eq!(empty.kpi.traffic_month, 0);
+            assert_eq!(empty.kpi.uptime_24h, 0.0);
+            assert_eq!(empty.series.len(), 7, "日期仍然补齐，值为 0");
+            assert!(empty
+                .series
+                .iter()
+                .all(|point| point.uplink == 0 && point.downlink == 0));
+            assert!(empty.protocols.is_empty());
+            assert!(empty.protocol_series.is_empty());
+            assert!(empty.top.is_empty());
+            assert!(empty.top_users.is_empty());
+            assert!(empty.top_nodes.is_empty());
+            assert!(empty.package_split.is_empty());
+
+            // 全局项与链路健康不受筛选影响。
+            assert_eq!(empty.global, all.global);
+            assert_eq!(empty.global.users_total, 1, "alice");
+            assert_eq!(empty.global.package_instances, 1);
+            assert_eq!(empty.global.package_templates, 1);
+            assert_eq!(empty.chains, all.chains);
+        }
+
+        /// 只有一台服务器时，「筛选到这台」必须与「不筛选」逐字段一致——
+        /// 包括历史 `user@tag` 行的兜底归因与已删节点的 `unknown` 归属，
+        /// 这是「汇总表路径」与「原始账本路径」口径对齐的回归测试。
+        #[tokio::test]
+        async fn filtering_to_the_only_server_matches_the_unfiltered_snapshot() {
+            let pool = setup().await;
+            let now = at("2026-11-15T12:00:00+08:00");
+            let (hk, _) = super::super::servers::create(&pool, "hk", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            add_node(&pool, &hk.id, "hk-vless", "vless").await;
+            add_node(&pool, &hk.id, "hk-trojan", "trojan").await;
+            let alice = add_user(&pool, "alice").await;
+
+            // 现代数据：subject 是 user_id + 节点切片。
+            seed(&pool, "2026-11-15", &hk.id, &alice, (100, 0, 100)).await;
+            seed_node(
+                &pool,
+                "2026-11-15",
+                &hk.id,
+                "hk-vless",
+                &alice,
+                (100, 0, 100),
+            )
+            .await;
+            seed(&pool, "2026-11-14", &hk.id, &alice, (0, 7, 7)).await;
+            seed_node(&pool, "2026-11-14", &hk.id, "hk-trojan", &alice, (0, 7, 7)).await;
+            // 历史兜底：只有 traffic_daily，subject 带 @，没有节点切片。
+            seed(&pool, "2026-11-13", &hk.id, "bob@hk-vless", (0, 3, 3)).await;
+            // 归因失败路径：原始 email 与 user_id='' 的节点切片同时存在，只算一次。
+            seed(&pool, "2026-11-12", &hk.id, "carol@hk-vless", (0, 11, 11)).await;
+            seed_node(&pool, "2026-11-12", &hk.id, "hk-vless", "", (0, 11, 11)).await;
+            // 已删除节点（tag 不在 nodes 里）：归到 unknown。
+            seed(&pool, "2026-11-11", &hk.id, "dave@gone", (0, 5, 5)).await;
+
+            let all = super::snapshot(&pool, now, 7).await.unwrap();
+            let filter = ServerFilter::new(vec![hk.id.clone()]);
+            let scoped = super::snapshot_filtered(&pool, now, 7, Some(&filter))
+                .await
+                .unwrap();
+            assert_eq!(scoped, all, "唯一服务器的筛选结果必须与全站一致");
         }
     }
 }

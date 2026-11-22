@@ -20,7 +20,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import OverviewInsight from "@/components/overview/OverviewInsight";
-import { useOverviewStats, useTraffic } from "@/lib/queries";
+import { useOverviewScope } from "@/components/overview/useOverviewScope";
+import { useOverview, useOverviewStats, useTraffic } from "@/lib/queries";
 import { formatBytes } from "@/lib/format";
 import { statsErrorText } from "@/lib/overviewErrors";
 import { OVERVIEW_TRAFFIC_DAYS } from "@/lib/overviewViews";
@@ -49,6 +50,7 @@ function KpiCard({
   value,
   hint,
   delta,
+  global,
 }: {
   label: string;
   icon: LucideIcon;
@@ -56,6 +58,8 @@ function KpiCard({
   hint: string;
   /** 相对上一周期的变化百分比；没有可比数据时传 null 或省略。 */
   delta?: number | null;
+  /** 该 KPI 不受服务器筛选影响（用户 / 套餐实例），加「全局」小字。 */
+  global?: boolean;
 }) {
   const hasDelta = typeof delta === "number" && Number.isFinite(delta);
   const deltaText = !hasDelta
@@ -75,14 +79,30 @@ function KpiCard({
       <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
         {/* 标签用普通文本而不是 CardDescription：后者会触发卡头的两行网格，
             在只有标签 + 图标时多出一条 8px 空行。 */}
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <p
+          data-kpi-label
+          className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-tight text-muted-foreground"
+        >
+          <span className="min-w-0">{label}</span>
+          {global ? (
+            <span
+              data-kpi-global
+              className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-[9px] leading-none text-muted-foreground"
+            >
+              {t("overview.scope.global")}
+            </span>
+          ) : null}
+        </p>
         <div className="grid size-6 place-items-center rounded-md bg-primary/10 text-primary">
           <Icon className="icon-sm" />
         </div>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col">
         {/* leading-none 收紧 28px 数字的行距，字号与字重不变。 */}
-        <div className="flex items-baseline text-[28px] leading-none font-medium tracking-tight tabular-nums">
+        <div
+          data-kpi-value
+          className="flex items-baseline text-[28px] leading-none font-medium tracking-tight tabular-nums"
+        >
           {value}
         </div>
         {/* 底部对齐：有变化率时不会把同一行的其它卡片撑得高低不一。
@@ -185,6 +205,13 @@ export default function OverviewPage() {
   // 都在「流量」tab 里按需挂载，切到其它 tab 不会请求它们。
   const statsQuery = useOverviewStats();
   const traffic = useTraffic(OVERVIEW_TRAFFIC_DAYS);
+  const scope = useOverviewScope();
+  // 只有缩小了范围才请求带 server_ids 的聚合；全选时沿用 stats 的全量值。
+  const scopedOverview = useOverview(
+    OVERVIEW_TRAFFIC_DAYS,
+    scope.filtered ? scope.selectedIds : [],
+    scope.filtered && scope.selectedIds.length > 0,
+  );
   const queryClient = useQueryClient();
   const activeOverviewFetching =
     useIsFetching({ queryKey: ["overview"] }) > 0;
@@ -212,6 +239,49 @@ export default function OverviewPage() {
 
   const stats = statsQuery.data;
   const trafficDelta = trafficDayOverDay(traffic.data?.days);
+  const scopeReady = scope.ready && scope.servers.length > 0;
+  const emptyScope = scopeReady && scope.selectedIds.length === 0;
+  const scopedOnline = scopeReady
+    ? scope.selectedServers.filter((server) => server.status === "online")
+        .length
+    : (stats?.servers.online ?? 0);
+  const scopedTotal = scopeReady
+    ? scope.selectedServers.length
+    : (stats?.servers.total ?? 0);
+  const scopedOffline = Math.max(0, scopedTotal - scopedOnline);
+
+  // 后端真正应用了筛选才用聚合里的流量；旧主控返回不带 scope，保留全量值。
+  const scopedAggregate =
+    scope.filtered && scope.selectedIds.length > 0
+      ? scopedOverview.data
+      : undefined;
+  const trafficScoped = scopedAggregate?.scope?.filtered === true;
+  const scopeUnsupported =
+    scope.filtered &&
+    scope.selectedIds.length > 0 &&
+    scopedOverview.isSuccess &&
+    !trafficScoped;
+  const todayBytes =
+    trafficScoped && scopedAggregate
+      ? scopedAggregate.kpi.traffic_today
+      : stats?.traffic.today_bytes;
+  const monthBytes =
+    trafficScoped && scopedAggregate
+      ? scopedAggregate.kpi.traffic_month
+      : stats?.traffic.month_bytes;
+  const trafficHint = emptyScope
+    ? t("overview.scope.emptyTitle")
+    : scope.filtered
+      ? scopeUnsupported
+        ? t("overview.scope.trafficNeedsUpgrade")
+        : scopedOverview.isError
+          ? t("overview.scope.trafficUnavailable")
+          : t("overview.monthTrafficHint", {
+              value: formatBytes(monthBytes ?? 0),
+            })
+      : t("overview.monthTrafficHint", {
+          value: formatBytes(monthBytes ?? 0),
+        });
   // 新装系统最先要做的动作是加服务器；即使已经有管理员账号也走这个空态。
   const isNewInstall = stats !== undefined && stats.servers.total === 0;
 
@@ -252,19 +322,23 @@ export default function OverviewPage() {
               label={t("overview.onlineServers")}
               icon={ServerIcon}
               value={
-                <>
-                  {stats.servers.online}
-                  <span className="ml-1 text-sm font-normal text-muted-foreground">
-                    / {stats.servers.total}
-                  </span>
-                </>
+                emptyScope ? (
+                  "—"
+                ) : (
+                  <>
+                    {scopedOnline}
+                    <span className="ml-1 text-sm font-normal text-muted-foreground">
+                      / {scopedTotal}
+                    </span>
+                  </>
+                )
               }
               hint={
-                stats.alerts.offline_servers > 0
-                  ? t("overview.offlineCount", {
-                      n: stats.alerts.offline_servers,
-                    })
-                  : t("overview.allOnline")
+                emptyScope
+                  ? t("overview.scope.emptyTitle")
+                  : scopedOffline > 0
+                    ? t("overview.offlineCount", { n: scopedOffline })
+                    : t("overview.allOnline")
               }
             />
             <KpiCard
@@ -284,6 +358,7 @@ export default function OverviewPage() {
                   : "overview.usersTotalHint",
                 { n: stats.users.total },
               )}
+              global
             />
             <KpiCard
               label={t("overview.packageInstances")}
@@ -292,21 +367,22 @@ export default function OverviewPage() {
               hint={t("overview.packagesTotalHint", {
                 n: stats.packages.total,
               })}
+              global
             />
             <KpiCard
               label={t("overview.todayTraffic")}
               icon={ActivityIcon}
-              value={<ByteValue bytes={stats.traffic.today_bytes} />}
-              delta={trafficDelta}
-              hint={t("overview.monthTrafficHint", {
-                value: formatBytes(stats.traffic.month_bytes),
-              })}
+              value={
+                emptyScope ? "—" : <ByteValue bytes={todayBytes ?? 0} />
+              }
+              delta={scope.filtered || emptyScope ? null : trafficDelta}
+              hint={trafficHint}
             />
           </section>
 
           {/* 全局 KPI 在 tab 之上；tab 内部只渲染当前视图自己的卡片。 */}
           <section className="grid min-w-0 gap-4" data-overview-insight-section>
-            <OverviewInsight stats={stats} />
+            <OverviewInsight stats={stats} scope={scope} />
           </section>
         </>
       ) : null}

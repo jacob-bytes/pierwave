@@ -167,13 +167,36 @@ struct OverviewTrafficStats {
     misses: AtomicU64,
 }
 
-/// 缓存 key：生产只用 `(days, 0)`；第二个分量留给测试复现旧的
-/// `(days, generation)` 策略，证明持续写入下它会几乎全部 miss。
-type OverviewTrafficKey = (i64, i64);
+/// 概览流量快照的缓存 key。
+///
+/// 生产 key 是**天数 + 规范化后的服务器筛选**：不带 `server_ids` 与
+/// `?server_ids=a,b` 的结果必须分开，否则先请求全量、再筛选时会拿到全站数字。
+/// `server_ids = None`（不筛选）与 `Some(vec![])`（筛选到空集）也是不同的 key。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum OverviewTrafficKey {
+    Snapshot {
+        days: i64,
+        /// 已排序、去重的服务器 id；`None` = 不筛选。
+        server_ids: Option<Vec<String>>,
+    },
+    /// 测试专用：复现旧的 `(days, generation)` 策略，用来证明持续写入下
+    /// 命中率会接近 0。生产路径不会构造这个 key。
+    #[cfg(test)]
+    Generation { days: i64, generation: i64 },
+}
+
 /// 缓存条目：写入时刻 + 流量快照。
 type OverviewTrafficEntry = (Instant, TrafficSnapshot);
 
-/// 概览流量快照缓存，按 `days` 命中，TTL 12 秒。
+/// 缓存条目上限：`server_ids` 的组合可能远多于 `days`。TTL 只有 12 秒，
+/// 超过上限时先清过期条目、再淘汰最早写入的那条即可，不需要引入 LRU。
+const OVERVIEW_TRAFFIC_MAX_ENTRIES: usize = 64;
+
+/// 概览流量快照缓存，按 `(days, server_ids)` 命中，TTL 12 秒。
+///
+/// 命中条件必须包含服务器筛选：否则管理员先看全量、再按某台服务器筛选时，
+/// 会拿到 12 秒内的全站数字（缓存串数据）。筛选 id 由调用方规范化
+/// （排序 + 去重），同一组服务器无论参数顺序都命中同一条缓存。
 ///
 /// 显式的 [`Self::clear`] 只用于管理员动作（恢复备份等）要求立即失效的场景；
 /// 常规计费入账**不**清缓存，否则持续上报会让缓存失去意义。
@@ -229,20 +252,46 @@ impl OverviewTrafficCache {
         if self.ttl.is_zero() {
             return;
         }
-        self.inner
+        let mut guard = self
+            .inner
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(key, (Instant::now(), snapshot));
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // 筛选组合可能很多：超过上限时先清过期条目，仍超就淘汰最早写入的一条。
+        if guard.len() >= OVERVIEW_TRAFFIC_MAX_ENTRIES && !guard.contains_key(&key) {
+            guard.retain(|_, (at, _)| at.elapsed() < self.ttl);
+            while guard.len() >= OVERVIEW_TRAFFIC_MAX_ENTRIES {
+                let oldest = guard
+                    .iter()
+                    .min_by_key(|(_, (at, _))| *at)
+                    .map(|(key, _)| key.clone());
+                match oldest {
+                    Some(oldest) => {
+                        guard.remove(&oldest);
+                    }
+                    None => break,
+                }
+            }
+        }
+        guard.insert(key, (Instant::now(), snapshot));
     }
 
-    /// 命中返回快照；超过 TTL 才是 miss（days 不同是不同的 key）。
-    pub fn get(&self, days: i64) -> Option<TrafficSnapshot> {
-        self.lookup((days, 0))
+    /// 命中返回快照；`days` 或服务器筛选不同都是不同的 key。
+    pub fn get(&self, days: i64, server_ids: Option<&[String]>) -> Option<TrafficSnapshot> {
+        self.lookup(OverviewTrafficKey::Snapshot {
+            days,
+            server_ids: server_ids.map(<[String]>::to_vec),
+        })
     }
 
-    /// 写入快照；同一 `days` 覆盖旧条目。
-    pub fn put(&self, days: i64, snapshot: TrafficSnapshot) {
-        self.store((days, 0), snapshot);
+    /// 写入快照；同一 `(days, server_ids)` 覆盖旧条目。
+    pub fn put(&self, days: i64, server_ids: Option<&[String]>, snapshot: TrafficSnapshot) {
+        self.store(
+            OverviewTrafficKey::Snapshot {
+                days,
+                server_ids: server_ids.map(<[String]>::to_vec),
+            },
+            snapshot,
+        );
     }
 
     /// 测试专用：复现旧的 `(days, generation)` key，用来证明持续写入下
@@ -253,7 +302,7 @@ impl OverviewTrafficCache {
         days: i64,
         generation: i64,
     ) -> Option<TrafficSnapshot> {
-        self.lookup((days, generation))
+        self.lookup(OverviewTrafficKey::Generation { days, generation })
     }
 
     /// 测试专用：与 [`Self::get_generation_keyed`] 配对。
@@ -264,7 +313,10 @@ impl OverviewTrafficCache {
         generation: i64,
         snapshot: TrafficSnapshot,
     ) {
-        self.store((days, generation), snapshot);
+        self.store(
+            OverviewTrafficKey::Generation { days, generation },
+            snapshot,
+        );
     }
 
     /// 立刻失效：只给管理员动作（例如恢复备份）用，常规流量写入不要调用。
@@ -1105,24 +1157,75 @@ mod tests {
     #[tokio::test]
     async fn overview_cache_is_keyed_by_days_and_expires_by_ttl() {
         let cache = OverviewTrafficCache::with_ttl(Duration::from_millis(60));
-        assert!(cache.get(7).is_none(), "空缓存必须 miss");
-        cache.put(7, traffic_snapshot(1));
+        assert!(cache.get(7, None).is_none(), "空缓存必须 miss");
+        cache.put(7, None, traffic_snapshot(1));
 
-        assert_eq!(cache.get(7).unwrap().traffic_today, 1);
-        assert_eq!(cache.get(7).unwrap().traffic_today, 1);
-        cache.put(7, traffic_snapshot(2));
-        assert_eq!(cache.get(7).unwrap().traffic_today, 2, "同 days 覆盖旧值");
-        assert!(cache.get(30).is_none(), "days 不同必须 miss");
+        assert_eq!(cache.get(7, None).unwrap().traffic_today, 1);
+        assert_eq!(cache.get(7, None).unwrap().traffic_today, 1);
+        cache.put(7, None, traffic_snapshot(2));
+        assert_eq!(
+            cache.get(7, None).unwrap().traffic_today,
+            2,
+            "同 days 覆盖旧值"
+        );
+        assert!(cache.get(30, None).is_none(), "days 不同必须 miss");
 
         cache.clear();
-        assert!(cache.get(7).is_none(), "clear 之后必须 miss");
+        assert!(cache.get(7, None).is_none(), "clear 之后必须 miss");
 
-        cache.put(7, traffic_snapshot(3));
+        cache.put(7, None, traffic_snapshot(3));
         tokio::time::sleep(Duration::from_millis(90)).await;
-        assert!(cache.get(7).is_none(), "超过 TTL 必须 miss");
+        assert!(cache.get(7, None).is_none(), "超过 TTL 必须 miss");
         let (hits, misses) = cache.stats();
         assert_eq!(hits, 3, "三次命中");
         assert_eq!(misses, 4, "空缓存 / days 不同 / clear / TTL 各一次");
+    }
+
+    /// 缓存 key 必须包含服务器筛选，否则「先全量、后筛选」会串数据。
+    ///
+    /// 三种状态互不命中：`None`（不筛选）、`Some([a])`、`Some([])`（筛选到空集）；
+    /// 同一组 id 换顺序仍命中同一条（调用方已排序，这里锁定语义）。
+    #[tokio::test]
+    async fn overview_cache_key_includes_the_server_filter() {
+        let cache = OverviewTrafficCache::with_ttl(Duration::from_secs(12));
+        let a = vec!["a".to_string()];
+        let ab = vec!["a".to_string(), "b".to_string()];
+
+        cache.put(7, None, traffic_snapshot(1000));
+        cache.put(7, Some(&a), traffic_snapshot(100));
+        cache.put(7, Some(&[]), TrafficSnapshot::default());
+
+        assert_eq!(cache.get(7, None).unwrap().traffic_today, 1000);
+        assert_eq!(cache.get(7, Some(&a)).unwrap().traffic_today, 100);
+        assert_eq!(cache.get(7, Some(&[])).unwrap().traffic_today, 0);
+        assert!(
+            cache.get(7, Some(&ab)).is_none(),
+            "没缓存过的服务器组合必须 miss"
+        );
+    }
+
+    /// 条目上限：filtered 组合超过上限后仍能写入，且不会无限增长。
+    #[tokio::test]
+    async fn overview_cache_evicts_entries_above_the_cap() {
+        let cache = OverviewTrafficCache::with_ttl(Duration::from_secs(12));
+        for index in 0..(OVERVIEW_TRAFFIC_MAX_ENTRIES + 10) {
+            let ids = vec![format!("server-{index}")];
+            cache.put(7, Some(&ids), traffic_snapshot(index as i64));
+        }
+        let entries = cache
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .len();
+        assert!(
+            entries <= OVERVIEW_TRAFFIC_MAX_ENTRIES,
+            "缓存条目不能超过上限，实际 {entries}"
+        );
+        let last = vec![format!("server-{}", OVERVIEW_TRAFFIC_MAX_ENTRIES + 9)];
+        assert!(
+            cache.get(7, Some(&last)).is_some(),
+            "最新写入的条目必须还在"
+        );
     }
 
     /// 旧 `(days, generation)` key 的行为：generation 一变就 miss。
@@ -1147,8 +1250,8 @@ mod tests {
     async fn overview_cache_with_zero_ttl_never_hits() {
         let cache = OverviewTrafficCache::with_ttl(Duration::ZERO);
         assert!(cache.ttl().is_zero());
-        cache.put(7, traffic_snapshot(1));
-        assert!(cache.get(7).is_none());
+        cache.put(7, None, traffic_snapshot(1));
+        assert!(cache.get(7, None).is_none());
         let (hits, misses) = cache.stats();
         assert_eq!((hits, misses), (0, 1));
     }

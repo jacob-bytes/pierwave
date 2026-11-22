@@ -10,11 +10,13 @@ import {
   formatHourTick,
   formatMonthDayHour,
   formatPercent,
+  defaultServerSelection,
   heatmapCell,
-  heatmapStep,
   isServerHealthUnsupported,
   normalizeServerHealth,
   resourceServerRows,
+  scopeServerHealthSnapshot,
+  uptimeHeatmapStep,
 } from "./serverHealth.ts";
 
 const BASE = Date.UTC(2026, 10, 22, 0, 0, 0) / 1000; // 2026-11-22 08:00 UTC+8
@@ -148,59 +150,81 @@ test("normalizeServerHealth: 24h 在线率按采样数加权，异常台数按�
   assert.equal(snapshot.summary.maxDiskServer, "server-b");
 });
 
-test("heatmapCell: 0–4 色阶 + 无采样 + 离线，所有指标都优先显示离线", () => {
+test("heatmapCell: 在线率 0–4 色阶 + 无采样 + 离线", () => {
   const row = normalizeServerHealth(
     health([
       server("a", [
         bucket(BASE, { online_ratio: 1 }),
-        bucket(BASE + HOUR, { online_ratio: 0.97 }),
-        bucket(BASE + 2 * HOUR, { online_ratio: 0.9 }),
-        bucket(BASE + 3 * HOUR, { samples: 0, outage_samples: 0 }),
-        bucket(BASE + 4 * HOUR, { online_ratio: 0 }),
+        bucket(BASE + HOUR, { online_ratio: 0.98 }),
+        bucket(BASE + 2 * HOUR, { online_ratio: 0.96 }),
+        bucket(BASE + 3 * HOUR, { online_ratio: 0.92 }),
+        bucket(BASE + 4 * HOUR, { online_ratio: 0.88 }),
+        bucket(BASE + 5 * HOUR, { samples: 0, outage_samples: 0 }),
+        bucket(BASE + 6 * HOUR, { online_ratio: 0 }),
       ]),
     ]),
   ).snapshot.servers[0];
 
-  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).state, "sample");
-  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).step, 0);
-  assert.equal(heatmapCell(row, BASE + HOUR, "uptime", HOUR).step, 1);
-  assert.equal(heatmapCell(row, BASE + 2 * HOUR, "uptime", HOUR).step, 3);
+  assert.deepEqual(
+    [0, 1, 2, 3, 4].map((i) =>
+      heatmapCell(row, BASE + i * HOUR, HOUR).step,
+    ),
+    [4, 3, 2, 1, 0],
+  );
+  assert.equal(heatmapCell(row, BASE, HOUR).state, "sample");
   assert.equal(
-    heatmapCell(row, BASE + 3 * HOUR, "uptime", HOUR).state,
+    heatmapCell(row, BASE + 5 * HOUR, HOUR).state,
     "nosample",
   );
   assert.equal(
-    heatmapCell(row, BASE + 4 * HOUR, "uptime", HOUR).state,
+    heatmapCell(row, BASE + 6 * HOUR, HOUR).state,
     "offline",
   );
-  // 切到负载时，离线小时仍是离线状态
-  assert.equal(heatmapCell(row, BASE + 4 * HOUR, "load", HOUR).state, "offline");
 });
 
-test("heatmapStep: 5 档阈值，0 最浅 / 4 最深", () => {
-  assert.equal(heatmapStep("uptime", 1), 0);
-  assert.equal(heatmapStep("uptime", 0.98), 1);
-  assert.equal(heatmapStep("uptime", 0.96), 2);
-  assert.equal(heatmapStep("uptime", 0.92), 3);
-  assert.equal(heatmapStep("uptime", 0.8), 4);
+test("defaultServerSelection: 离线/资源问题优先，按名称补足，最多 8 台", () => {
+  const result = normalizeServerHealth(
+    health([
+      server("a", [bucket(BASE)], { name: "a" }),
+      server(
+        "b",
+        [bucket(BASE, { online_ratio: 0 }), bucket(BASE + HOUR, { online_ratio: 1 })],
+        { name: "b" },
+      ),
+      server("c", [bucket(BASE, { disk_ratio_max: 0.95 })], { name: "c" }),
+      server("d", [bucket(BASE, { mem_ratio_max: 0.91 })], { name: "d" }),
+      server("e", [bucket(BASE)], { name: "e" }),
+      server("f", [bucket(BASE)], { name: "f" }),
+      server("g", [bucket(BASE)], { name: "g" }),
+      server("h", [bucket(BASE)], { name: "h" }),
+      server("i", [bucket(BASE)], { name: "i" }),
+      server("j", [bucket(BASE)], { name: "j" }),
+    ]),
+  ).snapshot;
 
-  assert.equal(heatmapStep("load", 0.5), 0);
-  assert.equal(heatmapStep("load", 1), 1);
-  assert.equal(heatmapStep("load", 4), 3);
-  assert.equal(heatmapStep("load", 8), 4);
+  const ids = defaultServerSelection(result);
+  assert.equal(ids.length, 8);
+  assert.deepEqual(ids.slice(0, 3), ["b", "c", "d"]);
+  assert.ok(ids.includes("a"));
+  assert.ok(!ids.includes("i"));
+  assert.ok(!ids.includes("j"));
 
-  assert.equal(heatmapStep("memory", 0.49), 0);
-  assert.equal(heatmapStep("memory", 0.5), 1);
-  assert.equal(heatmapStep("memory", 0.65), 2);
-  assert.equal(heatmapStep("memory", 0.8), 3);
-  assert.equal(heatmapStep("memory", 0.9), 4);
+  assert.deepEqual(defaultServerSelection(result, 2), ["b", "c"]);
+  assert.deepEqual(defaultServerSelection(result, 0), []);
+});
 
-  assert.equal(heatmapStep("disk", 0.49), 0);
-  assert.equal(heatmapStep("disk", 0.69), 1);
-  assert.equal(heatmapStep("disk", 0.7), 2);
-  assert.equal(heatmapStep("disk", 0.8), 3);
-  assert.equal(heatmapStep("disk", 0.9), 4);
-  assert.equal(heatmapStep("disk", null), null);
+test("uptimeHeatmapStep: 在线率越高颜色越深（0 最浅 / 4 最深）", () => {
+  assert.equal(uptimeHeatmapStep(1), 4);
+  assert.equal(uptimeHeatmapStep(0.99), 4);
+  assert.equal(uptimeHeatmapStep(0.98), 3);
+  assert.equal(uptimeHeatmapStep(0.97), 3);
+  assert.equal(uptimeHeatmapStep(0.96), 2);
+  assert.equal(uptimeHeatmapStep(0.95), 2);
+  assert.equal(uptimeHeatmapStep(0.92), 1);
+  assert.equal(uptimeHeatmapStep(0.9), 1);
+  assert.equal(uptimeHeatmapStep(0.89), 0);
+  assert.equal(uptimeHeatmapStep(0), 0);
+  assert.equal(uptimeHeatmapStep(null), null);
 });
 
 test("buildHeatmapColumns: 固定 168 / 24 列，最后一列对齐最新桶", () => {
@@ -282,11 +306,11 @@ test("normalizeServerHealth: 后端实际形状（online 布尔 / 顶层 hours /
   assert.equal(row.buckets[1].onlineRatio, 0);
   assert.equal(row.buckets[1].outageSamples, 1);
   // null 桶被保留为缺口，热力图显示无采样
-  assert.equal(heatmapCell(row, BASE + HOUR, "uptime", HOUR).state, "nosample");
-  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).state, "sample");
-  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).step, 0);
+  assert.equal(heatmapCell(row, BASE + HOUR, HOUR).state, "nosample");
+  assert.equal(heatmapCell(row, BASE, HOUR).state, "sample");
+  assert.equal(heatmapCell(row, BASE, HOUR).step, 4);
   assert.equal(
-    heatmapCell(row, BASE + 2 * HOUR, "uptime", HOUR).state,
+    heatmapCell(row, BASE + 2 * HOUR, HOUR).state,
     "offline",
   );
 });
@@ -448,4 +472,49 @@ test("isServerHealthUnsupported: 404 / 403 是能力未上线，其它错误仍�
   assert.equal(isServerHealthUnsupported(new ApiError("x", 500)), false);
   assert.equal(isServerHealthUnsupported(new Error("x")), false);
   assert.equal(isServerHealthUnsupported(null), false);
+});
+
+test("scopeServerHealthSnapshot：只保留选中服务器并重算 KPI", () => {
+  const result = normalizeServerHealth(
+    health(
+      [
+        server("a", [bucket(BASE, { online_ratio: 0.5 })]),
+        server("b", [bucket(BASE, { online_ratio: 1, disk_ratio_max: 0.95 })], {
+          current: {
+            load1: 0.4,
+            mem_used: 2,
+            mem_total: 10,
+            disk_used: 9.5,
+            disk_total: 10,
+            latency_ms: 20,
+          },
+        }),
+        server("c", []),
+      ],
+      // 全量 summary 故意给出与选中集合无关的数字，确认不会被沿用。
+      { online_ratio_24h: 1, abnormal_servers: 99, worst_disk_ratio: 0.1 },
+    ),
+  );
+
+  const scoped = scopeServerHealthSnapshot(result.snapshot, ["a"]);
+  assert.deepEqual(
+    scoped.servers.map((item) => item.id),
+    ["a"],
+  );
+  assert.equal(scoped.summary.uptime24h, 0.5);
+  assert.equal(scoped.summary.uptime7d, 0.5);
+  assert.equal(scoped.summary.diskMax, 0.5);
+  assert.equal(scoped.summary.anomalyServers, 1);
+
+  const empty = scopeServerHealthSnapshot(result.snapshot, []);
+  assert.equal(empty.servers.length, 0);
+  assert.equal(empty.summary.uptime24h, null);
+  assert.equal(empty.summary.diskMax, null);
+  assert.equal(empty.hasSamples, false);
+
+  // 全选时原样返回，避免重算破坏后端提供的精确 summary。
+  assert.equal(
+    scopeServerHealthSnapshot(result.snapshot, ["a", "b", "c"]),
+    result.snapshot,
+  );
 });

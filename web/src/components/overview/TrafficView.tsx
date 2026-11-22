@@ -18,6 +18,7 @@ import {
   ServerIcon,
   ServerOffIcon,
   Trash2Icon,
+  TriangleAlertIcon,
   UsersIcon,
   WaypointsIcon,
 } from "lucide-react";
@@ -804,17 +805,48 @@ function AlertRow({
 }
 
 
-/** 「流量」tab：原概览的趋势 / 分布 / 排行 / 告警整体搬到这里。 */
-export default function TrafficView({ stats }: { stats: OverviewStats }) {
+/**
+ * 「流量」tab：原概览的趋势 / 分布 / 排行 / 告警整体搬到这里。
+ *
+ * 服务器筛选通过 `server_ids` 交给后端聚合；旧主控不认识该参数时
+ * 响应不带 `scope`，这里只提示「需新版本主控」并继续展示全量数据，
+ * 绝不把缺失的筛选结果画成 0。
+ */
+export default function TrafficView({
+  stats,
+  selectedIds,
+  filtered,
+}: {
+  stats: OverviewStats;
+  selectedIds: readonly string[];
+  filtered: boolean;
+}) {
   useI18n();
-  const aggregate = useOverview(OVERVIEW_TRAFFIC_DAYS);
+  const aggregate = useOverview(
+    OVERVIEW_TRAFFIC_DAYS,
+    selectedIds,
+    selectedIds.length > 0,
+  );
   const traffic = useTraffic(OVERVIEW_TRAFFIC_DAYS);
   const events = useEnforcementEvents(50);
   const recentRemoved =
     events.data?.filter((event) => event.kind === "removed").length ?? 0;
 
+  const scopeFiltered = filtered && selectedIds.length > 0;
+  const scopeReady = aggregate.data?.scope?.filtered === true;
+  // 后端应用了 server_ids 后，趋势图用同一份过滤后的 series，避免 KPI 已缩小
+  // 而图表仍是全站数字；旧主控（无 scope）继续用 /stats/traffic 的全量值。
+  const trendDays =
+    scopeFiltered && scopeReady
+      ? (aggregate.data?.series ?? []).map((point) => ({
+          date: point.day,
+          uplink: point.uplink,
+          downlink: point.downlink,
+          weighted: point.uplink + point.downlink,
+        }))
+      : traffic.data?.days;
   const trafficTotal =
-    traffic.data?.days.reduce((sum, day) => sum + day.weighted, 0) ?? null;
+    trendDays?.reduce((sum, day) => sum + day.weighted, 0) ?? null;
   const chainAlerts = visibleAlerts(aggregate.data?.chains);
   const chainAlertTotal = chainAlerts.reduce(
     (sum, alert) => sum + alert.count,
@@ -922,17 +954,29 @@ export default function TrafficView({ stats }: { stats: OverviewStats }) {
   const previewAlerts = alertItems.slice(0, ALERT_PREVIEW);
   const hiddenAlertCount = alertItems.length - previewAlerts.length;
 
-  const pending = traffic.isPending || aggregate.isPending;
-  const bothFailed = traffic.isError && aggregate.isError;
+  const scopeUnsupported =
+    scopeFiltered &&
+    aggregate.isSuccess &&
+    aggregate.data?.scope?.filtered !== true;
+  const trafficPending = scopeFiltered && scopeReady ? false : traffic.isPending;
+  const trafficFailed = scopeFiltered && scopeReady ? false : traffic.isError;
+  const trafficError = scopeFiltered && aggregate.isError
+    ? aggregate.error
+    : traffic.isError
+      ? traffic.error
+      : null;
+  const pending = trafficPending || aggregate.isPending;
+  const bothFailed = trafficFailed && aggregate.isError;
   const noData =
     !pending &&
     !bothFailed &&
-    (traffic.data?.days.length ?? 0) === 0 &&
+    (trendDays?.length ?? 0) === 0 &&
     (aggregate.data?.protocols.length ?? 0) === 0 &&
     (aggregate.data?.top.length ?? 0) === 0 &&
     alertTotal === 0 &&
     recentRemoved === 0;
 
+  if (selectedIds.length === 0) return <TrafficEmptyScope />;
   if (pending) return <TrafficSkeleton />;
   if (bothFailed) {
     return (
@@ -955,13 +999,25 @@ export default function TrafficView({ stats }: { stats: OverviewStats }) {
 
   return (
     <div className="space-y-4" data-traffic-view>
+      {scopeUnsupported ? (
+        <div
+          data-traffic-scope-warning
+          className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs leading-normal text-warning"
+        >
+          <TriangleAlertIcon
+            aria-hidden="true"
+            className="mt-0.5 size-3.5 shrink-0"
+          />
+          <span>{t("overview.scope.trafficNeedsUpgrade")}</span>
+        </div>
+      ) : null}
       <section className="grid gap-4">
         <TrendCard
-          trafficDays={traffic.data?.days}
+          trafficDays={trendDays}
           trafficTotal={trafficTotal}
-          trafficPending={traffic.isPending}
-          trafficError={traffic.isError ? traffic.error : null}
-          trafficFetching={traffic.isFetching}
+          trafficPending={trafficPending}
+          trafficError={trafficError}
+          trafficFetching={traffic.isFetching || aggregate.isFetching}
           onTrafficRetry={() => void traffic.refetch()}
           series={aggregate.data?.protocol_series}
           aggregatePending={aggregate.isPending}
@@ -1134,6 +1190,22 @@ function TrafficSkeleton() {
       </section>
       <SkeletonCard lines={4} />
     </div>
+  );
+}
+
+function TrafficEmptyScope() {
+  return (
+    <Card>
+      <CardContent>
+        <EmptyState
+          size="sm"
+          icon={ServerOffIcon}
+          title={t("overview.scope.emptyTitle")}
+          description={t("overview.scope.emptyDesc")}
+          className="py-16"
+        />
+      </CardContent>
+    </Card>
   );
 }
 
