@@ -247,10 +247,29 @@ const SERVER_LIST = SERVER_DEFS.map((def, index) => ({
   billing_cycle_unit: def.billing_cycle_unit ?? null,
 }));
 
-function healthServer(def) {
+function healthServer(def, index = 0) {
+  const current = def.current;
+  const baseLoad = current?.load1 ?? 0.42;
+  const baseMem =
+    current?.mem_total && current.mem_total > 0
+      ? current.mem_used / current.mem_total
+      : 0.44;
+  const baseDisk =
+    current?.disk_total && current.disk_total > 0
+      ? current.disk_used / current.disk_total
+      : 0.53;
   const buckets = def.noBuckets
     ? Array.from({ length: 168 }, () => null)
-    : seriesBuckets((index) => def.patch?.(index) ?? {});
+    : seriesBuckets((i) => {
+        // 让 mock 曲线有起伏，截图能看出面积图是多序列而不是几条平线。
+        const wave = (Math.sin((i + index * 3) / 9) + 1) / 2;
+        const base = {
+          load1: Math.max(0, baseLoad * (0.7 + 0.6 * wave)),
+          mem_ratio: Math.min(0.99, baseMem * (0.85 + 0.3 * wave)),
+          disk_ratio: Math.min(0.99, baseDisk * (0.92 + 0.16 * wave)),
+        };
+        return { ...base, ...(def.patch?.(i) ?? {}) };
+      });
   const onlineBuckets = buckets.filter((item) => item !== null);
   const onlineRatio =
     onlineBuckets.length === 0
@@ -265,7 +284,22 @@ function healthServer(def) {
   };
 }
 
-function makeHealth() {
+function makeHealth(mock) {
+  const servers =
+    mock === "serverResourceEmpty"
+      ? SERVER_DEFS.map((def) => ({
+          id: def.id,
+          name: def.name,
+          online_ratio: 1,
+          buckets: Array.from({ length: 168 }, (_, index) => ({
+            ts: START + index * HOUR,
+            online: true,
+            load1: null,
+            mem_ratio: null,
+            disk_ratio: null,
+          })),
+        }))
+      : SERVER_DEFS.map((def, index) => healthServer(def, index));
   return {
     generated_at: NOW,
     hours: 168,
@@ -275,7 +309,7 @@ function makeHealth() {
       abnormal_servers: 3,
       worst_disk_ratio: 0.91,
     },
-    servers: SERVER_DEFS.map(healthServer),
+    servers,
   };
 }
 
@@ -352,6 +386,186 @@ const AGGREGATE = {
     { package_id: "p2", name: "高级套餐", users: 2, traffic_7d: 46 * 1024 ** 3 },
   ],
 };
+
+const CHAINS = [
+  {
+    id: "chain-hk-jp-sg",
+    name: "港日新链",
+    target_host: "example.com",
+    target_port: 443,
+    enabled: true,
+    engine: "realm",
+    protocol: "tcp",
+    udp: false,
+    transport: "tls",
+    degraded: false,
+    blocked_reason: null,
+    path_mode: "single",
+    total_latency_ms: 67,
+    groups: [
+      {
+        id: "g0",
+        seq: 0,
+        name: null,
+        strategy: "round_robin",
+        cert_id: null,
+        degraded: false,
+        members: [
+          {
+            server_id: "srv-hk-01",
+            server_name: "香港-01",
+            listen_port: 8443,
+            priority: 0,
+            weight: 1,
+            forward_id: "f0",
+            listening: true,
+            target_ok: true,
+            target_error: null,
+            latency_ms: 28,
+            target_latency_ms: null,
+            degraded: false,
+          },
+        ],
+      },
+      {
+        id: "g1",
+        seq: 1,
+        name: null,
+        strategy: "round_robin",
+        cert_id: null,
+        degraded: false,
+        members: [
+          {
+            server_id: "srv-tokyo-01",
+            server_name: "东京-01",
+            listen_port: 8443,
+            priority: 0,
+            weight: 1,
+            forward_id: "f1",
+            listening: true,
+            target_ok: true,
+            target_error: null,
+            latency_ms: 42,
+            target_latency_ms: null,
+            degraded: false,
+          },
+        ],
+      },
+    ],
+    created_at: NOW - 30 * 86400,
+    updated_at: NOW - HOUR,
+  },
+  {
+    id: "chain-demo-blocked",
+    name: "混合链-演示",
+    target_host: "blocked.example.com",
+    target_port: 443,
+    enabled: true,
+    engine: "realm",
+    protocol: "tcp",
+    udp: false,
+    transport: "tls",
+    degraded: false,
+    blocked_reason: "目标端口不可达",
+    path_mode: "single",
+    total_latency_ms: null,
+    groups: [
+      {
+        id: "g0",
+        seq: 0,
+        name: null,
+        strategy: "round_robin",
+        cert_id: null,
+        degraded: false,
+        members: [
+          {
+            server_id: "srv-fra-01",
+            server_name: "法兰克福-01",
+            listen_port: 9443,
+            priority: 0,
+            weight: 1,
+            forward_id: "f2",
+            listening: true,
+            target_ok: false,
+            target_error: "timeout",
+            latency_ms: 210,
+            target_latency_ms: null,
+            degraded: false,
+          },
+        ],
+      },
+    ],
+    created_at: NOW - 20 * 86400,
+    updated_at: NOW - HOUR,
+  },
+  {
+    id: "chain-demo-degraded",
+    name: "四跳长链-演示",
+    target_host: "long.example.com",
+    target_port: 443,
+    enabled: true,
+    engine: "realm",
+    protocol: "tcp",
+    udp: false,
+    transport: "tls",
+    degraded: true,
+    blocked_reason: null,
+    path_mode: "single",
+    total_latency_ms: 120,
+    groups: [
+      {
+        id: "g0",
+        seq: 0,
+        name: null,
+        strategy: "round_robin",
+        cert_id: null,
+        degraded: false,
+        members: [
+          {
+            server_id: "srv-hk-02",
+            server_name: "香港-02",
+            listen_port: 10443,
+            priority: 0,
+            weight: 1,
+            forward_id: "f3",
+            listening: true,
+            target_ok: true,
+            target_error: null,
+            latency_ms: 31,
+            target_latency_ms: null,
+            degraded: false,
+          },
+        ],
+      },
+      {
+        id: "g1",
+        seq: 1,
+        name: null,
+        strategy: "round_robin",
+        cert_id: null,
+        degraded: true,
+        members: [
+          {
+            server_id: "srv-sg-01",
+            server_name: "新加坡-01",
+            listen_port: 10443,
+            priority: 0,
+            weight: 1,
+            forward_id: "f4",
+            listening: true,
+            target_ok: false,
+            target_error: "timeout",
+            latency_ms: 52,
+            target_latency_ms: null,
+            degraded: true,
+          },
+        ],
+      },
+    ],
+    created_at: NOW - 10 * 86400,
+    updated_at: NOW - HOUR,
+  },
+];
 
 const STATS = {
   servers: { total: 12, online: 11 },
@@ -444,15 +658,55 @@ async function handleApi(route, mock) {
         servers: [],
       });
     }
-    return json(route, makeHealth());
+    return json(route, makeHealth(mock));
   }
   if (path === "/api/v1/overview") {
+    if (mock === "trafficError") {
+      return json(route, { error: "internal error" }, 500);
+    }
+    if (mock === "trafficEmpty") {
+      return json(route, {
+        ...AGGREGATE,
+        series: [],
+        protocol_series: [],
+        protocols: [],
+        chains: {
+          total: 0,
+          degraded: 0,
+          blocked: 0,
+          forwards_total: 0,
+          forwards_failing: 0,
+          handshake_failures: 0,
+        },
+        top: [],
+        top_users: [],
+        top_nodes: [],
+        package_split: [],
+      });
+    }
     return json(route, AGGREGATE);
   }
   if (path === "/api/v1/stats/overview") {
+    if (mock === "trafficEmpty") {
+      return json(route, {
+        ...STATS,
+        alerts: {
+          expired_instances: 0,
+          exhausted_instances: 0,
+          offline_servers: 0,
+          expiring_certs: 0,
+        },
+      });
+    }
     return json(route, STATS);
   }
   if (path === "/api/v1/stats/traffic") {
+    if (mock === "trafficError") {
+      return json(route, { error: "internal error" }, 500);
+    }
+    if (mock === "trafficEmpty") {
+      return json(route, { days: [] });
+    }
     return json(route, { days: TRAFFIC_DAYS });
   }
   if (path === "/api/v1/servers") {
@@ -500,7 +754,13 @@ async function handleApi(route, mock) {
     });
   }
   if (path === "/api/v1/chains") {
-    return json(route, { items: [] });
+    if (mock === "chainError") {
+      return json(route, { error: "internal error" }, 500);
+    }
+    if (mock === "chainEmpty") {
+      return json(route, { items: [] });
+    }
+    return json(route, { items: CHAINS });
   }
   if (path === "/api/v1/enforcement/events") {
     return json(route, { items: [] });
@@ -548,6 +808,32 @@ function startStaticServer() {
   });
 }
 
+const EXPECTED_API = {
+  server: {
+    present: ["/api/v1/overview/server-health"],
+    absent: ["/api/v1/overview", "/api/v1/chains", "/api/v1/servers", "/api/v1/settings"],
+  },
+  traffic: {
+    present: ["/api/v1/overview", "/api/v1/stats/traffic", "/api/v1/enforcement/events"],
+    absent: ["/api/v1/chains", "/api/v1/overview/server-health", "/api/v1/servers", "/api/v1/settings"],
+  },
+  cost: {
+    present: ["/api/v1/servers", "/api/v1/settings"],
+    absent: ["/api/v1/overview", "/api/v1/chains", "/api/v1/overview/server-health"],
+  },
+  chain: {
+    present: ["/api/v1/chains"],
+    absent: ["/api/v1/overview", "/api/v1/overview/server-health", "/api/v1/servers", "/api/v1/settings"],
+  },
+};
+
+const EXPECTED_CARD_TITLES = {
+  server: ["服务器 × 时间", "当前资源", "异常窗口"],
+  traffic: ["近 7 天趋势", "流量分布", "流量榜单", "告警"],
+  cost: ["未来 12 个月付款日历", "开销大头", "币种构成", "一次性费用"],
+  chain: ["转发链健康", "链路时延"],
+};
+
 const SCENARIOS = [
   { id: "server-dark-1440", view: null, theme: "dark", width: 1440, mock: "normal" },
   { id: "server-light-1440", view: "server", theme: "light", width: 1440, mock: "normal" },
@@ -557,6 +843,18 @@ const SCENARIOS = [
   { id: "cost-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal" },
   { id: "cost-dark-390", view: "cost", theme: "dark", width: 390, mock: "normal" },
   { id: "cost-light-390", view: "cost", theme: "light", width: 390, mock: "normal" },
+  { id: "traffic-dark-1440", view: "traffic", theme: "dark", width: 1440, mock: "normal" },
+  { id: "traffic-light-1440", view: "traffic", theme: "light", width: 1440, mock: "normal" },
+  { id: "traffic-dark-390", view: "traffic", theme: "dark", width: 390, mock: "normal" },
+  { id: "traffic-light-390", view: "traffic", theme: "light", width: 390, mock: "normal" },
+  { id: "traffic-empty-1440", view: "traffic", theme: "dark", width: 1440, mock: "trafficEmpty" },
+  { id: "traffic-error-1440", view: "traffic", theme: "dark", width: 1440, mock: "trafficError" },
+  { id: "chain-empty-1440", view: "chain", theme: "dark", width: 1440, mock: "chainEmpty" },
+  { id: "chain-error-1440", view: "chain", theme: "dark", width: 1440, mock: "chainError" },
+  { id: "server-memory-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "heatmapMemory" },
+  { id: "server-filter-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "resourceFilter" },
+  { id: "server-resource-memory-1440", view: "server", theme: "dark", width: 1440, mock: "normal", action: "resourceMemory" },
+  { id: "server-resource-empty-1440", view: "server", theme: "dark", width: 1440, mock: "serverResourceEmpty" },
   { id: "server-empty-1440", view: "server", theme: "dark", width: 1440, mock: "serverEmpty" },
   { id: "server-empty-390", view: "server", theme: "dark", width: 390, mock: "serverEmpty" },
   { id: "server-unsupported-1440", view: "server", theme: "dark", width: 1440, mock: "serverUnsupported" },
@@ -649,6 +947,11 @@ for (const scenario of activeScenarios) {
       { clockMs: scenario.clockMs },
     );
   }
+  const apiPaths = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/api/v1/")) apiPaths.push(path);
+  });
   await page.route("**/api/v1/**", (route) => handleApi(route, scenario.mock));
 
   const url = scenario.view
@@ -666,17 +969,38 @@ for (const scenario of activeScenarios) {
       if (!section) return false;
       return Boolean(
         section.querySelector(
-          '[data-heatmap], [data-cost-view], [data-slot="empty-state"], [data-slot="list-error"]',
+          '[data-heatmap], [data-traffic-view], [data-cost-view], [data-chain-view], [data-slot="empty-state"], [data-slot="list-error"]',
         ),
       );
     },
     undefined,
     { timeout: 20000 },
   );
+  if (scenario.action === "heatmapMemory") {
+    await page
+      .locator("[data-heatmap-card] [data-slot=\"tabs-trigger\"]")
+      .filter({ hasText: "内存" })
+      .click();
+    await page.waitForTimeout(200);
+  }
+  if (scenario.action === "resourceMemory") {
+    await page
+      .locator("[data-resource-card] [data-slot=\"tabs-trigger\"]")
+      .filter({ hasText: "内存" })
+      .click();
+    await page.waitForTimeout(250);
+  }
+  if (scenario.action === "resourceFilter") {
+    await page.locator("[data-resource-filter]").click();
+    const chips = page.locator("[data-resource-chip]");
+    if ((await chips.count()) > 1) await chips.nth(1).click();
+    await page.waitForTimeout(200);
+  }
   await page.evaluate(() => document.fonts?.ready);
   await page.waitForTimeout(250);
 
   // 先把视口拉高到内容高度，才能截到完整页面（main 是内部滚动容器）。
+  if (process.env.APP_SHOTS_NO_RESIZE !== "1")
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const needed = await page.evaluate(() => {
       const main = document.querySelector("#main-content");
@@ -689,6 +1013,14 @@ for (const scenario of activeScenarios) {
     });
     await page.waitForTimeout(80);
   }
+  // 视口变大后 compositor 可能还留着旧 tile；等两帧再截图，避免底部出现旧页头。
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)));
+      }),
+  );
+  await page.waitForTimeout(400);
 
   const metrics = await page.evaluate(() => {
     const doc = document.documentElement;
@@ -718,6 +1050,9 @@ for (const scenario of activeScenarios) {
             }),
           )
         : [],
+      cardTitles: [...document.querySelectorAll("[data-overview-insight-section] [data-slot=\"card-title\"]")].map(
+        (node) => node.textContent?.trim() ?? "",
+      ),
       metrics: [...document.querySelectorAll("[data-insight-metric]")].map(
         (node) => ({
           label:
@@ -745,6 +1080,14 @@ for (const scenario of activeScenarios) {
         ? {
             cellWidth: cellRect?.width ?? null,
             cellHeight: cellRect?.height ?? null,
+            gap: (() => {
+              const cells = [...document.querySelectorAll("[data-heatmap-cell]")];
+              const a = cells[0]?.getBoundingClientRect();
+              const b = cells[1]?.getBoundingClientRect();
+              return a && b
+                ? Math.round((b.left - a.right) * 10) / 10
+                : null;
+            })(),
             scrollWidth: heatmapScroll?.scrollWidth ?? null,
             clientWidth: heatmapScroll?.clientWidth ?? null,
             scrollable:
@@ -752,6 +1095,23 @@ for (const scenario of activeScenarios) {
               heatmapScroll.scrollWidth > heatmapScroll.clientWidth + 1,
           }
         : null,
+      heatmapLegend: (() => {
+        const element = document.querySelector("[data-heatmap-legend]");
+        if (!element) return null;
+        return {
+          height: element.getBoundingClientRect().height,
+          text: element.textContent?.trim() ?? "",
+        };
+      })(),
+      resourceChart: (() => {
+        const element =
+          document.querySelector(
+            "[data-resource-chart] .recharts-responsive-container",
+          ) ?? document.querySelector("[data-resource-chart]");
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      })(),
       costCalendar: costCalendar
         ? {
             cellWidth: costRect?.width ?? null,
@@ -763,6 +1123,15 @@ for (const scenario of activeScenarios) {
         : null,
       hasScrollHint: document.body.innerText.includes("左右滑动"),
       theme: doc.dataset.theme ?? null,
+      dom: {
+        asideCount: document.querySelectorAll("aside").length,
+        mainCount: document.querySelectorAll("main").length,
+        rootChildren: document.getElementById("root")?.children.length ?? null,
+        bodyHeight: document.body.getBoundingClientRect().height,
+        docHeight: document.documentElement.getBoundingClientRect().height,
+        mainScrollHeight: main?.scrollHeight ?? null,
+        mainClientHeight: main?.clientHeight ?? null,
+      },
       costDebug: (() => {
         const view = document.querySelector("[data-cost-view]");
         if (!view) return null;
@@ -831,8 +1200,39 @@ for (const scenario of activeScenarios) {
     };
   });
 
+  if (scenario.mock === "normal") {
+    const view = scenario.view ?? "server";
+    const expectedApi = EXPECTED_API[view];
+    const paths = new Set(apiPaths);
+    for (const path of expectedApi.present) {
+      if (!paths.has(path)) {
+        errors.push(`${scenario.id}: missing API call ${path}`);
+      }
+    }
+    for (const path of expectedApi.absent) {
+      if (paths.has(path)) {
+        errors.push(`${scenario.id}: unexpected API call ${path}`);
+      }
+    }
+  }
+  if (
+    (scenario.mock === "normal" || scenario.mock === "costManual") &&
+    (scenario.locale ?? "zh-CN") === "zh-CN"
+  ) {
+    const view = scenario.view ?? "server";
+    const expected = EXPECTED_CARD_TITLES[view];
+    if (
+      expected &&
+      JSON.stringify(metrics.cardTitles) !== JSON.stringify(expected)
+    ) {
+      errors.push(
+        `${scenario.id}: card titles ${JSON.stringify(metrics.cardTitles)} != ${JSON.stringify(expected)}`,
+      );
+    }
+  }
+
   const file = `app-${scenario.id}.png`;
-  await page.screenshot({ path: `${OUT}${file}`, fullPage: true, animations: "disabled" });
+  await page.screenshot({ path: `${OUT}${file}`, fullPage: false, animations: "disabled" });
 
   // 回到 900 高的视口再移除新区域：此时 main 仍是滚动容器，
   // scrollHeight 的变化才等于新区域给页面增加的高度。
@@ -853,6 +1253,7 @@ for (const scenario of activeScenarios) {
   report.shots.push({
     ...scenario,
     file,
+    apiPaths: [...new Set(apiPaths)],
     httpErrors,
     ...metrics,
     pageHeightDelta,

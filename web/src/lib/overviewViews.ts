@@ -1,19 +1,22 @@
 /**
- * 概览页「态势」区的三个视图：服务器状态 / 成本开销 / 链路时延。
+ * 概览页 KPI 下方的四个视图：服务器状态 / 流量 / 成本开销 / 链路时延。
  *
- * URL 是视图的唯一来源：`?view=server|cost|chain`。默认的「服务器状态」
+ * URL 是视图的唯一来源：`?view=server|traffic|cost|chain`。默认的「服务器状态」
  * 不写参数（与设置 / 日志页的默认 tab 约定一致），切换用 `replace`，
  * 避免每切一次 tab 就往历史里塞一条记录。非法值统一回落到默认视图。
  *
  * 这里只放纯函数，方便 `node:test` 直接覆盖 URL 行为；组件只负责渲染。
  */
 
-export const OVERVIEW_VIEWS = ["server", "cost", "chain"] as const;
+export const OVERVIEW_VIEWS = ["server", "traffic", "cost", "chain"] as const;
 
 export type OverviewView = (typeof OVERVIEW_VIEWS)[number];
 
 /** 默认视图：运维每天先看「现在有没有问题」。 */
 export const DEFAULT_OVERVIEW_VIEW: OverviewView = "server";
+
+/** 「流量」tab 的窗口天数；KPI 的日环比也复用这一份。 */
+export const OVERVIEW_TRAFFIC_DAYS = 7;
 
 /** 是否精确命中某个视图 id（大小写敏感，不 trim）。 */
 export function isOverviewView(value: unknown): value is OverviewView {

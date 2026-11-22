@@ -6,14 +6,15 @@ import {
   bucketAt,
   buildAnomalyWindows,
   buildHeatmapColumns,
-  buildServerResourceRows,
+  buildResourceChartData,
   formatHourTick,
   formatMonthDayHour,
   formatPercent,
   heatmapCell,
-  heatmapTone,
+  heatmapStep,
   isServerHealthUnsupported,
   normalizeServerHealth,
+  resourceServerRows,
 } from "./serverHealth.ts";
 
 const BASE = Date.UTC(2026, 10, 22, 0, 0, 0) / 1000; // 2026-11-22 08:00 UTC+8
@@ -147,7 +148,7 @@ test("normalizeServerHealth: 24h 在线率按采样数加权，异常台数按�
   assert.equal(snapshot.summary.maxDiskServer, "server-b");
 });
 
-test("heatmapCell: 三档 + 无采样 + 离线斜纹，所有指标都优先显示离线", () => {
+test("heatmapCell: 0–4 色阶 + 无采样 + 离线，所有指标都优先显示离线", () => {
   const row = normalizeServerHealth(
     health([
       server("a", [
@@ -160,32 +161,46 @@ test("heatmapCell: 三档 + 无采样 + 离线斜纹，所有指标都优先显�
     ]),
   ).snapshot.servers[0];
 
-  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).tone, "good");
-  assert.equal(heatmapCell(row, BASE + HOUR, "uptime", HOUR).tone, "warn");
-  assert.equal(heatmapCell(row, BASE + 2 * HOUR, "uptime", HOUR).tone, "bad");
+  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).state, "sample");
+  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).step, 0);
+  assert.equal(heatmapCell(row, BASE + HOUR, "uptime", HOUR).step, 1);
+  assert.equal(heatmapCell(row, BASE + 2 * HOUR, "uptime", HOUR).step, 3);
   assert.equal(
-    heatmapCell(row, BASE + 3 * HOUR, "uptime", HOUR).tone,
+    heatmapCell(row, BASE + 3 * HOUR, "uptime", HOUR).state,
     "nosample",
   );
   assert.equal(
-    heatmapCell(row, BASE + 4 * HOUR, "uptime", HOUR).tone,
+    heatmapCell(row, BASE + 4 * HOUR, "uptime", HOUR).state,
     "offline",
   );
-  // 切到负载时，离线小时仍是红斜纹
-  assert.equal(heatmapCell(row, BASE + 4 * HOUR, "load", HOUR).tone, "offline");
+  // 切到负载时，离线小时仍是离线状态
+  assert.equal(heatmapCell(row, BASE + 4 * HOUR, "load", HOUR).state, "offline");
 });
 
-test("heatmapTone: 负载 / 内存 / 硬盘的三档阈值", () => {
-  assert.equal(heatmapTone("load", 0.99), "good");
-  assert.equal(heatmapTone("load", 1), "warn");
-  assert.equal(heatmapTone("load", 4), "bad");
-  assert.equal(heatmapTone("memory", 0.59), "good");
-  assert.equal(heatmapTone("memory", 0.6), "warn");
-  assert.equal(heatmapTone("memory", 0.9), "bad");
-  assert.equal(heatmapTone("disk", 0.69), "good");
-  assert.equal(heatmapTone("disk", 0.7), "warn");
-  assert.equal(heatmapTone("disk", 0.9), "bad");
-  assert.equal(heatmapTone("disk", null), "nosample");
+test("heatmapStep: 5 档阈值，0 最浅 / 4 最深", () => {
+  assert.equal(heatmapStep("uptime", 1), 0);
+  assert.equal(heatmapStep("uptime", 0.98), 1);
+  assert.equal(heatmapStep("uptime", 0.96), 2);
+  assert.equal(heatmapStep("uptime", 0.92), 3);
+  assert.equal(heatmapStep("uptime", 0.8), 4);
+
+  assert.equal(heatmapStep("load", 0.5), 0);
+  assert.equal(heatmapStep("load", 1), 1);
+  assert.equal(heatmapStep("load", 4), 3);
+  assert.equal(heatmapStep("load", 8), 4);
+
+  assert.equal(heatmapStep("memory", 0.49), 0);
+  assert.equal(heatmapStep("memory", 0.5), 1);
+  assert.equal(heatmapStep("memory", 0.65), 2);
+  assert.equal(heatmapStep("memory", 0.8), 3);
+  assert.equal(heatmapStep("memory", 0.9), 4);
+
+  assert.equal(heatmapStep("disk", 0.49), 0);
+  assert.equal(heatmapStep("disk", 0.69), 1);
+  assert.equal(heatmapStep("disk", 0.7), 2);
+  assert.equal(heatmapStep("disk", 0.8), 3);
+  assert.equal(heatmapStep("disk", 0.9), 4);
+  assert.equal(heatmapStep("disk", null), null);
 });
 
 test("buildHeatmapColumns: 固定 168 / 24 列，最后一列对齐最新桶", () => {
@@ -267,10 +282,11 @@ test("normalizeServerHealth: 后端实际形状（online 布尔 / 顶层 hours /
   assert.equal(row.buckets[1].onlineRatio, 0);
   assert.equal(row.buckets[1].outageSamples, 1);
   // null 桶被保留为缺口，热力图显示无采样
-  assert.equal(heatmapCell(row, BASE + HOUR, "uptime", HOUR).tone, "nosample");
-  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).tone, "good");
+  assert.equal(heatmapCell(row, BASE + HOUR, "uptime", HOUR).state, "nosample");
+  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).state, "sample");
+  assert.equal(heatmapCell(row, BASE, "uptime", HOUR).step, 0);
   assert.equal(
-    heatmapCell(row, BASE + 2 * HOUR, "uptime", HOUR).tone,
+    heatmapCell(row, BASE + 2 * HOUR, "uptime", HOUR).state,
     "offline",
   );
 });
@@ -323,7 +339,7 @@ test("buildAnomalyWindows: 资源指标也生成窗口（负载 / 内存 / 硬�
   );
 });
 
-test("buildServerResourceRows: 按最差维度排序，缺 current 时回落到最后桶", () => {
+test("resourceServerRows: 按当前指标值降序，缺 current 时回落到最后桶", () => {
   const result = normalizeServerHealth(
     health([
       server("a", [], {
@@ -351,13 +367,63 @@ test("buildServerResourceRows: 按最差维度排序，缺 current 时回落到�
       server("c", [], { current: null, buckets: [] }),
     ]),
   );
-  const rows = buildServerResourceRows(result.snapshot);
+  const loadRows = resourceServerRows(result.snapshot, "load");
   assert.deepEqual(
-    rows.map((row) => row.server.id),
+    loadRows.map((row) => row.serverId),
+    ["a", "b"],
+  );
+  assert.equal(loadRows[0].value, 3);
+
+  const memRows = resourceServerRows(result.snapshot, "memory");
+  assert.deepEqual(
+    memRows.map((row) => row.serverId),
     ["b", "a"],
   );
-  assert.equal(rows[1].load1, 3);
-  assert.equal(rows[1].memRatio, 0.5);
+  assert.equal(memRows[0].value, 0.9);
+});
+
+test("buildResourceChartData: 百分比序列、无采样保留 null、空选择无数据", () => {
+  const result = normalizeServerHealth(
+    health([
+      server("a", [
+        bucket(BASE, {
+          load1_avg: 4,
+          load1_max: 4,
+          mem_ratio_max: null,
+          disk_ratio_max: null,
+        }),
+      ]),
+      server("b", [
+        bucket(BASE, {
+          load1_avg: 0.8,
+          load1_max: 0.8,
+          mem_ratio_max: null,
+          disk_ratio_max: null,
+        }),
+      ]),
+    ]),
+  );
+  const columns = [{ ts: BASE }];
+  const data = buildResourceChartData(
+    result.snapshot,
+    "load",
+    ["a", "b"],
+    columns,
+  );
+  assert.equal(data.series.length, 2);
+  assert.equal(data.hasData, true);
+  // 4/8 和 0.8/8
+  const last = data.points.at(-1);
+  assert.equal(last.a, 50);
+  assert.equal(last.b, 10);
+
+  const none = buildResourceChartData(result.snapshot, "memory", ["a"], columns);
+  assert.equal(none.hasData, false);
+  assert.equal(none.points.at(-1).a, null);
+
+  const empty = buildResourceChartData(result.snapshot, "load", [], columns);
+  assert.equal(empty.hasData, false);
+  assert.equal(empty.series.length, 0);
 });
 
 test("bucketAt: 半个桶容差内匹配，超出返回 null", () => {

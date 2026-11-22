@@ -106,6 +106,13 @@ for (const scenario of SCENARIOS) {
     await page.setViewportSize({ width: scenario.width, height: needed });
     await page.waitForTimeout(80);
   }
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)));
+      }),
+  );
+  await page.waitForTimeout(400);
 
   const metrics = await page.evaluate(() => {
     const doc = document.documentElement;
@@ -136,6 +143,9 @@ for (const scenario of SCENARIOS) {
             }),
           )
         : [],
+      cardTitles: [...document.querySelectorAll("[data-overview-insight-section] [data-slot=\"card-title\"]")].map(
+        (node) => node.textContent?.trim() ?? "",
+      ),
       metrics: [...document.querySelectorAll("[data-insight-metric]")].map(
         (node) => ({
           label:
@@ -199,7 +209,7 @@ for (const scenario of SCENARIOS) {
   });
 
   const file = `app-${scenario.id}.png`;
-  await page.screenshot({ path: `${OUT}${file}`, fullPage: true, animations: "disabled" });
+  await page.screenshot({ path: `${OUT}${file}`, fullPage: false, animations: "disabled" });
 
   await page.setViewportSize({ width: scenario.width, height: 900 });
   await page.waitForTimeout(60);

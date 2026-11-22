@@ -94,7 +94,8 @@ test("multi-line tables were compacted into single-line rows", () => {
 
 /** W2：390 下榜单服务器行收敛成两行，桌面顺序由 order 恢复。 */
 test("overview server leaderboard rows collapse to two lines below md", () => {
-  const source = read("../pages/Overview.tsx");
+  // 原概览的榜单已整体搬进「流量」tab。
+  const source = read("../components/overview/TrafficView.tsx");
   assert.ok(source.includes("md:flex-row"), "row switches to a single line at md");
   assert.ok(source.includes("md:contents"), "the two mobile rows flatten at md");
   assert.ok(source.includes("md:order-1"), "sparkline order is restored on desktop");

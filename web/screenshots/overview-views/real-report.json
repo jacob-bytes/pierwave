@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T05:00:00.098Z",
+  "generatedAt": "2026-11-22T05:33:41.872Z",
   "base": "http://127.0.0.1:8787",
   "shots": [
     {
@@ -9,16 +9,20 @@
       "width": 1440,
       "file": "app-real-server-dark-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 2652,
+      "pageHeight": 1314,
       "viewportWidth": 1440,
-      "viewportHeight": 2708,
+      "viewportHeight": 1370,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1259.71875,
+      "sectionHeight": 1037.765625,
       "tabs": [
         {
           "text": "服务器状态",
           "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
         },
         {
           "text": "成本开销",
@@ -29,11 +33,16 @@
           "selected": false
         }
       ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
+      ],
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "38.3%",
-          "hint": "7 天 74.7% · 10 台有采样"
+          "value": "37.5%",
+          "hint": "7 天 74.6% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -48,15 +57,15 @@
       ],
       "heatmap": {
         "cells": 1680,
-        "cellWidth": 4.90625,
+        "cellWidth": 14,
         "cellHeight": 14,
-        "scrollWidth": 992,
+        "scrollWidth": 2686,
         "clientWidth": 992,
-        "scrollable": false
+        "scrollable": true
       },
       "cost": null,
-      "hasScrollHint": false,
-      "pageHeightDelta": 1284
+      "hasScrollHint": true,
+      "pageHeightDelta": 458
     },
     {
       "id": "real-server-dark-390",
@@ -65,16 +74,20 @@
       "width": 390,
       "file": "app-real-server-dark-390.png",
       "pageWidth": 390,
-      "pageHeight": 4159,
+      "pageHeight": 1948,
       "viewportWidth": 390,
-      "viewportHeight": 4215,
+      "viewportHeight": 2004,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1850.90625,
+      "sectionHeight": 1541.53125,
       "tabs": [
         {
           "text": "服务器状态",
           "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
         },
         {
           "text": "成本开销",
@@ -85,67 +98,16 @@
           "selected": false
         }
       ],
-      "metrics": [
-        {
-          "label": "24h 在线率",
-          "value": "38.3%",
-          "hint": "7 天 74.7% · 10 台有采样"
-        },
-        {
-          "label": "异常服务器",
-          "value": "10",
-          "hint": "10 台离线过 · 0 台资源告警"
-        },
-        {
-          "label": "磁盘最高",
-          "value": "56.3%",
-          "hint": "新加坡-02 · 当前最高"
-        }
-      ],
-      "heatmap": {
-        "cells": 240,
-        "cellWidth": 22.375,
-        "cellHeight": 14,
-        "scrollWidth": 560,
-        "clientWidth": 214,
-        "scrollable": true
-      },
-      "cost": null,
-      "hasScrollHint": true,
-      "pageHeightDelta": 1875
-    },
-    {
-      "id": "real-server-light-1440",
-      "view": "server",
-      "theme": "light",
-      "width": 1440,
-      "file": "app-real-server-light-1440.png",
-      "pageWidth": 1440,
-      "pageHeight": 2652,
-      "viewportWidth": 1440,
-      "viewportHeight": 2708,
-      "overflowX": false,
-      "mainOverflowX": false,
-      "sectionHeight": 1259.71875,
-      "tabs": [
-        {
-          "text": "服务器状态",
-          "selected": true
-        },
-        {
-          "text": "成本开销",
-          "selected": false
-        },
-        {
-          "text": "链路时延",
-          "selected": false
-        }
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
       ],
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "38.3%",
-          "hint": "7 天 74.7% · 10 台有采样"
+          "value": "37.5%",
+          "hint": "7 天 74.6% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -160,33 +122,37 @@
       ],
       "heatmap": {
         "cells": 1680,
-        "cellWidth": 4.90625,
-        "cellHeight": 14,
-        "scrollWidth": 992,
-        "clientWidth": 992,
-        "scrollable": false
+        "cellWidth": 9,
+        "cellHeight": 9,
+        "scrollWidth": 1846,
+        "clientWidth": 262,
+        "scrollable": true
       },
       "cost": null,
-      "hasScrollHint": false,
-      "pageHeightDelta": 1284
+      "hasScrollHint": true,
+      "pageHeightDelta": 1092
     },
     {
-      "id": "real-server-light-390",
+      "id": "real-server-light-1440",
       "view": "server",
       "theme": "light",
-      "width": 390,
-      "file": "app-real-server-light-390.png",
-      "pageWidth": 390,
-      "pageHeight": 4159,
-      "viewportWidth": 390,
-      "viewportHeight": 4215,
+      "width": 1440,
+      "file": "app-real-server-light-1440.png",
+      "pageWidth": 1440,
+      "pageHeight": 1314,
+      "viewportWidth": 1440,
+      "viewportHeight": 1370,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1850.90625,
+      "sectionHeight": 1037.765625,
       "tabs": [
         {
           "text": "服务器状态",
           "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
         },
         {
           "text": "成本开销",
@@ -197,11 +163,16 @@
           "selected": false
         }
       ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
+      ],
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "38.3%",
-          "hint": "7 天 74.7% · 10 台有采样"
+          "value": "37.5%",
+          "hint": "7 天 74.6% · 10 台有采样"
         },
         {
           "label": "异常服务器",
@@ -215,16 +186,81 @@
         }
       ],
       "heatmap": {
-        "cells": 240,
-        "cellWidth": 22.375,
+        "cells": 1680,
+        "cellWidth": 14,
         "cellHeight": 14,
-        "scrollWidth": 560,
-        "clientWidth": 214,
+        "scrollWidth": 2686,
+        "clientWidth": 992,
         "scrollable": true
       },
       "cost": null,
       "hasScrollHint": true,
-      "pageHeightDelta": 1875
+      "pageHeightDelta": 458
+    },
+    {
+      "id": "real-server-light-390",
+      "view": "server",
+      "theme": "light",
+      "width": 390,
+      "file": "app-real-server-light-390.png",
+      "pageWidth": 390,
+      "pageHeight": 1948,
+      "viewportWidth": 390,
+      "viewportHeight": 2004,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1541.53125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "37.5%",
+          "hint": "7 天 74.6% · 10 台有采样"
+        },
+        {
+          "label": "异常服务器",
+          "value": "10",
+          "hint": "10 台离线过 · 0 台资源告警"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "56.3%",
+          "hint": "新加坡-02 · 当前最高"
+        }
+      ],
+      "heatmap": {
+        "cells": 1680,
+        "cellWidth": 9,
+        "cellHeight": 9,
+        "scrollWidth": 1846,
+        "clientWidth": 262,
+        "scrollable": true
+      },
+      "cost": null,
+      "hasScrollHint": true,
+      "pageHeightDelta": 1092
     },
     {
       "id": "real-cost-dark-1440",
@@ -233,15 +269,19 @@
       "width": 1440,
       "file": "app-real-cost-dark-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 2292,
+      "pageHeight": 1176,
       "viewportWidth": 1440,
-      "viewportHeight": 2348,
+      "viewportHeight": 1232,
       "overflowX": false,
       "mainOverflowX": false,
       "sectionHeight": 899.90625,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -252,6 +292,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -283,7 +329,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 924
+      "pageHeightDelta": 320
     },
     {
       "id": "real-cost-dark-390",
@@ -292,15 +338,19 @@
       "width": 390,
       "file": "app-real-cost-dark-390.png",
       "pageWidth": 390,
-      "pageHeight": 3779,
+      "pageHeight": 1898,
       "viewportWidth": 390,
-      "viewportHeight": 3835,
+      "viewportHeight": 1954,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1471.171875,
+      "sectionHeight": 1491.953125,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -311,6 +361,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -342,7 +398,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": true,
-      "pageHeightDelta": 1495
+      "pageHeightDelta": 1042
     },
     {
       "id": "real-cost-light-1440",
@@ -351,15 +407,19 @@
       "width": 1440,
       "file": "app-real-cost-light-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 2292,
+      "pageHeight": 1176,
       "viewportWidth": 1440,
-      "viewportHeight": 2348,
+      "viewportHeight": 1232,
       "overflowX": false,
       "mainOverflowX": false,
       "sectionHeight": 899.90625,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -370,6 +430,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -401,7 +467,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 924
+      "pageHeightDelta": 320
     },
     {
       "id": "real-cost-light-390",
@@ -410,15 +476,19 @@
       "width": 390,
       "file": "app-real-cost-light-390.png",
       "pageWidth": 390,
-      "pageHeight": 3779,
+      "pageHeight": 1898,
       "viewportWidth": 390,
-      "viewportHeight": 3835,
+      "viewportHeight": 1954,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1471.171875,
+      "sectionHeight": 1491.953125,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -429,6 +499,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -460,7 +536,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": true,
-      "pageHeightDelta": 1495
+      "pageHeightDelta": 1042
     }
   ],
   "errors": []

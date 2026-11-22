@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import {
-  CpuIcon,
-  ServerIcon,
-  ServerOffIcon,
-} from "lucide-react";
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
+import { Link } from "react-router-dom";
+import { FilterIcon, ServerIcon, ServerOffIcon } from "lucide-react";
 import { EmptyState, ListError } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,13 +15,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { InsightMetrics } from "./InsightMetrics";
+import { ResourceAreaChart } from "./ResourceAreaChart";
 import { errorText } from "@/lib/errors";
 import { useServerHealth } from "@/lib/queries";
 import {
+  RESOURCE_METRICS,
   anomalyWindowHours,
   buildAnomalyWindows,
   buildHeatmapColumns,
-  buildServerResourceRows,
+  buildResourceChartData,
   formatHourTick,
   formatLoad,
   formatMonthDayHour,
@@ -27,58 +32,39 @@ import {
   heatmapCell,
   normalizeServerHealth,
   resolveHeatmapMetric,
+  resolveResourceMetric,
+  resourceServerRows,
   type AnomalyWindow,
   type HeatmapMetric,
+  type ResourceMetric,
   type ServerHealthParseResult,
   type ServerHealthSnapshot,
-  type ServerHealthTone,
-  type ServerResourceRow,
 } from "@/lib/serverHealth";
 import { useIsDesktop } from "@/lib/useIsDesktop";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
-const METRIC_LABEL: Record<HeatmapMetric, string> = {
+const HEATMAP_METRIC_LABEL: Record<HeatmapMetric, string> = {
   uptime: "overview.serverHealth.metricUptime",
   load: "overview.serverHealth.metricLoad",
   memory: "overview.serverHealth.metricMemory",
   disk: "overview.serverHealth.metricDisk",
 };
 
-const METRIC_LEGEND: Record<
-  HeatmapMetric,
-  { good: string; warn: string; bad: string }
-> = {
-  uptime: {
-    good: "overview.serverHealth.legendGoodUptime",
-    warn: "overview.serverHealth.legendWarnUptime",
-    bad: "overview.serverHealth.legendBadUptime",
-  },
-  load: {
-    good: "overview.serverHealth.legendGoodLoad",
-    warn: "overview.serverHealth.legendWarnLoad",
-    bad: "overview.serverHealth.legendBadLoad",
-  },
-  memory: {
-    good: "overview.serverHealth.legendGoodMemory",
-    warn: "overview.serverHealth.legendWarnMemory",
-    bad: "overview.serverHealth.legendBadMemory",
-  },
-  disk: {
-    good: "overview.serverHealth.legendGoodDisk",
-    warn: "overview.serverHealth.legendWarnDisk",
-    bad: "overview.serverHealth.legendBadDisk",
-  },
+const RESOURCE_METRIC_LABEL: Record<ResourceMetric, string> = {
+  load: "overview.serverHealth.metricLoad",
+  memory: "overview.serverHealth.metricMemory",
+  disk: "overview.serverHealth.metricDisk",
 };
 
-/** 颜色只表达三档；离线 / 无采样另加纹理，不依赖颜色单一通道。 */
-const TONE_CELL: Record<ServerHealthTone, string> = {
-  good: "bg-primary/80",
-  warn: "bg-warning/80",
-  bad: "bg-destructive/80",
-  nosample: "heatmap-nosample",
-  offline: "heatmap-offline",
-};
+/** 0 = 主色最浅（最好），4 = 主色最深（最差）；不引入新色相。 */
+const STEP_CLASS = [
+  "bg-primary/25",
+  "bg-primary/40",
+  "bg-primary/55",
+  "bg-primary/70",
+  "bg-primary/90",
+];
 
 const ANOMALY_META: Record<
   AnomalyWindow["metric"],
@@ -198,26 +184,100 @@ function ServerHealthBody({ snapshot }: { snapshot: ServerHealthSnapshot }) {
       />
 
       <section className="grid gap-4 xl:grid-cols-3">
-        <CurrentResourcesCard snapshot={snapshot} />
-        <AnomalyWindowsCard
+        <CurrentResourcesCard
           snapshot={snapshot}
           className="xl:col-span-2"
         />
+        <AnomalyWindowsCard snapshot={snapshot} />
       </section>
     </div>
   );
 }
 
-function LegendSwatch({ tone, label }: { tone: ServerHealthTone; label: string }) {
+function LegendScale({ metric }: { metric: HeatmapMetric }) {
+  const lowKey =
+    metric === "uptime"
+      ? "overview.serverHealth.legendGood"
+      : "overview.serverHealth.legendLow";
+  const highKey =
+    metric === "uptime"
+      ? "overview.serverHealth.legendBad"
+      : "overview.serverHealth.legendHigh";
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <span>{t(lowKey)}</span>
+      {[0, 2, 4].map((step) => (
+        <span
+          key={step}
+          aria-hidden="true"
+          className={cn("size-3 rounded-[3px]", STEP_CLASS[step])}
+        />
+      ))}
+      <span>{t(highKey)}</span>
+    </span>
+  );
+}
+
+function LegendTexture({
+  kind,
+  label,
+}: {
+  kind: "nosample" | "offline";
+  label: string;
+}) {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
       <span
         aria-hidden="true"
-        className={cn("size-2.5 rounded-[2px]", TONE_CELL[tone])}
+        className={cn(
+          "size-3 rounded-[3px]",
+          kind === "offline" ? "heatmap-offline" : "heatmap-nosample",
+        )}
       />
       {label}
     </span>
   );
+}
+
+function heatmapCellClass(state: "sample" | "offline" | "nosample", step: number | null) {
+  if (state === "offline") return "heatmap-offline";
+  if (state === "nosample") return "heatmap-nosample";
+  return STEP_CLASS[step ?? 0];
+}
+
+function cellLabel(
+  serverName: string,
+  ts: number,
+  metric: HeatmapMetric,
+  cell: ReturnType<typeof heatmapCell>,
+): string {
+  const time = formatMonthDayHour(ts);
+  if (cell.state === "nosample") {
+    return t("overview.serverHealth.cellNoSample", {
+      name: serverName,
+      time,
+    });
+  }
+  if (cell.state === "offline") {
+    return t("overview.serverHealth.cellOffline", {
+      name: serverName,
+      time,
+    });
+  }
+  const value =
+    metric === "load"
+      ? formatLoad(cell.value)
+      : formatPercent(cell.value);
+  return t("overview.serverHealth.cellTitle", {
+    name: serverName,
+    time,
+    metric: t(HEATMAP_METRIC_LABEL[metric]),
+    value,
+    online: formatPercent(cell.bucket?.onlineRatio ?? null),
+    load: formatLoad(cell.bucket?.load1 ?? null),
+    mem: formatPercent(cell.bucket?.memRatio ?? null),
+    disk: formatPercent(cell.bucket?.diskRatio ?? null),
+  });
 }
 
 function HeatmapCard({
@@ -231,29 +291,110 @@ function HeatmapCard({
   onMetricChange: (metric: HeatmapMetric) => void;
   desktop: boolean;
 }) {
-  const step = Math.max(1, snapshot.window.bucketSecs || 3600);
+  const stepSecs = Math.max(1, snapshot.window.bucketSecs || 3600);
   const columns = useMemo(
-    () => buildHeatmapColumns(snapshot, desktop ? 168 : 24),
-    [snapshot, desktop],
+    () => buildHeatmapColumns(snapshot, 168),
+    [snapshot],
   );
   const dayGroups = useMemo(
     () => groupHeatmapColumnsByDay(columns),
     [columns],
   );
+  const hourGroups = useMemo(() => {
+    const groups: { label: string; columns: number }[] = [];
+    for (let index = 0; index < columns.length; index += 6) {
+      const chunk = columns.slice(index, index + 6);
+      groups.push({
+        label: formatHourTick(chunk[0].ts),
+        columns: chunk.length,
+      });
+    }
+    return groups;
+  }, [columns]);
+  const dayStarts = useMemo(() => {
+    const starts = new Set<number>();
+    let index = 0;
+    for (const group of dayGroups) {
+      starts.add(index);
+      index += group.columns;
+    }
+    return starts;
+  }, [dayGroups]);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [focus, setFocus] = useState({
+    row: 0,
+    col: Math.max(0, columns.length - 1),
+  });
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (element) element.scrollLeft = element.scrollWidth;
+  }, [columns.length]);
+
+  const focusRow = Math.min(
+    focus.row,
+    Math.max(0, snapshot.servers.length - 1),
+  );
+  const focusCol = Math.min(focus.col, Math.max(0, columns.length - 1));
+
+  const heatmapVars = {
+    "--heatmap-cell-size": desktop ? "14px" : "9px",
+    "--heatmap-gap": "2px",
+  } as CSSProperties;
+  const gridStyle: CSSProperties = {
+    gridTemplateColumns: `repeat(${columns.length}, var(--heatmap-cell-size))`,
+    columnGap: "var(--heatmap-gap)",
+  };
   const first = columns[0]?.ts;
   const last = columns.at(-1)?.ts;
-  const legend = METRIC_LEGEND[metric];
-  const gridStyle = {
-    gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`,
-  };
-  const dayStyle = {
-    gridTemplateColumns: dayGroups
-      .map((group) => `${Math.max(1, group.columns)}fr`)
-      .join(" "),
-  };
+  const legendLabel =
+    metric === "uptime"
+      ? t("overview.serverHealth.metricUptime")
+      : t(HEATMAP_METRIC_LABEL[metric]);
+
+  function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
+    const target = event.target as HTMLElement;
+    if (!target.hasAttribute("data-heatmap-cell")) return;
+    const row = Number(target.dataset.row ?? 0);
+    const col = Number(target.dataset.col ?? 0);
+    let nextRow = row;
+    let nextCol = col;
+    switch (event.key) {
+      case "ArrowLeft":
+        nextCol = Math.max(0, col - 1);
+        break;
+      case "ArrowRight":
+        nextCol = Math.min(columns.length - 1, col + 1);
+        break;
+      case "ArrowUp":
+        nextRow = Math.max(0, row - 1);
+        break;
+      case "ArrowDown":
+        nextRow = Math.min(snapshot.servers.length - 1, row + 1);
+        break;
+      case "Home":
+        nextCol = 0;
+        break;
+      case "End":
+        nextCol = columns.length - 1;
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
+    setFocus({ row: nextRow, col: nextCol });
+    requestAnimationFrame(() => {
+      scrollRef.current
+        ?.querySelector<HTMLElement>(
+          `[data-heatmap-cell][data-row="${nextRow}"][data-col="${nextCol}"]`,
+        )
+        ?.focus();
+    });
+  }
 
   return (
-    <Card className="min-w-0 gap-0">
+    <Card className="min-w-0 gap-0" data-heatmap-card>
       <CardHeader className="border-b border-border pb-4">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <CardTitle className="text-sm font-medium">
@@ -277,132 +418,172 @@ function HeatmapCard({
                   value={value}
                   className="px-2 text-xs"
                 >
-                  {t(METRIC_LABEL[value])}
+                  {t(HEATMAP_METRIC_LABEL[value])}
                 </TabsTrigger>
               ))}
             </TabsList>
           </Tabs>
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-          <LegendSwatch tone="good" label={t(legend.good)} />
-          <LegendSwatch tone="warn" label={t(legend.warn)} />
-          <LegendSwatch tone="bad" label={t(legend.bad)} />
-          <LegendSwatch
-            tone="nosample"
-            label={t("overview.serverHealth.legendNoSample")}
-          />
-          <LegendSwatch
-            tone="offline"
+        <div
+          data-heatmap-legend
+          className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground"
+        >
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+            <span className="font-medium text-foreground">{legendLabel}</span>
+            <LegendScale metric={metric} />
+          </span>
+          <LegendTexture
+            kind="offline"
             label={t("overview.serverHealth.legendOffline")}
+          />
+          <LegendTexture
+            kind="nosample"
+            label={t("overview.serverHealth.legendNoSample")}
           />
         </div>
       </CardHeader>
 
-      <CardContent className="min-w-0 p-4">
+      <CardContent className="min-w-0 p-2 sm:p-4">
         <div
-          role="img"
+          role="group"
           aria-label={t("overview.serverHealth.heatmapAria", {
             n: snapshot.servers.length,
           })}
           data-heatmap
+          style={heatmapVars}
         >
-          <div className="grid min-w-0 grid-cols-[88px_minmax(0,1fr)] gap-2 sm:grid-cols-[120px_minmax(0,1fr)]">
-            <div className="min-w-0">
-              {/* 与日期表头同高，保证行标签和格子对齐。 */}
-              <div className="mb-1 h-4" aria-hidden="true" />
-              {snapshot.servers.map((server) => (
-                <div
-                  key={server.id}
-                  className="mb-px flex h-3.5 items-center gap-1.5"
-                >
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "size-1.5 shrink-0 rounded-full",
-                      server.status === "online"
-                        ? "bg-primary"
-                        : server.status === "offline"
-                          ? "bg-muted-foreground/40"
-                          : "bg-muted-foreground/30",
-                    )}
-                  />
-                  <span
-                    className="truncate text-[11px] leading-none"
-                    title={server.name}
-                  >
-                    {server.name}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className="min-w-0 overflow-x-auto pb-1" data-heatmap-scroll>
-              <div className={desktop ? "min-w-0" : "min-w-[560px]"}>
-                <div
-                  className="mb-1 grid text-[10px] text-muted-foreground"
-                  style={dayStyle}
-                >
-                  {dayGroups.map((group, index) => (
-                    <span
-                      key={`${group.day}-${index}`}
-                      className="truncate text-center"
-                    >
-                      {group.day}
-                    </span>
-                  ))}
-                </div>
-
+          <div className="flex min-w-0 gap-1 sm:gap-2">
+            <div className="w-[60px] shrink-0 sm:w-[120px]">
+              <div style={{ height: "calc(var(--heatmap-cell-size) * 2 + 4px)" }} />
+              <div
+                className="flex flex-col"
+                style={{ gap: "var(--heatmap-gap)" }}
+              >
                 {snapshot.servers.map((server) => (
                   <div
                     key={server.id}
-                    className="mb-px grid gap-px"
-                    style={gridStyle}
-                    data-heatmap-row={server.id}
+                    className="flex items-center gap-1.5 overflow-hidden"
+                    style={{ height: "var(--heatmap-cell-size)" }}
                   >
-                    {columns.map((column) => {
-                      const cell = heatmapCell(
-                        server,
-                        column.ts,
-                        metric,
-                        step,
-                      );
-                      return (
-                        <span
-                          key={`${server.id}-${column.ts}`}
-                          aria-hidden="true"
-                          data-heatmap-cell
-                          data-tone={cell.tone}
-                          title={cellTitle(server.name, column.ts, cell.tone, cell.bucket)}
-                          className={cn(
-                            "h-3.5 w-full rounded-[2px]",
-                            TONE_CELL[cell.tone],
-                          )}
-                        />
-                      );
-                    })}
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        "size-1.5 shrink-0 rounded-full",
+                        server.status === "online"
+                          ? "bg-primary"
+                          : server.status === "offline"
+                            ? "bg-muted-foreground/40"
+                            : "bg-muted-foreground/30",
+                      )}
+                    />
+                    <span
+                      className="truncate text-[9px] leading-none sm:text-[11px]"
+                      title={server.name}
+                    >
+                      {server.name}
+                    </span>
                   </div>
                 ))}
+              </div>
+            </div>
 
-                {desktop ? null : (
-                  <div className="mt-1 grid grid-cols-4 text-[10px] text-muted-foreground">
-                    {[0, 6, 12, 18].map((offset, index) => (
+            <div
+              ref={scrollRef}
+              className="min-w-0 flex-1 overflow-x-auto pb-1"
+              data-heatmap-scroll
+            >
+              <div style={{ width: "max-content" }}>
+                <div className="flex flex-col" style={{ gap: "var(--heatmap-gap)" }}>
+                  <div
+                    className="grid text-[9px] text-muted-foreground sm:text-[10px]"
+                    style={gridStyle}
+                  >
+                    {dayGroups.map((group, index) => (
                       <span
-                        key={offset}
-                        className={cn(
-                          index === 0
-                            ? "text-left"
-                            : index === 3
-                              ? "text-right"
-                              : "text-center",
-                        )}
+                        key={`${group.day}-${index}`}
+                        className="truncate text-center"
+                        style={{ gridColumn: `span ${group.columns}` }}
                       >
-                        {first === undefined
-                          ? "—"
-                          : formatHourTick(first + offset * step)}
+                        {group.day}
                       </span>
                     ))}
                   </div>
-                )}
+                  <div
+                    className="grid text-[8px] text-muted-foreground sm:text-[9px]"
+                    style={gridStyle}
+                  >
+                    {hourGroups.map((group, index) => (
+                      <span
+                        key={`${group.label}-${index}`}
+                        className="truncate text-center"
+                        style={{ gridColumn: `span ${group.columns}` }}
+                      >
+                        {group.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div
+                  role="grid"
+                  aria-label={t("overview.serverHealth.heatmapAria", {
+                    n: snapshot.servers.length,
+                  })}
+                  aria-rowcount={snapshot.servers.length}
+                  aria-colcount={columns.length}
+                  className="mt-0.5 flex flex-col"
+                  style={{ gap: "var(--heatmap-gap)" }}
+                  onKeyDown={moveFocus}
+                >
+                  {snapshot.servers.map((server, rowIndex) => (
+                    <div
+                      key={server.id}
+                      role="row"
+                      aria-label={server.name}
+                      className="grid"
+                      style={gridStyle}
+                    >
+                      {columns.map((column, colIndex) => {
+                        const cell = heatmapCell(
+                          server,
+                          column.ts,
+                          metric,
+                          stepSecs,
+                        );
+                        const label = cellLabel(
+                          server.name,
+                          column.ts,
+                          metric,
+                          cell,
+                        );
+                        const focused =
+                          focusRow === rowIndex && focusCol === colIndex;
+                        return (
+                          <div
+                            key={`${server.id}-${column.ts}`}
+                            role="gridcell"
+                            tabIndex={focused ? 0 : -1}
+                            data-heatmap-cell
+                            data-row={rowIndex}
+                            data-col={colIndex}
+                            data-state={cell.state}
+                            data-step={cell.step ?? ""}
+                            aria-label={label}
+                            title={label}
+                            onFocus={() =>
+                              setFocus({ row: rowIndex, col: colIndex })
+                            }
+                            className={cn(
+                              "aspect-square w-full rounded-[3px] outline-none transition-[box-shadow] duration-100 focus-visible:ring-2 focus-visible:ring-ring",
+                              heatmapCellClass(cell.state, cell.step),
+                              dayStarts.has(colIndex) && "heatmap-day-start",
+                            )}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -416,13 +597,15 @@ function HeatmapCard({
                     end: formatMonthDayHour(last),
                   })}
             </span>
-            {snapshot.hasSamples ? null : (
-              <span>{t("overview.serverHealth.heatmapNoSamples")}</span>
-            )}
+            <span>
+              {desktop
+                ? t("overview.serverHealth.heatmapScrollAll")
+                : t("overview.serverHealth.heatmapScrollMobile")}
+            </span>
           </div>
-          {desktop ? null : (
+          {snapshot.hasSamples ? null : (
             <p className="mt-1 text-[10px] text-muted-foreground">
-              {t("overview.serverHealth.heatmapScroll")}
+              {t("overview.serverHealth.heatmapNoSamples")}
             </p>
           )}
         </div>
@@ -431,175 +614,159 @@ function HeatmapCard({
   );
 }
 
-function cellTitle(
-  name: string,
-  ts: number,
-  tone: ServerHealthTone,
-  bucket: ReturnType<typeof heatmapCell>["bucket"],
-): string {
-  const time = formatMonthDayHour(ts);
-  if (tone === "nosample") {
-    return t("overview.serverHealth.cellNoSample", { name, time });
-  }
-  if (tone === "offline") {
-    return t("overview.serverHealth.cellOffline", { name, time });
-  }
-  return t("overview.serverHealth.cellTitle", {
-    name,
-    time,
-    online: formatPercent(bucket?.onlineRatio ?? null),
-    load: formatLoad(bucket?.load1 ?? null),
-    mem: formatPercent(bucket?.memRatio ?? null),
-    disk: formatPercent(bucket?.diskRatio ?? null),
-  });
-}
-
-function resourceBarClass(
-  kind: "load" | "memory" | "disk",
-  ratio: number | null,
-): string {
-  if (ratio === null) return "bg-muted";
-  if (kind === "load") {
-    if (ratio < 0.25) return "bg-primary";
-    if (ratio < 1) return "bg-warning";
-    return "bg-destructive";
-  }
-  if (ratio >= 0.9) return "bg-destructive";
-  if (ratio >= 0.7) return "bg-warning";
-  return "bg-primary";
-}
-
-function ResourceBar({
-  kind,
-  label,
-  ratio,
-  text,
+function CurrentResourcesCard({
+  snapshot,
+  className,
 }: {
-  kind: "load" | "memory" | "disk";
-  label: string;
-  ratio: number | null;
-  text: string;
+  snapshot: ServerHealthSnapshot;
+  className?: string;
 }) {
-  return (
-    <div className="flex items-center gap-2 text-[10px]">
-      <span className="w-10 shrink-0 text-muted-foreground">{label}</span>
-      <span
-        aria-hidden="true"
-        className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
-      >
-        <span
-          className={cn(
-            "block h-full rounded-full",
-            resourceBarClass(kind, ratio),
-          )}
-          style={{
-            width: ratio === null ? "0%" : `${Math.round(ratio * 100)}%`,
-          }}
-        />
-      </span>
-      <span className="w-10 shrink-0 text-right font-mono tabular-nums">
-        {text}
-      </span>
-    </div>
+  const [metric, setMetric] = useState<ResourceMetric>("load");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>(() =>
+    resourceServerRows(snapshot, "load", 5).map((row) => row.serverId),
   );
-}
-
-function ResourceRow({ row }: { row: ServerResourceRow }) {
-  const alert =
-    (row.load1 ?? 0) >= 4 ||
-    (row.memRatio ?? 0) >= 0.9 ||
-    (row.diskRatio ?? 0) >= 0.9;
-  return (
-    <li className="rounded-md px-2.5 py-2">
-      <div className="flex min-w-0 items-center gap-2">
-        <span
-          aria-hidden="true"
-          className={cn(
-            "size-1.5 shrink-0 rounded-full",
-            row.server.status === "online"
-              ? "bg-primary"
-              : row.server.status === "offline"
-                ? "bg-muted-foreground/40"
-                : "bg-muted-foreground/30",
-          )}
-        />
-        <span className="min-w-0 flex-1 truncate text-sm" title={row.server.name}>
-          {row.server.name}
-        </span>
-        {alert ? (
-          <Badge
-            variant="outline"
-            className="shrink-0 border-transparent bg-warning/10 font-normal text-warning"
-          >
-            {t("overview.serverHealth.resourceAlert")}
-          </Badge>
-        ) : null}
-      </div>
-      <div className="mt-1.5 grid gap-1">
-        <ResourceBar
-          kind="load"
-          label={t("overview.serverHealth.loadLabel")}
-          ratio={row.loadRatio}
-          text={formatLoad(row.load1)}
-        />
-        <ResourceBar
-          kind="memory"
-          label={t("overview.serverHealth.memLabel")}
-          ratio={row.memRatio}
-          text={formatPercent(row.memRatio)}
-        />
-        <ResourceBar
-          kind="disk"
-          label={t("overview.serverHealth.diskLabel")}
-          ratio={row.diskRatio}
-          text={formatPercent(row.diskRatio)}
-        />
-      </div>
-    </li>
-  );
-}
-
-function CurrentResourcesCard({ snapshot }: { snapshot: ServerHealthSnapshot }) {
-  const rows = buildServerResourceRows(snapshot, 6);
   const latest = snapshot.latestTs;
+  const allRows = useMemo(
+    () => resourceServerRows(snapshot, metric, Number.POSITIVE_INFINITY),
+    [snapshot, metric],
+  );
+  const columns = useMemo(
+    () => buildHeatmapColumns(snapshot, 168),
+    [snapshot],
+  );
+  const effectiveSelectedIds = useMemo(
+    () =>
+      selectedIds.filter((id) =>
+        allRows.some((row) => row.serverId === id),
+      ),
+    [selectedIds, allRows],
+  );
+
+  const chartData = useMemo(
+    () =>
+      buildResourceChartData(
+        snapshot,
+        metric,
+        effectiveSelectedIds,
+        columns,
+      ),
+    [snapshot, metric, effectiveSelectedIds, columns],
+  );
+
+  function changeMetric(value: string) {
+    const next = resolveResourceMetric(value);
+    setMetric(next);
+    setSelectedIds(
+      resourceServerRows(snapshot, next, 5).map((row) => row.serverId),
+    );
+    setFilterOpen(false);
+  }
+
+  function toggleServer(id: string) {
+    setSelectedIds((previous) =>
+      previous.includes(id)
+        ? previous.filter((item) => item !== id)
+        : [...previous, id],
+    );
+  }
 
   return (
-    <Card className="flex flex-col gap-0">
+    <Card
+      className={cn("flex min-w-0 flex-col gap-0", className)}
+      data-resource-card
+    >
       <CardHeader className="border-b border-border pb-4">
-        <div className="flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium">
             {t("overview.serverHealth.currentTitle")}
           </CardTitle>
-          {latest === null ? null : (
-            <Badge
+          <div className="flex flex-wrap items-center gap-2">
+            {latest === null ? null : (
+              <Badge
+                variant="outline"
+                className="shrink-0 font-normal text-muted-foreground"
+              >
+                {t("overview.serverHealth.currentSnapshot", {
+                  time: formatMonthDayHour(latest),
+                })}
+              </Badge>
+            )}
+            <Button
+              type="button"
               variant="outline"
-              className="shrink-0 font-normal text-muted-foreground"
+              size="sm"
+              data-resource-filter
+              onClick={() => setFilterOpen((open) => !open)}
+              disabled={allRows.length === 0}
             >
-              {t("overview.serverHealth.currentSnapshot", {
-                time: formatMonthDayHour(latest),
+              <FilterIcon />
+              {t("overview.serverHealth.resourceFilter", {
+                selected: effectiveSelectedIds.length,
+                total: allRows.length,
               })}
-            </Badge>
-          )}
+            </Button>
+          </div>
         </div>
+
+        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+          <Tabs value={metric} onValueChange={changeMetric}>
+            <TabsList
+              aria-label={t("overview.serverHealth.resourceMetricAria")}
+              className="max-w-full overflow-x-auto"
+            >
+              {RESOURCE_METRICS.map((value) => (
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className="px-2 text-xs"
+                >
+                  {t(RESOURCE_METRIC_LABEL[value])}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {filterOpen ? (
+          <div
+            className="mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto"
+            data-resource-chips
+          >
+            {allRows.map((row) => {
+              const selected = selectedIds.includes(row.serverId);
+              return (
+                <button
+                  key={row.serverId}
+                  type="button"
+                  aria-pressed={selected}
+                  data-resource-chip
+                  onClick={() => toggleServer(row.serverId)}
+                  className={cn(
+                    "max-w-40 truncate rounded-full border px-2.5 py-1 text-[10px] transition-colors duration-150",
+                    selected
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-border bg-muted/30 text-muted-foreground hover:text-foreground",
+                  )}
+                  title={row.name}
+                >
+                  {row.name}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
       </CardHeader>
-      {rows.length === 0 ? (
-        <EmptyState
-          size="sm"
-          icon={CpuIcon}
-          title={t("overview.serverHealth.currentEmpty")}
-          className="py-10"
+
+      <CardContent className="min-w-0 p-2 sm:p-4">
+        <ResourceAreaChart
+          key={`${metric}-${effectiveSelectedIds.join(",")}`}
+          data={chartData}
+          metric={metric}
         />
-      ) : (
-        <CardContent className="p-2">
-          <ul className="flex flex-col gap-0.5">
-            {rows.map((row) => (
-              <ResourceRow key={row.server.id} row={row} />
-            ))}
-          </ul>
-        </CardContent>
-      )}
+      </CardContent>
       <p className="px-4 pt-1 pb-4 text-[10px] leading-normal text-muted-foreground">
-        {t("overview.serverHealth.loadFootnote")}
+        {t("overview.serverHealth.resourceFootnote")}
       </p>
     </Card>
   );
@@ -752,12 +919,12 @@ function ServerHealthSkeleton() {
         </CardHeader>
         <CardContent className="space-y-2">
           <Skeleton className="h-3 w-56" />
-          <Skeleton className="h-[238px] w-full" />
+          <Skeleton className="h-[268px] w-full" />
         </CardContent>
       </Card>
       <section className="grid gap-4 xl:grid-cols-3">
-        <Skeleton className="h-[300px] w-full rounded-xl" />
-        <Skeleton className="h-[300px] w-full rounded-xl xl:col-span-2" />
+        <Skeleton className="h-[360px] w-full rounded-xl xl:col-span-2" />
+        <Skeleton className="h-[360px] w-full rounded-xl" />
       </section>
     </div>
   );

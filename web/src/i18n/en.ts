@@ -627,9 +627,14 @@ const en = {
     views: {
       aria: "Switch overview view",
       server: "Server status",
+      traffic: "Traffic",
       cost: "Cost",
       chain: "Chain latency",
     },
+    trafficEmptyTitle: "No traffic data yet",
+    trafficEmptyDesc:
+      "Once servers are connected and carry traffic, trends, breakdowns, leaders and alerts will appear here.",
+    trafficEmptyAction: "Go to servers",
     chainLatency: {
       title: "Chain latency",
       soon: "Coming soon",
@@ -677,8 +682,21 @@ const en = {
       legendBadDisk: "≥90%",
       legendNoSample: "No samples",
       legendOffline: "Offline",
+      legendGood: "Good",
+      legendBad: "Bad",
+      legendLow: "Low",
+      legendHigh: "High",
+      resourceFilter: "Filter {selected}/{total}",
+      resourceMetricAria: "Switch resource metric",
+      resourceEmpty: "No samples",
+      resourceAllHidden: "All series hidden",
+      resourceFootnote:
+        "Areas are percentages; load is approximated as load1/8 (no CPU core count). Hover for raw values.",
+      loadApproxTooltip: "Load approximated as load1/8",
+      heatmapScrollAll: "Swipe sideways for all 168 hours",
+      heatmapScrollMobile: "Swipe sideways for earlier hours",
       cellTitle:
-        "{name} · {time} | online {online} · load {load} · memory {mem} · disk {disk}",
+        "{name} · {time} | {metric} {value} · online {online} · load {load} · memory {mem} · disk {disk}",
       cellOffline: "{name} · {time} | offline",
       cellNoSample: "{name} · {time} | no samples",
       currentTitle: "Current resources",

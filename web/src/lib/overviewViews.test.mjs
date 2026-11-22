@@ -10,7 +10,7 @@ import {
 } from "./overviewViews.ts";
 
 test("概览视图顺序与默认值是服务器状态", () => {
-  assert.deepEqual(OVERVIEW_VIEWS, ["server", "cost", "chain"]);
+  assert.deepEqual(OVERVIEW_VIEWS, ["server", "traffic", "cost", "chain"]);
   assert.equal(DEFAULT_OVERVIEW_VIEW, "server");
 });
 
@@ -27,6 +27,7 @@ test("合法视图原样保留，非法值 / 空值回落到服务器状态", ()
 
 test("默认视图不写 URL 参数，其它视图写 ?view=", () => {
   assert.equal(overviewViewParam("server"), null);
+  assert.equal(overviewViewParam("traffic"), "traffic");
   assert.equal(overviewViewParam("cost"), "cost");
   assert.equal(overviewViewParam("chain"), "chain");
 });

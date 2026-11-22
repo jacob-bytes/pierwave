@@ -30,12 +30,26 @@ export function resolveHeatmapMetric(value: unknown): HeatmapMetric {
   return isHeatmapMetric(value) ? value : "uptime";
 }
 
-export type ServerHealthTone =
-  | "good"
-  | "warn"
-  | "bad"
-  | "nosample"
-  | "offline";
+/** 热力图格子的非数值状态；有采样时用 0–4 的色阶。 */
+export type HeatmapCellState = "sample" | "offline" | "nosample";
+
+/** 颜色阶数：0 = 最好（主色最浅），4 = 最差（主色最深）。 */
+export const HEATMAP_STEP_COUNT = 5;
+
+/** 「当前资源」面积图可切换的指标。 */
+export const RESOURCE_METRICS = ["load", "memory", "disk"] as const;
+export type ResourceMetric = (typeof RESOURCE_METRICS)[number];
+
+export function isResourceMetric(value: unknown): value is ResourceMetric {
+  return (
+    typeof value === "string" &&
+    (RESOURCE_METRICS as readonly string[]).includes(value)
+  );
+}
+
+export function resolveResourceMetric(value: unknown): ResourceMetric {
+  return isResourceMetric(value) ? value : "load";
+}
 
 export type ServerHealthMetric =
   | "offline"
@@ -117,10 +131,39 @@ export interface HeatmapColumn {
 }
 
 export interface HeatmapCell {
-  tone: ServerHealthTone;
+  state: HeatmapCellState;
+  /** 0–4；无采样 / 离线时为 null。 */
+  step: number | null;
   /** 当前指标值：在线率 / 负载 / 内存比 / 硬盘比。 */
   value: number | null;
   bucket: ServerHealthBucket | null;
+}
+
+/** 面积图的一台服务器（id + 展示名）。 */
+export interface ResourceSeries {
+  id: string;
+  name: string;
+}
+
+/** 面积图的一行：`ts` + 各服务器 id 的百分比值（无采样为 null）。 */
+export interface ResourceChartPoint {
+  ts: number;
+  [serverId: string]: number | null;
+}
+
+export interface ResourceChartData {
+  points: ResourceChartPoint[];
+  series: ResourceSeries[];
+  /** 选中服务器里是否至少有一个非 null 点。 */
+  hasData: boolean;
+}
+
+/** 「当前资源」排序 / chips 用的一行。 */
+export interface ResourceServerRow {
+  serverId: string;
+  name: string;
+  /** 原始值：负载为 load1，内存 / 硬盘为 0..1。 */
+  value: number | null;
 }
 
 export interface AnomalyWindow {
@@ -136,18 +179,11 @@ export interface AnomalyWindow {
   peak: number | null;
 }
 
-export interface ServerResourceRow {
-  server: ServerHealthServer;
-  load1: number | null;
-  /** 0..1，按 4 核满载近似；仅用于排序与条形长度。 */
-  loadRatio: number | null;
-  memRatio: number | null;
-  diskRatio: number | null;
-  /** 三者中最差的一项，用于排序。 */
-  worstRatio: number | null;
-}
 
-/** 与原型一致的阈值；负载是绝对值（没有 CPU 核数，不能跨规格比较）。 */
+/** 没有 CPU 核数时，负载按 8 核满载近似（tooltip / 图注会标明）。 */
+export const RESOURCE_LOAD_APPROX_CORES = 8;
+
+/** 异常窗口阈值；负载是绝对值（没有 CPU 核数，不能跨规格比较）。 */
 export const SERVER_HEALTH_THRESHOLDS = {
   uptimeGood: 0.99,
   uptimeWarn: 0.95,
@@ -337,33 +373,78 @@ function bucketMetricValue(
   }
 }
 
-/** 指标 → 三档色调；无采样与离线在 [`heatmapCell`] 里优先处理。 */
-export function heatmapTone(
+/**
+ * 指标值 → 0–4 的色阶（0 = 最好 / 最浅，4 = 最差 / 最深）。
+ *
+ * 负载没有 CPU 核数，按 8 核满载近似（`load1 / 8`），图注与 tooltip 会说明；
+ * 内存 / 硬盘直接用 0..1 的占用比。阈值只影响颜色，不改变 tooltip 里的原值。
+ */
+export function heatmapStep(
   metric: HeatmapMetric,
   value: number | null,
-): ServerHealthTone {
-  if (value === null || !Number.isFinite(value)) return "nosample";
+): number | null {
+  if (value === null || !Number.isFinite(value)) return null;
 
   switch (metric) {
     case "uptime":
-      if (value >= SERVER_HEALTH_THRESHOLDS.uptimeGood) return "good";
-      if (value >= SERVER_HEALTH_THRESHOLDS.uptimeWarn) return "warn";
-      return "bad";
-    case "load":
-      if (value < SERVER_HEALTH_THRESHOLDS.loadGood) return "good";
-      if (value < SERVER_HEALTH_THRESHOLDS.loadBad) return "warn";
-      return "bad";
+      if (value >= 0.99) return 0;
+      if (value >= 0.97) return 1;
+      if (value >= 0.95) return 2;
+      if (value >= 0.9) return 3;
+      return 4;
+    case "load": {
+      const ratio = Math.min(Math.max(value / RESOURCE_LOAD_APPROX_CORES, 0), 1);
+      if (ratio < 0.125) return 0;
+      if (ratio < 0.25) return 1;
+      if (ratio < 0.5) return 2;
+      if (ratio < 0.75) return 3;
+      return 4;
+    }
     case "memory":
-      if (value < SERVER_HEALTH_THRESHOLDS.memWarn) return "good";
-      if (value < SERVER_HEALTH_THRESHOLDS.memBad) return "warn";
-      return "bad";
+      if (value < 0.5) return 0;
+      if (value < 0.65) return 1;
+      if (value < 0.8) return 2;
+      if (value < 0.9) return 3;
+      return 4;
     case "disk":
-      if (value < SERVER_HEALTH_THRESHOLDS.diskWarn) return "good";
-      if (value < SERVER_HEALTH_THRESHOLDS.diskBad) return "warn";
-      return "bad";
+      if (value < 0.5) return 0;
+      if (value < 0.7) return 1;
+      if (value < 0.8) return 2;
+      if (value < 0.9) return 3;
+      return 4;
     default:
-      return "nosample";
+      return null;
   }
+}
+
+/** 资源面积图 / 当前资源排序用的原值（负载为 load1，其余为 0..1）。 */
+export function resourceBucketValue(
+  bucket: ServerHealthBucket | null,
+  metric: ResourceMetric,
+): number | null {
+  if (!bucket || bucket.samples <= 0) return null;
+  switch (metric) {
+    case "load":
+      return bucket.load1 ?? bucket.load1Max;
+    case "memory":
+      return bucket.memRatio;
+    case "disk":
+      return bucket.diskRatio;
+    default:
+      return null;
+  }
+}
+
+/** 资源值 → 面积图 y 轴百分比：负载按 8 核近似，内存 / 硬盘直接乘 100。 */
+export function resourcePercent(
+  metric: ResourceMetric,
+  value: number | null,
+): number | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  if (metric === "load") {
+    return Math.min(Math.max(value / RESOURCE_LOAD_APPROX_CORES, 0), 1) * 100;
+  }
+  return Math.min(Math.max(value, 0), 1) * 100;
 }
 
 /** 找与列时间最接近的桶；容差半个桶，避免时区取整导致整列空。 */
@@ -387,7 +468,7 @@ export function bucketAt(
   return best && bestDistance <= tolerance ? best : null;
 }
 
-/** 单个格子的色调：无采样 → 灰点；在线率 0 → 离线红斜纹；其余按指标三档。 */
+/** 单个格子的状态：无采样 / 离线 / 有采样（带 0–4 色阶）。 */
 export function heatmapCell(
   server: ServerHealthServer,
   ts: number,
@@ -396,15 +477,17 @@ export function heatmapCell(
 ): HeatmapCell {
   const bucket = bucketAt(server, ts, stepSecs);
   if (!bucket || bucket.samples <= 0) {
-    return { tone: "nosample", value: null, bucket };
+    return { state: "nosample", step: null, value: null, bucket };
   }
   const value = bucketMetricValue(bucket, metric);
-  // 离线优先于指标值：切到负载/内存/硬盘时，离线小时仍然画红斜纹。
+  // 离线优先于指标值：切到负载/内存/硬盘时，离线小时仍然保留独立纹理。
   if (bucket.onlineRatio !== null && bucket.onlineRatio <= 0) {
-    return { tone: "offline", value, bucket };
+    return { state: "offline", step: null, value, bucket };
   }
-  if (value === null) return { tone: "nosample", value: null, bucket };
-  return { tone: heatmapTone(metric, value), value, bucket };
+  if (value === null) {
+    return { state: "nosample", step: null, value: null, bucket };
+  }
+  return { state: "sample", step: heatmapStep(metric, value), value, bucket };
 }
 
 /** 生成连续的桶时间列；缺桶由 [`heatmapCell`] 画成无采样。 */
@@ -745,43 +828,94 @@ export function normalizeServerHealth(
     : { status: "ok", snapshot };
 }
 
-/** 当前资源行：优先用接口的 current 快照，缺失时回落到最后一个桶。 */
-export function buildServerResourceRows(
-  snapshot: ServerHealthSnapshot,
-  limit = 6,
-): ServerResourceRow[] {
-  const rows = snapshot.servers.map((server) => {
-    const latest = server.buckets.at(-1) ?? null;
-    const load1 = server.current.load1 ?? latest?.load1 ?? null;
-    const memRatio =
-      ratioOf(server.current.memUsed, server.current.memTotal) ??
-      latest?.memRatio ??
-      null;
-    const diskRatio =
-      ratioOf(server.current.diskUsed, server.current.diskTotal) ??
-      latest?.diskRatio ??
-      null;
-    const loadRatio =
-      load1 === null
-        ? null
-        : Math.max(0, Math.min(1, load1 / SERVER_HEALTH_THRESHOLDS.loadBad));
-    const worstRatio = [loadRatio, memRatio, diskRatio]
-      .filter((value): value is number => value !== null)
-      .reduce<number | null>(
-        (worst, value) => (worst === null || value > worst ? value : worst),
-        null,
+/** 单台服务器某个资源指标的当前值：优先 current，缺失时回落到最后一个桶。 */
+export function currentResourceValue(
+  server: ServerHealthServer,
+  metric: ResourceMetric,
+): number | null {
+  const latest = server.buckets.at(-1) ?? null;
+  switch (metric) {
+    case "load":
+      return server.current.load1 ?? latest?.load1 ?? null;
+    case "memory":
+      return (
+        ratioOf(server.current.memUsed, server.current.memTotal) ??
+        latest?.memRatio ??
+        null
       );
-    return { server, load1, loadRatio, memRatio, diskRatio, worstRatio };
-  });
+    case "disk":
+      return (
+        ratioOf(server.current.diskUsed, server.current.diskTotal) ??
+        latest?.diskRatio ??
+        null
+      );
+    default:
+      return null;
+  }
+}
 
-  return rows
-    .filter((row) => row.worstRatio !== null)
+/**
+ * 当前资源排序 / 筛选 chips：按当前指标值降序。
+ * `limit` 用于默认的「当前值最高的 5 台」；传 `Infinity` 可取全部。
+ */
+export function resourceServerRows(
+  snapshot: ServerHealthSnapshot,
+  metric: ResourceMetric,
+  limit = 5,
+): ResourceServerRow[] {
+  const max = Number.isFinite(limit)
+    ? Math.max(0, Math.floor(limit))
+    : Number.POSITIVE_INFINITY;
+  return snapshot.servers
+    .map((server) => ({
+      serverId: server.id,
+      name: server.name,
+      value: currentResourceValue(server, metric),
+    }))
+    .filter((row): row is ResourceServerRow => row.value !== null)
     .sort(
       (a, b) =>
-        (b.worstRatio ?? 0) - (a.worstRatio ?? 0) ||
-        a.server.name.localeCompare(b.server.name),
+        (b.value ?? 0) - (a.value ?? 0) || a.name.localeCompare(b.name),
     )
-    .slice(0, Math.max(0, Math.floor(limit)));
+    .slice(0, max);
+}
+
+/**
+ * 面积图数据：x 用连续小时列，y 是百分比（负载按 8 核近似）。
+ * 没有采样的点保持 `null`，由 Recharts 断开而不是画 0 线。
+ */
+export function buildResourceChartData(
+  snapshot: ServerHealthSnapshot,
+  metric: ResourceMetric,
+  serverIds: readonly string[],
+  columns: readonly HeatmapColumn[],
+): ResourceChartData {
+  const byId = new Map(snapshot.servers.map((server) => [server.id, server]));
+  const servers = serverIds
+    .map((id) => byId.get(id))
+    .filter((server): server is ServerHealthServer => server !== undefined);
+  const series: ResourceSeries[] = servers.map((server) => ({
+    id: server.id,
+    name: server.name,
+  }));
+  const step = Math.max(1, snapshot.window.bucketSecs || 3600);
+
+  const points: ResourceChartPoint[] = columns.map((column) => {
+    const point: ResourceChartPoint = { ts: column.ts };
+    for (const server of servers) {
+      const bucket = bucketAt(server, column.ts, step);
+      point[server.id] = resourcePercent(
+        metric,
+        resourceBucketValue(bucket, metric),
+      );
+    }
+    return point;
+  });
+
+  const hasData = points.some((point) =>
+    series.some((item) => point[item.id] !== null),
+  );
+  return { points, series, hasData };
 }
 
 /** `96.4%`；null 显示 `—`，不把无采样写成 0%。 */

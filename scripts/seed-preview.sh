@@ -215,25 +215,43 @@ SELECT
 FROM seed;
 
 -- ------------------------------------------------------------
--- 费用与到期：给部分服务器填上，用来展示探针页的第三组信息
--- （其余保持未填，对照"整组不显示"的降级效果）
--- 日期用相对 now 的偏移，重建预览后语义仍然成立：
---   未来到期 / 今天附近到期 / 已过期，各有一台。
+-- 费用与到期：给多数服务器填上，用于成本概览与探针页展示
+-- 日期用相对 now 的偏移，重建预览后语义仍然成立。
+-- 覆盖：月付 / 年付 / 3 个月 / 一次性 / 未知币种（不计入总额）。
 -- ------------------------------------------------------------
 UPDATE servers SET paid_until = date('now', '+27 days'),
-                   price_cents = 26800, currency = 'CNY', billing_cycle = 'monthly'
+                   price_cents = 26800, currency = 'CNY',
+                   billing_cycle = 'monthly', billing_cycle_count = 1, billing_cycle_unit = 'month'
  WHERE name = '香港-01';
-UPDATE servers SET paid_until = date('now', '+3 days'),
-                   price_cents = 4999, currency = 'USD', billing_cycle = 'monthly'
- WHERE name IN ('东京-01', '东京-02');
-UPDATE servers SET paid_until = date('now', '-1 day'),
-                   price_cents = 128000, currency = 'JPY', billing_cycle = 'monthly'
- WHERE name = '大阪-01';
+-- 未知币种：展示"不计入总额但单列提示"
+UPDATE servers SET paid_until = date('now', '+40 days'),
+                   price_cents = 32000, currency = 'AED',
+                   billing_cycle = 'monthly', billing_cycle_count = 1, billing_cycle_unit = 'month'
+ WHERE name = '香港-02';
 UPDATE servers SET paid_until = date('now', '+101 days'),
-                   price_cents = 99900, currency = 'CNY', billing_cycle = 'yearly'
- WHERE name = '新加坡-02';
+                   price_cents = 120000, currency = 'USD',
+                   billing_cycle = 'yearly', billing_cycle_count = 1, billing_cycle_unit = 'year'
+ WHERE name = '东京-01';
+UPDATE servers SET paid_until = date('now', '+3 days'),
+                   price_cents = 36000, currency = 'USD',
+                   billing_cycle = 'monthly', billing_cycle_count = 1, billing_cycle_unit = 'month'
+ WHERE name = '东京-02';
 UPDATE servers SET paid_until = date('now', '+222 days'),
-                   price_cents = 199900, currency = 'CNY', billing_cycle = 'once'
+                   price_cents = 99900, currency = 'CNY',
+                   billing_cycle = NULL, billing_cycle_count = 3, billing_cycle_unit = 'month'
+ WHERE name = '新加坡-01';
+UPDATE servers SET paid_until = date('now', '+18 days'),
+                   price_cents = 15800, currency = 'CNY',
+                   billing_cycle = 'monthly', billing_cycle_count = 1, billing_cycle_unit = 'month'
+ WHERE name = '新加坡-02';
+-- 离线服务器：保留费用，用于验证"离线不计入成本"
+UPDATE servers SET paid_until = date('now', '-1 day'),
+                   price_cents = 128000, currency = 'JPY',
+                   billing_cycle = 'monthly', billing_cycle_count = 1, billing_cycle_unit = 'month'
+ WHERE name = '大阪-01';
+UPDATE servers SET paid_until = date('now', '+222 days'),
+                   price_cents = 199900, currency = 'CNY',
+                   billing_cycle = 'once', billing_cycle_count = 1, billing_cycle_unit = 'once'
  WHERE name = '美西-01';
 
 -- ------------------------------------------------------------

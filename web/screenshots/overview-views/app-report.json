@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T05:02:54.861Z",
+  "generatedAt": "2026-11-22T05:36:24.048Z",
   "dist": "/Users/jlthzy/Documents/mmrust/web/dist/",
   "shots": [
     {
@@ -9,18 +9,30 @@
       "width": 1440,
       "mock": "normal",
       "file": "app-server-dark-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 2613,
+      "pageHeight": 1334,
       "viewportWidth": 1440,
-      "viewportHeight": 2669,
+      "viewportHeight": 1390,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1289.71875,
+      "sectionHeight": 1057.765625,
       "tabs": [
         {
           "text": "服务器状态",
           "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
         },
         {
           "text": "成本开销",
@@ -30,6 +42,11 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
       ],
       "metrics": [
         {
@@ -50,18 +67,36 @@
       ],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": {
-        "cellWidth": 4.90625,
+        "cellWidth": 14,
         "cellHeight": 14,
-        "scrollWidth": 992,
+        "gap": 2,
+        "scrollWidth": 2686,
         "clientWidth": 992,
-        "scrollable": false
+        "scrollable": true
+      },
+      "heatmapLegend": {
+        "height": 16,
+        "text": "在线率好差离线无采样"
+      },
+      "resourceChart": {
+        "width": 730.65625,
+        "height": 260
       },
       "costCalendar": null,
-      "hasScrollHint": false,
+      "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1390,
+        "docHeight": 1390,
+        "mainScrollHeight": 1334,
+        "mainClientHeight": 1334
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 1200,
@@ -176,7 +211,7 @@
           }
         ]
       },
-      "pageHeightDelta": 1313
+      "pageHeightDelta": 478
     },
     {
       "id": "server-light-1440",
@@ -185,18 +220,30 @@
       "width": 1440,
       "mock": "normal",
       "file": "app-server-light-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 2613,
+      "pageHeight": 1334,
       "viewportWidth": 1440,
-      "viewportHeight": 2669,
+      "viewportHeight": 1390,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1289.71875,
+      "sectionHeight": 1057.765625,
       "tabs": [
         {
           "text": "服务器状态",
           "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
         },
         {
           "text": "成本开销",
@@ -206,6 +253,11 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
       ],
       "metrics": [
         {
@@ -226,18 +278,36 @@
       ],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": {
-        "cellWidth": 4.90625,
+        "cellWidth": 14,
         "cellHeight": 14,
-        "scrollWidth": 992,
+        "gap": 2,
+        "scrollWidth": 2686,
         "clientWidth": 992,
-        "scrollable": false
+        "scrollable": true
+      },
+      "heatmapLegend": {
+        "height": 16,
+        "text": "在线率好差离线无采样"
+      },
+      "resourceChart": {
+        "width": 730.65625,
+        "height": 260
       },
       "costCalendar": null,
-      "hasScrollHint": false,
+      "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1390,
+        "docHeight": 1390,
+        "mainScrollHeight": 1334,
+        "mainClientHeight": 1334
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 1200,
@@ -352,7 +422,7 @@
           }
         ]
       },
-      "pageHeightDelta": 1313
+      "pageHeightDelta": 478
     },
     {
       "id": "server-dark-390",
@@ -361,18 +431,30 @@
       "width": 390,
       "mock": "normal",
       "file": "app-server-dark-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 3859,
+      "pageHeight": 1762,
       "viewportWidth": 390,
-      "viewportHeight": 3915,
+      "viewportHeight": 1818,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1654.859375,
+      "sectionHeight": 1337.484375,
       "tabs": [
         {
           "text": "服务器状态",
           "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
         },
         {
           "text": "成本开销",
@@ -382,6 +464,11 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
       ],
       "metrics": [
         {
@@ -403,17 +490,35 @@
       "tabsList": {
         "display": "grid",
         "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": {
-        "cellWidth": 22.375,
-        "cellHeight": 14,
-        "scrollWidth": 560,
-        "clientWidth": 214,
+        "cellWidth": 9,
+        "cellHeight": 9,
+        "gap": 2,
+        "scrollWidth": 1846,
+        "clientWidth": 262,
         "scrollable": true
+      },
+      "heatmapLegend": {
+        "height": 16,
+        "text": "在线率好差离线无采样"
+      },
+      "resourceChart": {
+        "width": 326,
+        "height": 220
       },
       "costCalendar": null,
       "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1818,
+        "docHeight": 1818,
+        "mainScrollHeight": 1762,
+        "mainClientHeight": 1762
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 390,
@@ -431,7 +536,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1679
+      "pageHeightDelta": 906
     },
     {
       "id": "server-light-390",
@@ -440,18 +545,30 @@
       "width": 390,
       "mock": "normal",
       "file": "app-server-light-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 3859,
+      "pageHeight": 1762,
       "viewportWidth": 390,
-      "viewportHeight": 3915,
+      "viewportHeight": 1818,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1654.859375,
+      "sectionHeight": 1337.484375,
       "tabs": [
         {
           "text": "服务器状态",
           "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
         },
         {
           "text": "成本开销",
@@ -461,6 +578,11 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
       ],
       "metrics": [
         {
@@ -482,17 +604,35 @@
       "tabsList": {
         "display": "grid",
         "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": {
-        "cellWidth": 22.375,
-        "cellHeight": 14,
-        "scrollWidth": 560,
-        "clientWidth": 214,
+        "cellWidth": 9,
+        "cellHeight": 9,
+        "gap": 2,
+        "scrollWidth": 1846,
+        "clientWidth": 262,
         "scrollable": true
+      },
+      "heatmapLegend": {
+        "height": 16,
+        "text": "在线率好差离线无采样"
+      },
+      "resourceChart": {
+        "width": 326,
+        "height": 220
       },
       "costCalendar": null,
       "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1818,
+        "docHeight": 1818,
+        "mainScrollHeight": 1762,
+        "mainClientHeight": 1762
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 390,
@@ -510,7 +650,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1679
+      "pageHeightDelta": 906
     },
     {
       "id": "cost-dark-1440",
@@ -519,17 +659,30 @@
       "width": 1440,
       "mock": "normal",
       "file": "app-cost-dark-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 2301,
+      "pageHeight": 1254,
       "viewportWidth": 1440,
-      "viewportHeight": 2357,
+      "viewportHeight": 1310,
       "overflowX": false,
       "mainOverflowX": false,
       "sectionHeight": 977.90625,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -540,6 +693,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -560,10 +719,12 @@
       ],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": {
         "cellWidth": 46.875,
         "cellHeight": 32,
@@ -572,6 +733,15 @@
         "scrollable": false
       },
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1310,
+        "docHeight": 1310,
+        "mainScrollHeight": 1254,
+        "mainClientHeight": 1254
+      },
       "costDebug": {
         "metrics": [
           "总开销",
@@ -911,7 +1081,7 @@
           }
         ]
       },
-      "pageHeightDelta": 1001
+      "pageHeightDelta": 398
     },
     {
       "id": "cost-light-1440",
@@ -920,17 +1090,30 @@
       "width": 1440,
       "mock": "normal",
       "file": "app-cost-light-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 2301,
+      "pageHeight": 1254,
       "viewportWidth": 1440,
-      "viewportHeight": 2357,
+      "viewportHeight": 1310,
       "overflowX": false,
       "mainOverflowX": false,
       "sectionHeight": 977.90625,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -941,6 +1124,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -961,10 +1150,12 @@
       ],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": {
         "cellWidth": 46.875,
         "cellHeight": 32,
@@ -973,6 +1164,15 @@
         "scrollable": false
       },
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1310,
+        "docHeight": 1310,
+        "mainScrollHeight": 1254,
+        "mainClientHeight": 1254
+      },
       "costDebug": {
         "metrics": [
           "总开销",
@@ -1312,7 +1512,7 @@
           }
         ]
       },
-      "pageHeightDelta": 1001
+      "pageHeightDelta": 398
     },
     {
       "id": "cost-dark-390",
@@ -1321,17 +1521,30 @@
       "width": 390,
       "mock": "normal",
       "file": "app-cost-dark-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 3882,
+      "pageHeight": 2122,
       "viewportWidth": 390,
-      "viewportHeight": 3938,
+      "viewportHeight": 2178,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1677.171875,
+      "sectionHeight": 1697.953125,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -1342,6 +1555,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -1363,9 +1582,11 @@
       "tabsList": {
         "display": "grid",
         "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": {
         "cellWidth": 44,
         "cellHeight": 32,
@@ -1374,6 +1595,15 @@
         "scrollable": true
       },
       "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2178,
+        "docHeight": 2178,
+        "mainScrollHeight": 2122,
+        "mainClientHeight": 2122
+      },
       "costDebug": {
         "metrics": [
           "总开销",
@@ -1616,7 +1846,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1702
+      "pageHeightDelta": 1266
     },
     {
       "id": "cost-light-390",
@@ -1625,17 +1855,30 @@
       "width": 390,
       "mock": "normal",
       "file": "app-cost-light-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 3882,
+      "pageHeight": 2122,
       "viewportWidth": 390,
-      "viewportHeight": 3938,
+      "viewportHeight": 2178,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1677.171875,
+      "sectionHeight": 1697.953125,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -1646,6 +1889,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -1667,9 +1916,11 @@
       "tabsList": {
         "display": "grid",
         "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": {
         "cellWidth": 44,
         "cellHeight": 32,
@@ -1678,6 +1929,15 @@
         "scrollable": true
       },
       "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2178,
+        "docHeight": 2178,
+        "mainScrollHeight": 2122,
+        "mainClientHeight": 2122
+      },
       "costDebug": {
         "metrics": [
           "总开销",
@@ -1920,26 +2180,39 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1702
+      "pageHeightDelta": 1266
     },
     {
-      "id": "server-empty-1440",
-      "view": "server",
+      "id": "traffic-dark-1440",
+      "view": "traffic",
       "theme": "dark",
       "width": 1440,
-      "mock": "serverEmpty",
-      "file": "app-server-empty-1440.png",
+      "mock": "normal",
+      "file": "app-traffic-dark-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview",
+        "/api/v1/enforcement/events"
+      ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1682,
+      "pageHeight": 1340,
       "viewportWidth": 1440,
-      "viewportHeight": 1738,
+      "viewportHeight": 1396,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 358.390625,
+      "sectionHeight": 1067.796875,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": true
         },
         {
@@ -1951,15 +2224,32 @@
           "selected": false
         }
       ],
+      "cardTitles": [
+        "近 7 天趋势",
+        "流量分布",
+        "流量榜单",
+        "告警"
+      ],
       "metrics": [],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": null,
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1396,
+        "docHeight": 1396,
+        "mainScrollHeight": 1340,
+        "mainClientHeight": 1340
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 1200,
@@ -2074,26 +2364,39 @@
           }
         ]
       },
-      "pageHeightDelta": 382
+      "pageHeightDelta": 488
     },
     {
-      "id": "server-empty-390",
-      "view": "server",
-      "theme": "dark",
-      "width": 390,
-      "mock": "serverEmpty",
-      "file": "app-server-empty-390.png",
+      "id": "traffic-light-1440",
+      "view": "traffic",
+      "theme": "light",
+      "width": 1440,
+      "mock": "normal",
+      "file": "app-traffic-light-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview",
+        "/api/v1/enforcement/events"
+      ],
       "httpErrors": [],
-      "pageWidth": 390,
-      "pageHeight": 2609,
-      "viewportWidth": 390,
-      "viewportHeight": 2665,
+      "pageWidth": 1440,
+      "pageHeight": 1340,
+      "viewportWidth": 1440,
+      "viewportHeight": 1396,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 404.78125,
+      "sectionHeight": 1067.796875,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": true
         },
         {
@@ -2105,15 +2408,216 @@
           "selected": false
         }
       ],
+      "cardTitles": [
+        "近 7 天趋势",
+        "流量分布",
+        "流量榜单",
+        "告警"
+      ],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1396,
+        "docHeight": 1396,
+        "mainScrollHeight": 1340,
+        "mainClientHeight": 1340
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 488
+    },
+    {
+      "id": "traffic-dark-390",
+      "view": "traffic",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "file": "app-traffic-dark-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview",
+        "/api/v1/enforcement/events"
+      ],
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2007,
+      "viewportWidth": 390,
+      "viewportHeight": 2063,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1586.75,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "近 7 天趋势",
+        "流量分布",
+        "流量榜单",
+        "告警"
+      ],
       "metrics": [],
       "tabsList": {
         "display": "grid",
         "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": null,
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2063,
+        "docHeight": 2063,
+        "mainScrollHeight": 2007,
+        "mainClientHeight": 2007
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 390,
@@ -2131,28 +2635,39 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 429
+      "pageHeightDelta": 1155
     },
     {
-      "id": "server-unsupported-1440",
-      "view": "server",
-      "theme": "dark",
-      "width": 1440,
-      "mock": "serverUnsupported",
-      "file": "app-server-unsupported-1440.png",
-      "httpErrors": [
-        "404 /api/v1/overview/server-health"
+      "id": "traffic-light-390",
+      "view": "traffic",
+      "theme": "light",
+      "width": 390,
+      "mock": "normal",
+      "file": "app-traffic-light-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview",
+        "/api/v1/enforcement/events"
       ],
-      "pageWidth": 1440,
-      "pageHeight": 1634,
-      "viewportWidth": 1440,
-      "viewportHeight": 1690,
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2007,
+      "viewportWidth": 390,
+      "viewportHeight": 2063,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 310.390625,
+      "sectionHeight": 1586.75,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": true
         },
         {
@@ -2164,455 +2679,72 @@
           "selected": false
         }
       ],
+      "cardTitles": [
+        "近 7 天趋势",
+        "流量分布",
+        "流量榜单",
+        "告警"
+      ],
       "metrics": [],
       "tabsList": {
-        "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": null,
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2063,
+        "docHeight": 2063,
+        "mainScrollHeight": 2007,
+        "mainClientHeight": 2007
+      },
       "costDebug": null,
       "debug": {
-        "mainClientWidth": 1200,
-        "mainScrollWidth": 1200,
-        "bodyClientWidth": 1440,
-        "bodyScrollWidth": 1440,
-        "rootScrollWidth": 1440,
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
         "directChildren": [
           {
             "tag": "DIV",
             "cls": "animate-enter space-y-6",
-            "width": 1152,
-            "scrollWidth": 1152
+            "width": 342,
+            "scrollWidth": 342
           }
         ],
-        "wideElements": [
-          {
-            "tag": "DIV",
-            "slot": null,
-            "cls": "animate-enter space-y-6",
-            "left": 264,
-            "right": 1416,
-            "width": 1152
-          },
-          {
-            "tag": "HEADER",
-            "slot": "page-header",
-            "cls": "flex flex-wrap items-end justify-between gap-3",
-            "left": 264,
-            "right": 1416,
-            "width": 1152
-          },
-          {
-            "tag": "DIV",
-            "slot": "page-header-actions",
-            "cls": "flex flex-wrap items-center gap-2",
-            "left": 1350.390625,
-            "right": 1416,
-            "width": 65.609375
-          },
-          {
-            "tag": "BUTTON",
-            "slot": "button",
-            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
-            "left": 1350.390625,
-            "right": 1416,
-            "width": 65.609375
-          },
-          {
-            "tag": "svg",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1361.390625,
-            "right": 1375.390625,
-            "width": 14
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1363.140625,
-            "right": 1373.640625,
-            "width": 10.5
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1370.7239990234375,
-            "right": 1373.640625,
-            "width": 2.9166259765625
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1363.140625,
-            "right": 1373.640625,
-            "width": 10.5
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1363.140625,
-            "right": 1366.0572509765625,
-            "width": 2.9166259765625
-          },
-          {
-            "tag": "SECTION",
-            "slot": null,
-            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
-            "left": 264,
-            "right": 1416,
-            "width": 1152
-          },
-          {
-            "tag": "DIV",
-            "slot": "card",
-            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
-            "left": 1140,
-            "right": 1416,
-            "width": 276
-          },
-          {
-            "tag": "DIV",
-            "slot": "card-header",
-            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
-            "left": 1140,
-            "right": 1416,
-            "width": 276
-          }
-        ]
+        "wideElements": []
       },
-      "pageHeightDelta": 334
+      "pageHeightDelta": 1155
     },
     {
-      "id": "server-error-1440",
-      "view": "server",
+      "id": "traffic-empty-1440",
+      "view": "traffic",
       "theme": "dark",
       "width": 1440,
-      "mock": "serverError",
-      "file": "app-server-error-1440.png",
-      "httpErrors": [
-        "500 /api/v1/overview/server-health"
+      "mock": "trafficEmpty",
+      "file": "app-traffic-empty-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview",
+        "/api/v1/enforcement/events"
       ],
-      "pageWidth": 1440,
-      "pageHeight": 1634,
-      "viewportWidth": 1440,
-      "viewportHeight": 1690,
-      "overflowX": false,
-      "mainOverflowX": false,
-      "sectionHeight": 310.390625,
-      "tabs": [
-        {
-          "text": "服务器状态",
-          "selected": true
-        },
-        {
-          "text": "成本开销",
-          "selected": false
-        },
-        {
-          "text": "链路时延",
-          "selected": false
-        }
-      ],
-      "metrics": [],
-      "tabsList": {
-        "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
-      },
-      "heatmap": null,
-      "costCalendar": null,
-      "hasScrollHint": false,
-      "costDebug": null,
-      "debug": {
-        "mainClientWidth": 1200,
-        "mainScrollWidth": 1200,
-        "bodyClientWidth": 1440,
-        "bodyScrollWidth": 1440,
-        "rootScrollWidth": 1440,
-        "directChildren": [
-          {
-            "tag": "DIV",
-            "cls": "animate-enter space-y-6",
-            "width": 1152,
-            "scrollWidth": 1152
-          }
-        ],
-        "wideElements": [
-          {
-            "tag": "DIV",
-            "slot": null,
-            "cls": "animate-enter space-y-6",
-            "left": 264,
-            "right": 1416,
-            "width": 1152
-          },
-          {
-            "tag": "HEADER",
-            "slot": "page-header",
-            "cls": "flex flex-wrap items-end justify-between gap-3",
-            "left": 264,
-            "right": 1416,
-            "width": 1152
-          },
-          {
-            "tag": "DIV",
-            "slot": "page-header-actions",
-            "cls": "flex flex-wrap items-center gap-2",
-            "left": 1350.390625,
-            "right": 1416,
-            "width": 65.609375
-          },
-          {
-            "tag": "BUTTON",
-            "slot": "button",
-            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
-            "left": 1350.390625,
-            "right": 1416,
-            "width": 65.609375
-          },
-          {
-            "tag": "svg",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1361.390625,
-            "right": 1375.390625,
-            "width": 14
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1363.140625,
-            "right": 1373.640625,
-            "width": 10.5
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1370.7239990234375,
-            "right": 1373.640625,
-            "width": 2.9166259765625
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1363.140625,
-            "right": 1373.640625,
-            "width": 10.5
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1363.140625,
-            "right": 1366.0572509765625,
-            "width": 2.9166259765625
-          },
-          {
-            "tag": "SECTION",
-            "slot": null,
-            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
-            "left": 264,
-            "right": 1416,
-            "width": 1152
-          },
-          {
-            "tag": "DIV",
-            "slot": "card",
-            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
-            "left": 1140,
-            "right": 1416,
-            "width": 276
-          },
-          {
-            "tag": "DIV",
-            "slot": "card-header",
-            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
-            "left": 1140,
-            "right": 1416,
-            "width": 276
-          }
-        ]
-      },
-      "pageHeightDelta": 334
-    },
-    {
-      "id": "server-forbidden-1440",
-      "view": "server",
-      "theme": "dark",
-      "width": 1440,
-      "mock": "serverForbidden",
-      "file": "app-server-forbidden-1440.png",
-      "httpErrors": [
-        "403 /api/v1/overview/server-health"
-      ],
-      "pageWidth": 1440,
-      "pageHeight": 1634,
-      "viewportWidth": 1440,
-      "viewportHeight": 1690,
-      "overflowX": false,
-      "mainOverflowX": false,
-      "sectionHeight": 310.390625,
-      "tabs": [
-        {
-          "text": "服务器状态",
-          "selected": true
-        },
-        {
-          "text": "成本开销",
-          "selected": false
-        },
-        {
-          "text": "链路时延",
-          "selected": false
-        }
-      ],
-      "metrics": [],
-      "tabsList": {
-        "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
-      },
-      "heatmap": null,
-      "costCalendar": null,
-      "hasScrollHint": false,
-      "costDebug": null,
-      "debug": {
-        "mainClientWidth": 1200,
-        "mainScrollWidth": 1200,
-        "bodyClientWidth": 1440,
-        "bodyScrollWidth": 1440,
-        "rootScrollWidth": 1440,
-        "directChildren": [
-          {
-            "tag": "DIV",
-            "cls": "animate-enter space-y-6",
-            "width": 1152,
-            "scrollWidth": 1152
-          }
-        ],
-        "wideElements": [
-          {
-            "tag": "DIV",
-            "slot": null,
-            "cls": "animate-enter space-y-6",
-            "left": 264,
-            "right": 1416,
-            "width": 1152
-          },
-          {
-            "tag": "HEADER",
-            "slot": "page-header",
-            "cls": "flex flex-wrap items-end justify-between gap-3",
-            "left": 264,
-            "right": 1416,
-            "width": 1152
-          },
-          {
-            "tag": "DIV",
-            "slot": "page-header-actions",
-            "cls": "flex flex-wrap items-center gap-2",
-            "left": 1350.390625,
-            "right": 1416,
-            "width": 65.609375
-          },
-          {
-            "tag": "BUTTON",
-            "slot": "button",
-            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
-            "left": 1350.390625,
-            "right": 1416,
-            "width": 65.609375
-          },
-          {
-            "tag": "svg",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1361.390625,
-            "right": 1375.390625,
-            "width": 14
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1363.140625,
-            "right": 1373.640625,
-            "width": 10.5
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1370.7239990234375,
-            "right": 1373.640625,
-            "width": 2.9166259765625
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1363.140625,
-            "right": 1373.640625,
-            "width": 10.5
-          },
-          {
-            "tag": "path",
-            "slot": null,
-            "cls": "[object SVGAnimatedString]",
-            "left": 1363.140625,
-            "right": 1366.0572509765625,
-            "width": 2.9166259765625
-          },
-          {
-            "tag": "SECTION",
-            "slot": null,
-            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
-            "left": 264,
-            "right": 1416,
-            "width": 1152
-          },
-          {
-            "tag": "DIV",
-            "slot": "card",
-            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
-            "left": 1140,
-            "right": 1416,
-            "width": 276
-          },
-          {
-            "tag": "DIV",
-            "slot": "card-header",
-            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
-            "left": 1140,
-            "right": 1416,
-            "width": 276
-          }
-        ]
-      },
-      "pageHeightDelta": 334
-    },
-    {
-      "id": "cost-empty-1440",
-      "view": "cost",
-      "theme": "dark",
-      "width": 1440,
-      "mock": "costEmpty",
-      "file": "app-cost-empty-1440.png",
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1704,
+      "pageHeight": 856,
       "viewportWidth": 1440,
-      "viewportHeight": 1760,
+      "viewportHeight": 912,
       "overflowX": false,
       "mainOverflowX": false,
       "sectionHeight": 380.78125,
@@ -2622,23 +2754,39 @@
           "selected": false
         },
         {
-          "text": "成本开销",
+          "text": "流量",
           "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
         },
         {
           "text": "链路时延",
           "selected": false
         }
       ],
+      "cardTitles": [],
       "metrics": [],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": null,
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 912,
+        "docHeight": 912,
+        "mainScrollHeight": 856,
+        "mainClientHeight": 856
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 1200,
@@ -2753,80 +2901,34 @@
           }
         ]
       },
-      "pageHeightDelta": 404
+      "pageHeightDelta": 0
     },
     {
-      "id": "cost-empty-390",
-      "view": "cost",
-      "theme": "dark",
-      "width": 390,
-      "mock": "costEmpty",
-      "file": "app-cost-empty-390.png",
-      "httpErrors": [],
-      "pageWidth": 390,
-      "pageHeight": 2632,
-      "viewportWidth": 390,
-      "viewportHeight": 2688,
-      "overflowX": false,
-      "mainOverflowX": false,
-      "sectionHeight": 427.171875,
-      "tabs": [
-        {
-          "text": "服务器状态",
-          "selected": false
-        },
-        {
-          "text": "成本开销",
-          "selected": true
-        },
-        {
-          "text": "链路时延",
-          "selected": false
-        }
-      ],
-      "metrics": [],
-      "tabsList": {
-        "display": "grid",
-        "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
-      },
-      "heatmap": null,
-      "costCalendar": null,
-      "hasScrollHint": false,
-      "costDebug": null,
-      "debug": {
-        "mainClientWidth": 390,
-        "mainScrollWidth": 390,
-        "bodyClientWidth": 390,
-        "bodyScrollWidth": 390,
-        "rootScrollWidth": 390,
-        "directChildren": [
-          {
-            "tag": "DIV",
-            "cls": "animate-enter space-y-6",
-            "width": 342,
-            "scrollWidth": 342
-          }
-        ],
-        "wideElements": []
-      },
-      "pageHeightDelta": 452
-    },
-    {
-      "id": "cost-error-1440",
-      "view": "cost",
+      "id": "traffic-error-1440",
+      "view": "traffic",
       "theme": "dark",
       "width": 1440,
-      "mock": "costError",
-      "file": "app-cost-error-1440.png",
+      "mock": "trafficError",
+      "file": "app-traffic-error-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview",
+        "/api/v1/enforcement/events"
+      ],
       "httpErrors": [
-        "500 /api/v1/servers",
-        "500 /api/v1/servers"
+        "500 /api/v1/stats/traffic",
+        "500 /api/v1/overview",
+        "500 /api/v1/stats/traffic",
+        "500 /api/v1/overview"
       ],
       "pageWidth": 1440,
-      "pageHeight": 1634,
+      "pageHeight": 856,
       "viewportWidth": 1440,
-      "viewportHeight": 1690,
+      "viewportHeight": 912,
       "overflowX": false,
       "mainOverflowX": false,
       "sectionHeight": 310.390625,
@@ -2836,23 +2938,39 @@
           "selected": false
         },
         {
-          "text": "成本开销",
+          "text": "流量",
           "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
         },
         {
           "text": "链路时延",
           "selected": false
         }
       ],
+      "cardTitles": [],
       "metrics": [],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": null,
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 912,
+        "docHeight": 912,
+        "mainScrollHeight": 856,
+        "mainClientHeight": 856
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 1200,
@@ -2967,26 +3085,38 @@
           }
         ]
       },
-      "pageHeightDelta": 334
+      "pageHeightDelta": 0
     },
     {
-      "id": "chain-dark-1440",
+      "id": "chain-empty-1440",
       "view": "chain",
       "theme": "dark",
       "width": 1440,
-      "mock": "normal",
-      "file": "app-chain-dark-1440.png",
+      "mock": "chainEmpty",
+      "file": "app-chain-empty-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/chains"
+      ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1671,
+      "pageHeight": 861,
       "viewportWidth": 1440,
-      "viewportHeight": 1727,
+      "viewportHeight": 917,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 347.390625,
+      "sectionHeight": 585.671875,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -2998,15 +3128,30 @@
           "selected": true
         }
       ],
+      "cardTitles": [
+        "转发链健康",
+        "链路时延"
+      ],
       "metrics": [],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": null,
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 917,
+        "docHeight": 917,
+        "mainScrollHeight": 861,
+        "mainClientHeight": 861
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 1200,
@@ -3121,26 +3266,222 @@
           }
         ]
       },
-      "pageHeightDelta": 371
+      "pageHeightDelta": 5
     },
     {
-      "id": "chain-light-1440",
+      "id": "chain-error-1440",
       "view": "chain",
-      "theme": "light",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "chainError",
+      "file": "app-chain-error-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/chains"
+      ],
+      "httpErrors": [
+        "500 /api/v1/chains"
+      ],
+      "pageWidth": 1440,
+      "pageHeight": 937,
+      "viewportWidth": 1440,
+      "viewportHeight": 993,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 661.671875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": true
+        }
+      ],
+      "cardTitles": [
+        "转发链健康",
+        "链路时延"
+      ],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 993,
+        "docHeight": 993,
+        "mainScrollHeight": 937,
+        "mainClientHeight": 937
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 81
+    },
+    {
+      "id": "server-memory-1440",
+      "view": "server",
+      "theme": "dark",
       "width": 1440,
       "mock": "normal",
-      "file": "app-chain-light-1440.png",
+      "action": "heatmapMemory",
+      "file": "app-server-memory-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 1671,
+      "pageHeight": 1334,
       "viewportWidth": 1440,
-      "viewportHeight": 1727,
+      "viewportHeight": 1390,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 347.390625,
+      "sectionHeight": 1057.765625,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -3149,18 +3490,63 @@
         },
         {
           "text": "链路时延",
-          "selected": true
+          "selected": false
         }
       ],
-      "metrics": [],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "96.4%",
+          "hint": "7 天 99.8% · 11 台有采样"
+        },
+        {
+          "label": "异常服务器",
+          "value": "3",
+          "hint": "1 台离线过 · 2 台资源告警"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "91.0%",
+          "hint": "东京-02 · 当前最高"
+        }
+      ],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
-      "heatmap": null,
+      "heatmap": {
+        "cellWidth": 14,
+        "cellHeight": 14,
+        "gap": 2,
+        "scrollWidth": 2686,
+        "clientWidth": 992,
+        "scrollable": true
+      },
+      "heatmapLegend": {
+        "height": 16,
+        "text": "内存低高离线无采样"
+      },
+      "resourceChart": {
+        "width": 730.65625,
+        "height": 260
+      },
       "costCalendar": null,
-      "hasScrollHint": false,
+      "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1390,
+        "docHeight": 1390,
+        "mainScrollHeight": 1334,
+        "mainClientHeight": 1334
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 1200,
@@ -3275,26 +3661,848 @@
           }
         ]
       },
-      "pageHeightDelta": 371
+      "pageHeightDelta": 478
     },
     {
-      "id": "chain-dark-390",
-      "view": "chain",
+      "id": "server-filter-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "action": "resourceFilter",
+      "file": "app-server-filter-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1404,
+      "viewportWidth": 1440,
+      "viewportHeight": 1460,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1127.765625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "96.4%",
+          "hint": "7 天 99.8% · 11 台有采样"
+        },
+        {
+          "label": "异常服务器",
+          "value": "3",
+          "hint": "1 台离线过 · 2 台资源告警"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "91.0%",
+          "hint": "东京-02 · 当前最高"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": {
+        "cellWidth": 14,
+        "cellHeight": 14,
+        "gap": 2,
+        "scrollWidth": 2686,
+        "clientWidth": 992,
+        "scrollable": true
+      },
+      "heatmapLegend": {
+        "height": 16,
+        "text": "在线率好差离线无采样"
+      },
+      "resourceChart": {
+        "width": 730.65625,
+        "height": 260
+      },
+      "costCalendar": null,
+      "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1460,
+        "docHeight": 1460,
+        "mainScrollHeight": 1404,
+        "mainClientHeight": 1404
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 548
+    },
+    {
+      "id": "server-resource-memory-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "action": "resourceMemory",
+      "file": "app-server-resource-memory-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1334,
+      "viewportWidth": 1440,
+      "viewportHeight": 1390,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1057.765625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "96.4%",
+          "hint": "7 天 99.8% · 11 台有采样"
+        },
+        {
+          "label": "异常服务器",
+          "value": "3",
+          "hint": "1 台离线过 · 2 台资源告警"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "91.0%",
+          "hint": "东京-02 · 当前最高"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": {
+        "cellWidth": 14,
+        "cellHeight": 14,
+        "gap": 2,
+        "scrollWidth": 2686,
+        "clientWidth": 992,
+        "scrollable": true
+      },
+      "heatmapLegend": {
+        "height": 16,
+        "text": "在线率好差离线无采样"
+      },
+      "resourceChart": {
+        "width": 730.65625,
+        "height": 260
+      },
+      "costCalendar": null,
+      "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1390,
+        "docHeight": 1390,
+        "mainScrollHeight": 1334,
+        "mainClientHeight": 1334
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 478
+    },
+    {
+      "id": "server-resource-empty-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "serverResourceEmpty",
+      "file": "app-server-resource-empty-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1216,
+      "viewportWidth": 1440,
+      "viewportHeight": 1272,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 940.15625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [
+        "服务器 × 时间",
+        "当前资源",
+        "异常窗口"
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "96.4%",
+          "hint": "7 天 100.0% · 12 台有采样"
+        },
+        {
+          "label": "异常服务器",
+          "value": "3",
+          "hint": "最近 7 天没有异常"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "91.0%",
+          "hint": "—"
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": {
+        "cellWidth": 14,
+        "cellHeight": 14,
+        "gap": 2,
+        "scrollWidth": 2686,
+        "clientWidth": 992,
+        "scrollable": true
+      },
+      "heatmapLegend": {
+        "height": 16,
+        "text": "在线率好差离线无采样"
+      },
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1272,
+        "docHeight": 1272,
+        "mainScrollHeight": 1216,
+        "mainClientHeight": 1216
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 360
+    },
+    {
+      "id": "server-empty-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "serverEmpty",
+      "file": "app-server-empty-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 856,
+      "viewportWidth": 1440,
+      "viewportHeight": 912,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 358.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 912,
+        "docHeight": 912,
+        "mainScrollHeight": 856,
+        "mainClientHeight": 856
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 0
+    },
+    {
+      "id": "server-empty-390",
+      "view": "server",
       "theme": "dark",
       "width": 390,
-      "mock": "normal",
-      "file": "app-chain-dark-390.png",
+      "mock": "serverEmpty",
+      "file": "app-server-empty-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 2590,
+      "pageHeight": 856,
       "viewportWidth": 390,
-      "viewportHeight": 2646,
+      "viewportHeight": 912,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 385.78125,
+      "sectionHeight": 425.5625,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -3303,18 +4511,30 @@
         },
         {
           "text": "链路时延",
-          "selected": true
+          "selected": false
         }
       ],
+      "cardTitles": [],
       "metrics": [],
       "tabsList": {
         "display": "grid",
         "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": null,
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 912,
+        "docHeight": 912,
+        "mainScrollHeight": 856,
+        "mainClientHeight": 856
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 390,
@@ -3332,7 +4552,1436 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 410
+      "pageHeightDelta": 0
+    },
+    {
+      "id": "server-unsupported-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "serverUnsupported",
+      "file": "app-server-unsupported-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
+      "httpErrors": [
+        "404 /api/v1/overview/server-health"
+      ],
+      "pageWidth": 1440,
+      "pageHeight": 856,
+      "viewportWidth": 1440,
+      "viewportHeight": 912,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 310.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 912,
+        "docHeight": 912,
+        "mainScrollHeight": 856,
+        "mainClientHeight": 856
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 0
+    },
+    {
+      "id": "server-error-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "serverError",
+      "file": "app-server-error-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
+      "httpErrors": [
+        "500 /api/v1/overview/server-health"
+      ],
+      "pageWidth": 1440,
+      "pageHeight": 856,
+      "viewportWidth": 1440,
+      "viewportHeight": 912,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 310.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 912,
+        "docHeight": 912,
+        "mainScrollHeight": 856,
+        "mainClientHeight": 856
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 0
+    },
+    {
+      "id": "server-forbidden-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "serverForbidden",
+      "file": "app-server-forbidden-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
+      "httpErrors": [
+        "403 /api/v1/overview/server-health"
+      ],
+      "pageWidth": 1440,
+      "pageHeight": 856,
+      "viewportWidth": 1440,
+      "viewportHeight": 912,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 310.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 912,
+        "docHeight": 912,
+        "mainScrollHeight": 856,
+        "mainClientHeight": 856
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 0
+    },
+    {
+      "id": "cost-empty-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "costEmpty",
+      "file": "app-cost-empty-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 856,
+      "viewportWidth": 1440,
+      "viewportHeight": 912,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 380.78125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 912,
+        "docHeight": 912,
+        "mainScrollHeight": 856,
+        "mainClientHeight": 856
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 0
+    },
+    {
+      "id": "cost-empty-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "mock": "costEmpty",
+      "file": "app-cost-empty-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 872,
+      "viewportWidth": 390,
+      "viewportHeight": 928,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 447.953125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [],
+      "metrics": [],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 928,
+        "docHeight": 928,
+        "mainScrollHeight": 872,
+        "mainClientHeight": 872
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 16
+    },
+    {
+      "id": "cost-error-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "costError",
+      "file": "app-cost-error-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
+      "httpErrors": [
+        "500 /api/v1/servers",
+        "500 /api/v1/servers"
+      ],
+      "pageWidth": 1440,
+      "pageHeight": 856,
+      "viewportWidth": 1440,
+      "viewportHeight": 912,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 310.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "cardTitles": [],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 912,
+        "docHeight": 912,
+        "mainScrollHeight": 856,
+        "mainClientHeight": 856
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 0
+    },
+    {
+      "id": "chain-dark-1440",
+      "view": "chain",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "file": "app-chain-dark-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/chains"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 914,
+      "viewportWidth": 1440,
+      "viewportHeight": 970,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 638.453125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": true
+        }
+      ],
+      "cardTitles": [
+        "转发链健康",
+        "链路时延"
+      ],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 970,
+        "docHeight": 970,
+        "mainScrollHeight": 914,
+        "mainClientHeight": 914
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 58
+    },
+    {
+      "id": "chain-light-1440",
+      "view": "chain",
+      "theme": "light",
+      "width": 1440,
+      "mock": "normal",
+      "file": "app-chain-light-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/chains"
+      ],
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 914,
+      "viewportWidth": 1440,
+      "viewportHeight": 970,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 638.453125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": true
+        }
+      ],
+      "cardTitles": [
+        "转发链健康",
+        "链路时延"
+      ],
+      "metrics": [],
+      "tabsList": {
+        "display": "flex",
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 970,
+        "docHeight": 970,
+        "mainScrollHeight": 914,
+        "mainClientHeight": 914
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 58
+    },
+    {
+      "id": "chain-dark-390",
+      "view": "chain",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "file": "app-chain-dark-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/chains"
+      ],
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 1122,
+      "viewportWidth": 390,
+      "viewportHeight": 1178,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 697.625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": true
+        }
+      ],
+      "cardTitles": [
+        "转发链健康",
+        "链路时延"
+      ],
+      "metrics": [],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
+      },
+      "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1178,
+        "docHeight": 1178,
+        "mainScrollHeight": 1122,
+        "mainClientHeight": 1122
+      },
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 266
     },
     {
       "id": "server-en-390",
@@ -3342,18 +5991,30 @@
       "mock": "normal",
       "locale": "en",
       "file": "app-server-en-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/overview/server-health"
+      ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 4015,
+      "pageHeight": 1926,
       "viewportWidth": 390,
-      "viewportHeight": 4071,
+      "viewportHeight": 1982,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1697.9375,
+      "sectionHeight": 1427.453125,
       "tabs": [
         {
           "text": "Server status",
           "selected": true
+        },
+        {
+          "text": "Traffic",
+          "selected": false
         },
         {
           "text": "Cost",
@@ -3363,6 +6024,11 @@
           "text": "Chain latency",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "Server × time",
+        "Current resources",
+        "Anomaly windows"
       ],
       "metrics": [
         {
@@ -3384,17 +6050,35 @@
       "tabsList": {
         "display": "grid",
         "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": {
-        "cellWidth": 22.375,
-        "cellHeight": 14,
-        "scrollWidth": 560,
-        "clientWidth": 214,
+        "cellWidth": 9,
+        "cellHeight": 9,
+        "gap": 2,
+        "scrollWidth": 1846,
+        "clientWidth": 262,
         "scrollable": true
+      },
+      "heatmapLegend": {
+        "height": 16,
+        "text": "UptimeGoodBadOfflineNo samples"
+      },
+      "resourceChart": {
+        "width": 326,
+        "height": 220
       },
       "costCalendar": null,
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1982,
+        "docHeight": 1982,
+        "mainScrollHeight": 1926,
+        "mainClientHeight": 1926
+      },
       "costDebug": null,
       "debug": {
         "mainClientWidth": 390,
@@ -3412,7 +6096,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1722
+      "pageHeightDelta": 1070
     },
     {
       "id": "cost-en-390",
@@ -3422,17 +6106,30 @@
       "mock": "normal",
       "locale": "en",
       "file": "app-cost-en-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 4026,
+      "pageHeight": 2229,
       "viewportWidth": 390,
-      "viewportHeight": 4082,
+      "viewportHeight": 2285,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1709.171875,
+      "sectionHeight": 1729.953125,
       "tabs": [
         {
           "text": "Server status",
+          "selected": false
+        },
+        {
+          "text": "Traffic",
           "selected": false
         },
         {
@@ -3443,6 +6140,12 @@
           "text": "Chain latency",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "Next 12 months payment calendar",
+        "Top costs",
+        "Currency mix",
+        "One-time costs"
       ],
       "metrics": [
         {
@@ -3464,9 +6167,11 @@
       "tabsList": {
         "display": "grid",
         "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": {
         "cellWidth": 44,
         "cellHeight": 32,
@@ -3475,6 +6180,15 @@
         "scrollable": true
       },
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2285,
+        "docHeight": 2285,
+        "mainScrollHeight": 2229,
+        "mainClientHeight": 2229
+      },
       "costDebug": {
         "metrics": [
           "Total cost",
@@ -3717,7 +6431,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1733
+      "pageHeightDelta": 1373
     },
     {
       "id": "cost-manual-1440",
@@ -3726,17 +6440,30 @@
       "width": 1440,
       "mock": "costManual",
       "file": "app-cost-manual-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 2301,
+      "pageHeight": 1254,
       "viewportWidth": 1440,
-      "viewportHeight": 2357,
+      "viewportHeight": 1310,
       "overflowX": false,
       "mainOverflowX": false,
       "sectionHeight": 977.90625,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -3747,6 +6474,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -3767,10 +6500,12 @@
       ],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": {
         "cellWidth": 46.875,
         "cellHeight": 32,
@@ -3779,6 +6514,15 @@
         "scrollable": false
       },
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1310,
+        "docHeight": 1310,
+        "mainScrollHeight": 1254,
+        "mainClientHeight": 1254
+      },
       "costDebug": {
         "metrics": [
           "总开销",
@@ -4118,7 +6862,7 @@
           }
         ]
       },
-      "pageHeightDelta": 1001
+      "pageHeightDelta": 398
     },
     {
       "id": "cost-dec-1440",
@@ -4128,17 +6872,30 @@
       "mock": "normal",
       "clockMs": 1797307200000,
       "file": "app-cost-dec-1440.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
       "httpErrors": [],
       "pageWidth": 1440,
-      "pageHeight": 2301,
+      "pageHeight": 1254,
       "viewportWidth": 1440,
-      "viewportHeight": 2357,
+      "viewportHeight": 1310,
       "overflowX": false,
       "mainOverflowX": false,
       "sectionHeight": 977.90625,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -4149,6 +6906,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -4169,10 +6932,12 @@
       ],
       "tabsList": {
         "display": "flex",
-        "width": 290,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "width": 272,
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": {
         "cellWidth": 46.875,
         "cellHeight": 32,
@@ -4181,6 +6946,15 @@
         "scrollable": false
       },
       "hasScrollHint": false,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 1310,
+        "docHeight": 1310,
+        "mainScrollHeight": 1254,
+        "mainClientHeight": 1254
+      },
       "costDebug": {
         "metrics": [
           "总开销",
@@ -4520,7 +7294,7 @@
           }
         ]
       },
-      "pageHeightDelta": 1001
+      "pageHeightDelta": 398
     },
     {
       "id": "cost-dec-390",
@@ -4530,17 +7304,30 @@
       "mock": "normal",
       "clockMs": 1797307200000,
       "file": "app-cost-dec-390.png",
+      "apiPaths": [
+        "/api/v1/auth/me",
+        "/api/v1/updates",
+        "/api/v1/health",
+        "/api/v1/stats/overview",
+        "/api/v1/stats/traffic",
+        "/api/v1/servers",
+        "/api/v1/settings"
+      ],
       "httpErrors": [],
       "pageWidth": 390,
-      "pageHeight": 3882,
+      "pageHeight": 2122,
       "viewportWidth": 390,
-      "viewportHeight": 3938,
+      "viewportHeight": 2178,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1677.171875,
+      "sectionHeight": 1697.953125,
       "tabs": [
         {
           "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "流量",
           "selected": false
         },
         {
@@ -4551,6 +7338,12 @@
           "text": "链路时延",
           "selected": false
         }
+      ],
+      "cardTitles": [
+        "未来 12 个月付款日历",
+        "开销大头",
+        "币种构成",
+        "一次性费用"
       ],
       "metrics": [
         {
@@ -4572,9 +7365,11 @@
       "tabsList": {
         "display": "grid",
         "width": 342,
-        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+        "className": "group/tabs-list items-center justify-start rounded-lg text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-2 gap-1 self-start p-1 max-sm:h-auto sm:inline-flex sm:w-auto sm:gap-0 sm:p-[3px]"
       },
       "heatmap": null,
+      "heatmapLegend": null,
+      "resourceChart": null,
       "costCalendar": {
         "cellWidth": 44,
         "cellHeight": 32,
@@ -4583,6 +7378,15 @@
         "scrollable": true
       },
       "hasScrollHint": true,
+      "dom": {
+        "asideCount": 1,
+        "mainCount": 1,
+        "rootChildren": 2,
+        "bodyHeight": 2178,
+        "docHeight": 2178,
+        "mainScrollHeight": 2122,
+        "mainClientHeight": 2122
+      },
       "costDebug": {
         "metrics": [
           "总开销",
@@ -4825,7 +7629,7 @@
         ],
         "wideElements": []
       },
-      "pageHeightDelta": 1702
+      "pageHeightDelta": 1266
     }
   ],
   "urlBehavior": {
