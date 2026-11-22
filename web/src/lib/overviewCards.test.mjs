@@ -145,7 +145,7 @@ test("流量趋势 tab：趋势 / 分布 / 排行 / 告警，不含链健康与�
   );
 });
 
-test("成本 tab：三数字 / 12 个月开销柱状图 / Top 5 / 币种构成 / 一次性，不含流量与链卡", () => {
+test("成本 tab：三数字 / 12 个月开销柱状图 / Top 3 / 币种构成 / 一次性，不含流量与链卡", () => {
   assertIncludes(
     cost,
     [
@@ -164,6 +164,11 @@ test("成本 tab：三数字 / 12 个月开销柱状图 / Top 5 / 币种构成 /
       "RenewalDayDialog",
       "data-renewal-dialog",
       "data-currency-pie",
+      "topViewAll",
+      "data-cost-top-dialog",
+      "data-mix-summary",
+      "data-renewal-month-select",
+      "data-renewal-year-select",
       "oneTimeEmpty",
       "<OneTimeCard",
     ],
@@ -180,6 +185,7 @@ test("成本 tab：三数字 / 12 个月开销柱状图 / Top 5 / 币种构成 /
       "PaymentCalendarCard",
       "data-cost-calendar",
       "CalendarCell",
+      "data-renewal-tooltip",
     ],
     "CostView",
   );

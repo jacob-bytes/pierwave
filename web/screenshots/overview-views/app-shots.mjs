@@ -1179,6 +1179,11 @@ const SCENARIOS = [
   { id: "cost-renewal-dialog-multi-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalDialogMulti" },
   { id: "cost-renewal-dialog-multi-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "renewalDialogMulti" },
   { id: "cost-renewal-dialog-multi-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: "all", action: "renewalDialogMulti" },
+  { id: "cost-renewal-select-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalSelect" },
+  { id: "cost-renewal-arrow-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "renewalArrow" },
+  { id: "cost-top-dialog-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: "all", action: "topViewAll" },
+  { id: "cost-top-dialog-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: "all", action: "topViewAll" },
+  { id: "cost-top-dialog-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: "all", action: "topViewAll" },
   { id: "cost-pie-three-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
   { id: "cost-pie-three-390", view: "cost", theme: "dark", width: 390, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
   { id: "cost-pie-three-light-1440", view: "cost", theme: "light", width: 1440, mock: "normal", servers: ["srv-hk-01", "srv-tokyo-01", "srv-fra-01"] },
@@ -1555,6 +1560,37 @@ for (const scenario of activeScenarios) {
           }
         }
       }
+    }
+  }
+
+  if (
+    scenario.action === "renewalSelect" ||
+    scenario.action === "renewalArrow"
+  ) {
+    const yearSelect = page.locator("[data-renewal-year-select]");
+    if ((await yearSelect.count()) > 0) {
+      await yearSelect.click();
+      const yearOption = page.locator('[data-renewal-year-option="2027"]');
+      if ((await yearOption.count()) > 0) await yearOption.click();
+      await page.waitForTimeout(120);
+      const monthSelect = page.locator("[data-renewal-month-select]");
+      await monthSelect.click();
+      const monthOption = page.locator('[data-renewal-month-option="3"]');
+      if ((await monthOption.count()) > 0) await monthOption.click();
+      await page.waitForTimeout(120);
+      if (scenario.action === "renewalArrow") {
+        await page.locator("[data-renewal-next]").click();
+        await page.waitForTimeout(120);
+      }
+    }
+  }
+
+  if (scenario.action === "topViewAll") {
+    const button = page.locator("[data-cost-top-view-all]");
+    if ((await button.count()) > 0) {
+      await button.click();
+      await page.waitForSelector("[data-cost-top-dialog]");
+      await page.waitForTimeout(200);
     }
   }
 
@@ -1959,6 +1995,14 @@ for (const scenario of activeScenarios) {
           month:
             card.querySelector("[data-renewal-month]")?.textContent?.trim() ??
             null,
+          monthSelect:
+            card
+              .querySelector("[data-renewal-month-select]")
+              ?.textContent?.trim() ?? null,
+          yearSelect:
+            card
+              .querySelector("[data-renewal-year-select]")
+              ?.textContent?.trim() ?? null,
           summary:
             card.querySelector("[data-renewal-summary]")?.textContent?.trim() ??
             null,
@@ -2039,6 +2083,40 @@ for (const scenario of activeScenarios) {
             width: rect.width,
             height: rect.height,
           },
+        };
+      })(),
+      mixSummary:
+        document.querySelector("[data-mix-summary]")?.textContent?.trim() ??
+        null,
+      topCost: (() => {
+        const rows = [...document.querySelectorAll("[data-cost-top-row]")];
+        if (rows.length === 0) return null;
+        const dialog = document.querySelector("[data-cost-top-dialog]");
+        const dialogRect = dialog?.getBoundingClientRect() ?? null;
+        return {
+          rows: rows.length,
+          texts: rows.map((row) => row.textContent?.trim() ?? ""),
+          dialog: dialog
+            ? {
+                rows: dialog.querySelectorAll("[data-cost-top-dialog-row]")
+                  .length,
+                texts: [
+                  ...dialog.querySelectorAll("[data-cost-top-dialog-row]"),
+                ].map((row) => row.textContent?.trim() ?? ""),
+                scrollHeight: dialog.scrollHeight,
+                clientHeight: dialog.clientHeight,
+                rect: dialogRect
+                  ? {
+                      left: dialogRect.left,
+                      right: dialogRect.right,
+                      top: dialogRect.top,
+                      bottom: dialogRect.bottom,
+                      width: dialogRect.width,
+                      height: dialogRect.height,
+                    }
+                  : null,
+              }
+            : null,
         };
       })(),
       currencyPie: (() => {
@@ -2514,6 +2592,19 @@ for (const scenario of activeScenarios) {
           `${scenario.id}: mix/renewal cards not aligned (${JSON.stringify({ mix, renewal })})`,
         );
       }
+      if (mix && renewal) {
+        const widthRatio = mix.width / renewal.width;
+        if (widthRatio < 1.35 || widthRatio > 1.65) {
+          errors.push(
+            `${scenario.id}: mix/renewal width ratio ${widthRatio.toFixed(2)}`,
+          );
+        }
+      }
+      if (month && month.height > 500) {
+        errors.push(
+          `${scenario.id}: month card height ${month.height} not compressed`,
+        );
+      }
     }
     if (metrics.costBars?.bottomGap !== null && metrics.costBars.bottomGap > 24) {
       errors.push(
@@ -2661,6 +2752,28 @@ for (const scenario of activeScenarios) {
         `${scenario.id}: renewal cell ${renewal.cellWidth}x${renewal.cellHeight} < 40`,
       );
     }
+    if (
+      metrics.viewportWidth >= 1280 &&
+      renewal.cellWidth !== null &&
+      (renewal.cellWidth < 54 || renewal.cellWidth > 68)
+    ) {
+      errors.push(
+        `${scenario.id}: desktop renewal cell width ${renewal.cellWidth}`,
+      );
+    }
+    if (!renewal.monthSelect || !renewal.yearSelect) {
+      errors.push(`${scenario.id}: renewal month/year select missing`);
+    }
+    if (scenario.action === "renewalSelect") {
+      if (!renewal.month?.includes("2027") || !/3月|March/.test(renewal.month ?? "")) {
+        errors.push(`${scenario.id}: renewal select month ${renewal.month}`);
+      }
+    }
+    if (scenario.action === "renewalArrow") {
+      if (!renewal.month?.includes("2027") || !/4月|April/.test(renewal.month ?? "")) {
+        errors.push(`${scenario.id}: renewal arrow month ${renewal.month}`);
+      }
+    }
     if (renewal.eventDays > 0) {
       const summaryPattern =
         (scenario.locale ?? "zh-CN") === "en"
@@ -2676,19 +2789,8 @@ for (const scenario of activeScenarios) {
         `${scenario.id}: renewal empty summary (${renewal.summary})`,
       );
     }
-    if (scenario.action === "renewalHoverSingle") {
-      if (renewal.tooltip?.rows !== 1) {
-        errors.push(
-          `${scenario.id}: renewal single tooltip rows ${renewal.tooltip?.rows}`,
-        );
-      }
-    }
-    if (scenario.action === "renewalHoverMulti") {
-      if ((renewal.tooltip?.rows ?? 0) < 2) {
-        errors.push(
-          `${scenario.id}: renewal multi tooltip rows ${renewal.tooltip?.rows}`,
-        );
-      }
+    if (renewal.tooltip !== null) {
+      errors.push(`${scenario.id}: renewal tooltip should be removed`);
     }
     if (scenario.action === "renewalEmpty") {
       if (renewal.eventDays !== 0) {
@@ -2708,17 +2810,7 @@ for (const scenario of activeScenarios) {
         errors.push(`${scenario.id}: renewal next not disabled at last month`);
       }
     }
-    if (
-      renewal.tooltip?.rect &&
-      (renewal.tooltip.rect.left < -1 ||
-        renewal.tooltip.rect.right > metrics.viewportWidth + 1 ||
-        renewal.tooltip.rect.top < -1 ||
-        renewal.tooltip.rect.bottom > metrics.viewportHeight + 1)
-    ) {
-      errors.push(
-        `${scenario.id}: renewal tooltip overflows viewport (${JSON.stringify(renewal.tooltip.rect)})`,
-      );
-    }
+
   }
 
   if (
@@ -2733,7 +2825,7 @@ for (const scenario of activeScenarios) {
     if (
       metrics.renewal?.cellHeight !== null &&
       metrics.renewal?.cellHeight !== undefined &&
-      (metrics.renewal.cellHeight < 44 || metrics.renewal.cellHeight > 48)
+      (metrics.renewal.cellHeight < 38 || metrics.renewal.cellHeight > 44)
     ) {
       errors.push(
         `${scenario.id}: renewal cell height ${metrics.renewal.cellHeight}`,
@@ -2775,6 +2867,56 @@ for (const scenario of activeScenarios) {
       }
       if ((metrics.currencyPie?.tooltip?.items ?? 0) < 1) {
         errors.push(`${scenario.id}: pie other tooltip has no currencies`);
+      }
+    }
+    if (!metrics.mixSummary?.includes("CNY")) {
+      errors.push(`${scenario.id}: mix summary missing CNY`);
+    }
+    if (
+      (scenario.locale ?? "zh-CN") === "en"
+        ? !metrics.mixSummary?.includes("servers") ||
+          !metrics.mixSummary?.includes("currencies")
+        : !metrics.mixSummary?.includes("台服务器") ||
+          !metrics.mixSummary?.includes("种币种")
+    ) {
+      errors.push(`${scenario.id}: mix summary incomplete (${metrics.mixSummary})`);
+    }
+    if (metrics.currencyPie?.legendRows.length) {
+      const hasCount = metrics.currencyPie.legendRows.some((row) =>
+        /台|server/.test(row),
+      );
+      if (!hasCount) {
+        errors.push(`${scenario.id}: mix legend missing server count`);
+      }
+    }
+    if (metrics.topCost) {
+      if (metrics.topCost.rows > 3) {
+        errors.push(`${scenario.id}: top card has ${metrics.topCost.rows} rows`);
+      }
+      if (scenario.id === "cost-dark-1440" && metrics.topCost.rows !== 3) {
+        errors.push(`${scenario.id}: top card rows ${metrics.topCost.rows}`);
+      }
+    }
+    if (scenario.action === "topViewAll") {
+      const top = metrics.topCost;
+      if (!top?.dialog) {
+        errors.push(`${scenario.id}: top view-all dialog did not open`);
+      } else {
+        if (top.dialog.rows <= 3) {
+          errors.push(
+            `${scenario.id}: top dialog rows ${top.dialog.rows} not complete`,
+          );
+        }
+        if (
+          !top.dialog.texts.some(
+            (row) => row.includes("%") && /[$€¥]/.test(row),
+          )
+        ) {
+          errors.push(`${scenario.id}: top dialog missing amounts/share`);
+        }
+        if (top.dialog.rect && top.dialog.rect.width > metrics.viewportWidth + 1) {
+          errors.push(`${scenario.id}: top dialog wider than viewport`);
+        }
       }
     }
   }

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-22T08:22:16.119Z",
+  "generatedAt": "2026-11-22T08:43:49.884Z",
   "base": "http://127.0.0.1:8787",
   "shots": [
     {
@@ -41,7 +41,7 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "32.6%",
+          "value": "31.9%",
           "hint": "7 天 74.1% · 10 台有采样"
         },
         {
@@ -106,7 +106,7 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "32.6%",
+          "value": "31.9%",
           "hint": "7 天 74.1% · 10 台有采样"
         },
         {
@@ -171,7 +171,7 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "32.6%",
+          "value": "31.9%",
           "hint": "7 天 74.1% · 10 台有采样"
         },
         {
@@ -236,7 +236,7 @@
       "metrics": [
         {
           "label": "24h 在线率",
-          "value": "32.6%",
+          "value": "31.9%",
           "hint": "7 天 74.1% · 10 台有采样"
         },
         {
@@ -269,12 +269,12 @@
       "width": 1440,
       "file": "app-real-cost-dark-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 1398,
+      "pageHeight": 1298,
       "viewportWidth": 1440,
-      "viewportHeight": 1454,
+      "viewportHeight": 1354,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1122.109375,
+      "sectionHeight": 1022.65625,
       "tabs": [
         {
           "text": "资源状态",
@@ -330,7 +330,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 542
+      "pageHeightDelta": 442
     },
     {
       "id": "real-cost-dark-390",
@@ -339,12 +339,12 @@
       "width": 390,
       "file": "app-real-cost-dark-390.png",
       "pageWidth": 390,
-      "pageHeight": 2530,
+      "pageHeight": 2460,
       "viewportWidth": 390,
-      "viewportHeight": 2586,
+      "viewportHeight": 2516,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 2123.96875,
+      "sectionHeight": 2054.1875,
       "tabs": [
         {
           "text": "资源状态",
@@ -400,7 +400,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 1674
+      "pageHeightDelta": 1604
     },
     {
       "id": "real-cost-light-1440",
@@ -409,12 +409,12 @@
       "width": 1440,
       "file": "app-real-cost-light-1440.png",
       "pageWidth": 1440,
-      "pageHeight": 1398,
+      "pageHeight": 1298,
       "viewportWidth": 1440,
-      "viewportHeight": 1454,
+      "viewportHeight": 1354,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 1122.109375,
+      "sectionHeight": 1022.65625,
       "tabs": [
         {
           "text": "资源状态",
@@ -470,7 +470,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 542
+      "pageHeightDelta": 442
     },
     {
       "id": "real-cost-light-390",
@@ -479,12 +479,12 @@
       "width": 390,
       "file": "app-real-cost-light-390.png",
       "pageWidth": 390,
-      "pageHeight": 2530,
+      "pageHeight": 2460,
       "viewportWidth": 390,
-      "viewportHeight": 2586,
+      "viewportHeight": 2516,
       "overflowX": false,
       "mainOverflowX": false,
-      "sectionHeight": 2123.96875,
+      "sectionHeight": 2054.1875,
       "tabs": [
         {
           "text": "资源状态",
@@ -540,7 +540,7 @@
         "oneTimeLine": "不计入本年度"
       },
       "hasScrollHint": false,
-      "pageHeightDelta": 1674
+      "pageHeightDelta": 1604
     }
   ],
   "errors": []

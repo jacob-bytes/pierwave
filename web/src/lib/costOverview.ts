@@ -197,6 +197,7 @@ export interface CostTopRow {
   name: string;
   currency: string;
   kind: "periodic" | "once";
+  cycleOriginalCents: number;
   cycleCnyCents: number;
   /** 占「一个周期总额」的百分比（0–100）。 */
   share: number;
@@ -964,12 +965,12 @@ export function buildCostOverview(
         b.cycleCnyCents - a.cycleCnyCents ||
         a.name.localeCompare(b.name),
     )
-    .slice(0, 5)
     .map<CostTopRow>((row) => ({
       serverId: row.serverId,
       name: row.name,
       currency: row.currency,
       kind: row.kind,
+      cycleOriginalCents: row.cycleOriginalCents,
       cycleCnyCents: row.cycleCnyCents,
       share: totalCnyCents > 0 ? (row.cycleCnyCents / totalCnyCents) * 100 : 0,
     }));

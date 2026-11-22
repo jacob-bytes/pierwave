@@ -5,7 +5,6 @@ import {
   Pie,
   PieChart,
   ResponsiveContainer,
-  Tooltip as ChartTooltip,
 } from "recharts";
 import {
   ChevronLeftIcon,
@@ -29,11 +28,13 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
 import { FxDetailsPopover } from "./FxDetailsPopover";
 import { InsightMetrics } from "./InsightMetrics";
 import { errorText } from "@/lib/errors";
@@ -60,6 +61,7 @@ import {
 } from "@/lib/costOverview";
 import type { Server } from "@/lib/api";
 import { useServers, useSettings } from "@/lib/queries";
+import { formatAbsoluteTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
 
@@ -228,10 +230,12 @@ function CostBody({
         </div>
       </section>
 
-      <section className="grid items-stretch gap-4 xl:grid-cols-2">
+      <section className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <CurrencyMixCard
           rows={overview.currencyMix}
           totalCnyCents={overview.totalCnyCents}
+          source={fx.source}
+          updatedAt={fxUpdatedAt}
           locale={locale}
           className="h-full"
         />
@@ -448,7 +452,7 @@ function MonthBarChart({
   }, [activeIndex, active]);
 
   return (
-    <div className="flex min-h-[340px] flex-1 flex-col" data-cost-bar-chart>
+    <div className="flex min-h-[300px] flex-1 flex-col" data-cost-bar-chart>
       <div className="relative flex min-h-0 flex-1 gap-2">
         <div className="flex w-9 shrink-0 flex-col justify-between pb-1 text-right text-[9px] text-muted-foreground tabular-nums">
           {[max, max * (2 / 3), max * (1 / 3), 0].map(
@@ -702,7 +706,6 @@ function RenewalCalendarCard({
   className?: string;
 }) {
   const { t } = useI18n();
-  const [cardElement, setCardElement] = useState<HTMLDivElement | null>(null);
   const [monthIndex, setMonthIndex] = useState(months[0] ?? 0);
   const [dialogDay, setDialogDay] = useState<RenewalDay | null>(null);
   const month: RenewalMonth = useMemo(
@@ -712,6 +715,13 @@ function RenewalCalendarCard({
   const position = months.indexOf(monthIndex);
   const canPrev = position > 0;
   const canNext = position >= 0 && position < months.length - 1;
+  const years = useMemo(
+    () =>
+      [...new Set(months.map((value) => Math.floor(value / 12)))].sort(
+        (a, b) => a - b,
+      ),
+    [months],
+  );
 
   const monthTitle = useMemo(
     () =>
@@ -779,10 +789,26 @@ function RenewalCalendarCard({
     setDialogDay(null);
   }
 
+  function chooseMonth(monthNumber: number) {
+    const candidate = month.year * 12 + monthNumber - 1;
+    if (months.includes(candidate)) changeMonth(candidate);
+  }
+
+  function chooseYear(year: number) {
+    const sameMonth = months.find(
+      (value) =>
+        Math.floor(value / 12) === year && value % 12 === month.month,
+    );
+    const firstInYear = months.find(
+      (value) => Math.floor(value / 12) === year,
+    );
+    const next = sameMonth ?? firstInYear;
+    if (next !== undefined) changeMonth(next);
+  }
+
   return (
     <>
       <Card
-        ref={setCardElement}
         className={cn(
           "flex h-full min-h-[330px] min-w-0 flex-col gap-0",
           className,
@@ -791,7 +817,7 @@ function RenewalCalendarCard({
       >
         <CardHeader className="border-b border-border pb-2">
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <CardTitle className="text-sm font-medium">
+            <CardTitle className="shrink-0 text-sm font-medium">
               {t("overview.cost.renewalTitle")}
             </CardTitle>
             <div className="flex shrink-0 items-center gap-0.5">
@@ -807,12 +833,64 @@ function RenewalCalendarCard({
               >
                 <ChevronLeftIcon className="size-3.5" />
               </Button>
-              <span
-                data-renewal-month
-                className="min-w-24 text-center text-xs font-medium tabular-nums"
+              <Select
+                value={String(month.month + 1)}
+                onValueChange={(value) => chooseMonth(Number(value))}
               >
-                {monthTitle}
-              </span>
+                <SelectTrigger
+                  size="sm"
+                  data-renewal-month-select
+                  aria-label={t("overview.cost.renewalMonthSelect")}
+                  className="h-7 w-[64px] px-1.5 text-xs"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 12 }, (_, index) => index + 1).map(
+                    (monthNumber) => (
+                      <SelectItem
+                        key={monthNumber}
+                        value={String(monthNumber)}
+                        data-renewal-month-option={monthNumber}
+                        disabled={
+                          !months.includes(
+                            month.year * 12 + monthNumber - 1,
+                          )
+                        }
+                      >
+                        {formatMonthLabel(
+                          month.year * 12 + monthNumber - 1,
+                          locale,
+                        )}
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+              <Select
+                value={String(month.year)}
+                onValueChange={(value) => chooseYear(Number(value))}
+              >
+                <SelectTrigger
+                  size="sm"
+                  data-renewal-year-select
+                  aria-label={t("overview.cost.renewalYearSelect")}
+                  className="h-7 w-[72px] px-1.5 text-xs"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {years.map((year) => (
+                    <SelectItem
+                      key={year}
+                      value={String(year)}
+                      data-renewal-year-option={year}
+                    >
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 type="button"
                 variant="ghost"
@@ -826,6 +904,9 @@ function RenewalCalendarCard({
                 <ChevronRightIcon className="size-3.5" />
               </Button>
             </div>
+            <span data-renewal-month className="sr-only">
+              {monthTitle}
+            </span>
           </div>
         </CardHeader>
 
@@ -839,167 +920,109 @@ function RenewalCalendarCard({
               ))}
             </div>
 
-            <TooltipProvider delayDuration={80}>
-              <div
-                className="grid flex-1 auto-rows-fr grid-cols-7 overflow-hidden rounded-md border border-border/60"
-                data-renewal-grid
-              >
-                {leading.map((day, index) => (
+            <div
+              className="grid flex-1 auto-rows-fr grid-cols-7 overflow-hidden rounded-md border border-border/60"
+              data-renewal-grid
+            >
+              {leading.map((day, index) => (
+                <span
+                  key={`prev-${day}`}
+                  data-renewal-cell
+                  data-renewal-adjacent
+                  data-renewal-leading
+                  className={cn(
+                    "flex min-h-10 flex-col items-start bg-muted/20 p-1 text-left text-[9px] text-muted-foreground/50",
+                    edgeClass(index),
+                  )}
+                >
+                  {day}
+                </span>
+              ))}
+
+              {month.days.map((day, dayIndex) => {
+                const index = leading.length + dayIndex;
+                if (day.events.length === 0) {
+                  return (
+                    <span
+                      key={`current-${day.day}`}
+                      data-renewal-cell
+                      data-renewal-day-number={day.day}
+                      data-renewal-today={isToday(day.day) || undefined}
+                      className={cn(
+                        "flex min-h-10 flex-col items-start p-1 text-left text-[9px] text-muted-foreground",
+                        edgeClass(index),
+                        isToday(day.day) &&
+                          "shadow-[inset_0_0_0_1px_var(--primary)]",
+                      )}
+                    >
+                      {day.day}
+                    </span>
+                  );
+                }
+
+                return (
+                  <button
+                    key={`current-${day.day}`}
+                    type="button"
+                    data-renewal-day
+                    data-renewal-cell
+                    data-renewal-day-number={day.day}
+                    data-renewal-date={`${month.year}-${String(month.month + 1).padStart(2, "0")}-${String(day.day).padStart(2, "0")}`}
+                    data-renewal-count={day.count}
+                    data-renewal-total={day.totalCnyCents}
+                    data-renewal-today={isToday(day.day) || undefined}
+                    aria-haspopup="dialog"
+                    aria-label={t("overview.cost.renewalDayAria", {
+                      date: `${month.month + 1}/${day.day}`,
+                      n: day.count,
+                      amount: day.events.some(
+                        (event) => event.amountCnyCents !== null,
+                      )
+                        ? formatCny(day.totalCnyCents, locale)
+                        : "—",
+                    })}
+                    onClick={() => setDialogDay(day)}
+                    className={cn(
+                      "flex min-h-10 flex-col items-start bg-primary/5 p-1 text-left transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      edgeClass(index),
+                      isToday(day.day) &&
+                        "shadow-[inset_0_0_0_1px_var(--primary)]",
+                    )}
+                  >
+                    <span className="text-[9px] text-muted-foreground">
+                      {day.day}
+                    </span>
+                    <span
+                      data-renewal-badge
+                      className="mt-0.5 rounded-full bg-primary/10 px-1 text-[8px] text-primary tabular-nums"
+                    >
+                      {t("overview.cost.renewalBadge", {
+                        n: day.count,
+                      })}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {trailing.map((day, trailingIndex) => {
+                const index =
+                  leading.length + month.daysInMonth + trailingIndex;
+                return (
                   <span
-                    key={`prev-${day}`}
+                    key={`next-${day}`}
                     data-renewal-cell
                     data-renewal-adjacent
-                    data-renewal-leading
+                    data-renewal-trailing
                     className={cn(
-                      "flex min-h-11 flex-col items-start bg-muted/20 p-1 text-left text-[9px] text-muted-foreground/50",
+                      "flex min-h-10 flex-col items-start bg-muted/20 p-1 text-left text-[9px] text-muted-foreground/50",
                       edgeClass(index),
                     )}
                   >
                     {day}
                   </span>
-                ))}
-
-                {month.days.map((day, dayIndex) => {
-                  const index = leading.length + dayIndex;
-                  if (day.events.length === 0) {
-                    return (
-                      <span
-                        key={`current-${day.day}`}
-                        data-renewal-cell
-                        data-renewal-day-number={day.day}
-                        data-renewal-today={isToday(day.day) || undefined}
-                        className={cn(
-                          "flex min-h-11 flex-col items-start p-1 text-left text-[9px] text-muted-foreground",
-                          edgeClass(index),
-                          isToday(day.day) &&
-                            "shadow-[inset_0_0_0_1px_var(--primary)]",
-                        )}
-                      >
-                        {day.day}
-                      </span>
-                    );
-                  }
-
-                  const knownAmount = day.events.some(
-                    (event) => event.amountCnyCents !== null,
-                  );
-                  return (
-                    <Tooltip key={`current-${day.day}`}>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          data-renewal-day
-                          data-renewal-cell
-                          data-renewal-day-number={day.day}
-                          data-renewal-date={`${month.year}-${String(month.month + 1).padStart(2, "0")}-${String(day.day).padStart(2, "0")}`}
-                          data-renewal-count={day.count}
-                          data-renewal-total={day.totalCnyCents}
-                          data-renewal-today={isToday(day.day) || undefined}
-                          aria-haspopup="dialog"
-                          aria-label={t("overview.cost.renewalDayAria", {
-                            date: `${month.month + 1}/${day.day}`,
-                            n: day.count,
-                            amount: knownAmount
-                              ? formatCny(day.totalCnyCents, locale)
-                              : "—",
-                          })}
-                          onClick={() => setDialogDay(day)}
-                          className={cn(
-                            "flex min-h-11 flex-col items-start bg-primary/5 p-1 text-left transition-colors duration-150 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            edgeClass(index),
-                            isToday(day.day) &&
-                              "shadow-[inset_0_0_0_1px_var(--primary)]",
-                          )}
-                        >
-                          <span className="text-[9px] text-muted-foreground">
-                            {day.day}
-                          </span>
-                          <span
-                            data-renewal-badge
-                            className="mt-0.5 rounded-full bg-primary/10 px-1 text-[8px] text-primary tabular-nums"
-                          >
-                            {t("overview.cost.renewalBadge", {
-                              n: day.count,
-                            })}
-                          </span>
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent
-                        side="top"
-                        sideOffset={8}
-                        collisionPadding={12}
-                        collisionBoundary={cardElement ?? undefined}
-                        data-renewal-tooltip
-                        className="block w-72 max-w-[calc(100vw-2rem)] border border-border bg-popover p-0 text-popover-foreground shadow-lg/40 [&>svg]:bg-popover [&>svg]:fill-popover"
-                      >
-                        <div className="p-3">
-                          <div className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-1.5">
-                            <span className="text-xs font-medium">
-                              {monthTitle} {day.day}
-                            </span>
-                            <span className="font-mono text-xs tabular-nums">
-                              {knownAmount
-                                ? formatCny(day.totalCnyCents, locale)
-                                : "—"}
-                            </span>
-                          </div>
-                          <ul className="mt-1.5 flex max-h-40 flex-col gap-1 overflow-y-auto">
-                            {day.events.slice(0, 8).map((event) => (
-                              <li
-                                key={event.serverId}
-                                data-renewal-tooltip-row
-                                className="flex min-w-0 items-center justify-between gap-3"
-                              >
-                                <span
-                                  className="min-w-0 truncate text-muted-foreground"
-                                  title={event.name}
-                                >
-                                  {event.name}
-                                </span>
-                                <span className="shrink-0 font-mono tabular-nums">
-                                  {event.amountCnyCents === null
-                                    ? "—"
-                                    : formatCny(event.amountCnyCents, locale)}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                          {day.events.length > 8 ? (
-                            <p
-                              data-renewal-tooltip-more
-                              className="mt-1 text-[10px] text-muted-foreground"
-                            >
-                              {t("overview.cost.monthMore", {
-                                n: day.events.length - 8,
-                              })}
-                            </p>
-                          ) : null}
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-
-                {trailing.map((day, trailingIndex) => {
-                  const index =
-                    leading.length + month.daysInMonth + trailingIndex;
-                  return (
-                    <span
-                      key={`next-${day}`}
-                      data-renewal-cell
-                      data-renewal-adjacent
-                      data-renewal-trailing
-                      className={cn(
-                        "flex min-h-11 flex-col items-start bg-muted/20 p-1 text-left text-[9px] text-muted-foreground/50",
-                        edgeClass(index),
-                      )}
-                    >
-                      {day}
-                    </span>
-                  );
-                })}
-              </div>
-            </TooltipProvider>
+                );
+              })}
+            </div>
           </div>
 
           <p
@@ -1186,34 +1209,82 @@ function TopCostCard({
   locale: string;
   className?: string;
 }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
   const max = rows[0]?.cycleCnyCents ?? 0;
+  const topRows = rows.slice(0, 3);
 
   return (
-    <Card className={cn("flex h-full flex-col gap-0", className)} data-cost-card="top">
-      <CardHeader className="border-b border-border pb-4">
-        <div className="flex min-w-0 items-center justify-between gap-2">
-          <CardTitle className="text-sm font-medium">
-            {t("overview.cost.topTitle")}
-          </CardTitle>
-          <Badge variant="outline" className="shrink-0 font-normal">
-            Top 5
-          </Badge>
-        </div>
-      </CardHeader>
-      {rows.length === 0 ? (
-        <EmptyState
-          size="sm"
-          icon={CircleDollarSignIcon}
-          title={t("overview.cost.topEmpty")}
-          className="py-10"
-        />
-      ) : (
-        <CardContent className="p-2">
-          <ul className="flex flex-col gap-0.5">
+    <>
+      <Card
+        className={cn("flex h-full flex-col gap-0", className)}
+        data-cost-card="top"
+      >
+        <CardHeader className="border-b border-border pb-3">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <CardTitle className="text-sm font-medium">
+              {t("overview.cost.topTitle")}
+            </CardTitle>
+            <div className="flex shrink-0 items-center gap-1">
+              <Badge variant="outline" className="font-normal">
+                Top 3
+              </Badge>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                data-cost-top-view-all
+                onClick={() => setOpen(true)}
+              >
+                {t("overview.cost.topViewAll")}
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        {rows.length === 0 ? (
+          <EmptyState
+            size="sm"
+            icon={CircleDollarSignIcon}
+            title={t("overview.cost.topEmpty")}
+            className="py-10"
+          />
+        ) : (
+          <CardContent className="flex flex-1 items-center p-2">
+            <ul className="flex w-full flex-col gap-0.5">
+              {topRows.map((row, index) => (
+                <TopCostRowItem
+                  key={row.serverId}
+                  row={row}
+                  index={index}
+                  max={max}
+                  locale={locale}
+                />
+              ))}
+            </ul>
+          </CardContent>
+        )}
+      </Card>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent
+          data-cost-top-dialog
+          className="max-h-[80vh] w-[calc(100%-1.5rem)] max-w-lg overflow-y-auto p-0 sm:max-w-lg"
+        >
+          <DialogHeader className="border-b border-border px-4 py-3">
+            <DialogTitle>
+              {t("overview.cost.topAllTitle", { n: rows.length })}
+            </DialogTitle>
+          </DialogHeader>
+          <ul className="divide-y divide-border/60">
             {rows.map((row, index) => (
-              <li key={row.serverId} className="rounded-md px-2.5 py-1.5">
+              <li
+                key={row.serverId}
+                data-cost-top-dialog-row
+                className="px-4 py-2.5"
+              >
                 <div className="flex min-w-0 items-baseline gap-2">
-                  <span className="w-3 shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                  <span className="w-4 shrink-0 text-[10px] text-muted-foreground tabular-nums">
                     {index + 1}
                   </span>
                   <span
@@ -1222,17 +1293,27 @@ function TopCostCard({
                   >
                     {row.name}
                   </span>
-                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                    {row.currency}
+                  <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                    {row.share.toFixed(0)}%
                   </span>
-                  <span className="shrink-0 font-mono text-xs tabular-nums">
+                </div>
+                <div className="mt-1 flex items-baseline gap-2 pl-6 font-mono text-[10px] tabular-nums">
+                  <span className="text-muted-foreground">{row.currency}</span>
+                  <span className="text-muted-foreground">
+                    {formatCurrency(
+                      row.cycleOriginalCents,
+                      row.currency,
+                      locale,
+                    )}
+                  </span>
+                  <span className="ml-auto text-xs text-foreground">
                     {formatCny(row.cycleCnyCents, locale)}
                   </span>
                 </div>
-                <div className="mt-1 flex items-center gap-2 pl-5">
+                <div className="mt-1 pl-6">
                   <span
                     aria-hidden="true"
-                    className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+                    className="block h-1 overflow-hidden rounded-full bg-muted"
                   >
                     <span
                       className="block h-full rounded-full bg-primary"
@@ -1244,32 +1325,94 @@ function TopCostCard({
                       }}
                     />
                   </span>
-                  <span
-                    className="w-8 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums"
-                    title={t("overview.cost.topShare", {
-                      share: row.share.toFixed(0),
-                    })}
-                  >
-                    {row.share.toFixed(0)}%
-                  </span>
                 </div>
               </li>
             ))}
           </ul>
-        </CardContent>
-      )}
-    </Card>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline" size="sm">
+                {t("common.close")}
+              </Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+function TopCostRowItem({
+  row,
+  index,
+  max,
+  locale,
+}: {
+  row: CostTopRow;
+  index: number;
+  max: number;
+  locale: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <li className="rounded-md px-2.5 py-1.5" data-cost-top-row>
+      <div className="flex min-w-0 items-baseline gap-2">
+        <span className="w-3 shrink-0 text-[10px] text-muted-foreground tabular-nums">
+          {index + 1}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm" title={row.name}>
+          {row.name}
+        </span>
+        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+          {row.currency}
+        </span>
+        <span className="max-w-20 shrink-0 truncate font-mono text-[10px] text-muted-foreground tabular-nums">
+          {formatCurrency(row.cycleOriginalCents, row.currency, locale)}
+        </span>
+        <span className="shrink-0 font-mono text-xs tabular-nums">
+          {formatCny(row.cycleCnyCents, locale)}
+        </span>
+      </div>
+      <div className="mt-1 flex items-center gap-2 pl-5">
+        <span
+          aria-hidden="true"
+          className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
+        >
+          <span
+            className="block h-full rounded-full bg-primary"
+            style={{
+              width:
+                max > 0
+                  ? `${Math.round((row.cycleCnyCents / max) * 100)}%`
+                  : "0%",
+            }}
+          />
+        </span>
+        <span
+          className="w-8 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums"
+          title={t("overview.cost.topShare", {
+            share: row.share.toFixed(0),
+          })}
+        >
+          {row.share.toFixed(0)}%
+        </span>
+      </div>
+    </li>
   );
 }
 
 function CurrencyMixCard({
   rows,
   totalCnyCents,
+  source,
+  updatedAt,
   locale,
   className,
 }: {
   rows: CostCurrencyMixRow[];
   totalCnyCents: number;
+  source: string | null;
+  updatedAt: number | null;
   locale: string;
   className?: string;
 }) {
@@ -1279,6 +1422,24 @@ function CurrencyMixCard({
     () => buildCurrencyPieRows(rows, t("overview.cost.mixOther")),
     [rows, t],
   );
+  const totalServers = rows.reduce((sum, row) => sum + row.count, 0);
+  const sourceLabel =
+    source?.trim().toLowerCase() === "manual"
+      ? t("overview.cost.fxSourceManual")
+      : t("overview.cost.fxSourceAuto");
+  const summary =
+    updatedAt === null
+      ? t("overview.cost.mixSummary", {
+          currencies: rows.length,
+          servers: totalServers,
+          source: sourceLabel,
+        })
+      : t("overview.cost.mixSummaryTime", {
+          currencies: rows.length,
+          servers: totalServers,
+          source: sourceLabel,
+          time: formatAbsoluteTime(updatedAt),
+        });
 
   return (
     <Card
@@ -1309,8 +1470,9 @@ function CurrencyMixCard({
           className="py-10"
         />
       ) : (
-        <CardContent className="flex flex-1 items-center p-3">
-          <div className="grid w-full grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <CardContent className="relative flex flex-1 flex-col p-3">
+          <div className="flex flex-1 items-center">
+            <div className="grid w-full grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
             <div
               className="relative mx-auto h-[200px] w-full max-w-[230px]"
               data-currency-pie
@@ -1342,12 +1504,6 @@ function CurrencyMixCard({
                       />
                     ))}
                   </Pie>
-                  <ChartTooltip
-                    content={<CurrencyPieTooltip />}
-                    cursor={false}
-                    offset={20}
-                    wrapperStyle={{ zIndex: 40, outline: "none" }}
-                  />
                 </PieChart>
               </ResponsiveContainer>
               <div
@@ -1365,49 +1521,72 @@ function CurrencyMixCard({
               </div>
             </div>
 
-            <ul className="min-w-0" data-pie-legend>
-              {pieRows.map((row, index) => (
-                <li
-                  key={row.key}
-                  data-pie-legend-row
-                  data-pie-currency={row.label}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onMouseLeave={() => setActiveIndex(null)}
-                  className={cn(
-                    "grid grid-cols-[9px_minmax(0,1fr)_auto_auto_auto] items-center gap-1.5 rounded px-1 py-1 text-[10px] transition-colors duration-150",
-                    activeIndex === index && "bg-muted/50",
-                  )}
-                >
-                  <span
-                    aria-hidden="true"
-                    className="size-2 rounded-[2px] bg-primary"
-                    style={{
-                      opacity: PIE_OPACITY[index % PIE_OPACITY.length],
-                    }}
-                  />
-                  <span className="min-w-0 truncate font-mono">
-                    {row.label}
-                  </span>
-                  <span className="text-right font-mono text-muted-foreground tabular-nums">
-                    {row.originalCents === null
-                      ? "—"
-                      : formatCurrency(
-                          row.originalCents,
-                          row.items[0]?.currency ?? "",
-                          locale,
-                        )}
-                  </span>
-                  <span className="text-right font-mono tabular-nums">
-                    {formatCny(row.cnyCents, locale)}
-                  </span>
-                  <span className="w-7 text-right text-muted-foreground tabular-nums">
-                    {row.share.toFixed(0)}%
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </CardContent>
+                <ul className="min-w-0" data-pie-legend>
+                  {pieRows.map((row, index) => (
+                    <li
+                      key={row.key}
+                      data-pie-legend-row
+                      data-pie-currency={row.label}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onMouseLeave={() => setActiveIndex(null)}
+                      className={cn(
+                        "flex items-center gap-2 rounded px-1 py-1 transition-colors duration-150",
+                        activeIndex === index && "bg-muted/50",
+                      )}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="size-2 shrink-0 rounded-[2px] bg-primary"
+                        style={{
+                          opacity: PIE_OPACITY[index % PIE_OPACITY.length],
+                        }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="min-w-0 truncate font-mono text-[10px]">
+                            {row.label}
+                            <span className="ml-1 text-[9px] text-muted-foreground">
+                              {t("overview.cost.mixServersCount", {
+                                n: row.count,
+                              })}
+                            </span>
+                          </span>
+                          <span className="w-7 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums">
+                            {row.share.toFixed(0)}%
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-baseline justify-between gap-2 text-[9px] text-muted-foreground">
+                          <span className="min-w-0 truncate font-mono tabular-nums">
+                            {row.originalCents === null
+                              ? "—"
+                              : formatCurrency(
+                                  row.originalCents,
+                                  row.items[0]?.currency ?? "",
+                                  locale,
+                                )}
+                          </span>
+                          <span className="shrink-0 font-mono text-[10px] text-foreground tabular-nums">
+                            {formatCny(row.cnyCents, locale)}
+                          </span>
+                        </div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            <p
+              data-mix-summary
+              className="mt-2 border-t border-border pt-2 text-[10px] leading-normal text-muted-foreground"
+            >
+              {summary}
+            </p>
+            {activeIndex !== null && pieRows[activeIndex] ? (
+              <div className="pointer-events-none absolute right-3 top-3 z-30 w-52 max-sm:inset-x-2 max-sm:bottom-2 max-sm:top-auto">
+                <CurrencyPieDetail row={pieRows[activeIndex]} />
+              </div>
+            ) : null}
+          </CardContent>
       )}
     </Card>
   );
@@ -1446,21 +1625,13 @@ function buildCurrencyPieRows(
   ];
 }
 
-function CurrencyPieTooltip({
-  active,
-  payload,
-}: {
-  active?: boolean;
-  payload?: readonly { payload?: CurrencyPieRow }[];
-}) {
+function CurrencyPieDetail({ row }: { row: CurrencyPieRow }) {
   const { locale } = useI18n();
-  const row = payload?.[0]?.payload;
-  if (!active || !row) return null;
 
   return (
     <div
       data-pie-tooltip
-      className="w-52 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40"
+      className="w-52 rounded-md border border-border bg-popover px-3 py-2 text-xs text-popover-foreground shadow-lg/40"
     >
       <div className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-1.5">
         <span className="font-medium">{row.label}</span>

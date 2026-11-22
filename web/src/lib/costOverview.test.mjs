@@ -382,6 +382,7 @@ test("Top 5 / 币种构成：按一个周期的 CNY 价格排序，一次性也�
     ["cny-yearly", "usd", "once"],
   );
   assert.equal(overview.top[0].share, (120000 / 132200) * 100);
+  assert.equal(overview.top[0].cycleOriginalCents, 120000);
 
   const cny = overview.currencyMix.find((row) => row.currency === "CNY");
   assert.equal(cny.count, 2);
@@ -390,6 +391,27 @@ test("Top 5 / 币种构成：按一个周期的 CNY 价格排序，一次性也�
   const usd = overview.currencyMix.find((row) => row.currency === "USD");
   assert.equal(usd.cycleOriginalCents, 1000);
   assert.equal(usd.cycleCnyCents, 7200);
+});
+
+test("Top 列表不截断，查看全部可拿到完整排序与原币金额", () => {
+  const overview = buildCostOverview(
+    Array.from({ length: 7 }, (_, index) =>
+      billed(`srv-${index}`, {
+        price_cents: (7 - index) * 1000,
+        currency: "CNY",
+      }),
+    ),
+    RATES.rates,
+    AUG,
+  );
+
+  assert.equal(overview.top.length, 7);
+  assert.deepEqual(
+    overview.top.map((row) => row.serverId),
+    Array.from({ length: 7 }, (_, index) => `srv-${index}`),
+  );
+  assert.equal(overview.top[0].cycleOriginalCents, 7000);
+  assert.equal(overview.top[6].cycleOriginalCents, 1000);
 });
 
 test("只有离线 / 未填费用时不显示正常视图；只有未知币种时仍显示提示", () => {
