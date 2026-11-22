@@ -1,0 +1,402 @@
+{
+  "generatedAt": "2026-11-22T04:00:35.576Z",
+  "shots": [
+    {
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "file": "server-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1304,
+      "clientWidth": 1440,
+      "pageWidth": 1352,
+      "pageHeight": 1303.875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "true"
+        },
+        {
+          "text": "成本开销",
+          "selected": "false"
+        },
+        {
+          "text": "链路时延",
+          "selected": "false"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "96.4%",
+        "3",
+        "91%"
+      ],
+      "cards": 3,
+      "overflowX": false
+    },
+    {
+      "view": "server",
+      "theme": "dark",
+      "width": 390,
+      "file": "server-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 1780,
+      "clientWidth": 390,
+      "pageWidth": 390,
+      "pageHeight": 1780.3125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "true"
+        },
+        {
+          "text": "成本开销",
+          "selected": "false"
+        },
+        {
+          "text": "链路时延",
+          "selected": "false"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "96.4%",
+        "3",
+        "91%"
+      ],
+      "cards": 3,
+      "overflowX": false
+    },
+    {
+      "view": "server",
+      "theme": "light",
+      "width": 1440,
+      "file": "server-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1304,
+      "clientWidth": 1440,
+      "pageWidth": 1352,
+      "pageHeight": 1303.875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "true"
+        },
+        {
+          "text": "成本开销",
+          "selected": "false"
+        },
+        {
+          "text": "链路时延",
+          "selected": "false"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "96.4%",
+        "3",
+        "91%"
+      ],
+      "cards": 3,
+      "overflowX": false
+    },
+    {
+      "view": "server",
+      "theme": "light",
+      "width": 390,
+      "file": "server-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 1780,
+      "clientWidth": 390,
+      "pageWidth": 390,
+      "pageHeight": 1780.3125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "true"
+        },
+        {
+          "text": "成本开销",
+          "selected": "false"
+        },
+        {
+          "text": "链路时延",
+          "selected": "false"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "96.4%",
+        "3",
+        "91%"
+      ],
+      "cards": 3,
+      "overflowX": false
+    },
+    {
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "file": "cost-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1105,
+      "clientWidth": 1440,
+      "pageWidth": 1352,
+      "pageHeight": 1105.09375,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "false"
+        },
+        {
+          "text": "成本开销",
+          "selected": "true"
+        },
+        {
+          "text": "链路时延",
+          "selected": "false"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "¥1,810.75",
+        "¥21,729",
+        "¥20,246.80"
+      ],
+      "cards": 3,
+      "overflowX": false
+    },
+    {
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "file": "cost-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 1739,
+      "clientWidth": 390,
+      "pageWidth": 390,
+      "pageHeight": 1739.3125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "false"
+        },
+        {
+          "text": "成本开销",
+          "selected": "true"
+        },
+        {
+          "text": "链路时延",
+          "selected": "false"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "¥1,810.75",
+        "¥21,729",
+        "¥20,246.80"
+      ],
+      "cards": 3,
+      "overflowX": false
+    },
+    {
+      "view": "cost",
+      "theme": "light",
+      "width": 1440,
+      "file": "cost-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1105,
+      "clientWidth": 1440,
+      "pageWidth": 1352,
+      "pageHeight": 1105.09375,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "false"
+        },
+        {
+          "text": "成本开销",
+          "selected": "true"
+        },
+        {
+          "text": "链路时延",
+          "selected": "false"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "¥1,810.75",
+        "¥21,729",
+        "¥20,246.80"
+      ],
+      "cards": 3,
+      "overflowX": false
+    },
+    {
+      "view": "cost",
+      "theme": "light",
+      "width": 390,
+      "file": "cost-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 1739,
+      "clientWidth": 390,
+      "pageWidth": 390,
+      "pageHeight": 1739.3125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "false"
+        },
+        {
+          "text": "成本开销",
+          "selected": "true"
+        },
+        {
+          "text": "链路时延",
+          "selected": "false"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "¥1,810.75",
+        "¥21,729",
+        "¥20,246.80"
+      ],
+      "cards": 3,
+      "overflowX": false
+    },
+    {
+      "view": "chain",
+      "theme": "dark",
+      "width": 1440,
+      "file": "chain-dark-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1130,
+      "clientWidth": 1440,
+      "pageWidth": 1352,
+      "pageHeight": 1129.875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "false"
+        },
+        {
+          "text": "成本开销",
+          "selected": "false"
+        },
+        {
+          "text": "链路时延",
+          "selected": "true"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "67 ms",
+        "1 / 4",
+        "43 ms"
+      ],
+      "cards": 2,
+      "overflowX": false
+    },
+    {
+      "view": "chain",
+      "theme": "dark",
+      "width": 390,
+      "file": "chain-dark-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 1560,
+      "clientWidth": 390,
+      "pageWidth": 390,
+      "pageHeight": 1559.65625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "false"
+        },
+        {
+          "text": "成本开销",
+          "selected": "false"
+        },
+        {
+          "text": "链路时延",
+          "selected": "true"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "67 ms",
+        "1 / 4",
+        "43 ms"
+      ],
+      "cards": 2,
+      "overflowX": false
+    },
+    {
+      "view": "chain",
+      "theme": "light",
+      "width": 1440,
+      "file": "chain-light-1440.png",
+      "scrollWidth": 1440,
+      "scrollHeight": 1130,
+      "clientWidth": 1440,
+      "pageWidth": 1352,
+      "pageHeight": 1129.875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "false"
+        },
+        {
+          "text": "成本开销",
+          "selected": "false"
+        },
+        {
+          "text": "链路时延",
+          "selected": "true"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "67 ms",
+        "1 / 4",
+        "43 ms"
+      ],
+      "cards": 2,
+      "overflowX": false
+    },
+    {
+      "view": "chain",
+      "theme": "light",
+      "width": 390,
+      "file": "chain-light-390.png",
+      "scrollWidth": 390,
+      "scrollHeight": 1560,
+      "clientWidth": 390,
+      "pageWidth": 390,
+      "pageHeight": 1559.65625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": "false"
+        },
+        {
+          "text": "成本开销",
+          "selected": "false"
+        },
+        {
+          "text": "链路时延",
+          "selected": "true"
+        }
+      ],
+      "h1": "概览",
+      "metricValues": [
+        "67 ms",
+        "1 / 4",
+        "43 ms"
+      ],
+      "cards": 2,
+      "overflowX": false
+    }
+  ],
+  "errors": []
+}

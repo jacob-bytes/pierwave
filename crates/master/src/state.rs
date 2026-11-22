@@ -295,6 +295,87 @@ fn overview_cache_ttl_from_env() -> Duration {
         .unwrap_or(OVERVIEW_TRAFFIC_CACHE_TTL)
 }
 
+/// 管理员「服务器态势」快照的短缓存：30 秒。
+///
+/// 采样本身 5 分钟才写一行，30 秒缓存不会让页面明显滞后，却能把「多个管理员
+/// 同时刷新」从 N 次 7 天窗口聚合压成 1 次。key 是 `(hours, bucket)`：不同
+/// 窗口/桶宽的结果不能互相复用。
+///
+/// **不做写穿透**：新采样最多晚 30 秒出现在响应里；`generated_at` 也随快照
+/// 一起缓存（同一份数据的时间戳必须一致）。轮询频率远高于 30 秒时命中率接近 1。
+pub const SERVER_HEALTH_CACHE_TTL: Duration = Duration::from_secs(30);
+
+type ServerHealthKey = (i64, i64);
+type ServerHealthEntry = (Instant, Value);
+
+#[derive(Debug, Default)]
+struct ServerHealthStats {
+    hits: AtomicU64,
+    misses: AtomicU64,
+}
+
+/// `GET /api/v1/overview/server-health` 的 30 秒结果缓存。
+///
+/// 放在 `AppState` 里而不是全局静态变量：每个进程/测试实例各自独立。
+#[derive(Clone)]
+pub struct ServerHealthCache {
+    inner: Arc<Mutex<HashMap<ServerHealthKey, ServerHealthEntry>>>,
+    ttl: Duration,
+    stats: Arc<ServerHealthStats>,
+}
+
+impl Default for ServerHealthCache {
+    fn default() -> Self {
+        Self::with_ttl(SERVER_HEALTH_CACHE_TTL)
+    }
+}
+
+impl ServerHealthCache {
+    pub fn with_ttl(ttl: Duration) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+            ttl,
+            stats: Arc::new(ServerHealthStats::default()),
+        }
+    }
+
+    pub fn get(&self, hours: i64, bucket: i64) -> Option<Value> {
+        let guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let hit = guard
+            .get(&(hours, bucket))
+            .filter(|(at, _)| self.ttl > Duration::ZERO && at.elapsed() < self.ttl)
+            .map(|(_, value)| value.clone());
+        if hit.is_some() {
+            self.stats.hits.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.stats.misses.fetch_add(1, Ordering::Relaxed);
+        }
+        hit
+    }
+
+    pub fn put(&self, hours: i64, bucket: i64, value: Value) {
+        if self.ttl.is_zero() {
+            return;
+        }
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert((hours, bucket), (Instant::now(), value));
+    }
+
+    /// (hits, misses)；只给测试断言用。
+    #[cfg(test)]
+    pub(crate) fn stats(&self) -> (u64, u64) {
+        (
+            self.stats.hits.load(Ordering::Relaxed),
+            self.stats.misses.load(Ordering::Relaxed),
+        )
+    }
+}
+
 /// 导出 / 异地备份的数据库大小上限：与恢复共用 512 MB 默认值。
 ///
 /// 可用 `PIERWAVE_MAX_BACKUP_MB` 调整；非法值（0 / 非数字）回落默认值，
@@ -659,6 +740,10 @@ pub struct AppState {
     pub public_status: PublicStatusCache,
     /// 概览流量快照缓存（默认 12 秒，按日汇总代际失效）。
     pub overview_traffic: OverviewTrafficCache,
+    /// 管理员「服务器态势」快照缓存（30 秒，按 `(hours, bucket)` 命中）。
+    pub server_health: ServerHealthCache,
+    /// 自动汇率：可注入的抓取器 + 串行化手动覆盖/自动抓取的锁。
+    pub fx: crate::fx::FxService,
     /// 告警去抖状态 + 投递器；未配置渠道时所有通知都是 no-op。
     pub alerts: Alerts,
     /// 版本更新检测：版本源（默认 GitHub Releases）+ 最近一次结果缓存。
@@ -698,6 +783,8 @@ impl AppState {
             latest_version: LatestVersionCache::default(),
             public_status: PublicStatusCache::default(),
             overview_traffic: OverviewTrafficCache::with_ttl(overview_cache_ttl_from_env()),
+            server_health: ServerHealthCache::default(),
+            fx: crate::fx::FxService::default(),
             alerts: Alerts::default(),
             updates: UpdateService::default(),
             tcping: TcpingRegistry::default(),

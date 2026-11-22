@@ -2076,6 +2076,88 @@ export interface OverviewData {
   package_split: OverviewPackageSplit[];
 }
 
+/*
+ * 服务器状态视图契约：
+ * `GET /api/v1/overview/server-health?hours=168&bucket=3600`。
+ *
+ * 字段全部按可选处理：旧主控 / 半成品接口可能缺 summary、current 或
+ * 某台服务器的 buckets；页面在 `lib/serverHealth.ts` 里统一归一化，
+ * 缺数据按「无采样」显示，绝不伪造成 0。
+ */
+export interface OverviewServerHealthWindow {
+  hours?: number;
+  bucket_secs?: number;
+  /** 新契约的顶层字段名是 `bucket`。 */
+  bucket?: number;
+  generated_at?: number;
+}
+
+export interface OverviewServerHealthCurrent {
+  load1?: number | null;
+  mem_used?: number | null;
+  mem_total?: number | null;
+  disk_used?: number | null;
+  disk_total?: number | null;
+  latency_ms?: number | null;
+}
+
+export interface OverviewServerHealthBucket {
+  /** 桶起点（Unix 秒）。 */
+  ts: number;
+  /** 后端实际字段：该桶多数采样在线；true=100%，false=0%。 */
+  online?: boolean;
+  /** 后端实际字段：桶内平均 1 分钟负载。 */
+  load1?: number | null;
+  /** 后端实际字段：桶内平均内存占用比（0..1）。 */
+  mem_ratio?: number | null;
+  /** 后端实际字段：桶内平均磁盘占用比（0..1）。 */
+  disk_ratio?: number | null;
+  /** 旧/兼容字段：0..1；旧接口可能给 0..100 的百分比。 */
+  online_ratio?: number | null;
+  load1_avg?: number | null;
+  load1_max?: number | null;
+  mem_ratio_max?: number | null;
+  disk_ratio_max?: number | null;
+  samples?: number | null;
+  outage_samples?: number | null;
+}
+
+export interface OverviewServerHealthServer {
+  id: string;
+  name: string;
+  status?: string;
+  current?: OverviewServerHealthCurrent | null;
+  buckets?: OverviewServerHealthBucket[] | null;
+}
+
+export interface OverviewServerHealthSummary {
+  /** 后端实际字段：24h 全局可用率（0..1，按采样数加权）。 */
+  online_ratio_24h?: number | null;
+  /** 后端实际字段：24h 可用率 < 90% 或最坏磁盘 >= 90% 的服务器数。 */
+  abnormal_servers?: number | null;
+  /** 后端实际字段：24h 内最坏磁盘占用比（0..1）。 */
+  worst_disk_ratio?: number | null;
+  /** 旧/兼容字段。 */
+  uptime_24h?: number | null;
+  uptime_7d?: number | null;
+  anomaly_servers?: number | null;
+  disk_max?: number | null;
+  servers_without_samples?: number | null;
+}
+
+export interface OverviewServerHealthResponse {
+  /** 后端实际字段：生成时间（Unix 秒）。 */
+  generated_at?: number;
+  /** 后端实际字段：窗口小时数。 */
+  hours?: number;
+  /** 后端实际字段：桶宽（秒）。 */
+  bucket?: number;
+  summary?: OverviewServerHealthSummary;
+  servers: OverviewServerHealthServer[];
+  /** 旧/兼容的嵌套窗口字段。 */
+  window?: OverviewServerHealthWindow;
+}
+
 /**
  * P2：节点维度流量，见 docs/PLAN.md「P2：节点维度流量明细」。
  *
@@ -2441,6 +2523,14 @@ export interface Settings {
    */
   backup_encrypt?: boolean | null;
   /**
+   * 计费汇率：`{ "USD": 7.20, "EUR": 7.80 }`（CNY per 1 unit）。
+   * 后端可能以对象或 JSON 字符串返回；旧主控完全没有该键。
+   * 前端统一走 `lib/costOverview.ts::parseFxRates` 归一化，未知币种不计入总额。
+   */
+  fx_rates?: unknown;
+  /** 汇率更新时间：Unix 秒 / 毫秒 / ISO 字符串；旧主控没有该键。 */
+  fx_rates_updated_at?: unknown;
+  /**
    * 前端把顶层 `secret_errors` 合并到 items 上，方便页面统一消费；
    * 后端 PATCH / GET 的响应里它是与 `items` 同级的字段。
    */
@@ -2518,6 +2608,16 @@ export const api = {
     get: (days: number) =>
       request<OverviewData>(
         `/api/v1/overview?days=${encodeURIComponent(String(days))}`,
+      ),
+    /**
+     * 服务器状态视图：每台服务器的小时桶 + 汇总。
+     * 旧主控没有该接口（404），查询层会把它转成「需要新版本主控」。
+     */
+    serverHealth: (hours: number, bucket: number) =>
+      request<OverviewServerHealthResponse>(
+        `/api/v1/overview/server-health?hours=${encodeURIComponent(
+          String(hours),
+        )}&bucket=${encodeURIComponent(String(bucket))}`,
       ),
   },
   stats: {

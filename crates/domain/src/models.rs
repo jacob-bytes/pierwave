@@ -1322,6 +1322,43 @@ pub struct ServerHourlyBucket {
     pub online_ratio: f64,
 }
 
+/// 管理员「服务器态势」接口的 24h 汇总行（每台服务器一行，跨服务器一次 GROUP BY）。
+///
+/// `samples` / `online_samples` 是 5 分钟采样的原始计数，接口层用它算加权
+/// 可用率：先按服务器算，再按样本数加权成全局 24h 可用率，而不是把各服务器
+/// 的均值再平均（那会让采样少的机器权重过大）。
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct ServerHealthSummaryRow {
+    pub server_id: String,
+    /// 窗口内采样行数；有这一行就必然 >= 1。
+    pub samples: i64,
+    /// 窗口内 `online = 1` 的采样行数（0..=samples）。
+    pub online_samples: i64,
+    /// 窗口内单次采样的最坏磁盘占用比（0..1）；没有有效 `disk_total` 时为 `None`。
+    pub worst_disk_ratio: Option<f64>,
+}
+
+/// 管理员「服务器态势」接口的一个时间桶（跨服务器一次 GROUP BY）。
+///
+/// 只返回**有采样**的 `(server, bucket)`；没有采样的桶由接口层补 `null`，
+/// 绝不补 0（0 会被画成「机器好好的、负载为零」）。
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct ServerHealthBucketRow {
+    pub server_id: String,
+    /// 桶起点（Unix 秒，按请求的桶宽对齐）。
+    pub ts: i64,
+    /// 桶内采样行数；有这一行就必然 >= 1。
+    pub samples: i64,
+    /// 桶内 `online = 1` 的采样行数。
+    pub online_samples: i64,
+    /// 桶内 `AVG(load1)`。
+    pub load1: f64,
+    /// 桶内有效采样的 `AVG(mem_used / mem_total)`；没有有效分母时为 `None`。
+    pub mem_ratio: Option<f64>,
+    /// 桶内有效采样的 `AVG(disk_used / disk_total)`；没有有效分母时为 `None`。
+    pub disk_ratio: Option<f64>,
+}
+
 /// 公开状态页迷你图的一个 5 分钟桶，**跨服务器**聚合（只含在线采样）。
 ///
 /// 三个数值列都是 `Option`：桶里没有任何可用数据时是 `None`（接口序列化为

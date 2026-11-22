@@ -354,3 +354,39 @@ test("backup.restore_sync_failed points at the disk instead of a generic failure
     assert.equal(text.toLowerCase().includes("try again"), true, text);
   });
 });
+
+test("新汇率 / server-health 错误码在中英词典里都有", () => {
+  const codes = [
+    "settings.fx_rates_invalid",
+    "query.server_health_hours_invalid",
+    "query.server_health_bucket_invalid",
+  ];
+  for (const locale of ["zh-CN", "en"]) {
+    withLocale(locale, () => {
+      for (const code of codes) {
+        assert.equal(hasErrorCode(code), true, `${locale} ${code}`);
+      }
+    });
+  }
+});
+
+test("server-health 参数错误在中英里都带边界", () => {
+  const error = () =>
+    new ApiError("hours 非法", 400, "query.server_health_hours_invalid", {
+      min: 1,
+      max: 168,
+      default: 168,
+    });
+  withLocale("zh-CN", () => {
+    assert.equal(
+      errorText(error(), "fallback"),
+      "hours 必须是 1-168 的整数（默认 168）",
+    );
+  });
+  withLocale("en", () => {
+    assert.equal(
+      errorText(error(), "fallback"),
+      "hours must be an integer between 1 and 168 (default 168)",
+    );
+  });
+});

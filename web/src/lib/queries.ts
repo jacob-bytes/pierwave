@@ -67,6 +67,7 @@ import {
   type Outbound,
   type OverQuotaUserCountResponse,
   type OverviewData,
+  type OverviewServerHealthResponse,
   type OverviewStats,
   type Package,
   type Paged,
@@ -121,6 +122,7 @@ import {
   type PublicStatusFailureStreak,
 } from "@/lib/publicStatus";
 import { withBillingVisibility } from "@/lib/publicStatusSettings";
+import { isServerHealthUnsupported } from "@/lib/serverHealth";
 
 /** P4：有升级在途时，服务器列表与升级历史的轮询间隔。 */
 const AGENT_UPGRADE_POLL_MS = 15_000;
@@ -159,6 +161,9 @@ export const queryKeys = {
   overQuotaUsers: ["users", "over-quota", "count"] as const,
   /** 概览聚合（P14）：窗口天数进 key，切换窗口即换查询。 */
   overview: (days: number) => ["overview", days] as const,
+  /** 服务器状态视图：窗口小时数与桶宽进 key。 */
+  serverHealth: (hours: number, bucket: number) =>
+    ["overview", "server-health", hours, bucket] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
   /** 管理员转发日表对账；窗口天数进 key，切换窗口即换查询。 */
   forwardUsage: (days: number) => ["forward-traffic", days] as const,
@@ -415,6 +420,29 @@ export function useOverview(days: number) {
     enabled: days > 0,
     placeholderData: keepPreviousData,
     staleTime: 30_000,
+  });
+}
+
+/**
+ * 服务器状态视图：7 天 × 1 小时桶。
+ *
+ * 旧主控没有该接口时返回 404；这里把 404 转成 `null`（查询成功），
+ * 页面据此显示「该功能需要新版本主控」，而不是报错 + 无意义的重试。
+ * 其它错误（500 / 网络）仍按错误态处理。
+ */
+export function useServerHealth(hours = 168, bucket = 3600) {
+  return useQuery<OverviewServerHealthResponse | null>({
+    queryKey: queryKeys.serverHealth(hours, bucket),
+    queryFn: async () => {
+      try {
+        return await api.overview.serverHealth(hours, bucket);
+      } catch (error) {
+        if (isServerHealthUnsupported(error)) return null;
+        throw error;
+      }
+    },
+    retry: false,
+    staleTime: 60_000,
   });
 }
 

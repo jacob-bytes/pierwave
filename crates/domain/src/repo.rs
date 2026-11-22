@@ -10327,6 +10327,73 @@ pub mod server_samples {
         .await?)
     }
 
+    /// 管理员「服务器态势」的 24h 汇总：**一次 GROUP BY 跨服务器**算完，
+    /// 不按服务器循环（没有 N+1）。
+    ///
+    /// `[since, until]` 是 24h 窗口（含两端采样）；磁盘最坏值只统计
+    /// `disk_total > 0` 的采样，分母为 0 / NULL 的旧 Agent 不参与平均，
+    /// 也不会被误判成 0% 占用。
+    pub async fn health_summary(
+        pool: &SqlitePool,
+        since: i64,
+        until: i64,
+    ) -> anyhow::Result<Vec<ServerHealthSummaryRow>> {
+        Ok(sqlx::query_as::<_, ServerHealthSummaryRow>(
+            "SELECT server_id,
+                    COUNT(*) AS samples,
+                    SUM(online) AS online_samples,
+                    MAX(CASE WHEN disk_total > 0
+                             THEN CAST(disk_used AS REAL) / disk_total
+                        END) AS worst_disk_ratio
+             FROM server_samples
+             WHERE ts >= ? AND ts <= ?
+             GROUP BY server_id",
+        )
+        .bind(since)
+        .bind(until)
+        .fetch_all(pool)
+        .await?)
+    }
+
+    /// 管理员「服务器态势」的窗口桶：按 `bucket` 秒聚合，**一次 GROUP BY
+    /// 跨服务器**算完；只返回有采样的 `(server, bucket)`，空桶由接口层补
+    /// `null`。
+    ///
+    /// `WHERE ts >= ? AND ts < ?` 命中 `idx_server_samples_ts`；桶表达式只做
+    /// 整数除法，避免浮点时间戳导致 `GROUP BY` 漂移。`mem_ratio` /
+    /// `disk_ratio` 对分母为 0 的采样返回 NULL，`AVG` 自动跳过。
+    pub async fn health_buckets(
+        pool: &SqlitePool,
+        since: i64,
+        until: i64,
+        bucket: i64,
+    ) -> anyhow::Result<Vec<ServerHealthBucketRow>> {
+        Ok(sqlx::query_as::<_, ServerHealthBucketRow>(
+            "SELECT server_id,
+                    (ts / ?) * ? AS ts,
+                    COUNT(*) AS samples,
+                    SUM(online) AS online_samples,
+                    AVG(load1) AS load1,
+                    AVG(CASE WHEN mem_total > 0
+                             THEN CAST(mem_used AS REAL) / mem_total
+                        END) AS mem_ratio,
+                    AVG(CASE WHEN disk_total > 0
+                             THEN CAST(disk_used AS REAL) / disk_total
+                        END) AS disk_ratio
+             FROM server_samples
+             WHERE ts >= ? AND ts < ?
+             GROUP BY server_id, (ts / ?) * ?",
+        )
+        .bind(bucket)
+        .bind(bucket)
+        .bind(since)
+        .bind(until)
+        .bind(bucket)
+        .bind(bucket)
+        .fetch_all(pool)
+        .await?)
+    }
+
     /// `[since, until)` 内按 5 分钟桶聚合的公开迷你图数据，只返回有在线采样的桶。
     ///
     /// * 只统计 `servers.public_visible = 1` 的服务器：白名单之外的服务器
@@ -10419,6 +10486,216 @@ pub mod server_samples {
         .bind(until)
         .fetch_all(pool)
         .await?)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::super::servers;
+        use super::*;
+        use crate::Db;
+
+        async fn setup() -> (SqlitePool, String) {
+            let db = Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+            let (server, _) = servers::create(&db.pool, "香港-01", "10.0.0.1", "external")
+                .await
+                .unwrap();
+            (db.pool, server.id)
+        }
+
+        async fn sample(
+            pool: &SqlitePool,
+            server_id: &str,
+            ts: i64,
+            online: bool,
+            load1: f64,
+            mem: (i64, i64),
+            disk: (i64, i64),
+        ) {
+            // `update_health` 本身会把服务器标成 online（心跳语义），所以离线
+            // 样本必须放在它之后再改状态，否则永远采不到 online = 0。
+            servers::update_health(
+                pool,
+                server_id,
+                "1.0.0",
+                &servers::HealthSnapshot {
+                    load1,
+                    mem_used: mem.0,
+                    mem_total: mem.1,
+                    disk_used: disk.0,
+                    disk_total: disk.1,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+            if online {
+                servers::mark_online(pool, server_id).await.unwrap();
+            } else {
+                servers::mark_offline(pool, server_id).await.unwrap();
+            }
+            record_round(pool, ts).await.unwrap();
+        }
+
+        /// 桶按请求宽度聚合；`online` 用多数（平局算在线）；空桶由接口层补
+        /// `null`，仓储不伪造 0；分母为 0 的 mem/disk 返回 NULL 而不是 0。
+        #[tokio::test]
+        async fn health_buckets_aggregate_levels_and_leave_zero_denominators_null() {
+            let (pool, server_id) = setup().await;
+            let now = crate::time::now();
+            let hour_a = now - now.rem_euclid(3600) - 7200;
+            let hour_b = hour_a + 3600;
+            let hour_c = hour_b + 3600;
+
+            // A：1 在线 + 1 离线 = 平局，按「在线」处理；load / mem / disk 取平均。
+            sample(
+                &pool,
+                &server_id,
+                hour_a + 300,
+                true,
+                1.0,
+                (50, 100),
+                (20, 100),
+            )
+            .await;
+            sample(
+                &pool,
+                &server_id,
+                hour_a + 600,
+                false,
+                3.0,
+                (25, 100),
+                (40, 100),
+            )
+            .await;
+            // B：1 在线 + 2 离线 = 少数，判离线；一次 mem_total=0 不参与平均。
+            sample(
+                &pool,
+                &server_id,
+                hour_b + 300,
+                true,
+                2.0,
+                (30, 100),
+                (60, 100),
+            )
+            .await;
+            sample(&pool, &server_id, hour_b + 600, false, 2.0, (0, 0), (0, 0)).await;
+            sample(
+                &pool,
+                &server_id,
+                hour_b + 900,
+                false,
+                2.0,
+                (40, 100),
+                (80, 100),
+            )
+            .await;
+
+            let rows = health_buckets(&pool, hour_a, hour_c, 3600).await.unwrap();
+            assert_eq!(rows.len(), 2, "只返回有采样的桶：{rows:?}");
+            assert_eq!(rows[0].server_id, server_id);
+            assert_eq!(rows[0].ts, hour_a);
+            assert_eq!(rows[0].samples, 2);
+            assert_eq!(rows[0].online_samples, 1, "1/2 平局在接口层算在线");
+            assert!((rows[0].load1 - 2.0).abs() < 1e-9);
+            assert!((rows[0].mem_ratio.unwrap() - 0.375).abs() < 1e-9);
+            assert!((rows[0].disk_ratio.unwrap() - 0.30).abs() < 1e-9);
+
+            assert_eq!(rows[1].ts, hour_b);
+            assert_eq!(rows[1].samples, 3);
+            assert_eq!(rows[1].online_samples, 1);
+            assert!((rows[1].mem_ratio.unwrap() - 0.35).abs() < 1e-9);
+            assert!((rows[1].disk_ratio.unwrap() - 0.70).abs() < 1e-9);
+        }
+
+        /// 24h 汇总一次 GROUP BY 算完：样本数用于加权，最坏磁盘取单次采样最大值。
+        #[tokio::test]
+        async fn health_summary_keeps_sample_counts_and_worst_disk() {
+            let (pool, server_id) = setup().await;
+            let now = crate::time::now();
+            let hour = now - now.rem_euclid(3600);
+            sample(
+                &pool,
+                &server_id,
+                hour - 3600 + 300,
+                true,
+                1.0,
+                (10, 100),
+                (10, 100),
+            )
+            .await;
+            sample(
+                &pool,
+                &server_id,
+                hour - 3600 + 600,
+                true,
+                2.0,
+                (20, 100),
+                (91, 100),
+            )
+            .await;
+            sample(
+                &pool,
+                &server_id,
+                hour - 3600 + 900,
+                false,
+                3.0,
+                (30, 100),
+                (0, 0),
+            )
+            .await;
+
+            let rows = health_summary(&pool, now - 86_400, now).await.unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].samples, 3);
+            assert_eq!(rows[0].online_samples, 2);
+            assert!(
+                (rows[0].worst_disk_ratio.unwrap() - 0.91).abs() < 1e-9,
+                "分母为 0 的采样不能把最坏值拉回 0：{rows:?}"
+            );
+
+            let empty = health_summary(&pool, 0, 1).await.unwrap();
+            assert!(empty.is_empty(), "窗口内没有采样时返回空数组");
+        }
+
+        /// 两条 SQL 都必须走 `idx_server_samples_ts`，不能全表扫描。
+        #[tokio::test]
+        async fn health_queries_use_the_timestamp_index() {
+            let db = Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+
+            for sql in [
+                "EXPLAIN QUERY PLAN
+                 SELECT server_id, COUNT(*), SUM(online),
+                        MAX(CASE WHEN disk_total > 0
+                                 THEN CAST(disk_used AS REAL) / disk_total END)
+                 FROM server_samples
+                 WHERE ts >= 0 AND ts <= 3600
+                 GROUP BY server_id",
+                "EXPLAIN QUERY PLAN
+                 SELECT server_id, (ts / 3600) * 3600, COUNT(*), SUM(online),
+                        AVG(load1)
+                 FROM server_samples
+                 WHERE ts >= 0 AND ts < 3600
+                 GROUP BY server_id, (ts / 3600) * 3600",
+            ] {
+                let plan: Vec<(i64, i64, i64, String)> =
+                    sqlx::query_as(sql).fetch_all(&db.pool).await.unwrap();
+                let detail = plan
+                    .iter()
+                    .map(|(_, _, _, detail)| detail.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                assert!(
+                    detail.contains("idx_server_samples_ts"),
+                    "必须命中时间索引：{detail}"
+                );
+                assert!(
+                    !detail.contains("SCAN server_samples") || detail.contains("USING INDEX"),
+                    "不能全表扫描：{detail}"
+                );
+            }
+        }
     }
 }
 

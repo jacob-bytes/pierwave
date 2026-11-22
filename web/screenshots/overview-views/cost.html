@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>成本开销 · 概览三视图原型 / Cost</title>
+  <link rel="stylesheet" href="./prototype.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1>概览</h1>
+        <p class="page-sub">主控、服务器与订阅的实时概况。</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" type="button" title="刷新">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <span>刷新</span>
+        </button>
+        <button class="icon-btn js-theme" type="button" aria-label="切换主题">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="kpi-grid" aria-label="全局指标">
+      <article class="kpi">
+        <div class="kpi-top"><span class="kpi-label">在线服务器</span><span class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></span></div>
+        <div class="kpi-value">9 <small>/ 10</small></div>
+        <div class="kpi-foot"><span>1 台离线</span><span class="muted">1 台无采样</span></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-top"><span class="kpi-label">用户</span><span class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span></div>
+        <div class="kpi-value">6 <small>/ 6</small></div>
+        <div class="kpi-foot"><span>共 6 个用户</span></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-top"><span class="kpi-label">套餐实例</span><span class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></span></div>
+        <div class="kpi-value">5</div>
+        <div class="kpi-foot"><span>共 4 个套餐模板</span></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-top"><span class="kpi-label">今日流量</span><span class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span></div>
+        <div class="kpi-value">32 <small>GB</small></div>
+        <div class="kpi-foot"><span>本月 254 GB</span><span class="muted">较昨日 ↓ 23.8%</span></div>
+      </article>
+    </section>
+
+    <section class="insight" aria-label="运行洞察">
+      <div class="insight-bar">
+        <div class="tabs" role="tablist" aria-label="概览视图">
+          <a class="tab" href="./server.html" role="tab" aria-selected="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
+            服务器状态
+          </a>
+          <a class="tab" href="./cost.html" role="tab" aria-selected="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/></svg>
+            成本开销
+          </a>
+          <a class="tab" href="./chain.html" role="tab" aria-selected="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h5a4 4 0 0 1 4 4v4a4 4 0 0 0 4 4"/></svg>
+            链路时延
+          </a>
+        </div>
+        <span class="asof">2026-11-22 · 手动汇率</span>
+      </div>
+
+      <div class="view" role="tabpanel" aria-label="成本开销">
+        <section class="metric-strip" aria-label="成本指标">
+          <div class="metric">
+            <div class="metric-label">月均开销</div>
+            <div class="metric-value" id="cost-monthly">—</div>
+            <div class="metric-sub" id="cost-monthly-sub">—</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">年度总开销</div>
+            <div class="metric-value" id="cost-annual">—</div>
+            <div class="metric-sub" id="cost-annual-sub">—</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">未来 12 个月</div>
+            <div class="metric-value" id="cost-next">—</div>
+            <div class="metric-sub" id="cost-next-sub">—</div>
+          </div>
+        </section>
+
+        <div class="fx-line" aria-label="汇率说明">
+          <span>按设置中的手动汇率折算为 CNY</span>
+          <span class="fx-rates" id="fx-rates"></span>
+          <a class="fx-link" href="#" title="设置 → 汇率 / Settings → FX rates">管理汇率</a>
+          <span class="fx-hint">· 手动汇率，需自行维护</span>
+        </div>
+
+        <div class="warn-row cost-warning" id="cost-warning" hidden></div>
+
+        <div class="cost-grid">
+          <section class="card cost-calendar-card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">未来 12 个月付款日历</h2>
+                <p class="card-desc">2026-11 → 2027-10 · 每格是一笔按周期应付的金额</p>
+              </div>
+              <div class="card-tools">
+                <div class="cost-legend" aria-label="付款日历图例">
+                  <span class="legend-item"><span class="swatch pay1"></span>低</span>
+                  <span class="legend-item"><span class="swatch pay3"></span>高</span>
+                  <span class="legend-item"><span class="swatch prepaid"></span>已预付</span>
+                  <span class="legend-item"><span class="swatch blank"></span>无付款</span>
+                </div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="cal" id="cost-calendar" role="img" aria-label="未来 12 个月各服务器付款金额热力图"></div>
+              <div class="cost-foot">
+                <p class="footnote" id="cost-once">一次性费用单独列出，不计入年化/预测。</p>
+                <span class="chip">颜色按 CNY 金额</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="cost-side">
+          <section class="card cost-bars-card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">开销大头</h2>
+                <p class="card-desc">按折算后的月均开销排序</p>
+              </div>
+              <span class="chip">Top 5</span>
+            </div>
+            <div class="card-body">
+              <div class="bar-list" id="cost-bars"></div>
+              <div class="cost-foot">
+                <p class="footnote">一次性与未配置汇率的币种未计入；原币金额见 tooltip。</p>
+                <span class="top-share" id="cost-top-share">—</span>
+              </div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">币种构成</h2>
+                <p class="card-desc">折算前后对照，仅计周期性支出</p>
+              </div>
+              <span class="chip">4 币种</span>
+            </div>
+            <div class="card-body">
+              <div class="mix-bar" id="currency-mix" role="img" aria-label="按币种折算后的 CNY 开销构成"></div>
+              <div class="mix-rows" id="currency-mix-legend"></div>
+            </div>
+          </section>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <details class="spec">
+      <summary>数据映射 / Data mapping（原型说明）</summary>
+      <div class="spec-body">
+        <p><strong>x</strong>：未来 12 个自然月；<strong>y</strong>：服务器（按币种分组、组内按月均 CNY 降序）。<strong>颜色</strong>：该月应付金额，按全部服务器中最大的一笔单期金额归一；斜纹 = 已预付，空白 = 本周期无付款。</p>
+        <p><strong>tooltip</strong>：服务器、月份、原币金额、手动汇率、折算后 CNY。<strong>空态</strong>：没有价格/周期时显示引导去服务器页填写；未知币种单独列出，不进入总额。</p>
+        <p><strong>折算</strong>：<code>monthly_cny = round(price_cents / cycle_months × fx_rate)</code>；年化 = 月均 × 12；未来 12 个月 = 从 <code>paid_until</code> 起按周期排期。一次性费用不计入年化或未来 12 个月，单独列出。</p>
+      </div>
+    </details>
+  </div>
+
+  <script src="./prototype.js"></script>
+  <script>
+    PV.initCost({
+      today: "2026-11-22",
+      rates: { CNY: 1, USD: 7.2, EUR: 7.8, JPY: 0.048 },
+      servers: [
+        { name: "香港-01", currency: "CNY", priceCents: 26800, count: 1, unit: "month", paidUntil: "2027-02-17" },
+        { name: "香港-02", currency: "CNY", priceCents: 12800, count: 1, unit: "month", paidUntil: "2026-12-05" },
+        { name: "香港-03", currency: "CNY", priceCents: 8800, count: 1, unit: "month", paidUntil: "2026-12-10" },
+        { name: "新加坡-01", currency: "CNY", priceCents: 99900, count: 1, unit: "year", paidUntil: "2027-03-01" },
+        { name: "新加坡-02", currency: "CNY", priceCents: 15800, count: 1, unit: "month", paidUntil: "2026-12-01" },
+        { name: "东京-01", currency: "USD", priceCents: 4999, count: 1, unit: "month", paidUntil: "2026-11-23" },
+        { name: "东京-02", currency: "USD", priceCents: 4999, count: 1, unit: "month", paidUntil: "2026-11-23" },
+        { name: "法兰克福-01", currency: "EUR", priceCents: 3900, count: 1, unit: "month", paidUntil: "2026-12-15" },
+        { name: "大阪-01", currency: "JPY", priceCents: 128000, count: 1, unit: "month", paidUntil: "2026-11-19" },
+        { name: "美西-01", currency: "CNY", priceCents: 199900, count: 1, unit: "once", paidUntil: "2027-06-30" },
+        { name: "迪拜-01", currency: "AED", priceCents: 32000, count: 1, unit: "month", paidUntil: "2026-12-08" },
+        { name: "探针-待接入", currency: null, priceCents: null, count: null, unit: null, paidUntil: null }
+      ]
+    });
+  </script>
+</body>
+</html>

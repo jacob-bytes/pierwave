@@ -2512,3 +2512,68 @@ S3/OSS/B2 等对象存储不在本期范围。
 > the retention deletion count). The 390 shots use a taller viewport (390 × 1500)
 > because the card itself is taller than a phone screen; the width and responsive
 > layout are still the 390 breakpoint.
+
+## P19：自动汇率与服务器态势
+
+成本视图需要把外币价格折算成 CNY，管理员需要在一屏里看到服务器健康趋势。
+两项都不新增迁移：汇率复用 `settings` 表，态势聚合只读 `server_samples`。
+完整契约见 [FX-AND-SERVER-HEALTH.md](FX-AND-SERVER-HEALTH.md)。
+
+### 自动汇率（master 可联网，后台任务）
+
+设置键：`fx_rates`（值是一段 JSON，语义为 **1 外币 = 多少 CNY**）：
+
+```json
+{
+  "base": "CNY",
+  "rates": { "USD": 7.2, "EUR": 7.8, "JPY": 0.048 },
+  "fetched_at": 1763700000,
+  "source": "open.er-api.com"
+}
+```
+
+| 键 / 字段 | 类型 | 默认 | 说明 |
+|---|---|---|---|
+| `fx_rates` | string(JSON) | `""` | `GET /settings` 以字符串回显（与 key/value TEXT 同形）；PATCH 接受对象或 JSON 字符串 |
+| `fx_rates_updated_at` | int | `0` | 只读派生值 = `fx_rates.fetched_at`；从未抓取为 0 |
+
+- 上游 `https://open.er-api.com/v6/latest/CNY`（免 key），把 `1 CNY = x 外币`
+  反算成 `1 外币 = 1/x CNY`；只允许 https，5 秒超时。
+- 启动后立即检查一次，缺失或超过 24h 才抓；之后每 6h 检查。抓取在后台任务里，
+  接口不可达只 `warn`，**不影响启动与设置读取**。
+- 校验 `result=success`、`base_code=CNY`、每个报价/反算汇率在 `0.0001..=10000`、
+  `USD/EUR/JPY` 必须存在；任何失败都保留旧值，不覆盖。
+- 手动覆盖会把 `fetched_at` 写成当前时间、`source` 写成 `manual`；24h 内自动
+  任务不覆盖，满 24h 后恢复自动。不提供 `fx_auto` 开关：手动覆盖 ≈ 一次成功
+  抓取，只保留一条规则。
+- 生产路径用系统 `curl`（与版本检测/告警/WebDAV 一致），不新增 HTTP 客户端依赖；
+  测试注入 fetcher，不联网。
+
+### 服务器态势
+
+`GET /api/v1/overview/server-health?hours=168&bucket=3600`（require_admin）：
+
+- `hours` 1..=168（默认 24），`bucket` 300..=86400 且能整除 `hours*3600`
+  （默认 3600）；非法参数 400。
+- `buckets` 长度固定 = `hours*3600/bucket`，当前桶可在进行中；无采样桶是
+  `null`（不是 0）。
+- 桶内 `online` 用多数判定（`online_samples*2 >= samples`，平局算在线）；
+  `load1/mem_ratio/disk_ratio` 取平均，分母为 0 的采样不参与 mem/disk 平均。
+- 每台服务器 `online_ratio` = 窗口内按采样数加权的可用率；`summary` 的
+  `online_ratio_24h` 独立于 `hours`，始终是最近 24h 的加权值。
+- `abnormal_servers` = 24h 可用率 < 90% 或最坏磁盘 >= 90% 的服务器数；
+  窗口内无采样的服务器不计。`worst_disk_ratio` 是 24h 单次采样最大值。
+- 两条 SQL 都是跨服务器一次 `GROUP BY`，窗口条件命中
+  `idx_server_samples_ts`；域层测试锁定 `EXPLAIN QUERY PLAN`。
+- 结果缓存 30 秒（key = `(hours, bucket)`），响应头
+  `X-Server-Health-Cache: hit|miss`。
+
+English: P19 adds an automatic FX cache in `settings` (fetched in the background
+from open.er-api.com over https, kept on any failure, exposed as a JSON string
+plus a read-only timestamp, with manual overrides lasting 24 hours) and an admin
+`/api/v1/overview/server-health` aggregate. The aggregate returns fixed-length
+hourly (or custom-width) buckets with `null` for missing samples, uses majority
+vote for online, averages load/memory/disk, performs two cross-server `GROUP BY`
+queries backed by `idx_server_samples_ts`, and caches the response for 30 seconds.
+No migration is needed; full contract and query plan are in
+[FX-AND-SERVER-HEALTH.md](FX-AND-SERVER-HEALTH.md).

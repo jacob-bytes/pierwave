@@ -1,0 +1,3937 @@
+{
+  "generatedAt": "2026-11-22T04:45:51.008Z",
+  "dist": "/Users/jlthzy/Documents/mmrust/web/dist/",
+  "shots": [
+    {
+      "id": "server-dark-1440",
+      "view": null,
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "file": "app-server-dark-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 2613,
+      "viewportWidth": 1440,
+      "viewportHeight": 2669,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1289.71875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": {
+        "cellWidth": 4.90625,
+        "cellHeight": 14,
+        "scrollWidth": 992,
+        "clientWidth": 992,
+        "scrollable": false
+      },
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 1313
+    },
+    {
+      "id": "server-light-1440",
+      "view": "server",
+      "theme": "light",
+      "width": 1440,
+      "mock": "normal",
+      "file": "app-server-light-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 2613,
+      "viewportWidth": 1440,
+      "viewportHeight": 2669,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1289.71875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": {
+        "cellWidth": 4.90625,
+        "cellHeight": 14,
+        "scrollWidth": 992,
+        "clientWidth": 992,
+        "scrollable": false
+      },
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 1313
+    },
+    {
+      "id": "server-dark-390",
+      "view": "server",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "file": "app-server-dark-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 3859,
+      "viewportWidth": 390,
+      "viewportHeight": 3915,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1654.859375,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": {
+        "cellWidth": 22.375,
+        "cellHeight": 14,
+        "scrollWidth": 560,
+        "clientWidth": 214,
+        "scrollable": true
+      },
+      "costCalendar": null,
+      "hasScrollHint": true,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1679
+    },
+    {
+      "id": "server-light-390",
+      "view": "server",
+      "theme": "light",
+      "width": 390,
+      "mock": "normal",
+      "file": "app-server-light-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 3859,
+      "viewportWidth": 390,
+      "viewportHeight": 3915,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1654.859375,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": {
+        "cellWidth": 22.375,
+        "cellHeight": 14,
+        "scrollWidth": 560,
+        "clientWidth": 214,
+        "scrollable": true
+      },
+      "costCalendar": null,
+      "hasScrollHint": true,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1679
+    },
+    {
+      "id": "cost-dark-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "file": "app-cost-dark-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 2301,
+      "viewportWidth": 1440,
+      "viewportHeight": 2357,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 977.90625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": {
+        "cellWidth": 46.890625,
+        "cellHeight": 32,
+        "scrollWidth": 763,
+        "clientWidth": 763,
+        "scrollable": false
+      },
+      "hasScrollHint": false,
+      "costDebug": {
+        "metrics": [
+          "月均（CNY）",
+          "9 台周期性计费",
+          "年化",
+          "当前周期年化 · 不含一次性",
+          "未来 12 个月",
+          "比年化少 ¥18,584.48（已预付）"
+        ],
+        "monthHeaders": [
+          {
+            "text": "",
+            "left": 280,
+            "width": 120
+          },
+          {
+            "text": "11月",
+            "left": 404,
+            "width": 46.875
+          },
+          {
+            "text": "12月",
+            "left": 454.875,
+            "width": 46.890625
+          },
+          {
+            "text": "1月",
+            "left": 505.765625,
+            "width": 46.890625
+          },
+          {
+            "text": "2月",
+            "left": 556.65625,
+            "width": 46.890625
+          },
+          {
+            "text": "3月",
+            "left": 607.546875,
+            "width": 46.890625
+          },
+          {
+            "text": "4月",
+            "left": 658.4375,
+            "width": 46.875
+          },
+          {
+            "text": "5月",
+            "left": 709.3125,
+            "width": 46.890625
+          },
+          {
+            "text": "6月",
+            "left": 760.203125,
+            "width": 46.890625
+          },
+          {
+            "text": "7月",
+            "left": 811.09375,
+            "width": 46.890625
+          },
+          {
+            "text": "8月",
+            "left": 861.984375,
+            "width": 46.890625
+          },
+          {
+            "text": "9月",
+            "left": 912.875,
+            "width": 46.890625
+          },
+          {
+            "text": "10月",
+            "left": 963.765625,
+            "width": 46.875
+          }
+        ],
+        "rows": [
+          {
+            "cells": [
+              {
+                "text": "USD · 2 台 · ¥3,312.00/月",
+                "left": 280,
+                "width": 120
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-01",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "8,640",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          }
+        ]
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 1001
+    },
+    {
+      "id": "cost-light-1440",
+      "view": "cost",
+      "theme": "light",
+      "width": 1440,
+      "mock": "normal",
+      "file": "app-cost-light-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 2301,
+      "viewportWidth": 1440,
+      "viewportHeight": 2357,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 977.90625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": {
+        "cellWidth": 46.890625,
+        "cellHeight": 32,
+        "scrollWidth": 763,
+        "clientWidth": 763,
+        "scrollable": false
+      },
+      "hasScrollHint": false,
+      "costDebug": {
+        "metrics": [
+          "月均（CNY）",
+          "9 台周期性计费",
+          "年化",
+          "当前周期年化 · 不含一次性",
+          "未来 12 个月",
+          "比年化少 ¥18,584.48（已预付）"
+        ],
+        "monthHeaders": [
+          {
+            "text": "",
+            "left": 280,
+            "width": 120
+          },
+          {
+            "text": "11月",
+            "left": 404,
+            "width": 46.875
+          },
+          {
+            "text": "12月",
+            "left": 454.875,
+            "width": 46.890625
+          },
+          {
+            "text": "1月",
+            "left": 505.765625,
+            "width": 46.890625
+          },
+          {
+            "text": "2月",
+            "left": 556.65625,
+            "width": 46.890625
+          },
+          {
+            "text": "3月",
+            "left": 607.546875,
+            "width": 46.890625
+          },
+          {
+            "text": "4月",
+            "left": 658.4375,
+            "width": 46.875
+          },
+          {
+            "text": "5月",
+            "left": 709.3125,
+            "width": 46.890625
+          },
+          {
+            "text": "6月",
+            "left": 760.203125,
+            "width": 46.890625
+          },
+          {
+            "text": "7月",
+            "left": 811.09375,
+            "width": 46.890625
+          },
+          {
+            "text": "8月",
+            "left": 861.984375,
+            "width": 46.890625
+          },
+          {
+            "text": "9月",
+            "left": 912.875,
+            "width": 46.890625
+          },
+          {
+            "text": "10月",
+            "left": 963.765625,
+            "width": 46.875
+          }
+        ],
+        "rows": [
+          {
+            "cells": [
+              {
+                "text": "USD · 2 台 · ¥3,312.00/月",
+                "left": 280,
+                "width": 120
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-01",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "8,640",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          }
+        ]
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 1001
+    },
+    {
+      "id": "cost-dark-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "file": "app-cost-dark-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 3882,
+      "viewportWidth": 390,
+      "viewportHeight": 3938,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1677.171875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": {
+        "cellWidth": 44,
+        "cellHeight": 32,
+        "scrollWidth": 712,
+        "clientWidth": 342,
+        "scrollable": true
+      },
+      "hasScrollHint": true,
+      "costDebug": {
+        "metrics": [
+          "月均（CNY）",
+          "9 台周期性计费",
+          "年化",
+          "当前周期年化 · 不含一次性",
+          "未来 12 个月",
+          "比年化少 ¥18,584.48（已预付）"
+        ],
+        "monthHeaders": [
+          {
+            "text": "",
+            "left": 40,
+            "width": 120
+          },
+          {
+            "text": "11月",
+            "left": 164,
+            "width": 44
+          },
+          {
+            "text": "12月",
+            "left": 212,
+            "width": 44
+          },
+          {
+            "text": "1月",
+            "left": 260,
+            "width": 44
+          },
+          {
+            "text": "2月",
+            "left": 308,
+            "width": 44
+          },
+          {
+            "text": "3月",
+            "left": 356,
+            "width": 44
+          },
+          {
+            "text": "4月",
+            "left": 404,
+            "width": 44
+          },
+          {
+            "text": "5月",
+            "left": 452,
+            "width": 44
+          },
+          {
+            "text": "6月",
+            "left": 500,
+            "width": 44
+          },
+          {
+            "text": "7月",
+            "left": 548,
+            "width": 44
+          },
+          {
+            "text": "8月",
+            "left": 596,
+            "width": 44
+          },
+          {
+            "text": "9月",
+            "left": 644,
+            "width": 44
+          },
+          {
+            "text": "10月",
+            "left": 692,
+            "width": 44
+          }
+        ],
+        "rows": [
+          {
+            "cells": [
+              {
+                "text": "USD · 2 台 · ¥3,312.00/月",
+                "left": 40,
+                "width": 120
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 692,
+                "width": 44
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-01",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "8,640",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 692,
+                "width": 44
+              }
+            ]
+          }
+        ]
+      },
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1702
+    },
+    {
+      "id": "cost-light-390",
+      "view": "cost",
+      "theme": "light",
+      "width": 390,
+      "mock": "normal",
+      "file": "app-cost-light-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 3882,
+      "viewportWidth": 390,
+      "viewportHeight": 3938,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1677.171875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": {
+        "cellWidth": 44,
+        "cellHeight": 32,
+        "scrollWidth": 712,
+        "clientWidth": 342,
+        "scrollable": true
+      },
+      "hasScrollHint": true,
+      "costDebug": {
+        "metrics": [
+          "月均（CNY）",
+          "9 台周期性计费",
+          "年化",
+          "当前周期年化 · 不含一次性",
+          "未来 12 个月",
+          "比年化少 ¥18,584.48（已预付）"
+        ],
+        "monthHeaders": [
+          {
+            "text": "",
+            "left": 40,
+            "width": 120
+          },
+          {
+            "text": "11月",
+            "left": 164,
+            "width": 44
+          },
+          {
+            "text": "12月",
+            "left": 212,
+            "width": 44
+          },
+          {
+            "text": "1月",
+            "left": 260,
+            "width": 44
+          },
+          {
+            "text": "2月",
+            "left": 308,
+            "width": 44
+          },
+          {
+            "text": "3月",
+            "left": 356,
+            "width": 44
+          },
+          {
+            "text": "4月",
+            "left": 404,
+            "width": 44
+          },
+          {
+            "text": "5月",
+            "left": 452,
+            "width": 44
+          },
+          {
+            "text": "6月",
+            "left": 500,
+            "width": 44
+          },
+          {
+            "text": "7月",
+            "left": 548,
+            "width": 44
+          },
+          {
+            "text": "8月",
+            "left": 596,
+            "width": 44
+          },
+          {
+            "text": "9月",
+            "left": 644,
+            "width": 44
+          },
+          {
+            "text": "10月",
+            "left": 692,
+            "width": 44
+          }
+        ],
+        "rows": [
+          {
+            "cells": [
+              {
+                "text": "USD · 2 台 · ¥3,312.00/月",
+                "left": 40,
+                "width": 120
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 692,
+                "width": 44
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-01",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "8,640",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 692,
+                "width": 44
+              }
+            ]
+          }
+        ]
+      },
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1702
+    },
+    {
+      "id": "server-empty-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "serverEmpty",
+      "file": "app-server-empty-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1682,
+      "viewportWidth": 1440,
+      "viewportHeight": 1738,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 358.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 382
+    },
+    {
+      "id": "server-empty-390",
+      "view": "server",
+      "theme": "dark",
+      "width": 390,
+      "mock": "serverEmpty",
+      "file": "app-server-empty-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2609,
+      "viewportWidth": 390,
+      "viewportHeight": 2665,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 404.78125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 429
+    },
+    {
+      "id": "server-unsupported-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "serverUnsupported",
+      "file": "app-server-unsupported-1440.png",
+      "httpErrors": [
+        "404 /api/v1/overview/server-health"
+      ],
+      "pageWidth": 1440,
+      "pageHeight": 1634,
+      "viewportWidth": 1440,
+      "viewportHeight": 1690,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 310.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 334
+    },
+    {
+      "id": "server-error-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "serverError",
+      "file": "app-server-error-1440.png",
+      "httpErrors": [
+        "500 /api/v1/overview/server-health"
+      ],
+      "pageWidth": 1440,
+      "pageHeight": 1634,
+      "viewportWidth": 1440,
+      "viewportHeight": 1690,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 310.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 334
+    },
+    {
+      "id": "server-forbidden-1440",
+      "view": "server",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "serverForbidden",
+      "file": "app-server-forbidden-1440.png",
+      "httpErrors": [
+        "403 /api/v1/overview/server-health"
+      ],
+      "pageWidth": 1440,
+      "pageHeight": 1634,
+      "viewportWidth": 1440,
+      "viewportHeight": 1690,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 310.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 334
+    },
+    {
+      "id": "cost-empty-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "costEmpty",
+      "file": "app-cost-empty-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1704,
+      "viewportWidth": 1440,
+      "viewportHeight": 1760,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 380.78125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 404
+    },
+    {
+      "id": "cost-empty-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "mock": "costEmpty",
+      "file": "app-cost-empty-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2609,
+      "viewportWidth": 390,
+      "viewportHeight": 2665,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 404.78125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 429
+    },
+    {
+      "id": "cost-error-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "costError",
+      "file": "app-cost-error-1440.png",
+      "httpErrors": [
+        "500 /api/v1/servers",
+        "500 /api/v1/servers"
+      ],
+      "pageWidth": 1440,
+      "pageHeight": 1634,
+      "viewportWidth": 1440,
+      "viewportHeight": 1690,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 310.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 334
+    },
+    {
+      "id": "chain-dark-1440",
+      "view": "chain",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "normal",
+      "file": "app-chain-dark-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1671,
+      "viewportWidth": 1440,
+      "viewportHeight": 1727,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 347.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": true
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 371
+    },
+    {
+      "id": "chain-light-1440",
+      "view": "chain",
+      "theme": "light",
+      "width": 1440,
+      "mock": "normal",
+      "file": "app-chain-light-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 1671,
+      "viewportWidth": 1440,
+      "viewportHeight": 1727,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 347.390625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": true
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 371
+    },
+    {
+      "id": "chain-dark-390",
+      "view": "chain",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "file": "app-chain-dark-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 2590,
+      "viewportWidth": 390,
+      "viewportHeight": 2646,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 385.78125,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": true
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 410
+    },
+    {
+      "id": "server-en-390",
+      "view": "server",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "locale": "en",
+      "file": "app-server-en-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 4015,
+      "viewportWidth": 390,
+      "viewportHeight": 4071,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1697.9375,
+      "tabs": [
+        {
+          "text": "Server status",
+          "selected": true
+        },
+        {
+          "text": "Cost",
+          "selected": false
+        },
+        {
+          "text": "Chain latency",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": {
+        "cellWidth": 22.375,
+        "cellHeight": 14,
+        "scrollWidth": 560,
+        "clientWidth": 214,
+        "scrollable": true
+      },
+      "costCalendar": null,
+      "hasScrollHint": false,
+      "costDebug": null,
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1722
+    },
+    {
+      "id": "cost-en-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "mock": "normal",
+      "locale": "en",
+      "file": "app-cost-en-390.png",
+      "httpErrors": [],
+      "pageWidth": 390,
+      "pageHeight": 4010,
+      "viewportWidth": 390,
+      "viewportHeight": 4066,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1693.171875,
+      "tabs": [
+        {
+          "text": "Server status",
+          "selected": false
+        },
+        {
+          "text": "Cost",
+          "selected": true
+        },
+        {
+          "text": "Chain latency",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "grid",
+        "width": 342,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": {
+        "cellWidth": 44,
+        "cellHeight": 32,
+        "scrollWidth": 712,
+        "clientWidth": 342,
+        "scrollable": true
+      },
+      "hasScrollHint": false,
+      "costDebug": {
+        "metrics": [
+          "Monthly (CNY)",
+          "9 servers billed periodically",
+          "Annualized",
+          "Annualized · excludes one-time",
+          "Next 12 months",
+          "Less ¥18,584.48 (prepaid)"
+        ],
+        "monthHeaders": [
+          {
+            "text": "",
+            "left": 40,
+            "width": 120
+          },
+          {
+            "text": "Nov",
+            "left": 164,
+            "width": 44
+          },
+          {
+            "text": "Dec",
+            "left": 212,
+            "width": 44
+          },
+          {
+            "text": "Jan",
+            "left": 260,
+            "width": 44
+          },
+          {
+            "text": "Feb",
+            "left": 308,
+            "width": 44
+          },
+          {
+            "text": "Mar",
+            "left": 356,
+            "width": 44
+          },
+          {
+            "text": "Apr",
+            "left": 404,
+            "width": 44
+          },
+          {
+            "text": "May",
+            "left": 452,
+            "width": 44
+          },
+          {
+            "text": "Jun",
+            "left": 500,
+            "width": 44
+          },
+          {
+            "text": "Jul",
+            "left": 548,
+            "width": 44
+          },
+          {
+            "text": "Aug",
+            "left": 596,
+            "width": 44
+          },
+          {
+            "text": "Sep",
+            "left": 644,
+            "width": 44
+          },
+          {
+            "text": "Oct",
+            "left": 692,
+            "width": 44
+          }
+        ],
+        "rows": [
+          {
+            "cells": [
+              {
+                "text": "USD · 2 · ¥3,312.00/mo",
+                "left": 40,
+                "width": 120
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "2,592",
+                "left": 692,
+                "width": 44
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-01",
+                "left": 40,
+                "width": 120
+              },
+              {
+                "text": "8,640",
+                "left": 164,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 212,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 260,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 308,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 356,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 452,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 500,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 548,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 596,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 644,
+                "width": 44
+              },
+              {
+                "text": "",
+                "left": 692,
+                "width": 44
+              }
+            ]
+          }
+        ]
+      },
+      "debug": {
+        "mainClientWidth": 390,
+        "mainScrollWidth": 390,
+        "bodyClientWidth": 390,
+        "bodyScrollWidth": 390,
+        "rootScrollWidth": 390,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 342,
+            "scrollWidth": 342
+          }
+        ],
+        "wideElements": []
+      },
+      "pageHeightDelta": 1717
+    },
+    {
+      "id": "cost-manual-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "mock": "costManual",
+      "file": "app-cost-manual-1440.png",
+      "httpErrors": [],
+      "pageWidth": 1440,
+      "pageHeight": 2301,
+      "viewportWidth": 1440,
+      "viewportHeight": 2357,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 977.90625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "tabsList": {
+        "display": "flex",
+        "width": 290,
+        "className": "group/tabs-list items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none bg-muted grid w-full grid-cols-3 self-start sm:inline-flex sm:w-auto"
+      },
+      "heatmap": null,
+      "costCalendar": {
+        "cellWidth": 46.890625,
+        "cellHeight": 32,
+        "scrollWidth": 763,
+        "clientWidth": 763,
+        "scrollable": false
+      },
+      "hasScrollHint": false,
+      "costDebug": {
+        "metrics": [
+          "月均（CNY）",
+          "9 台周期性计费",
+          "年化",
+          "当前周期年化 · 不含一次性",
+          "未来 12 个月",
+          "比年化少 ¥18,584.48（已预付）"
+        ],
+        "monthHeaders": [
+          {
+            "text": "",
+            "left": 280,
+            "width": 120
+          },
+          {
+            "text": "11月",
+            "left": 404,
+            "width": 46.875
+          },
+          {
+            "text": "12月",
+            "left": 454.875,
+            "width": 46.890625
+          },
+          {
+            "text": "1月",
+            "left": 505.765625,
+            "width": 46.890625
+          },
+          {
+            "text": "2月",
+            "left": 556.65625,
+            "width": 46.890625
+          },
+          {
+            "text": "3月",
+            "left": 607.546875,
+            "width": 46.890625
+          },
+          {
+            "text": "4月",
+            "left": 658.4375,
+            "width": 46.875
+          },
+          {
+            "text": "5月",
+            "left": 709.3125,
+            "width": 46.890625
+          },
+          {
+            "text": "6月",
+            "left": 760.203125,
+            "width": 46.890625
+          },
+          {
+            "text": "7月",
+            "left": 811.09375,
+            "width": 46.890625
+          },
+          {
+            "text": "8月",
+            "left": 861.984375,
+            "width": 46.890625
+          },
+          {
+            "text": "9月",
+            "left": 912.875,
+            "width": 46.890625
+          },
+          {
+            "text": "10月",
+            "left": 963.765625,
+            "width": 46.875
+          }
+        ],
+        "rows": [
+          {
+            "cells": [
+              {
+                "text": "USD · 2 台 · ¥3,312.00/月",
+                "left": 280,
+                "width": 120
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-02",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "2,592",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          },
+          {
+            "cells": [
+              {
+                "text": "东京-01",
+                "left": 280,
+                "width": 120
+              },
+              {
+                "text": "8,640",
+                "left": 404,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 455,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 506,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 557,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 608,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 658,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 709,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 760,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 811,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 862,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 913,
+                "width": 47
+              },
+              {
+                "text": "",
+                "left": 964,
+                "width": 47
+              }
+            ]
+          }
+        ]
+      },
+      "debug": {
+        "mainClientWidth": 1200,
+        "mainScrollWidth": 1200,
+        "bodyClientWidth": 1440,
+        "bodyScrollWidth": 1440,
+        "rootScrollWidth": 1440,
+        "directChildren": [
+          {
+            "tag": "DIV",
+            "cls": "animate-enter space-y-6",
+            "width": 1152,
+            "scrollWidth": 1152
+          }
+        ],
+        "wideElements": [
+          {
+            "tag": "DIV",
+            "slot": null,
+            "cls": "animate-enter space-y-6",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "HEADER",
+            "slot": "page-header",
+            "cls": "flex flex-wrap items-end justify-between gap-3",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "page-header-actions",
+            "cls": "flex flex-wrap items-center gap-2",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "BUTTON",
+            "slot": "button",
+            "cls": "group/button inline-flex shrink-0 items-center justify-center border bg-clip-padding font-medium whitespace-nowrap transition-all duration-150 outline-none sele",
+            "left": 1350.390625,
+            "right": 1416,
+            "width": 65.609375
+          },
+          {
+            "tag": "svg",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1361.390625,
+            "right": 1375.390625,
+            "width": 14
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1370.7239990234375,
+            "right": 1373.640625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1373.640625,
+            "width": 10.5
+          },
+          {
+            "tag": "path",
+            "slot": null,
+            "cls": "[object SVGAnimatedString]",
+            "left": 1363.140625,
+            "right": 1366.0572509765625,
+            "width": 2.9166259765625
+          },
+          {
+            "tag": "SECTION",
+            "slot": null,
+            "cls": "grid grid-cols-2 gap-4 xl:grid-cols-4",
+            "left": 264,
+            "right": 1416,
+            "width": 1152
+          },
+          {
+            "tag": "DIV",
+            "slot": "card",
+            "cls": "group/card flex flex-col overflow-hidden rounded-xl bg-card py-(--card-spacing) text-sm text-card-foreground shadow-card ring-1 ring-foreground/10 [--card-spaci",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          },
+          {
+            "tag": "DIV",
+            "slot": "card-header",
+            "cls": "group/card-header @container/card-header grid auto-rows-min rounded-t-xl px-(--card-spacing) has-data-[slot=card-action]:grid-cols-[1fr_auto] has-data-[slot=car",
+            "left": 1140,
+            "right": 1416,
+            "width": 276
+          }
+        ]
+      },
+      "pageHeightDelta": 1001
+    }
+  ],
+  "urlBehavior": {
+    "defaultSearch": "",
+    "defaultSelected": "服务器状态",
+    "costSearch": "?view=cost",
+    "costSelected": "成本开销",
+    "sameDocument": true,
+    "serverSearch": "",
+    "serverSelected": "服务器状态",
+    "sameDocumentAfterReturn": true
+  },
+  "errors": []
+}

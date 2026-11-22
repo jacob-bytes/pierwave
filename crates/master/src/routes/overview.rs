@@ -7,11 +7,13 @@
 //! 与旧接口的差异：`days` 非法（非整数或不在 1..=90）一律 400，错误码沿用
 //! `query.*` 风格，而不是像 `/stats/traffic` 那样夹到边界。
 
+use std::collections::HashMap;
+
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue};
 use axum::Json;
-use serde::Deserialize;
-use serde_json::json;
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use pierwave_domain::repo;
 
@@ -21,6 +23,18 @@ use crate::state::AppState;
 
 const DEFAULT_DAYS: i64 = 7;
 const MAX_DAYS: i64 = 90;
+
+/// 服务器态势的窗口上限：采样只保留 7 天，再大也查不到数据。
+const HEALTH_MAX_HOURS: i64 = 168;
+const HEALTH_DEFAULT_HOURS: i64 = 24;
+/// 桶宽：最小 5 分钟（采样粒度），最大 1 天，必须是 5 分钟的整数倍。
+const HEALTH_MIN_BUCKET: i64 = 300;
+const HEALTH_MAX_BUCKET: i64 = 86_400;
+const HEALTH_BUCKET_STEP: i64 = 300;
+const HEALTH_DEFAULT_BUCKET: i64 = 3600;
+/// 「异常服务器」阈值：24h 可用率低于 90%，或 24h 内最坏磁盘占用达到 90%。
+const ABNORMAL_ONLINE_RATIO: f64 = 0.9;
+const ABNORMAL_DISK_RATIO: f64 = 0.9;
 
 #[derive(Deserialize)]
 pub struct OverviewQuery {
@@ -78,6 +92,238 @@ fn days_invalid() -> AppError {
         "query.days_invalid",
         Some(json!({ "min": 1, "max": MAX_DAYS })),
         format!("days 必须是 1-{MAX_DAYS} 的整数"),
+    )
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ServerHealthQuery {
+    /// 故意接成字符串：`hours=abc` 要返回带 code 的 400，而不是 axum 的纯文本。
+    pub hours: Option<String>,
+    pub bucket: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ServerHealthSummary {
+    /// 24h 全局可用率（按采样数加权）；窗口内没有采样时是 null，不是 0。
+    online_ratio_24h: Option<f64>,
+    /// 24h 可用率 < 90% 或最坏磁盘 >= 90% 的服务器数；没有采样的服务器不计。
+    abnormal_servers: i64,
+    /// 24h 内单次采样的最坏磁盘占用比；没有有效分母时是 null。
+    worst_disk_ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ServerHealthBucketView {
+    ts: i64,
+    /// 该桶多数采样在线（`online_samples * 2 >= samples`，平局算在线）。
+    online: bool,
+    load1: f64,
+    mem_ratio: Option<f64>,
+    disk_ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ServerHealthServer {
+    id: String,
+    name: String,
+    /// 请求窗口内的可用率；没有采样时是 null。
+    online_ratio: Option<f64>,
+    /// 固定长度 = `hours * 3600 / bucket`；没有采样的桶是 null。
+    buckets: Vec<Option<ServerHealthBucketView>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ServerHealthResponse {
+    generated_at: i64,
+    hours: i64,
+    bucket: i64,
+    summary: ServerHealthSummary,
+    servers: Vec<ServerHealthServer>,
+}
+
+/// `GET /api/v1/overview/server-health?hours=168&bucket=3600`（仅管理员）。
+///
+/// 聚合口径：
+/// * 桶内 `online` 用**多数**（`AVG(online) >= 0.5`，平局算在线）；5 分钟采样下
+///   平局只可能是偶数个采样，偏向在线与「可用率分母包含离线时段」的直觉一致；
+/// * `load1/mem_ratio/disk_ratio` 取桶内平均；分母为 0 的采样不参与 mem/disk 平均；
+/// * 没有采样的桶返回 `null`（不是 0）：0 会被前端画成「一切正常」；
+/// * 一台服务器的 `buckets` 长度固定等于 `hours * 3600 / bucket`，空桶补 null；
+/// * 24h 汇总独立于请求窗口：`hours=1` 时也能得到真实的 24h 可用率；
+/// * 结果缓存 30 秒（key = `(hours, bucket)`），避免多管理员刷新时重复扫 7 天采样。
+pub async fn server_health(
+    State(state): State<AppState>,
+    user: CurrentUser,
+    Query(query): Query<ServerHealthQuery>,
+) -> AppResult<(HeaderMap, Json<Value>)> {
+    user.require_admin()?;
+    let hours = parse_health_hours(query.hours.as_deref())?;
+    let bucket = parse_health_bucket(query.bucket.as_deref(), hours)?;
+
+    let (body, cache_hit) = match state.server_health.get(hours, bucket) {
+        Some(value) => (value, true),
+        None => {
+            let value = build_server_health(&state, repo::now(), hours, bucket).await?;
+            state.server_health.put(hours, bucket, value.clone());
+            (value, false)
+        }
+    };
+
+    let mut headers = HeaderMap::new();
+    headers.insert(header::VARY, HeaderValue::from_static("Cookie"));
+    headers.insert(
+        HeaderName::from_static("x-server-health-cache"),
+        HeaderValue::from_static(if cache_hit { "hit" } else { "miss" }),
+    );
+    Ok((headers, Json(body)))
+}
+
+async fn build_server_health(
+    state: &AppState,
+    now: i64,
+    hours: i64,
+    bucket: i64,
+) -> AppResult<Value> {
+    let pool = &state.db.pool;
+    let count = hours * 3600 / bucket;
+    let current = now - now.rem_euclid(bucket);
+    let end = current + bucket;
+    let start = end - count * bucket;
+
+    // 两条查询都是「跨服务器一次 GROUP BY」：一条 24h 汇总，一条请求窗口的桶。
+    // 不按服务器循环，服务器数增长时查询次数不变。
+    let summary_rows = repo::server_samples::health_summary(pool, now - 86_400, now).await?;
+    let bucket_rows = repo::server_samples::health_buckets(pool, start, end, bucket).await?;
+
+    let mut total_samples = 0_i64;
+    let mut total_online = 0_i64;
+    let mut worst_disk_ratio: Option<f64> = None;
+    let mut abnormal_servers = 0_i64;
+    for row in &summary_rows {
+        total_samples += row.samples;
+        total_online += row.online_samples;
+        if let Some(ratio) = row.worst_disk_ratio {
+            worst_disk_ratio = Some(worst_disk_ratio.map_or(ratio, |worst| worst.max(ratio)));
+        }
+        let online_ratio = row.online_samples as f64 / row.samples.max(1) as f64;
+        if online_ratio < ABNORMAL_ONLINE_RATIO
+            || row
+                .worst_disk_ratio
+                .is_some_and(|ratio| ratio >= ABNORMAL_DISK_RATIO)
+        {
+            abnormal_servers += 1;
+        }
+    }
+
+    let mut buckets_by_server: HashMap<String, Vec<Option<ServerHealthBucketView>>> =
+        HashMap::new();
+    let mut samples_by_server: HashMap<String, (i64, i64)> = HashMap::new();
+    for row in bucket_rows {
+        let index = (row.ts - start) / bucket;
+        if !(0..count).contains(&index) {
+            // 窗口边界外的行（理论上不会出现）不补进数组，避免下标越界。
+            continue;
+        }
+        let sample_totals = samples_by_server
+            .entry(row.server_id.clone())
+            .or_insert((0, 0));
+        sample_totals.0 += row.samples;
+        sample_totals.1 += row.online_samples;
+        let bucket = ServerHealthBucketView {
+            ts: row.ts,
+            online: row.online_samples * 2 >= row.samples,
+            load1: row.load1,
+            mem_ratio: row.mem_ratio,
+            disk_ratio: row.disk_ratio,
+        };
+        buckets_by_server
+            .entry(row.server_id)
+            .or_insert_with(|| vec![None; count as usize])[index as usize] = Some(bucket);
+    }
+
+    let servers = repo::servers::list(pool)
+        .await?
+        .into_iter()
+        .map(|server| {
+            let (samples, online_samples) =
+                samples_by_server.get(&server.id).copied().unwrap_or((0, 0));
+            ServerHealthServer {
+                id: server.id.clone(),
+                name: server.name,
+                online_ratio: (samples > 0).then(|| online_samples as f64 / samples as f64),
+                buckets: buckets_by_server
+                    .remove(&server.id)
+                    .unwrap_or_else(|| vec![None; count as usize]),
+            }
+        })
+        .collect();
+
+    let response = ServerHealthResponse {
+        generated_at: now,
+        hours,
+        bucket,
+        summary: ServerHealthSummary {
+            online_ratio_24h: (total_samples > 0)
+                .then(|| total_online as f64 / total_samples as f64),
+            abnormal_servers,
+            worst_disk_ratio,
+        },
+        servers,
+    };
+    Ok(serde_json::to_value(response).unwrap_or(Value::Null))
+}
+
+fn parse_health_hours(raw: Option<&str>) -> AppResult<i64> {
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(HEALTH_DEFAULT_HOURS);
+    };
+    let hours = raw.parse::<i64>().map_err(|_| hours_invalid())?;
+    if !(1..=HEALTH_MAX_HOURS).contains(&hours) {
+        return Err(hours_invalid());
+    }
+    Ok(hours)
+}
+
+fn hours_invalid() -> AppError {
+    AppError::coded(
+        "query.server_health_hours_invalid",
+        Some(json!({ "min": 1, "max": HEALTH_MAX_HOURS, "default": HEALTH_DEFAULT_HOURS })),
+        format!(
+            "hours 必须是 1-{HEALTH_MAX_HOURS} 的整数（默认 {HEALTH_DEFAULT_HOURS}） / \
+             hours must be an integer between 1 and {HEALTH_MAX_HOURS}"
+        ),
+    )
+}
+
+fn parse_health_bucket(raw: Option<&str>, hours: i64) -> AppResult<i64> {
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(HEALTH_DEFAULT_BUCKET);
+    };
+    let bucket = raw.parse::<i64>().map_err(|_| bucket_invalid())?;
+    if !(HEALTH_MIN_BUCKET..=HEALTH_MAX_BUCKET).contains(&bucket)
+        || bucket % HEALTH_BUCKET_STEP != 0
+        || (hours * 3600) % bucket != 0
+    {
+        return Err(bucket_invalid());
+    }
+    Ok(bucket)
+}
+
+fn bucket_invalid() -> AppError {
+    AppError::coded(
+        "query.server_health_bucket_invalid",
+        Some(json!({
+            "min": HEALTH_MIN_BUCKET,
+            "max": HEALTH_MAX_BUCKET,
+            "step": HEALTH_BUCKET_STEP,
+            "default": HEALTH_DEFAULT_BUCKET,
+            "rule": "bucket 必须能整除 hours*3600"
+        })),
+        format!(
+            "bucket 必须是 {HEALTH_MIN_BUCKET}-{HEALTH_MAX_BUCKET} 之间 {HEALTH_BUCKET_STEP} 的倍数，\
+             且能整除 hours*3600（默认 {HEALTH_DEFAULT_BUCKET}） / \
+             bucket must be a multiple of {HEALTH_BUCKET_STEP} that divides hours*3600"
+        ),
     )
 }
 
@@ -1294,5 +1540,338 @@ mod tests {
         drop(app);
         drop(state);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- 服务器态势：GET /api/v1/overview/server-health ----
+
+    /// 一台服务器的样本：先写健康字段（`update_health` 会把状态置 online），
+    /// 再按需要改成 offline，最后让采样器抄进 `server_samples`。
+    async fn seed_health_sample(
+        pool: &sqlx::SqlitePool,
+        server_id: &str,
+        ts: i64,
+        online: bool,
+        load1: f64,
+        mem: (i64, i64),
+        disk: (i64, i64),
+    ) {
+        servers::update_health(
+            pool,
+            server_id,
+            "1.0.0",
+            &servers::HealthSnapshot {
+                load1,
+                mem_used: mem.0,
+                mem_total: mem.1,
+                disk_used: disk.0,
+                disk_total: disk.1,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        if online {
+            servers::mark_online(pool, server_id).await.unwrap();
+        } else {
+            servers::mark_offline(pool, server_id).await.unwrap();
+        }
+        repo::server_samples::record_round(pool, ts).await.unwrap();
+    }
+
+    fn hour_before(now: i64, hours: i64) -> i64 {
+        let current = now - now.rem_euclid(3600);
+        current - hours * 3600
+    }
+
+    #[tokio::test]
+    async fn server_health_empty_database_is_all_null_not_zero() {
+        let (app, state, admin) = setup().await;
+
+        let (status, _, body) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=24&bucket=3600",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["hours"], 24);
+        assert_eq!(body["bucket"], 3600);
+        assert!(body["generated_at"].as_i64().unwrap() > 0);
+        assert!(body["summary"]["online_ratio_24h"].is_null(), "{body}");
+        assert!(body["summary"]["worst_disk_ratio"].is_null(), "{body}");
+        assert_eq!(body["summary"]["abnormal_servers"], 0);
+        assert!(body["servers"].as_array().unwrap().is_empty());
+
+        // 有服务器但从未采样：buckets 仍然固定长度、全部 null。
+        let (server, _) = servers::create(&state.db.pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let (status, _, body) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=168&bucket=3600",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let rows = body["servers"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], server.id);
+        assert_eq!(rows[0]["name"], "香港-01");
+        assert!(rows[0]["online_ratio"].is_null());
+        let buckets = rows[0]["buckets"].as_array().unwrap();
+        assert_eq!(buckets.len(), 168, "buckets 长度固定 = hours");
+        assert!(
+            buckets.iter().all(Value::is_null),
+            "没有采样必须是 null，不能是 0"
+        );
+    }
+
+    #[tokio::test]
+    async fn server_health_aggregates_partial_samples_and_applies_the_online_threshold() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let now = repo::now();
+        let (server, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+
+        // 上一个小时：1 在线 + 1 离线 = 0.5，平局算在线。
+        let tie_hour = hour_before(now, 2);
+        seed_health_sample(
+            pool,
+            &server.id,
+            tie_hour + 300,
+            true,
+            1.0,
+            (50, 100),
+            (20, 100),
+        )
+        .await;
+        seed_health_sample(
+            pool,
+            &server.id,
+            tie_hour + 600,
+            false,
+            3.0,
+            (25, 100),
+            (40, 100),
+        )
+        .await;
+        // 当前小时之前一小时：1 在线 + 2 离线 = 0.333，判离线。
+        let down_hour = hour_before(now, 1);
+        seed_health_sample(
+            pool,
+            &server.id,
+            down_hour + 300,
+            true,
+            2.0,
+            (30, 100),
+            (60, 100),
+        )
+        .await;
+        seed_health_sample(
+            pool,
+            &server.id,
+            down_hour + 600,
+            false,
+            2.0,
+            (0, 0),
+            (0, 0),
+        )
+        .await;
+        seed_health_sample(
+            pool,
+            &server.id,
+            down_hour + 900,
+            false,
+            2.0,
+            (40, 100),
+            (80, 100),
+        )
+        .await;
+
+        let (status, _, body) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=24&bucket=3600",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let row = &body["servers"][0];
+        let buckets = row["buckets"].as_array().unwrap();
+        assert_eq!(buckets.len(), 24);
+
+        // 当前小时（最后一项）没有采样 = null；我们种的是倒数第 3、2 项。
+        assert!(buckets[23].is_null(), "{body}");
+        let tie = &buckets[21];
+        assert_eq!(tie["online"], true, "0.5 平局算在线：{body}");
+        assert!((tie["load1"].as_f64().unwrap() - 2.0).abs() < 1e-9);
+        assert!((tie["mem_ratio"].as_f64().unwrap() - 0.375).abs() < 1e-9);
+        assert!((tie["disk_ratio"].as_f64().unwrap() - 0.30).abs() < 1e-9);
+
+        let down = &buckets[22];
+        assert_eq!(down["online"], false, "1/3 在线必须判离线：{body}");
+        assert!(
+            (down["mem_ratio"].as_f64().unwrap() - 0.35).abs() < 1e-9,
+            "分母为 0 的采样不参与平均：{body}"
+        );
+
+        // 窗口可用率 = 2 在线 / 5 采样。
+        assert!((row["online_ratio"].as_f64().unwrap() - 0.4).abs() < 1e-9);
+        assert!((body["summary"]["online_ratio_24h"].as_f64().unwrap() - 0.4).abs() < 1e-9);
+        assert_eq!(
+            body["summary"]["abnormal_servers"], 1,
+            "可用率 40% < 90%，必须计入异常"
+        );
+        assert!((body["summary"]["worst_disk_ratio"].as_f64().unwrap() - 0.8).abs() < 1e-9);
+
+        // hours=168 时同一批样本落在固定 168 项数组的末尾三格。
+        let (status, _, body) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=168&bucket=3600",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let buckets = body["servers"][0]["buckets"].as_array().unwrap();
+        assert_eq!(buckets.len(), 168);
+        assert_eq!(buckets[165]["online"], true);
+        assert_eq!(buckets[166]["online"], false);
+        assert!(buckets[167].is_null());
+    }
+
+    #[tokio::test]
+    async fn server_health_bucket_length_follows_hours_and_bucket_width() {
+        let (app, state, admin) = setup().await;
+        servers::create(&state.db.pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+
+        for (hours, bucket, expected) in [
+            (24, 3600, 24),
+            (168, 3600, 168),
+            (168, 86_400, 7),
+            (1, 1800, 2),
+            (1, 300, 12),
+        ] {
+            let uri = format!("/api/v1/overview/server-health?hours={hours}&bucket={bucket}");
+            let (status, _, body) = request_full(&app, Some(&admin), &uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+            assert_eq!(body["hours"], hours, "{uri}");
+            assert_eq!(body["bucket"], bucket, "{uri}");
+            let buckets = body["servers"][0]["buckets"].as_array().unwrap();
+            assert_eq!(
+                buckets.len(),
+                expected,
+                "{uri}: buckets 长度 = hours*3600/bucket"
+            );
+            assert!(
+                buckets.iter().all(Value::is_null),
+                "{uri}: 没有采样必须为 null"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn server_health_rejects_out_of_range_parameters_with_400() {
+        let (app, _state, admin) = setup().await;
+
+        for (query, code) in [
+            ("hours=0", "query.server_health_hours_invalid"),
+            ("hours=169", "query.server_health_hours_invalid"),
+            ("hours=-1", "query.server_health_hours_invalid"),
+            ("hours=abc", "query.server_health_hours_invalid"),
+            ("hours=1.5", "query.server_health_hours_invalid"),
+            ("bucket=0", "query.server_health_bucket_invalid"),
+            ("bucket=123", "query.server_health_bucket_invalid"),
+            ("bucket=90000", "query.server_health_bucket_invalid"),
+            // 7200 不能整除 1 小时的窗口。
+            ("hours=1&bucket=7200", "query.server_health_bucket_invalid"),
+            ("hours=24&bucket=abc", "query.server_health_bucket_invalid"),
+        ] {
+            let uri = format!("/api/v1/overview/server-health?{query}");
+            let (status, _, body) = request_full(&app, Some(&admin), &uri).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}: {body}");
+            assert_eq!(body["code"], code, "{uri}: {body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn server_health_requires_admin() {
+        let (app, state, _admin) = setup().await;
+
+        let (status, _, body) = request_full(&app, None, "/api/v1/overview/server-health").await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "body: {body}");
+
+        let plain = add_user(&state.db.pool, "plain").await;
+        let (token, _) = sessions::create(&state.db.pool, &plain, 3600, None)
+            .await
+            .unwrap();
+        let cookie = format!("{}={token}", crate::auth::SESSION_COOKIE);
+        let (status, _, body) = request_full(
+            &app,
+            Some(&cookie),
+            "/api/v1/overview/server-health?hours=24",
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "body: {body}");
+    }
+
+    #[tokio::test]
+    async fn server_health_is_cached_for_30_seconds_per_parameter_pair() {
+        let (app, state, admin) = setup().await;
+
+        let (status, headers, body) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=24&bucket=3600",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(
+            headers
+                .get("x-server-health-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("miss")
+        );
+        assert_eq!(
+            headers
+                .get(header::VARY)
+                .and_then(|value| value.to_str().ok()),
+            Some("Cookie")
+        );
+
+        // 同参数第二次必须命中；缓存的是整份 body，连 generated_at 都一致。
+        let (status, headers, cached) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=24&bucket=3600",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers
+                .get("x-server-health-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("hit")
+        );
+        assert_eq!(cached, body);
+
+        // 不同 hours 是不同的 key，必须重新聚合。
+        let (status, headers, _) = request_full(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/server-health?hours=168&bucket=3600",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers
+                .get("x-server-health-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("miss")
+        );
+
+        assert_eq!(state.server_health.stats(), (1, 2), "1 次命中、2 次未命中");
     }
 }

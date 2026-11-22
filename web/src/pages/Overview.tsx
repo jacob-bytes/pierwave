@@ -51,6 +51,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { BatchDisableDialog } from "@/components/overview/BatchDisableDialog";
 import { BatchRenewDialog } from "@/components/overview/BatchRenewDialog";
 import { CleanupEventsDialog } from "@/components/overview/CleanupEventsDialog";
+import OverviewInsight from "@/components/overview/OverviewInsight";
 import { RateSparkline } from "@/components/overview/Sparkline";
 import {
   ApiError,
@@ -1381,6 +1382,11 @@ export default function OverviewPage() {
                 value: formatBytes(stats.traffic.month_bytes),
               })}
             />
+          </section>
+
+          {/* 新「态势」区插在 KPI 与既有趋势卡之间；原有卡片完全不动。 */}
+          <section className="grid min-w-0 gap-4" data-overview-insight-section>
+            <OverviewInsight />
           </section>
 
           <section className="grid gap-4">

@@ -1,0 +1,443 @@
+{
+  "generatedAt": "2026-11-22T04:45:32.275Z",
+  "base": "http://127.0.0.1:8787",
+  "shots": [
+    {
+      "id": "real-server-dark-1440",
+      "view": null,
+      "theme": "dark",
+      "width": 1440,
+      "file": "app-real-server-dark-1440.png",
+      "pageWidth": 1440,
+      "pageHeight": 2652,
+      "viewportWidth": 1440,
+      "viewportHeight": 2708,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1259.71875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "38.6%"
+        },
+        {
+          "label": "异常服务器",
+          "value": "10"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "56.3%"
+        }
+      ],
+      "heatmap": {
+        "cells": 1680,
+        "cellWidth": 4.90625,
+        "cellHeight": 14,
+        "scrollWidth": 992,
+        "clientWidth": 992,
+        "scrollable": false
+      },
+      "cost": null,
+      "hasScrollHint": false,
+      "pageHeightDelta": 1284
+    },
+    {
+      "id": "real-server-dark-390",
+      "view": "server",
+      "theme": "dark",
+      "width": 390,
+      "file": "app-real-server-dark-390.png",
+      "pageWidth": 390,
+      "pageHeight": 4159,
+      "viewportWidth": 390,
+      "viewportHeight": 4215,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1850.90625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "38.6%"
+        },
+        {
+          "label": "异常服务器",
+          "value": "10"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "56.3%"
+        }
+      ],
+      "heatmap": {
+        "cells": 240,
+        "cellWidth": 22.375,
+        "cellHeight": 14,
+        "scrollWidth": 560,
+        "clientWidth": 214,
+        "scrollable": true
+      },
+      "cost": null,
+      "hasScrollHint": true,
+      "pageHeightDelta": 1875
+    },
+    {
+      "id": "real-server-light-1440",
+      "view": "server",
+      "theme": "light",
+      "width": 1440,
+      "file": "app-real-server-light-1440.png",
+      "pageWidth": 1440,
+      "pageHeight": 2652,
+      "viewportWidth": 1440,
+      "viewportHeight": 2708,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1259.71875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "38.6%"
+        },
+        {
+          "label": "异常服务器",
+          "value": "10"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "56.3%"
+        }
+      ],
+      "heatmap": {
+        "cells": 1680,
+        "cellWidth": 4.90625,
+        "cellHeight": 14,
+        "scrollWidth": 992,
+        "clientWidth": 992,
+        "scrollable": false
+      },
+      "cost": null,
+      "hasScrollHint": false,
+      "pageHeightDelta": 1284
+    },
+    {
+      "id": "real-server-light-390",
+      "view": "server",
+      "theme": "light",
+      "width": 390,
+      "file": "app-real-server-light-390.png",
+      "pageWidth": 390,
+      "pageHeight": 4159,
+      "viewportWidth": 390,
+      "viewportHeight": 4215,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1850.90625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": true
+        },
+        {
+          "text": "成本开销",
+          "selected": false
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "24h 在线率",
+          "value": "38.6%"
+        },
+        {
+          "label": "异常服务器",
+          "value": "10"
+        },
+        {
+          "label": "磁盘最高",
+          "value": "56.3%"
+        }
+      ],
+      "heatmap": {
+        "cells": 240,
+        "cellWidth": 22.375,
+        "cellHeight": 14,
+        "scrollWidth": 560,
+        "clientWidth": 214,
+        "scrollable": true
+      },
+      "cost": null,
+      "hasScrollHint": true,
+      "pageHeightDelta": 1875
+    },
+    {
+      "id": "real-cost-dark-1440",
+      "view": "cost",
+      "theme": "dark",
+      "width": 1440,
+      "file": "app-real-cost-dark-1440.png",
+      "pageWidth": 1440,
+      "pageHeight": 2292,
+      "viewportWidth": 1440,
+      "viewportHeight": 2348,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 899.90625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "月均（CNY）",
+          "value": "¥1,132.55"
+        },
+        {
+          "label": "年化",
+          "value": "¥13,590.60"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥13,322.60"
+        }
+      ],
+      "heatmap": null,
+      "cost": {
+        "cells": 48,
+        "cellWidth": 46.875,
+        "cellHeight": 32,
+        "scrollWidth": 763,
+        "clientWidth": 763,
+        "scrollable": false,
+        "fxLine": "按自动汇率折算为 CNY（EUR 7.8 / JPY 0.048 / USD 7.2，更新于 2026-11-22 12:41:22）",
+        "annualizedLine": "当前周期年化 · 不含一次性",
+        "oneTimeLine": "不计入年化"
+      },
+      "hasScrollHint": false,
+      "pageHeightDelta": 924
+    },
+    {
+      "id": "real-cost-dark-390",
+      "view": "cost",
+      "theme": "dark",
+      "width": 390,
+      "file": "app-real-cost-dark-390.png",
+      "pageWidth": 390,
+      "pageHeight": 3706,
+      "viewportWidth": 390,
+      "viewportHeight": 3762,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1398.171875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "月均（CNY）",
+          "value": "¥1,132.55"
+        },
+        {
+          "label": "年化",
+          "value": "¥13,590.60"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥13,322.60"
+        }
+      ],
+      "heatmap": null,
+      "cost": {
+        "cells": 48,
+        "cellWidth": 44,
+        "cellHeight": 32,
+        "scrollWidth": 712,
+        "clientWidth": 342,
+        "scrollable": true,
+        "fxLine": "按自动汇率折算为 CNY（EUR 7.8 / JPY 0.048 / USD 7.2，更新于 2026-11-22 12:41:22）",
+        "annualizedLine": "当前周期年化 · 不含一次性",
+        "oneTimeLine": "不计入年化"
+      },
+      "hasScrollHint": true,
+      "pageHeightDelta": 1422
+    },
+    {
+      "id": "real-cost-light-1440",
+      "view": "cost",
+      "theme": "light",
+      "width": 1440,
+      "file": "app-real-cost-light-1440.png",
+      "pageWidth": 1440,
+      "pageHeight": 2292,
+      "viewportWidth": 1440,
+      "viewportHeight": 2348,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 899.90625,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "月均（CNY）",
+          "value": "¥1,132.55"
+        },
+        {
+          "label": "年化",
+          "value": "¥13,590.60"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥13,322.60"
+        }
+      ],
+      "heatmap": null,
+      "cost": {
+        "cells": 48,
+        "cellWidth": 46.875,
+        "cellHeight": 32,
+        "scrollWidth": 763,
+        "clientWidth": 763,
+        "scrollable": false,
+        "fxLine": "按自动汇率折算为 CNY（EUR 7.8 / JPY 0.048 / USD 7.2，更新于 2026-11-22 12:41:22）",
+        "annualizedLine": "当前周期年化 · 不含一次性",
+        "oneTimeLine": "不计入年化"
+      },
+      "hasScrollHint": false,
+      "pageHeightDelta": 924
+    },
+    {
+      "id": "real-cost-light-390",
+      "view": "cost",
+      "theme": "light",
+      "width": 390,
+      "file": "app-real-cost-light-390.png",
+      "pageWidth": 390,
+      "pageHeight": 3706,
+      "viewportWidth": 390,
+      "viewportHeight": 3762,
+      "overflowX": false,
+      "mainOverflowX": false,
+      "sectionHeight": 1398.171875,
+      "tabs": [
+        {
+          "text": "服务器状态",
+          "selected": false
+        },
+        {
+          "text": "成本开销",
+          "selected": true
+        },
+        {
+          "text": "链路时延",
+          "selected": false
+        }
+      ],
+      "metrics": [
+        {
+          "label": "月均（CNY）",
+          "value": "¥1,132.55"
+        },
+        {
+          "label": "年化",
+          "value": "¥13,590.60"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "¥13,322.60"
+        }
+      ],
+      "heatmap": null,
+      "cost": {
+        "cells": 48,
+        "cellWidth": 44,
+        "cellHeight": 32,
+        "scrollWidth": 712,
+        "clientWidth": 342,
+        "scrollable": true,
+        "fxLine": "按自动汇率折算为 CNY（EUR 7.8 / JPY 0.048 / USD 7.2，更新于 2026-11-22 12:41:22）",
+        "annualizedLine": "当前周期年化 · 不含一次性",
+        "oneTimeLine": "不计入年化"
+      },
+      "hasScrollHint": true,
+      "pageHeightDelta": 1422
+    }
+  ],
+  "errors": []
+}

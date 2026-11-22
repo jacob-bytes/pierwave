@@ -14,6 +14,7 @@ pub mod engine;
 pub mod error;
 pub mod forwards;
 pub mod fs_security;
+pub mod fx;
 pub mod hop_transport;
 pub mod metering;
 pub mod models;

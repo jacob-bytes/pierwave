@@ -105,6 +105,8 @@ pub const BACKUP_WEBDAV_KEEP_KEY: &str = "backup_webdav_keep";
 /// 备份是否加密（默认 true）；关闭后导出/上传明文 `.db.gz`。
 pub const BACKUP_ENCRYPT_KEY: &str = "backup_encrypt";
 pub const DEFAULT_BACKUP_ENCRYPT: bool = true;
+/// 自动汇率缓存键；值是一段 JSON（形状见 [`pierwave_domain::fx::FxRates`]）。
+pub const FX_RATES_KEY: &str = pierwave_domain::fx::FX_RATES_KEY;
 
 /// 设置页的白名单键；新增键必须同时改这里和 `docs/PLAN.md`。
 #[derive(Clone, PartialEq, Eq)]
@@ -164,6 +166,15 @@ pub struct Settings {
     pub backup_webdav_keep: i64,
     /// 备份产物是否加密；默认 true。关闭后导出与异地备份都是明文 `.db.gz`。
     pub backup_encrypt: bool,
+    /// 自动汇率缓存（`fx_rates` 的 JSON 文本）。
+    ///
+    /// GET 以**字符串**回显（与 `settings` 表其它值同形），前端 `JSON.parse`
+    /// 后使用；空串 = 从未抓到过。PATCH 接受对象或 JSON 字符串，统一规范化后
+    /// 再落库，并把手动覆盖时间写进 `fetched_at`。
+    pub fx_rates: String,
+    /// 当前汇率缓存的抓取/覆盖时间（Unix 秒）；0 = 从未抓到过。
+    /// 只读：由 `fx_rates.fetched_at` 派生，PATCH 不接受该键。
+    pub fx_rates_updated_at: i64,
     /// 只在本进程内使用：秘密设置解密失败时的可读原因（不含密钥/密文）。
     /// 不下发给前端（`as_json` 不包含）；GET /settings 把它转成 `secret_errors`
     /// 标记，后台任务则转成 [`SecretError`]。
@@ -203,6 +214,8 @@ impl Default for Settings {
             backup_webdav_interval_hours: DEFAULT_BACKUP_WEBDAV_INTERVAL_HOURS,
             backup_webdav_keep: DEFAULT_BACKUP_WEBDAV_KEEP,
             backup_encrypt: DEFAULT_BACKUP_ENCRYPT,
+            fx_rates: String::new(),
+            fx_rates_updated_at: 0,
             secret_error: None,
             secret_broken_keys: Vec::new(),
         }
@@ -249,6 +262,8 @@ impl fmt::Debug for Settings {
             )
             .field("backup_webdav_keep", &self.backup_webdav_keep)
             .field("backup_encrypt", &self.backup_encrypt)
+            .field("fx_rates", &self.fx_rates)
+            .field("fx_rates_updated_at", &self.fx_rates_updated_at)
             .field("secret_error", &self.secret_error)
             .field("secret_broken_keys", &self.secret_broken_keys)
             .finish()
@@ -296,6 +311,10 @@ impl Settings {
             "backup_webdav_keep": self.backup_webdav_keep,
             // 关闭加密时前端需要明确提示：产物是明文，泄漏即可读全部业务数据。
             "backup_encrypt": self.backup_encrypt,
+            // 汇率缓存用字符串回显（与 settings 表的 key/value TEXT 同形）；
+            // `fx_rates_updated_at` 是只读派生值（= fx_rates.fetched_at）。
+            "fx_rates": self.fx_rates,
+            "fx_rates_updated_at": self.fx_rates_updated_at,
         })
     }
 }
@@ -374,6 +393,7 @@ pub fn restore_diff(before: &Settings, after: &Settings) -> Vec<Value> {
     value_change!("backup_webdav_interval_hours", backup_webdav_interval_hours);
     value_change!("backup_webdav_keep", backup_webdav_keep);
     value_change!("backup_encrypt", backup_encrypt);
+    value_change!("fx_rates", fx_rates);
 
     secret_change!("telegram_bot_token", telegram_bot_token);
     secret_change!("backup_webdav_password", backup_webdav_password);
@@ -493,6 +513,10 @@ async fn load_inner(pool: &SqlitePool, master: &SecretKey) -> Settings {
             secret_broken_keys.push(key);
         }
     }
+
+    // 汇率缓存不是秘密，但必须校验形状：手工改库/旧版本残留的坏 JSON 不能
+    // 让设置页 500，按「未配置」处理并告警即可。
+    let (fx_rates, fx_rates_updated_at) = read_fx_rates(pool).await;
 
     Settings {
         panel_name: read_panel_name(pool).await,
@@ -634,8 +658,31 @@ async fn load_inner(pool: &SqlitePool, master: &SecretKey) -> Settings {
         )
         .await,
         backup_encrypt: read_bool(pool, BACKUP_ENCRYPT_KEY, defaults.backup_encrypt).await,
+        fx_rates,
+        fx_rates_updated_at,
         secret_error,
         secret_broken_keys,
+    }
+}
+
+/// 读取并校验 `fx_rates`：非法/读失败都回 `("", 0)`，绝不 panic。
+async fn read_fx_rates(pool: &SqlitePool) -> (String, i64) {
+    match repo::settings::get(pool, FX_RATES_KEY).await {
+        Ok(Some(raw)) => match pierwave_domain::fx::FxRates::from_stored(&raw) {
+            Some(rates) => (rates.to_stored(), rates.fetched_at),
+            None => {
+                tracing::warn!(
+                    key = FX_RATES_KEY,
+                    "设置中的汇率缓存不是合法 JSON，按未配置处理"
+                );
+                (String::new(), 0)
+            }
+        },
+        Ok(None) => (String::new(), 0),
+        Err(error) => {
+            tracing::warn!(key = FX_RATES_KEY, error = %error, "读取汇率缓存失败，按未配置处理");
+            (String::new(), 0)
+        }
     }
 }
 
@@ -1038,6 +1085,7 @@ pub async fn update(
                 )?
                 .to_string(),
             )),
+            FX_RATES_KEY => updates.push((FX_RATES_KEY, validate_fx_rates(value)?)),
             other => {
                 return Err(AppError::coded(
                     "settings.unknown_key",
@@ -1114,6 +1162,16 @@ pub async fn update(
 
     // 审计只记「改了哪些键」；值里可能有面板名等业务信息，一律不落 detail。
     let changed_keys: Vec<&str> = updates.iter().map(|(key, _)| *key).collect();
+
+    // 手动覆盖与自动抓取共用一把锁：自动任务在持锁期间完成「读缓存 → 判断
+    // 过期 → 联网 → 写库」，这里在写库前拿锁，保证不会出现「刚保存的手动值
+    // 被一轮更早开始的抓取结果盖回去」。锁只覆盖 fx_rates，其它设置不受影响。
+    let _fx_guard = if changed_keys.contains(&FX_RATES_KEY) {
+        Some(state.fx.lock().await)
+    } else {
+        None
+    };
+
     for (key, value) in updates {
         // 秘密项落库前加密；空串保持为空（用于清空 webhook_url 这类可清空项）。
         let stored = if secret_box::is_secret_setting(key) && !value.is_empty() {
@@ -1150,6 +1208,22 @@ pub async fn update(
         response["warning"] = json!(error);
     }
     Ok(Json(response))
+}
+
+/// 汇率手动覆盖：接受对象或 JSON 字符串，用与自动抓取相同的范围/形状校验。
+///
+/// 服务端重写 `fetched_at = now`、`source = "manual"`：手动覆盖等同于一次成功
+/// 抓取，24 小时内自动任务不会覆盖；满 24 小时后自动任务仍会接管（文档已说明）。
+fn validate_fx_rates(value: &Value) -> AppResult<String> {
+    pierwave_domain::fx::FxRates::from_manual(value, pierwave_domain::time::now())
+        .map(|rates| rates.to_stored())
+        .map_err(|error| {
+            AppError::coded(
+                "settings.fx_rates_invalid",
+                Some(json!({ "reason": error.code() })),
+                format!("汇率配置不合法：{}", error.message()),
+            )
+        })
 }
 
 fn validate_panel_name(value: &Value) -> AppResult<String> {
@@ -3215,5 +3289,155 @@ mod tests {
             !rendered.contains("enc:v1:"),
             "审计混入了可逆密文：{rendered}"
         );
+    }
+
+    // ---- 自动汇率：GET/PATCH /api/v1/settings ----
+
+    #[tokio::test]
+    async fn fx_rates_are_exposed_as_a_json_string_and_survive_a_round_trip() {
+        let (app, _state, admin, _bob) = setup().await;
+
+        // 启动即可读：没有缓存时是空串 + 0，不依赖网络。
+        let (status, _, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["items"]["fx_rates"], "", "从未抓取时是空串");
+        assert_eq!(body["items"]["fx_rates_updated_at"], 0);
+
+        // PATCH 接受对象；落库的是规范化后的 JSON 字符串。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "fx_rates": {
+                    "base": "CNY",
+                    "rates": {"USD": 7.2, "EUR": 7.8, "JPY": 0.048},
+                    "fetched_at": 1,
+                    "source": "open.er-api.com"
+                }
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert!(
+            body["items"]["fx_rates"].is_string(),
+            "与 settings 表的 key/value TEXT 同形：{body}"
+        );
+        let stored: Value =
+            serde_json::from_str(body["items"]["fx_rates"].as_str().unwrap()).unwrap();
+        assert_eq!(stored["base"], "CNY");
+        assert_eq!(stored["source"], "manual", "手动覆盖不能冒充上游");
+        assert_eq!(stored["rates"]["USD"], 7.2);
+        let updated_at = body["items"]["fx_rates_updated_at"].as_i64().unwrap();
+        assert!(updated_at > 0);
+        assert_eq!(stored["fetched_at"], updated_at, "时间戳必须与缓存一致");
+
+        // 再 GET 一次仍是同一份值；PATCH 也接受 JSON 字符串。
+        let (status, _, body) =
+            request(&app, Some(&admin), Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["items"]["fx_rates_updated_at"], updated_at);
+        let string_payload = json!({
+            "fx_rates": "{\"base\":\"CNY\",\"rates\":{\"USD\":7.15,\"EUR\":7.75,\"JPY\":0.047}}"
+        });
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(string_payload),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let stored: Value =
+            serde_json::from_str(body["items"]["fx_rates"].as_str().unwrap()).unwrap();
+        assert_eq!(stored["rates"]["USD"], 7.15);
+    }
+
+    #[tokio::test]
+    async fn invalid_fx_rates_are_rejected_without_overwriting_the_old_value() {
+        let (app, state, admin, _bob) = setup().await;
+
+        let good = json!({
+            "fx_rates": {
+                "base": "CNY",
+                "rates": {"USD": 7.2, "EUR": 7.8, "JPY": 0.048}
+            }
+        });
+        let (status, _, _) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(good),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let before = repo::settings::get(&state.db.pool, FX_RATES_KEY)
+            .await
+            .unwrap()
+            .unwrap();
+
+        for bad in [
+            // 缺 JPY
+            json!({"fx_rates": {"base": "CNY", "rates": {"USD": 7.2, "EUR": 7.8}}}),
+            // 越界
+            json!({"fx_rates": {"base": "CNY", "rates": {"USD": 0, "EUR": 7.8, "JPY": 0.048}}}),
+            // base 不是 CNY
+            json!({"fx_rates": {"base": "USD", "rates": {"USD": 7.2, "EUR": 7.8, "JPY": 0.048}}}),
+            // 不是对象/JSON 字符串
+            json!({"fx_rates": 1}),
+            // 坏 JSON 字符串
+            json!({"fx_rates": "{not json"}),
+        ] {
+            let (status, _, body) = request(
+                &app,
+                Some(&admin),
+                Method::PATCH,
+                "/api/v1/settings",
+                Some(bad.clone()),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}: {body}");
+            assert_eq!(body["code"], "settings.fx_rates_invalid", "{bad}: {body}");
+            assert_eq!(
+                repo::settings::get(&state.db.pool, FX_RATES_KEY)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                before,
+                "非法值不能覆盖旧缓存：{bad}"
+            );
+        }
+
+        // `fx_rates_updated_at` 是只读派生值，不能作为 PATCH 键。
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({"fx_rates_updated_at": 1})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "settings.unknown_key");
+    }
+
+    #[tokio::test]
+    async fn fx_rates_patch_requires_admin() {
+        let (app, _state, _admin, bob) = setup().await;
+        let (status, _, body) = request(
+            &app,
+            Some(&bob),
+            Method::PATCH,
+            "/api/v1/settings",
+            Some(json!({
+                "fx_rates": {"base": "CNY", "rates": {"USD": 7.2, "EUR": 7.8, "JPY": 0.048}}
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "body: {body}");
     }
 }

@@ -5,6 +5,7 @@ mod audit;
 mod auth;
 mod enforcement;
 mod error;
+mod fx;
 mod login_watch;
 mod nic;
 mod outbound;
@@ -233,6 +234,9 @@ async fn main() -> anyhow::Result<()> {
     let _forward_traffic = scheduler::spawn_forward_traffic_sampler(state.clone());
     // 版本更新检测：启动后先跑一次，之后按设置间隔（默认 6 小时）检查 GitHub Releases。
     let _update_check = scheduler::spawn_update_check(state.clone());
+    // 自动汇率：启动后立即检查一次（缺失/超过 24h 才真抓），之后每 6 小时检查。
+    // 抓取在后台任务里，接口不可达也只记 warn，绝不影响启动与设置读取。
+    let _fx_rates = fx::spawn(state.clone());
     // 异地备份：每 60 秒看一次设置，到点把备份 PUT 到 WebDAV。
     let _remote_backup = scheduler::spawn_remote_backup(state.clone());
     // API Token 的 last_used_at：每 10 秒把内存缓冲批量写回一次库。

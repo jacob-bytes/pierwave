@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="dark light" />
+  <title>服务器状态 · 概览三视图原型 / Server status</title>
+  <link rel="stylesheet" href="./prototype.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1>概览</h1>
+        <p class="page-sub">主控、服务器与订阅的实时概况。</p>
+      </div>
+      <div class="head-actions">
+        <button class="btn" type="button" title="刷新">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+          <span>刷新</span>
+        </button>
+        <button class="icon-btn js-theme" type="button" aria-label="切换主题">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <section class="kpi-grid" aria-label="全局指标">
+      <article class="kpi">
+        <div class="kpi-top"><span class="kpi-label">在线服务器</span><span class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></span></div>
+        <div class="kpi-value">9 <small>/ 10</small></div>
+        <div class="kpi-foot"><span>1 台离线</span><span class="muted">1 台无采样</span></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-top"><span class="kpi-label">用户</span><span class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span></div>
+        <div class="kpi-value">6 <small>/ 6</small></div>
+        <div class="kpi-foot"><span>共 6 个用户</span></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-top"><span class="kpi-label">套餐实例</span><span class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></span></div>
+        <div class="kpi-value">5</div>
+        <div class="kpi-foot"><span>共 4 个套餐模板</span></div>
+      </article>
+      <article class="kpi">
+        <div class="kpi-top"><span class="kpi-label">今日流量</span><span class="kpi-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span></div>
+        <div class="kpi-value">32 <small>GB</small></div>
+        <div class="kpi-foot"><span>本月 254 GB</span><span class="muted">较昨日 ↓ 23.8%</span></div>
+      </article>
+    </section>
+
+    <section class="insight" aria-label="运行洞察">
+      <div class="insight-bar">
+        <div class="tabs" role="tablist" aria-label="概览视图">
+          <a class="tab" href="./server.html" role="tab" aria-selected="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/></svg>
+            服务器状态
+          </a>
+          <a class="tab" href="./cost.html" role="tab" aria-selected="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M7 15h4"/></svg>
+            成本开销
+          </a>
+          <a class="tab" href="./chain.html" role="tab" aria-selected="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="M7 6h5a4 4 0 0 1 4 4v4a4 4 0 0 0 4 4"/></svg>
+            链路时延
+          </a>
+        </div>
+        <span class="asof">数据截至 11:40 · 采样 5 分钟</span>
+      </div>
+
+      <div class="view" role="tabpanel" aria-label="服务器状态">
+        <section class="metric-strip" aria-label="服务器状态指标">
+          <div class="metric">
+            <div class="metric-label">24h 在线率</div>
+            <div class="metric-value" id="server-uptime">96.4%</div>
+            <div class="metric-sub" id="server-uptime-sub">7 天 99.0% · 8 台有采样</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">异常服务器</div>
+            <div class="metric-value" id="server-anomalies">3</div>
+            <div class="metric-sub" id="server-anomalies-sub">2 台离线过 · 1 台资源告警</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">磁盘最高</div>
+            <div class="metric-value" id="server-disk">91%</div>
+            <div class="metric-sub" id="server-disk-sub">东京-02 · 已持续 27h</div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <h2 class="card-title">服务器 × 时间</h2>
+              <p class="card-desc" id="server-heat-desc">颜色 = 负载 / 内存 / 硬盘中最差的一项；斜纹 = 离线或无采样。</p>
+            </div>
+            <div class="card-tools">
+              <div class="mode-tabs" role="group" aria-label="热力图维度">
+                <button class="mode-tab" type="button" data-heat-mode="composite" aria-pressed="true">综合</button>
+                <button class="mode-tab" type="button" data-heat-mode="load" aria-pressed="false">负载</button>
+                <button class="mode-tab" type="button" data-heat-mode="mem" aria-pressed="false">内存</button>
+                <button class="mode-tab" type="button" data-heat-mode="disk" aria-pressed="false">硬盘</button>
+              </div>
+              <div class="legend" aria-label="热力图图例">
+                <span class="legend-item"><span class="swatch s1"></span>低</span>
+                <span class="legend-item"><span class="swatch s2"></span>中</span>
+                <span class="legend-item"><span class="swatch s3"></span>偏高</span>
+                <span class="legend-item"><span class="swatch s4"></span>高</span>
+                <span class="legend-item"><span class="swatch off"></span>离线</span>
+                <span class="legend-item"><span class="swatch nodata"></span>无采样</span>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="hm hm-desktop" id="server-heat-desktop" role="img" aria-label="服务器 7 天逐小时运行热力图"></div>
+            <div class="hm hm-mobile" id="server-heat-mobile" role="img" aria-label="服务器最近 24 小时运行热力图"></div>
+            <div class="cost-foot">
+              <p class="footnote">7 天 · 1 小时粒度，由 5 分钟采样聚合。空白格 = 该小时没有采样；斜纹 = 离线。移动端只展示最近 24 小时，桌面端展示 7 × 24 小时。</p>
+            </div>
+          </div>
+        </section>
+
+        <div class="split-2">
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">当前资源</h2>
+                <p class="card-desc">按最差维度排序，取前 6 台。</p>
+              </div>
+              <span class="chip">11:00 快照</span>
+            </div>
+            <div class="card-body tight" id="server-resources"></div>
+            <div class="card-body" style="padding-top:0">
+              <p class="footnote">负载是 load1 绝对值，未按 CPU 核数归一；不同规格的机器不能直接横向比较。</p>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <div>
+                <h2 class="card-title">异常窗口</h2>
+                <p class="card-desc">最近 7 天，进行中的排在前面。</p>
+              </div>
+              <span class="chip warn">5 条</span>
+            </div>
+            <div class="card-body tight" id="server-anomaly-list"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <details class="spec">
+      <summary>数据映射 / Data mapping（原型说明）</summary>
+      <div class="spec-body">
+        <p><strong>x</strong>：时间桶，7 天 × 24 小时（桌面）或最近 24 小时（移动）；<strong>y</strong>：服务器。<strong>颜色</strong>：综合模式取「负载 / 4、内存使用率、硬盘使用率」的最大值，分四档；离线与无采样用斜纹区分。</p>
+        <p><strong>tooltip</strong>：服务器、时间、在线状态、load1、内存已用/总量、硬盘已用/总量、RTT。<strong>空态</strong>：没有采样时显示「暂无采样」并保留空网格；不把缺失画成 0。</p>
+        <p><strong>数据源</strong>：<code>server_samples</code>（online / load1 / mem_used+total / disk_used+total / latency_ms），5 分钟粒度，保留 7 天；当前值来自 <code>servers</code>。年度趋势不可得，见 README。</p>
+      </div>
+    </details>
+  </div>
+
+  <script src="./prototype.js"></script>
+  <script>
+    PV.initServer({
+      servers: [
+        { name: "香港-01", flag: "HK", load: 0.42, mem: 0.43, disk: 0.52, memRamp: 0.003, diskRamp: 0.004, latency: 28 },
+        { name: "香港-02", flag: "HK", load: 0.68, mem: 0.57, disk: 0.61, memRamp: 0.004, diskRamp: 0.005, latency: 31 },
+        { name: "香港-03", flag: "HK", load: 0.31, mem: 0.38, disk: 0.55, memRamp: 0.002, diskRamp: 0.003, latency: 35 },
+        { name: "东京-01", flag: "JP", load: 0.61, mem: 0.62, disk: 0.66, memRamp: 0.004, diskRamp: 0.004, latency: 52 },
+        { name: "东京-02", flag: "JP", load: 0.89, mem: 0.71, disk: 0.80, memRamp: 0.016, diskRamp: 0.018, latency: 49 },
+        { name: "新加坡-01", flag: "SG", load: 0.48, mem: 0.49, disk: 0.58, memRamp: 0.003, diskRamp: 0.004, latency: 78 },
+        { name: "新加坡-02", flag: "SG", load: 0.76, mem: 0.67, disk: 0.72, memRamp: 0.005, diskRamp: 0.006, latency: 81 },
+        { name: "美西-01", flag: "US", load: 0.24, mem: 0.34, disk: 0.49, memRamp: 0.002, diskRamp: 0.002, latency: 168 },
+        { name: "探针-待接入", flag: "—", noData: true }
+      ],
+      anomalies: [
+        { name: "东京-02", when: "11/21 08:00 起", what: "磁盘 ≥ 90%，仍在增长", duration: "27h", tone: "warn" },
+        { name: "美西-01", when: "11/22 04:00 – 至今", what: "离线，Agent 无心跳", duration: "7h", tone: "danger" },
+        { name: "香港-03", when: "11/21 02:00 – 05:00", what: "离线，已恢复", duration: "3h", tone: "warn" },
+        { name: "新加坡-02", when: "11/20 18:00 – 21:00", what: "load1 ≥ 6，已恢复", duration: "3h", tone: "warn" },
+        { name: "探针-待接入", when: "最近 7 天", what: "从未上报，整个窗口无采样", duration: "7d", tone: "off" }
+      ]
+    });
+  </script>
+</body>
+</html>

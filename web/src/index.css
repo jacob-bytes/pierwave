@@ -296,6 +296,39 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * 服务器热力图的两种「非颜色」纹理：无采样 = 灰点，离线 = 红色斜纹。
+ * 颜色全部走 token；纹理保证色觉差异 / 打印 / 灰度截图下仍能区分。
+ */
+@utility heatmap-nosample {
+  background-color: var(--muted);
+  background-image: radial-gradient(
+    circle,
+    var(--muted-foreground) 0.5px,
+    transparent 0.6px
+  );
+  background-size: 3px 3px;
+}
+
+@utility heatmap-offline {
+  background-color: color-mix(in oklab, var(--destructive) 18%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--destructive) 0 1px,
+    transparent 1px 3px
+  );
+}
+
+/* 付款日历的「已预付」格：虚线边 + 中性斜纹，不重复计费。 */
+@utility calendar-prepaid {
+  background-color: color-mix(in oklab, var(--muted-foreground) 10%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--muted-foreground) 0 1px,
+    transparent 1px 4px
+  );
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
