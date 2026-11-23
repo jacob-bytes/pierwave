@@ -3767,6 +3767,7 @@ mod tests {
                         strategy: strategy.into(),
                         server_id: (*server_id).into(),
                         server_name: format!("server-{server_id}"),
+                        server_status: "online".into(),
                         server_address: (*address).into(),
                         server_internal_address: None,
                         listen_port: *listen_port,

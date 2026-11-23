@@ -7553,7 +7553,8 @@ pub mod chains {
 
         let members = sqlx::query_as::<_, ChainGroupMember>(
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
-                    m.server_id, s.name AS server_name, s.address AS server_address,
+                    m.server_id, s.name AS server_name, s.status AS server_status,
+                    s.address AS server_address,
                     s.internal_address AS server_internal_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
                     s.nftables_available, s.tunnel_available,
@@ -7938,7 +7939,8 @@ pub mod chains {
 
         let members = sqlx::query_as::<_, ChainGroupMember>(
             "SELECT m.group_id, g.chain_id, g.seq, g.strategy,
-                    m.server_id, s.name AS server_name, s.address AS server_address,
+                    m.server_id, s.name AS server_name, s.status AS server_status,
+                    s.address AS server_address,
                     s.internal_address AS server_internal_address,
                     m.listen_port, m.priority, m.weight, s.realm_transport,
                     s.nftables_available, s.tunnel_available,

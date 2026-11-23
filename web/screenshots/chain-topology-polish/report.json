@@ -1,0 +1,1265 @@
+{
+  "generatedAt": "2026-11-23T15:48:01.212Z",
+  "base": "http://127.0.0.1:5173",
+  "chain": {
+    "id": "c0ffee00-0006-4000-8000-000000000601",
+    "hops": 4
+  },
+  "injections": {
+    "nodes": "契约 nodes / role / status（后端 lane 尚未进入本机二进制）",
+    "lastHop": "最后一跳 segment + 样本；P50 / series 由真实链级序列按比例派生，仅用于展示契约形状",
+    "untouched": "其余 series / loss / entry / exit / 链列表均来自真实接口"
+  },
+  "viewports": [
+    1440,
+    390
+  ],
+  "themes": [
+    "dark",
+    "light"
+  ],
+  "results": [
+    {
+      "name": "trend tooltip 1440 dark",
+      "ok": true,
+      "detail": "11/23 16:15 港日中转链 68 ms 最高 丢包 0.4% 港日多路径 40.5 ms 丢包 0.3% 港新直达链 37 ms 丢包 0.1%"
+    },
+    {
+      "name": "24h 1440 dark: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "24h 1440 dark: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "24h 1440 dark: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "24h 1440 dark: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 14400,
+        "first": "00:00",
+        "last": "23:30",
+        "gridlines": 7,
+        "nowReference": "现在 23:47"
+      }
+    },
+    {
+      "name": "24h 1440 dark: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "24h 1440 dark: target scrollable on 390",
+      "ok": true,
+      "detail": "desktop"
+    },
+    {
+      "name": "segment tooltip 1440 dark",
+      "ok": true,
+      "detail": "11/23 19:00 第 1 段 17 ms 丢包 0.1% 第 2 段 23 ms 丢包 0.1% 第 3 段 34 ms 丢包 0.1% 最高 第 4 段 14.8 ms 丢包 0.2% 最低"
+    },
+    {
+      "name": "7d 1440 dark: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "7d 1440 dark: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "7d 1440 dark: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18.6 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "7d 1440 dark: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 86400,
+        "first": "11/17",
+        "last": "11/23 23:00",
+        "gridlines": 7,
+        "nowReference": "现在 11/23 23:47"
+      }
+    },
+    {
+      "name": "7d 1440 dark: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "7d 1440 dark: target scrollable on 390",
+      "ok": true,
+      "detail": "desktop"
+    },
+    {
+      "name": "24h 1440 dark: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "24h 1440 dark: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "offline",
+          "dot": {
+            "background": "oklch(0.62 0.2 25)",
+            "animation": "none"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "24h 1440 dark: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "24h 1440 dark: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 14400,
+        "first": "00:00",
+        "last": "23:30",
+        "gridlines": 7,
+        "nowReference": "现在 23:47"
+      }
+    },
+    {
+      "name": "24h 1440 dark: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "24h 1440 dark: target scrollable on 390",
+      "ok": true,
+      "detail": "desktop"
+    },
+    {
+      "name": "24h 1440 dark: fault dot is red and still",
+      "ok": true,
+      "detail": {
+        "label": "HOP 2",
+        "role": "hop",
+        "status": "offline",
+        "border": "solid",
+        "dot": {
+          "background": "oklch(0.62 0.2 25)",
+          "animation": "none"
+        }
+      }
+    },
+    {
+      "name": "trend tooltip 1440 light",
+      "ok": true,
+      "detail": "11/23 16:15 港日中转链 68 ms 最高 丢包 0.4% 港日多路径 40.5 ms 丢包 0.3% 港新直达链 37 ms 丢包 0.1%"
+    },
+    {
+      "name": "24h 1440 light: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "24h 1440 light: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "24h 1440 light: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "24h 1440 light: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 14400,
+        "first": "00:00",
+        "last": "23:30",
+        "gridlines": 7,
+        "nowReference": "现在 23:47"
+      }
+    },
+    {
+      "name": "24h 1440 light: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "24h 1440 light: target scrollable on 390",
+      "ok": true,
+      "detail": "desktop"
+    },
+    {
+      "name": "segment tooltip 1440 light",
+      "ok": true,
+      "detail": "11/23 19:00 第 1 段 17 ms 丢包 0.1% 第 2 段 23 ms 丢包 0.1% 第 3 段 34 ms 丢包 0.1% 最高 第 4 段 14.8 ms 丢包 0.2% 最低"
+    },
+    {
+      "name": "7d 1440 light: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "7d 1440 light: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "7d 1440 light: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18.6 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "7d 1440 light: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 86400,
+        "first": "11/17",
+        "last": "11/23 23:00",
+        "gridlines": 7,
+        "nowReference": "现在 11/23 23:47"
+      }
+    },
+    {
+      "name": "7d 1440 light: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "7d 1440 light: target scrollable on 390",
+      "ok": true,
+      "detail": "desktop"
+    },
+    {
+      "name": "24h 1440 light: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "24h 1440 light: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "offline",
+          "dot": {
+            "background": "oklch(0.57 0.208 25.3)",
+            "animation": "none"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "24h 1440 light: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "24h 1440 light: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 14400,
+        "first": "00:00",
+        "last": "23:30",
+        "gridlines": 7,
+        "nowReference": "现在 23:47"
+      }
+    },
+    {
+      "name": "24h 1440 light: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "24h 1440 light: target scrollable on 390",
+      "ok": true,
+      "detail": "desktop"
+    },
+    {
+      "name": "24h 1440 light: fault dot is red and still",
+      "ok": true,
+      "detail": {
+        "label": "HOP 2",
+        "role": "hop",
+        "status": "offline",
+        "border": "solid",
+        "dot": {
+          "background": "oklch(0.57 0.208 25.3)",
+          "animation": "none"
+        }
+      }
+    },
+    {
+      "name": "trend tooltip 390 dark",
+      "ok": true,
+      "detail": "11/23 17:15 港日中转链 74 ms 最高 丢包 0.4% 港日多路径 40.5 ms 丢包 0.3% 港新直达链 37 ms 丢包 0.1%"
+    },
+    {
+      "name": "24h 390 dark: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "24h 390 dark: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "24h 390 dark: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "24h 390 dark: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 14400,
+        "first": "00:00",
+        "last": "23:30",
+        "gridlines": 7,
+        "nowReference": "现在 23:47"
+      }
+    },
+    {
+      "name": "24h 390 dark: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "24h 390 dark: target scrollable on 390",
+      "ok": true,
+      "detail": "522px overflow"
+    },
+    {
+      "name": "segment tooltip 390 dark",
+      "ok": true,
+      "detail": "11/23 18:45 第 1 段 15 ms 丢包 0.1% 第 2 段 21 ms 丢包 0.1% 第 3 段 32 ms 丢包 0.1% 最高 第 4 段 12.6 ms 丢包 0.2% 最低"
+    },
+    {
+      "name": "7d 390 dark: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "7d 390 dark: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "7d 390 dark: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18.6 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "7d 390 dark: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 86400,
+        "first": "11/17",
+        "last": "11/23 23:00",
+        "gridlines": 7,
+        "nowReference": "现在 11/23 23:47"
+      }
+    },
+    {
+      "name": "7d 390 dark: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "7d 390 dark: target scrollable on 390",
+      "ok": true,
+      "detail": "522px overflow"
+    },
+    {
+      "name": "24h 390 dark: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "24h 390 dark: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "offline",
+          "dot": {
+            "background": "oklch(0.62 0.2 25)",
+            "animation": "none"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "24h 390 dark: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "24h 390 dark: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 14400,
+        "first": "00:00",
+        "last": "23:30",
+        "gridlines": 7,
+        "nowReference": "现在 23:47"
+      }
+    },
+    {
+      "name": "24h 390 dark: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "24h 390 dark: target scrollable on 390",
+      "ok": true,
+      "detail": "522px overflow"
+    },
+    {
+      "name": "24h 390 dark: fault dot is red and still",
+      "ok": true,
+      "detail": {
+        "label": "HOP 2",
+        "role": "hop",
+        "status": "offline",
+        "border": "solid",
+        "dot": {
+          "background": "oklch(0.62 0.2 25)",
+          "animation": "none"
+        }
+      }
+    },
+    {
+      "name": "trend tooltip 390 light",
+      "ok": true,
+      "detail": "11/23 17:15 港日中转链 74 ms 最高 丢包 0.4% 港日多路径 40.5 ms 丢包 0.3% 港新直达链 37 ms 丢包 0.1%"
+    },
+    {
+      "name": "24h 390 light: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "24h 390 light: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "24h 390 light: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "24h 390 light: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 14400,
+        "first": "00:00",
+        "last": "23:30",
+        "gridlines": 7,
+        "nowReference": "现在 23:47"
+      }
+    },
+    {
+      "name": "24h 390 light: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "24h 390 light: target scrollable on 390",
+      "ok": true,
+      "detail": "522px overflow"
+    },
+    {
+      "name": "segment tooltip 390 light",
+      "ok": true,
+      "detail": "11/23 18:45 第 1 段 15 ms 丢包 0.1% 第 2 段 21 ms 丢包 0.1% 第 3 段 32 ms 丢包 0.1% 最高 第 4 段 12.6 ms 丢包 0.2% 最低"
+    },
+    {
+      "name": "7d 390 light: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "7d 390 light: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "7d 390 light: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18.6 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "7d 390 light: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 86400,
+        "first": "11/17",
+        "last": "11/23 23:00",
+        "gridlines": 7,
+        "nowReference": "现在 11/23 23:47"
+      }
+    },
+    {
+      "name": "7d 390 light: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "7d 390 light: target scrollable on 390",
+      "ok": true,
+      "detail": "522px overflow"
+    },
+    {
+      "name": "24h 390 light: topology labels",
+      "ok": true,
+      "detail": [
+        "SOURCE",
+        "HOP 1",
+        "HOP 2",
+        "HOP 3",
+        "TARGET"
+      ]
+    },
+    {
+      "name": "24h 390 light: status dots",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 1",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 2",
+          "status": "offline",
+          "dot": {
+            "background": "oklch(0.57 0.208 25.3)",
+            "animation": "none"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "HOP 3",
+          "status": "online",
+          "dot": {
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          },
+          "border": "solid"
+        },
+        {
+          "label": "TARGET",
+          "status": "none",
+          "dot": null,
+          "border": "dashed"
+        }
+      ]
+    },
+    {
+      "name": "24h 390 light: final hop has real data",
+      "ok": true,
+      "detail": {
+        "seq": 4,
+        "missing": false,
+        "latency": "18 ms",
+        "loss": "0.2%"
+      }
+    },
+    {
+      "name": "24h 390 light: time ticks",
+      "ok": true,
+      "detail": {
+        "count": 7,
+        "intervalGap": 14400,
+        "first": "00:00",
+        "last": "23:30",
+        "gridlines": 7,
+        "nowReference": "现在 23:47"
+      }
+    },
+    {
+      "name": "24h 390 light: legend uses primary only",
+      "ok": true,
+      "detail": [
+        "h-0.5 w-4 rounded-full bg-primary",
+        "h-2 w-4 rounded-sm bg-primary/15",
+        "h-2 w-4 rounded-sm bg-primary/30"
+      ]
+    },
+    {
+      "name": "24h 390 light: target scrollable on 390",
+      "ok": true,
+      "detail": "522px overflow"
+    },
+    {
+      "name": "24h 390 light: fault dot is red and still",
+      "ok": true,
+      "detail": {
+        "label": "HOP 2",
+        "role": "hop",
+        "status": "offline",
+        "border": "solid",
+        "dot": {
+          "background": "oklch(0.57 0.208 25.3)",
+          "animation": "none"
+        }
+      }
+    },
+    {
+      "name": "reduced motion stops the breathing dot",
+      "ok": true,
+      "detail": "none"
+    }
+  ],
+  "failures": []
+}

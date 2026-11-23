@@ -1785,6 +1785,7 @@ mod tests {
                 strategy: "round_robin".into(),
                 server_id: format!("srv-{seq}"),
                 server_name: format!("srv-{seq}"),
+                server_status: "online".into(),
                 server_address: "10.0.0.1".into(),
                 server_internal_address: None,
                 listen_port: 20000 + seq,

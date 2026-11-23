@@ -97,6 +97,7 @@ test("OverviewChainHealth contract types cover the current backend fields", () =
     "series",
     "entry",
     "exit",
+    "nodes",
     "attempts",
     "failures",
     "address_source",
@@ -150,5 +151,66 @@ test("topology fills the card and labels latency/loss around a centered line", (
   assert.match(source, /top-1\/2/);
   assert.match(source, /formatLossPct/);
   assert.match(source, /border-dashed/);
-  assert.match(source, /h-12/);
+  assert.match(source, /h-14/);
+});
+
+test("topology nodes carry SOURCE/HOP/TARGET labels and a breathing status dot", () => {
+  const source = read("components/overview/ChainLatencyDetail.tsx");
+  assert.match(source, /"SOURCE"/);
+  assert.match(source, /"TARGET"/);
+  assert.match(source, /HOP \$\{index\}/);
+  assert.match(source, /data-chain-topology-node-label/);
+  assert.match(source, /data-chain-topology-node-dot/);
+  // 在线呼吸绿点；其它已知状态静止红点；目标节点不画点。
+  assert.match(source, /bg-success status-breathe/);
+  assert.match(source, /bg-destructive/);
+  assert.match(source, /const showDot = !target && tone !== "unknown"/);
+});
+
+test("overall axis draws time gridlines and ends at the last sample, not Now", () => {
+  const detail = read("components/overview/ChainLatencyDetail.tsx");
+  const chart = read("components/overview/ChainLatencyChart.tsx");
+  assert.match(detail, /chainTimeTicks/);
+  assert.match(detail, /data-chain-time-axis/);
+  assert.match(detail, /data-chain-time-tick/);
+  assert.match(detail, /chainLatestSeriesTs/);
+  assert.match(detail, /data-chain-axis-now/);
+  assert.match(chart, /data-chain-time-gridline/);
+  // 「现在」不再是轴右端的唯一标签。
+  assert.doesNotMatch(detail, /<span>\{t\("overview\.chainLatency\.now"\)\}<\/span>/);
+});
+
+test("the overall legend and anomaly band use primary only", () => {
+  const detail = read("components/overview/ChainLatencyDetail.tsx");
+  const chart = read("components/overview/ChainLatencyChart.tsx");
+  const start = detail.indexOf("data-chain-overall-legend");
+  assert.ok(start >= 0);
+  const legend = detail.slice(start, detail.indexOf("</div>", start));
+  assert.match(legend, /bg-primary\/15/);
+  assert.doesNotMatch(legend, /warning/);
+  assert.match(legend, /anomalyWindow/);
+  assert.match(chart, /fill="var\(--primary\)"/);
+  assert.doesNotMatch(chart, /fill="var\(--warning\)"/);
+});
+
+test("the list-level overall trend shares the 4h/1d axis and vertical gridlines", () => {
+  const source = read("components/overview/ChainLatencyTrendChart.tsx");
+  assert.match(source, /chainLatestSeriesTs/);
+  assert.match(source, /chainTimeTicks/);
+  assert.match(source, /domain=\{axis \? \[axis\.startTs, axis\.endTs\]/);
+  assert.match(source, /vertical/);
+});
+
+test("loss tooltips drop the old 'at that time' prefix in both languages", async () => {
+  const [{ default: zh }, { default: en }] = await Promise.all([
+    import("../i18n/zh-CN.ts"),
+    import("../i18n/en.ts"),
+  ]);
+  assert.equal(zh.overview.chainLatency.lossAtTime, "丢包");
+  assert.equal(en.overview.chainLatency.lossAtTime, "Loss");
+  assert.doesNotMatch(zh.overview.chainLatency.hoverLossHint, /该时刻/);
+  assert.doesNotMatch(
+    en.overview.chainLatency.hoverLossHint,
+    /at that time/i,
+  );
 });

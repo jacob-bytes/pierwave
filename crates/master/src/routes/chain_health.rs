@@ -14,6 +14,12 @@
 //! 的同一批计数。两者都按各跳独立连乘 `1 - Π(1 - loss_i)`，`attempts = 0` 为
 //! null；链级只有「部分段有数据」时才标 `loss_partial`。
 //!
+//! 最后一跳（最后一组 → 链目标）与中间段同形：Agent 对最后一组的 forward
+//! 目标就是链目标，探测样本的 `target_server_id` 为空；主控按「源成员 ∈ 最后
+//! 一组」把它归到 `seq = 最后一组 seq + 1` 的段，`missing_hops` 只在确实没有
+//! 样本时才列这一跳。`chains[].nodes` 额外给出拓扑节点（组 → 成员 +
+//! 链目标），`entry` / `exit` 保留。
+//!
 //! `server_ids` 与 `/api/v1/overview`、`/overview/server-health` **完全同语义**：
 //! 不传 = 全部；空数组 = 空结果；未知 id 忽略并进 `warnings.unknown_ids`；
 //! 非法 id 400；去重后上限 200。筛选保留「至少一个成员落在选中服务器」的链，
@@ -60,9 +66,9 @@ struct Scope {
 struct Warnings {
     /// 合法但库里不存在的 id；被忽略，不参与筛选。
     unknown_ids: Vec<String>,
-    /// 本应映射到「段」却失败的样本数（多成员目标却上报空目标、链改过成员
-    /// 后的历史残留等）。最后一跳到链目标的预期探测不计入，它由
-    /// `chains[].missing_hops` 表达。
+    /// 本应映射到「段」却失败的样本数（多成员目标却上报空目标、最后一跳却
+    /// 带非空目标、链改过成员后的历史残留等）。最后一跳用空目标上报是
+    /// **预期**格式，不计入这里。
     unmapped_forwards: i64,
 }
 
@@ -453,11 +459,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chain_health_maps_hops_series_and_the_missing_last_hop() {
+    async fn chain_health_maps_hops_the_final_hop_and_topology_nodes() {
         let (app, state, admin) = setup().await;
         let pool = &state.db.pool;
         let a = server(pool, "香港-01", "10.0.0.1").await;
         let b = server(pool, "东京-01", "10.0.0.2").await;
+        servers::mark_online(pool, &a).await.unwrap();
         let chain_id = chain(pool, "港日链", vec![vec![&a], vec![&b]]).await;
         let now = repo::now();
         let end = end_at(now, 300);
@@ -465,7 +472,7 @@ mod tests {
         latency::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), "", 17)
             .await
             .unwrap();
-        // 最后一跳到链目标：必须计入 unmapped，不能伪装成第 2 段。
+        // 最后一跳到链目标：空目标样本归到最后一跳，不是 unmapped。
         latency::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), "", 9)
             .await
             .unwrap();
@@ -485,16 +492,24 @@ mod tests {
         assert_eq!(body["warnings"]["unmapped_forwards"], 0);
         assert_eq!(body["summary"]["total_chains"], 1);
         assert_eq!(body["chains"][0]["hops"], 2);
-        assert_eq!(body["chains"][0]["missing_hops"], json!([2]));
-        assert_eq!(body["chains"][0]["segments"].as_array().unwrap().len(), 1);
-        assert_eq!(body["chains"][0]["segments"][0]["seq"], 1);
-        assert_eq!(body["chains"][0]["segments"][0]["from"], "香港-01");
-        assert_eq!(body["chains"][0]["segments"][0]["to"], "东京-01");
-        assert_eq!(body["chains"][0]["segments"][0]["p50"], 17.0);
+        // 有最后一跳样本：不能再说这一跳缺失。
+        assert_eq!(body["chains"][0]["missing_hops"], json!([]));
+        let segments = body["chains"][0]["segments"].as_array().unwrap();
+        assert_eq!(segments.len(), 2, "2 组 = 2 段（含最后一跳）");
+        assert_eq!(segments[0]["seq"], 1);
+        assert_eq!(segments[0]["from"], "香港-01");
+        assert_eq!(segments[0]["to"], "东京-01");
+        assert_eq!(segments[0]["p50"], 17.0);
+        assert_eq!(segments[1]["seq"], 2);
+        assert_eq!(segments[1]["from"], "东京-01");
+        assert_eq!(segments[1]["to"], "链目标");
+        assert_eq!(segments[1]["p50"], 9.0);
         // 没有探测样本：attempts = 0、loss_pct 为 null；整链无数据不标 partial。
-        assert_eq!(body["chains"][0]["segments"][0]["attempts"], 0);
-        assert_eq!(body["chains"][0]["segments"][0]["failures"], 0);
-        assert_eq!(body["chains"][0]["segments"][0]["loss_pct"], Value::Null);
+        for segment in segments {
+            assert_eq!(segment["attempts"], 0);
+            assert_eq!(segment["failures"], 0);
+            assert_eq!(segment["loss_pct"], Value::Null);
+        }
         assert_eq!(body["chains"][0]["loss_pct"], Value::Null);
         assert_eq!(
             body["chains"][0]["loss_samples"],
@@ -510,8 +525,29 @@ mod tests {
                 .unwrap()
                 .last()
                 .unwrap()["p50"],
-            17.0
+            26.0,
+            "整体 p50 含最后一跳"
         );
+        // nodes：首组 source、末组 hop、链目标 target（server_id/status 为 null）。
+        let nodes = body["chains"][0]["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 3);
+        assert_eq!(nodes[0]["seq"], 0);
+        assert_eq!(nodes[0]["server_id"], a);
+        assert_eq!(nodes[0]["name"], "香港-01");
+        assert_eq!(nodes[0]["role"], "source");
+        assert_eq!(nodes[0]["status"], "online");
+        assert_eq!(nodes[1]["seq"], 1);
+        assert_eq!(nodes[1]["server_id"], b);
+        assert_eq!(nodes[1]["role"], "hop");
+        assert_eq!(nodes[1]["status"], "offline");
+        assert_eq!(nodes[2]["seq"], 2);
+        assert_eq!(nodes[2]["server_id"], Value::Null);
+        assert_eq!(nodes[2]["name"], "链目标");
+        assert_eq!(nodes[2]["role"], "target");
+        assert_eq!(nodes[2]["status"], Value::Null);
+        // 既有 entry / exit 字段保留。
+        assert_eq!(body["chains"][0]["entry"]["server_id"], a);
+        assert_eq!(body["chains"][0]["exit"]["server_id"], b);
         assert_eq!(headers["x-chain-health-cache"], "miss");
     }
 
@@ -533,17 +569,23 @@ mod tests {
         .await;
         let end = end_at(repo::now(), 900);
         let ts = end - 60;
-        // 第 1 段 16ms / 2/240；第 2 段 58ms / 24/240。
+        // 第 1 段 16ms / 2/240；第 2 段 58ms / 24/240；最后一跳 5ms / 0/240。
         latency::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), "", 16)
             .await
             .unwrap();
         latency::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), "", 58)
             .await
             .unwrap();
+        latency::record_sample(pool, ts, &c, &forward_id(&chain_id, 2, &c, 1), "", 5)
+            .await
+            .unwrap();
         chain_probe::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), 240, 2)
             .await
             .unwrap();
         chain_probe::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), 240, 24)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, ts, &c, &forward_id(&chain_id, 2, &c, 1), 240, 0)
             .await
             .unwrap();
 
@@ -577,7 +619,8 @@ mod tests {
         let segments = view["segments"].as_array().unwrap();
         let chain_series_len = view["series"].as_array().unwrap().len();
         assert_eq!(chain_series_len, 4);
-        assert_eq!(segments.len(), 2);
+        assert_eq!(segments.len(), 3, "3 组 = 3 段（含最后一跳）");
+        assert_eq!(view["missing_hops"], json!([]));
         for segment in segments {
             assert_eq!(
                 segment["series"].as_array().unwrap().len(),
@@ -598,20 +641,31 @@ mod tests {
             segments[1]["series"][2].is_null(),
             "该段没有时延样本时整桶 null"
         );
+        let last = &segments[2]["series"][3];
+        assert_eq!(last["p50"], 5.0);
+        assert_eq!(last["loss_pct"], 0.0);
+        assert!(segments[2]["series"][2].is_null());
 
-        // 既有字段回归：逐段/整链时延与丢包口径不变。
+        // 既有字段回归：逐段/整链时延与丢包口径不变（只是多了最后一跳）。
         assert_eq!(segments[0]["p50"], 16.0);
         assert_eq!(segments[1]["p50"], 58.0);
+        assert_eq!(segments[2]["p50"], 5.0);
+        assert_eq!(segments[2]["seq"], 3);
+        assert_eq!(segments[2]["to"], "链目标");
         assert_eq!(segments[0]["attempts"], 240);
         assert_eq!(segments[0]["failures"], 2);
         assert_eq!(segments[0]["loss_pct"], 0.8333);
         assert_eq!(segments[1]["loss_pct"], 10.0);
+        assert_eq!(segments[2]["attempts"], 240);
+        assert_eq!(segments[2]["failures"], 0);
+        assert_eq!(segments[2]["loss_pct"], 0.0);
         assert_eq!(view["loss_pct"], 10.75);
         assert_eq!(
             view["loss_samples"],
-            json!({ "attempts": 480, "failures": 26 })
+            json!({ "attempts": 720, "failures": 26 })
         );
-        assert_eq!(view["series"][3]["p50"], 74.0);
+        assert_eq!(view["series"][3]["p50"], 79.0);
+        assert_eq!(view["series"][3]["samples"], 3);
     }
 
     /// 多成员组：起点/终点都按 `(priority, server_id)` 选第一台。
@@ -643,6 +697,16 @@ mod tests {
             view["exit"]["address"],
             format!("198.51.100.21:{exit_port}")
         );
+        // nodes：多成员组取 priority 最小的 b，其他成员不展开；末尾是链目标。
+        let nodes = view["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 3);
+        assert_eq!(nodes[1]["server_id"], b);
+        assert_eq!(nodes[1]["role"], "hop");
+        assert_eq!(nodes[2]["role"], "target");
+        assert_eq!(nodes[2]["server_id"], Value::Null);
+        assert_eq!(nodes[2]["status"], Value::Null);
+        assert_eq!(view["missing_hops"], json!([2]));
+        assert_eq!(view["segments"].as_array().unwrap().len(), 2);
     }
 
     /// 筛选命中中转服务器时链被保留，但起点/终点仍是原链的第一/最后一组。
@@ -885,6 +949,10 @@ mod tests {
             )
             .await
             .unwrap();
+            // 最后一跳稳定 10ms，不制造增量。
+            latency::record_sample(pool, ts + 60, &c, &forward_id(&chain_id, 2, &c, 1), "", 10)
+                .await
+                .unwrap();
             ts += 900;
         }
 
@@ -900,10 +968,12 @@ mod tests {
         assert_eq!(view["segments"][1]["p50"], 55.0);
         assert_eq!(view["segments"][1]["delta_ms"], 25.0);
         assert_eq!(view["segments"][1]["contribution_pct"], 100);
+        assert_eq!(view["segments"][2]["p50"], 10.0);
+        assert_eq!(view["segments"][2]["contribution_pct"], 0);
         assert_eq!(view["diagnosis"]["kind"], "single_hop");
         assert_eq!(view["diagnosis"]["seq"], 2);
         assert_eq!(body["summary"]["slow_chains"], 1);
-        assert_eq!(body["summary"]["hop_p50_ms"], 75);
+        assert_eq!(body["summary"]["hop_p50_ms"], 85);
         assert_eq!(body["summary"]["delta_ms"], 25);
         assert_eq!(body["summary"]["worst_hop"]["seq"], 2);
     }
@@ -935,8 +1005,9 @@ mod tests {
         chain_probe::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), 240, 2)
             .await
             .unwrap();
-        // 最后一跳到链目标：全失败也不能算进任何段。
-        chain_probe::record_sample(pool, ts, &c, &forward_id(&chain_id, 2, &c, 1), 240, 240)
+        // 最后一跳到链目标：独立成段，24/240 = 10% 必须计入整链连乘，
+        // 但不能混进前两段（各自仍是 2/240）。
+        chain_probe::record_sample(pool, ts, &c, &forward_id(&chain_id, 2, &c, 1), 240, 24)
             .await
             .unwrap();
 
@@ -955,17 +1026,18 @@ mod tests {
         assert_eq!(view["segments"][0]["failures"], 2);
         assert_eq!(view["segments"][0]["loss_pct"], 0.8333);
         assert_eq!(view["segments"][1]["loss_pct"], 0.8333);
-        // 1 - (1 - 2/240)² = 1.6597%，不是把两段相加的 1.6667%。
-        assert_eq!(view["loss_pct"], 1.6597);
+        assert_eq!(view["segments"][2]["loss_pct"], 10.0, "最后一跳独立计算");
+        // 1 - (1 - 2/240)² × 0.9 = 11.4937%，不是把三段相加的 11.6667%。
+        assert_eq!(view["loss_pct"], 11.4937);
         assert_eq!(
             view["loss_samples"],
-            json!({ "attempts": 480, "failures": 4 })
+            json!({ "attempts": 720, "failures": 28 })
         );
         assert_eq!(view["loss_partial"], false);
-        assert_eq!(body["summary"]["loss_pct"], 1.6597);
+        assert_eq!(body["summary"]["loss_pct"], 11.4937);
         assert_eq!(body["summary"]["worst_loss"]["chain_id"], chain_id);
         assert_eq!(body["summary"]["worst_loss"]["chain_name"], "港日链");
-        assert_eq!(body["summary"]["worst_loss"]["loss_pct"], 1.6597);
+        assert_eq!(body["summary"]["worst_loss"]["loss_pct"], 11.4937);
     }
 
     /// `loss_partial` 只在「部分段有探测数据」时为 true；全无数据是 false。
@@ -1016,18 +1088,22 @@ mod tests {
         let b = server(pool, "东京-01", "10.0.0.2").await;
         let chain_id = chain(pool, "港日链", vec![vec![&a], vec![&b]]).await;
         let end = end_at(repo::now(), 900);
-        let forward_id = forward_id(&chain_id, 0, &a, 1);
+        let first_forward = forward_id(&chain_id, 0, &a, 1);
 
         // 三个有样本的桶：一个没有探测、一个 1%、一个 50%。
+        // 最后一跳每个桶都有时延（没有探测），整桶才齐全。
         for ts in [end - 3 * 900 + 60, end - 2 * 900 + 60, end - 900 + 60] {
-            latency::record_sample(pool, ts, &a, &forward_id, "", 20)
+            latency::record_sample(pool, ts, &a, &first_forward, "", 20)
+                .await
+                .unwrap();
+            latency::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), "", 10)
                 .await
                 .unwrap();
         }
-        chain_probe::record_sample(pool, end - 2 * 900 + 60, &a, &forward_id, 100, 1)
+        chain_probe::record_sample(pool, end - 2 * 900 + 60, &a, &first_forward, 100, 1)
             .await
             .unwrap();
-        chain_probe::record_sample(pool, end - 900 + 60, &a, &forward_id, 100, 50)
+        chain_probe::record_sample(pool, end - 900 + 60, &a, &first_forward, 100, 50)
             .await
             .unwrap();
 
@@ -1041,12 +1117,15 @@ mod tests {
         let series = body["chains"][0]["series"].as_array().unwrap();
         assert_eq!(series.len(), 4);
         assert!(series[0].is_null(), "没有时延样本的桶仍是 null");
-        assert_eq!(series[1]["p50"], 20.0);
+        assert_eq!(series[1]["p50"], 30.0);
         assert_eq!(series[1]["loss_pct"], Value::Null, "该桶无探测");
         assert_eq!(series[2]["loss_pct"], 1.0);
         assert_eq!(series[3]["loss_pct"], 50.0);
         // 链级窗口值是两桶计数合并后的 25.5%，与逐桶值不同。
         assert_eq!(body["chains"][0]["loss_pct"], 25.5);
+        // 最后一跳没有探测：逐段是 null，整链只覆盖第 1 段 → partial。
+        assert_eq!(body["chains"][0]["segments"][1]["loss_pct"], Value::Null);
+        assert_eq!(body["chains"][0]["loss_partial"], true);
     }
 
     /// `server_ids` 筛选后，丢包汇总只算保留的链（不能把未选中的链算进 headline）。

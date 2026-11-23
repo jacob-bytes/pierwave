@@ -4,11 +4,14 @@
 //! 不碰 SQL、不读 HTTP 上下文。口径与限制见 `docs/CHAIN-HEALTH.md`：
 //!
 //! * 链的第 N 组 → 第 N+1 组为一「段」，段的 `seq` 取**目标组**的 seq；
-//! * 样本条件：`server_id ∈ group[N].members` 且
+//! * 中间段样本条件：`server_id ∈ group[N].members` 且
 //!   `target_server_id ∈ group[N+1].members`。单成员下一跳在旧 Agent 上会用
 //!   兼容字段上报空 `target_server_id`，这里按「下一组唯一成员」补回；
-//! * 最后一跳（最后一组 → 链目标）没有历史样本：写进 `missing_hops`，
-//!   **不补 0**；
+//! * 最后一跳（最后一组 → 链目标）同样是一段，`seq = 最后一组 seq + 1`：
+//!   `server_id ∈ 最后一组`、`target_server_id` 为空的样本归到它（Agent 对
+//!   最后一跳的 forward 目标就是链目标，没有下一台服务器，所以目标 id 为空）。
+//!   有样本时**不进** `missing_hops`；`p50` / `series` / `attempts` /
+//!   `failures` / `loss_pct` 与中间段同形；
 //! * 整体时延 = 同一桶里各段 p50 之和；任一段缺样本则该桶为 null；
 //! * 当前值取最近 [`CURRENT_WINDOW_SECS`]（2 小时）的桶中位数，基线取此前
 //!   [`BASELINE_WINDOW_SECS`]（24 小时）的桶中位数。选择 2h 而不是 24h 的
@@ -30,6 +33,11 @@
 //! * `segments[].series` 与链级 `series` 同桶宽、同长度：每桶 p50 来自该段
 //!   时延样本，loss_pct 来自该段探测桶（attempts = 0 → null），无样本桶为
 //!   null。它与 entry/exit 一样只做内存归并，不新增 SQL。
+//! * `nodes` 是链的拓扑节点：每个组一个（`server_id` 取该组
+//!   `(priority, server_id)` 最小的成员，与 entry/exit 同口径），末尾再补一个
+//!   `role = target` 的链目标节点（`server_id` / `status` 都是 null）。多成员组
+//!   的节点只代表该组的代表成员，链级 `estimated = true` 表示段值是估算。
+//!   `entry` / `exit` 保留，前端可渐进迁移。
 
 use std::collections::HashMap;
 
@@ -51,6 +59,8 @@ pub const BASELINE_WINDOW_SECS: i64 = 24 * 60 * 60;
 pub const SLOW_DELTA_MS: f64 = 8.0;
 /// 单段主导阈值：某段贡献 ≥ 80% 判 `single_hop`。
 pub const SINGLE_HOP_CONTRIBUTION_PCT: f64 = 80.0;
+/// 链目标节点的展示名：链路最后一跳连的就是它，没有服务器行可引用。
+pub const CHAIN_TARGET_NAME: &str = "链目标";
 
 /// 链级诊断。
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -71,10 +81,11 @@ impl Diagnosis {
     }
 }
 
-/// 一「段」的视图：第 N 组 → 第 N+1 组。
+/// 一「段」的视图：第 N 组 → 第 N+1 组；最后一跳是最后一组 → 链目标。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SegmentView {
-    /// 段编号：目标组的 `seq`（正常链是 1..hops-1）。
+    /// 段编号：中间段取**目标组**的 `seq`，最后一跳取 `最后一组 seq + 1`
+    /// （正常链是 1..=hops）。
     pub seq: i64,
     /// 源组代表成员名；多路径时是当前窗口样本最多的那台。
     pub from: String,
@@ -136,6 +147,27 @@ pub struct LossSamples {
     pub failures: i64,
 }
 
+/// 链上的一个拓扑节点：一个组一个，末端的链目标再补一个。
+///
+/// 口径见 `docs/CHAIN-HEALTH.md`：组节点取该组 `(priority, server_id)` 最小的
+/// 成员（与 `entry` / `exit` 同口径），多成员组的其他成员不在 `nodes` 里，由
+/// 链级 `estimated = true` 说明这段是估算；链目标节点没有 `server_id`，
+/// 因此 `status` 也是 null。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NodeView {
+    /// 组节点的 `seq` 取组的 seq；链目标节点取「最后一组 seq + 1」。
+    pub seq: i64,
+    /// 链目标节点与没有成员的组为 null。
+    pub server_id: Option<String>,
+    /// 服务器名；链目标节点是 `"链目标"`。
+    pub name: String,
+    /// `source`（第一组）/ `hop`（其余组）/ `target`（链目标）。
+    pub role: &'static str,
+    /// 成员服务器的 `servers.status`（online / offline / …）；
+    /// 链目标与没有成员的组为 null。
+    pub status: Option<String>,
+}
+
 /// 整体时间序列的一个点；空桶在数组里是 `null`。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SeriesPoint {
@@ -154,16 +186,20 @@ pub struct SeriesPoint {
 pub struct ChainHealth {
     pub id: String,
     pub name: String,
-    /// 链的组数（入口 + 中转 + 出口）。4 组 = 4 跳、3 个可测段。
+    /// 链的组数（入口 + 中转 + 出口）。4 组 = 4 段：3 个中间段 + 最后一跳。
     pub hops: i64,
     /// 链的起点：第一个组里优先级最高的成员。没有任何成员时 null。
     pub entry: Option<Endpoint>,
     /// 链的终点：最后一个组里优先级最高的成员。没有任何成员时 null。
     pub exit: Option<Endpoint>,
+    /// 拓扑节点：每个组一个 + 末尾的链目标节点（`role = "target"`）。
+    /// 没有任何组的脏数据是空数组。
+    pub nodes: Vec<NodeView>,
     /// 存在多成员组（多路径），整体/逐段都是估算值。
     pub estimated: bool,
-    /// 无法测量的跳：最后一跳（到链目标）的 seq 恒在其中；成员为空的组
-    /// 造成的断点也会列进去。空数组只可能出现在没有任何组的脏数据上。
+    /// 无法测量的跳：只有「最后一跳没有任何时延/探测样本」或「成员为空的组」
+    /// 才会列进来；有最后一跳样本时**不含**最后一跳。空数组只可能出现在
+    /// 没有任何组的脏数据上。
     pub missing_hops: Vec<i64>,
     /// 固定长度 = `hours * 3600 / bucket`；无样本桶是 `null`。
     pub series: Vec<Option<SeriesPoint>>,
@@ -223,8 +259,9 @@ pub struct Aggregate {
     pub summary: Summary,
     pub chains: Vec<ChainHealth>,
     /// 本应映射到某段却失败的样本数：目标组多成员但 Agent 只上报了空目标、
-    /// 链改过成员后的历史残留等。最后一跳到链目标的预期探测不计入，它由
-    /// `missing_hops` 表达。
+    /// 最后一跳却带了一个非空目标、链改过成员后的历史残留等。最后一跳用空
+    /// 目标上报是**预期**格式（Agent 探测的就是链目标，没有成员 id），
+    /// 不计入这里。
     pub unmapped_forwards: i64,
 }
 
@@ -329,19 +366,20 @@ pub fn aggregate(
     }
 
     // (chain, segment, series bucket) → 该桶的探测计数。forward 是「每跳入口」
-    // 的探测，这里把同一段所有成员（多路径）的计数相加；最后一跳（最后一组
-    // → 链目标）没有下一组可归属，和时延样本一样忽略。
+    // 的探测，这里把同一段所有成员（多路径）的计数相加。段 index 恒等于源组
+    // index：中间段是 group[i] → group[i+1]，最后一组的 forward 探测的是链
+    // 目标，归到最后一跳（index = 最后一组 index）。
     let mut segment_probe_buckets: HashMap<(usize, usize, i64), ProbeCounts> = HashMap::new();
     // 同一批桶里落在当前窗口（最近 2h）的部分，用于整链窗口丢包。
     let mut segment_probes: HashMap<(usize, usize), ProbeCounts> = HashMap::new();
+    // 每条链的最后一跳是否在窗口内出现过时延样本或探测桶；只有完全没有数据
+    // 时才把它写进 missing_hops。
+    let mut final_hop_seen = vec![false; layouts.len()];
     for row in probes {
         let Some(&(chain_index, group_index, _)) = forward_map.get(&row.forward_id) else {
             continue;
         };
         let layout = &layouts[chain_index];
-        if group_index + 1 >= layout.groups.len() {
-            continue;
-        }
         let bucket_ts = row.ts.div_euclid(bucket) * bucket;
         if bucket_ts < series_start || bucket_ts >= end {
             continue;
@@ -350,6 +388,13 @@ pub fn aggregate(
             attempts: row.attempts.max(0),
             failures: row.failures.max(0),
         };
+        // attempts = 0 的行不算「有样本」：它只是计数基线，没有真实探测。
+        if layout.final_hop_seq.is_some()
+            && group_index + 1 == layout.groups.len()
+            && counts.attempts > 0
+        {
+            final_hop_seen[chain_index] = true;
+        }
         segment_probe_buckets
             .entry((chain_index, group_index, bucket_ts))
             .or_default()
@@ -391,32 +436,44 @@ pub fn aggregate(
             unmapped_forwards += 1;
             continue;
         }
-        let Some(target_members) = layout.groups.get(group_index + 1) else {
-            // 最后一跳到链目标：这是**预期**的历史样本（Agent 探测链目标），
-            // 没有「下一台服务器」可归属。它已经由 missing_hops 表达，不能
-            // 算成 unmapped 异常，也不能伪装成 0ms。
-            continue;
-        };
-        let target_id = if sample.target_server_id.is_empty() {
-            // 单成员下一跳走兼容字段，Agent 拿不到 server_id；唯一成员可确定。
-            if target_members.len() == 1 {
-                target_members[0].id.clone()
-            } else {
+        // 段 index = 源组 index。最后一跳没有「下一台服务器」：Agent 对最后
+        // 一组的 forward 目标就是链目标，`target_server_id` 是空串。空目标在
+        // 这里才是正确格式；带非空目标说明是链改过成员后的历史残留。
+        let final_hop = group_index + 1 == layout.groups.len();
+        let target_id = if final_hop {
+            if !sample.target_server_id.is_empty() {
                 unmapped_forwards += 1;
                 continue;
             }
+            String::new()
         } else {
-            sample.target_server_id.clone()
+            // final_hop = false 时下一组一定存在（段 index = 源组 index）。
+            let target_members = &layout.groups[group_index + 1];
+            let target_id = if sample.target_server_id.is_empty() {
+                // 单成员下一跳走兼容字段，Agent 拿不到 server_id；唯一成员可确定。
+                if target_members.len() == 1 {
+                    target_members[0].id.clone()
+                } else {
+                    unmapped_forwards += 1;
+                    continue;
+                }
+            } else {
+                sample.target_server_id.clone()
+            };
+            if !target_members.iter().any(|member| member.id == target_id) {
+                unmapped_forwards += 1;
+                continue;
+            }
+            target_id
         };
-        if !target_members.iter().any(|member| member.id == target_id) {
-            unmapped_forwards += 1;
-            continue;
-        }
         let bucket_ts = sample.ts.div_euclid(bucket) * bucket;
         // `since` 同时覆盖 series 与基线里更老的一侧：hours > 26 时基线在
         // 时间轴内部，不能把基线之前的 series 桶误丢。
         if bucket_ts < since {
             continue;
+        }
+        if final_hop {
+            final_hop_seen[chain_index] = true;
         }
         bucket_values
             .entry((chain_index, group_index, bucket_ts))
@@ -449,7 +506,20 @@ pub fn aggregate(
 
     let mut views = Vec::with_capacity(chains.len());
     for (chain_index, layout) in layouts.iter().enumerate() {
-        let segment_count = layout.hops.saturating_sub(1).max(0) as usize;
+        // 段数 = 组数：组 i → 组 i+1（i < hops-1）再加最后一组 → 链目标。
+        // 空组仍保留一个 p50 为 null 的段，与中间段同形。
+        let segment_count = layout.hops.max(0) as usize;
+
+        // 最后一跳只有「窗口内完全没有时延样本、也没有探测桶」时才进
+        // missing_hops；成员为空的组造成的断点由 topology 预先给出。
+        let mut missing_hops = layout.missing_hops.clone();
+        if let Some(seq) = layout.final_hop_seq {
+            if !final_hop_seen[chain_index] {
+                missing_hops.push(seq);
+            }
+        }
+        missing_hops.sort_unstable();
+        missing_hops.dedup();
 
         // 时间轴：固定长度，空桶 null。
         let mut series = Vec::with_capacity(count as usize);
@@ -596,8 +666,9 @@ pub fn aggregate(
                 hops: layout.hops,
                 entry: layout.entry.clone(),
                 exit: layout.exit.clone(),
+                nodes: layout.nodes.clone(),
                 estimated: layout.estimated,
-                missing_hops: layout.missing_hops.clone(),
+                missing_hops,
                 series,
                 segments,
                 loss_pct: chain_loss_pct,
@@ -680,13 +751,18 @@ struct Layout {
     hops: i64,
     entry: Option<Endpoint>,
     exit: Option<Endpoint>,
+    /// 拓扑节点（每个组一个 + 末尾的链目标节点）。
+    nodes: Vec<NodeView>,
     estimated: bool,
+    /// 成员为空的组造成的断点（不含最后一跳；最后一跳是否缺失取决于样本）。
     missing_hops: Vec<i64>,
+    /// 最后一跳的 `seq` = 最后一组的 seq + 1；没有任何组时 None。
+    final_hop_seq: Option<i64>,
     /// 每组在链里的 `seq`，与 `groups` 下标一一对应。
     group_seq: Vec<i64>,
     /// 每组排好序的成员（priority, server_id）。
     groups: Vec<Vec<Member>>,
-    /// 段编号：目标组 seq。
+    /// 段编号：中间段取目标组 seq，最后一跳取最后一组 seq + 1。
     segment_seq: Vec<i64>,
     /// 无样本时的 from/to 兜底。
     segment_from: Vec<String>,
@@ -697,6 +773,8 @@ struct Layout {
 struct Member {
     id: String,
     name: String,
+    /// `servers.status` 原样透传，只用于 `nodes[].status`。
+    status: String,
     address: String,
     internal_address: Option<String>,
     listen_port: i64,
@@ -719,6 +797,7 @@ impl Layout {
                     .map(|member| Member {
                         id: member.server_id.clone(),
                         name: member.server_name.clone(),
+                        status: member.server_status.clone(),
                         address: member.server_address.clone(),
                         internal_address: member.server_internal_address.clone(),
                         listen_port: member.listen_port,
@@ -745,34 +824,81 @@ impl Layout {
             .map(|member| endpoint(member, member.listen_port));
         let estimated = members.iter().any(|group| group.len() > 1);
         let hops = groups.len() as i64;
+        let final_hop_seq = group_seq.last().map(|last| last + 1);
 
+        // 空组造成的断点：相邻两组任一侧没有成员时，目标组的 seq 无法测量。
+        // 最后一跳由 aggregate 按「窗口内有没有样本」单独决定，不能无条件写死。
         let mut missing_hops = Vec::new();
         for index in 0..groups.len().saturating_sub(1) {
             if members[index].is_empty() || members[index + 1].is_empty() {
                 missing_hops.push(group_seq[index + 1]);
             }
         }
-        if let Some(last) = group_seq.last() {
-            // 最后一组 → 链目标没有历史样本；seq 用「下一跳」的编号。
-            missing_hops.push(last + 1);
-        }
         missing_hops.sort_unstable();
         missing_hops.dedup();
 
-        let segment_count = groups.len().saturating_sub(1);
+        // 段数 = 组数：前 hops-1 段是组 → 下一组，最后一段是最后一组 → 链目标。
+        let segment_count = groups.len();
         let mut segment_seq = Vec::with_capacity(segment_count);
         let mut segment_from = Vec::with_capacity(segment_count);
         let mut segment_to = Vec::with_capacity(segment_count);
         for index in 0..segment_count {
-            segment_seq.push(group_seq[index + 1]);
+            let last = index + 1 >= groups.len();
+            if last {
+                // groups 非空时 final_hop_seq 一定有值。
+                segment_seq.push(final_hop_seq.unwrap_or(group_seq[index] + 1));
+            } else {
+                segment_seq.push(group_seq[index + 1]);
+            }
             segment_from.push(members[index].first().map_or_else(
                 || groups[index].group.name.clone().unwrap_or_default(),
                 |member| member.name.clone(),
             ));
-            segment_to.push(members[index + 1].first().map_or_else(
-                || groups[index + 1].group.name.clone().unwrap_or_default(),
-                |member| member.name.clone(),
-            ));
+            segment_to.push(if last {
+                CHAIN_TARGET_NAME.to_string()
+            } else {
+                members[index + 1].first().map_or_else(
+                    || groups[index + 1].group.name.clone().unwrap_or_default(),
+                    |member| member.name.clone(),
+                )
+            });
+        }
+
+        // 节点：每组取 (priority, server_id) 最小的成员，与 entry/exit 同口径；
+        // 多成员组的其他成员不展开，链级 estimated 说明这是估算。
+        let mut nodes = Vec::with_capacity(groups.len() + 1);
+        for (index, members) in members.iter().enumerate() {
+            let role = if index == 0 { "source" } else { "hop" };
+            match members.first() {
+                Some(member) => nodes.push(NodeView {
+                    seq: group_seq[index],
+                    server_id: Some(member.id.clone()),
+                    name: member.name.clone(),
+                    role,
+                    status: Some(member.status.clone()),
+                }),
+                // 空组没有服务器可引用：保留节点位置，状态未知。
+                None => nodes.push(NodeView {
+                    seq: group_seq[index],
+                    server_id: None,
+                    name: groups[index]
+                        .group
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| format!("第 {} 跳", index + 1)),
+                    role,
+                    status: None,
+                }),
+            }
+        }
+        if let Some(seq) = final_hop_seq {
+            nodes.push(NodeView {
+                seq,
+                server_id: None,
+                name: CHAIN_TARGET_NAME.to_string(),
+                role: "target",
+                status: None,
+            });
         }
 
         Self {
@@ -781,8 +907,10 @@ impl Layout {
             hops,
             entry,
             exit,
+            nodes,
             estimated,
             missing_hops,
+            final_hop_seq,
             group_seq,
             groups: members,
             segment_seq,
@@ -963,10 +1091,9 @@ fn window_segment_p50s(
                     values.push(bucket_stats.p50);
                     total += bucket_stats.p50;
                 }
-                None => {
-                    complete = false;
-                    break;
-                }
+                // 逐段 p50 互相独立：某段该桶缺样本只让「整体」桶不完整，
+                // 不能顺手跳过后面段，否则最后一跳会被前面的空段连坐。
+                None => complete = false,
             }
         }
         if complete {
@@ -1172,6 +1299,7 @@ mod tests {
             strategy: "round_robin".into(),
             server_id: server_id.into(),
             server_name: server_name.into(),
+            server_status: "online".into(),
             server_address: format!("10.0.0.{listen_port}"),
             server_internal_address: None,
             listen_port,
@@ -1259,6 +1387,7 @@ mod tests {
             strategy: "round_robin".into(),
             server_id: server_id.into(),
             server_name: server_name.into(),
+            server_status: "online".into(),
             server_address: address.into(),
             server_internal_address: internal_address.map(str::to_string),
             listen_port,
@@ -1679,7 +1808,7 @@ mod tests {
     }
 
     #[test]
-    fn maps_adjacent_groups_and_sums_the_same_bucket() {
+    fn maps_adjacent_groups_and_the_final_hop_in_the_same_bucket() {
         let chain = chain(
             "c1",
             vec![
@@ -1694,37 +1823,44 @@ mod tests {
             // 单成员下一跳走兼容字段：target_server_id 为空，按唯一成员补回。
             sample(ts, "a", forward("c1", 0, "a", 1), "", 14),
             sample(ts, "b", forward("c1", 1, "b", 1), "", 56),
-            // 最后一跳到链目标：没有下一台服务器，不能进任何段。
+            // 最后一跳用空目标上报（Agent 探测的是链目标，没有下一台服务器）。
             sample(ts, "c", forward("c1", 2, "c", 1), "", 5),
         ];
 
         let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
         assert_eq!(
             aggregate.unmapped_forwards, 0,
-            "最后一跳到链目标是预期样本，由 missing_hops 表达"
+            "最后一跳的空目标是预期格式，不是 unmapped"
         );
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 3);
-        assert_eq!(view.missing_hops, vec![3], "最后一跳必须声明为缺失");
+        assert!(
+            view.missing_hops.is_empty(),
+            "有最后一跳样本时不能声明缺失：{:?}",
+            view.missing_hops
+        );
         assert_eq!(
             view.segments.iter().map(|s| s.seq).collect::<Vec<_>>(),
-            vec![1, 2]
+            vec![1, 2, 3]
         );
         assert_eq!(view.segments[0].from, "香港-01");
         assert_eq!(view.segments[0].to, "东京-01");
         assert_eq!(view.segments[0].p50, Some(14.0));
         assert_eq!(view.segments[1].p50, Some(56.0));
+        assert_eq!(view.segments[2].from, "大阪-01");
+        assert_eq!(view.segments[2].to, CHAIN_TARGET_NAME);
+        assert_eq!(view.segments[2].p50, Some(5.0), "最后一跳的 p50 要能读到");
         assert!(!view.estimated);
 
         let last = view.series.last().unwrap().as_ref().unwrap();
-        assert_eq!(last.p50, 70.0, "整体 = 同一桶各段 p50 之和");
-        assert_eq!(last.p10, 70.0);
-        assert_eq!(last.p90, 70.0);
-        assert_eq!(last.samples, 2, "最后一跳的目标样本不能混进 samples");
+        assert_eq!(last.p50, 75.0, "整体 = 同一桶各段 p50 之和");
+        assert_eq!(last.p10, 75.0);
+        assert_eq!(last.p90, 75.0);
+        assert_eq!(last.samples, 3);
         assert!(view.series[0].is_none(), "没有样本的桶必须是 null");
         assert_eq!(view.diagnosis.kind, "unknown", "没有基线时不能编诊断");
         assert_eq!(aggregate.summary.total_chains, 1);
-        assert_eq!(aggregate.summary.hop_p50_ms, Some(70));
+        assert_eq!(aggregate.summary.hop_p50_ms, Some(75));
         assert_eq!(aggregate.summary.delta_ms, None);
     }
 
@@ -1771,18 +1907,22 @@ mod tests {
             // 中转组多成员：forward id 带 server_id；下一组单成员 → 空目标。
             sample(ts, "b1", forward("c1", 1, "b1", 2), "", 30),
             sample(ts, "b2", forward("c1", 1, "b2", 2), "", 50),
+            // 最后一跳：多成员中转组各自探测链目标，仍然只算最后一段。
+            sample(ts, "c", forward("c1", 2, "c", 1), "", 60),
         ];
         let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert!(view.estimated, "多成员组必须标注估算");
         assert_eq!(view.segments[0].p50, Some(15.0), "10/20 的中位数");
         assert_eq!(view.segments[1].p50, Some(40.0), "30/50 的中位数");
+        assert_eq!(view.segments[2].p50, Some(60.0), "最后一跳独立成段");
         assert_eq!(
             view.series.last().unwrap().as_ref().unwrap().p50,
-            55.0,
-            "多路径按段中位数求和"
+            115.0,
+            "多路径按段中位数求和（含最后一跳）"
         );
         assert_eq!(view.segments[1].from, "B1", "同票时按 server id 稳定选择");
+        assert_eq!(view.segments[2].to, CHAIN_TARGET_NAME);
     }
 
     #[test]
@@ -1791,9 +1931,10 @@ mod tests {
         let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 2);
-        assert_eq!(view.missing_hops, vec![2]);
-        assert_eq!(view.segments.len(), 1);
+        assert_eq!(view.missing_hops, vec![2], "最后一跳没有样本时仍声明缺失");
+        assert_eq!(view.segments.len(), 2);
         assert!(view.segments[0].p50.is_none());
+        assert!(view.segments[1].p50.is_none());
         assert!(view.segments[0].delta_ms.is_none());
         assert_eq!(view.segments[0].contribution_pct, 0);
         assert!(view.series.iter().all(Option::is_none));
@@ -1805,15 +1946,42 @@ mod tests {
     }
 
     #[test]
-    fn a_single_group_chain_has_no_segments_and_no_fake_zero() {
+    fn a_single_group_chain_measures_only_the_final_hop() {
         let chain = chain("c1", vec![(0, vec![("a", "A")])]);
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
-        let view = &aggregate.chains[0];
+        // 没有样本：最后一跳是唯一一段，但必须保持 null + missing_hops。
+        let empty = aggregate(
+            std::slice::from_ref(&chain),
+            &[],
+            &no_probes(),
+            NOW,
+            1,
+            BUCKET,
+        );
+        let view = &empty.chains[0];
         assert_eq!(view.hops, 1);
         assert_eq!(view.missing_hops, vec![1]);
-        assert!(view.segments.is_empty());
+        assert_eq!(view.segments.len(), 1, "最后一组 → 链目标也是一段");
+        assert_eq!(view.segments[0].seq, 1);
+        assert_eq!(view.segments[0].to, CHAIN_TARGET_NAME);
+        assert!(view.segments[0].p50.is_none());
         assert!(view.series.iter().all(Option::is_none));
         assert_eq!(view.diagnosis.kind, "unknown");
+
+        // 有最后一跳样本：p50 可见、missing_hops 清空。
+        let ts = end_at(NOW, BUCKET) - 60;
+        let samples = vec![sample(ts, "a", forward("c1", 0, "a", 1), "", 12)];
+        let with_samples = aggregate(
+            std::slice::from_ref(&chain),
+            &samples,
+            &no_probes(),
+            NOW,
+            1,
+            BUCKET,
+        );
+        let view = &with_samples.chains[0];
+        assert!(view.missing_hops.is_empty());
+        assert_eq!(view.segments[0].p50, Some(12.0));
+        assert_eq!(view.series.last().unwrap().as_ref().unwrap().p50, 12.0);
     }
 
     #[test]
@@ -1823,9 +1991,13 @@ mod tests {
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 2);
         assert_eq!(view.missing_hops, vec![1, 2]);
-        assert_eq!(view.segments.len(), 1);
-        assert!(view.segments[0].p50.is_none());
+        assert_eq!(view.segments.len(), 2, "空的中间段与最后一跳都保留位置");
+        assert!(view.segments.iter().all(|segment| segment.p50.is_none()));
         assert!(view.series.iter().all(Option::is_none));
+        assert_eq!(view.nodes.len(), 3);
+        assert_eq!(view.nodes[0].server_id, None);
+        assert_eq!(view.nodes[0].status, None);
+        assert_eq!(view.nodes[2].role, "target");
     }
 
     /// 在 `[start, end)` 的每个桶里放一条样本；`latency` 是 `(桶序号, 值)`。
@@ -1895,6 +2067,16 @@ mod tests {
             end,
             |_| 55,
         ));
+        // 最后一跳（大阪 → 链目标）全程 10ms，保持稳定。
+        samples.extend(per_bucket_samples(
+            "c1",
+            "c",
+            2,
+            "",
+            baseline_start,
+            end,
+            |_| 10,
+        ));
 
         let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
         let view = &aggregate.chains[0];
@@ -1903,9 +2085,11 @@ mod tests {
         assert_eq!(view.segments[1].delta_ms, Some(25.0));
         assert_eq!(view.segments[1].contribution_pct, 100);
         assert_eq!(view.segments[0].contribution_pct, 0);
+        assert_eq!(view.segments[2].p50, Some(10.0));
+        assert_eq!(view.segments[2].contribution_pct, 0);
         assert_eq!(view.diagnosis.kind, "single_hop");
         assert_eq!(view.diagnosis.seq, Some(2));
-        assert_eq!(aggregate.summary.hop_p50_ms, Some(75), "20 + 55");
+        assert_eq!(aggregate.summary.hop_p50_ms, Some(85), "20 + 55 + 10");
         assert_eq!(aggregate.summary.delta_ms, Some(25));
         assert_eq!(aggregate.summary.slow_chains, 1);
         assert_eq!(
@@ -1948,11 +2132,22 @@ mod tests {
                 |_| 40,
             ));
         }
+        // 最后一跳全程稳定 10ms，不参与增量占比。
+        samples.extend(per_bucket_samples(
+            "c1",
+            "c",
+            2,
+            "",
+            baseline_start,
+            end,
+            |_| 10,
+        ));
 
         let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].contribution_pct, 50);
         assert_eq!(view.segments[1].contribution_pct, 50);
+        assert_eq!(view.segments[2].contribution_pct, 0);
         assert_eq!(view.diagnosis.kind, "overall");
         assert_eq!(view.diagnosis.seq, None);
         assert_eq!(aggregate.summary.delta_ms, Some(20));
@@ -1964,7 +2159,11 @@ mod tests {
         let end = end_at(NOW, BUCKET);
         // 30h 前：比 24h 基线更老，但仍在 48h 的 series 窗口里。
         let ts = end - 30 * 3600;
-        let samples = vec![sample(ts, "a", forward("c1", 0, "a", 1), "", 20)];
+        // 两段同一桶齐全，整体桶才非 null（最后一跳也必须算进来）。
+        let samples = vec![
+            sample(ts, "a", forward("c1", 0, "a", 1), "", 20),
+            sample(ts, "b", forward("c1", 1, "b", 1), "", 5),
+        ];
         let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 48, BUCKET);
         let view = &aggregate.chains[0];
         let index = ((ts - (end - 48 * 3600)) / BUCKET) as usize;
@@ -1972,7 +2171,7 @@ mod tests {
             view.series[index].is_some(),
             "48h 时间轴里 30h 前的桶不能被基线过滤丢掉"
         );
-        assert_eq!(view.series[index].as_ref().unwrap().p50, 20.0);
+        assert_eq!(view.series[index].as_ref().unwrap().p50, 25.0);
         assert!(
             view.segments[0].p50.is_none(),
             "30h 前的样本不属于最近 2h 当前窗口"
@@ -2031,7 +2230,7 @@ mod tests {
         assert_eq!(view.segments[0].attempts, 240);
         assert_eq!(view.segments[0].failures, 2);
         assert_eq!(view.segments[0].loss_pct, Some(0.8333), "2/240 = 0.8333%");
-        assert_eq!(view.loss_pct, Some(0.8333), "只有一段时整链等于该段");
+        assert_eq!(view.loss_pct, Some(0.8333), "只有一段有数据时整链等于该段");
         assert_eq!(
             view.loss_samples,
             LossSamples {
@@ -2039,7 +2238,12 @@ mod tests {
                 failures: 2
             }
         );
-        assert!(!view.loss_partial);
+        assert_eq!(view.segments[1].attempts, 0, "最后一跳没有探测");
+        assert_eq!(view.segments[1].loss_pct, None);
+        assert!(
+            view.loss_partial,
+            "最后一跳没有探测数据时，整链丢包只覆盖部分段，必须标 partial"
+        );
         assert_eq!(aggregate.summary.loss_pct, Some(0.8333));
         assert_eq!(
             aggregate
@@ -2078,7 +2282,8 @@ mod tests {
                 failures: 2
             }
         );
-        assert!(!view.loss_partial);
+        assert_eq!(view.segments[2].loss_pct, None, "最后一跳没有探测");
+        assert!(view.loss_partial, "最后一跳没有探测数据时必须标 partial");
         assert_eq!(aggregate.summary.loss_pct, Some(1.99));
     }
 
@@ -2120,10 +2325,11 @@ mod tests {
                 (3, vec![("d", "D")]),
             ],
         );
-        // 整链三段都没有探测：这是「无数据」，不是「部分跳缺数据」。
+        // 整链四段（3 个中间段 + 最后一跳）都没有探测：这是「无数据」，
+        // 不是「部分跳缺数据」。
         let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
-        assert_eq!(view.segments.len(), 3);
+        assert_eq!(view.segments.len(), 4);
         assert!(view
             .segments
             .iter()
@@ -2185,6 +2391,8 @@ mod tests {
         for ts in [end - 3 * BUCKET, end - 2 * BUCKET, end - BUCKET] {
             samples.push(sample(ts + 60, "a", forward("c1", 0, "a", 1), "", 20));
             samples.push(sample(ts + 60, "b", forward("c1", 1, "b", 1), "", 30));
+            // 最后一跳每桶有时延但没探测：整桶链级 loss 只按前两段算。
+            samples.push(sample(ts + 60, "c", forward("c1", 2, "c", 1), "", 10));
         }
 
         // 桶 1：两段各 1% → 1.99%；桶 2：第 1 段 0%、第 2 段 50% → 50%。
@@ -2220,9 +2428,10 @@ mod tests {
         );
         assert_eq!(
             view.series[1].as_ref().unwrap().p50,
-            50.0,
-            "丢包按桶计算不影响 p50"
+            60.0,
+            "丢包按桶计算不影响 p50（含最后一跳）"
         );
+        assert_eq!(view.segments[2].loss_pct, None, "最后一跳没有探测");
 
         // 窗口值仍是当前 2h 的合并计数：第 1 段 2/300、第 2 段 51/200。
         assert_eq!(view.segments[0].loss_pct, Some(0.6667));
@@ -2237,6 +2446,9 @@ mod tests {
         let samples = vec![
             sample(end - 2 * BUCKET + 60, "a", forward("c1", 0, "a", 1), "", 20),
             sample(end - BUCKET + 60, "a", forward("c1", 0, "a", 1), "", 20),
+            // 最后一跳两个桶都有时延，整桶才齐全；探测只写较老的那个桶。
+            sample(end - 2 * BUCKET + 60, "b", forward("c1", 1, "b", 1), "", 5),
+            sample(end - BUCKET + 60, "b", forward("c1", 1, "b", 1), "", 5),
         ];
         // 只给较老的那个桶写探测；另一个桶只有时延、没有探测。
         let probes = probes_in_bucket(end - 2 * BUCKET + 60, &[(forward("c1", 0, "a", 1), 100, 1)]);
@@ -2245,20 +2457,23 @@ mod tests {
         let view = &aggregate.chains[0];
         assert_eq!(view.series[2].as_ref().unwrap().loss_pct, Some(1.0));
         assert_eq!(view.series[3].as_ref().unwrap().loss_pct, None);
-        assert_eq!(view.series[3].as_ref().unwrap().p50, 20.0);
+        assert_eq!(view.series[3].as_ref().unwrap().p50, 25.0);
     }
 
     #[test]
-    fn the_last_hop_probe_is_not_attributed_to_a_segment() {
+    fn the_last_hop_probe_is_attributed_to_the_final_hop_not_an_middle_segment() {
         let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
-        // 最后一组的 forward 探测的是链目标，没有「下一组」，不能算进第 1 段。
+        // 最后一组的 forward 探测的是链目标：归到最后一跳，不能算进第 1 段。
         let probes = probes(&[(forward("c1", 1, "b", 1), 240, 240)]);
         let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
-        assert_eq!(view.segments[0].attempts, 0);
+        assert_eq!(view.segments[0].attempts, 0, "第 1 段没有探测");
         assert_eq!(view.segments[0].loss_pct, None);
-        assert_eq!(view.loss_pct, None);
-        assert!(!view.loss_partial, "整链无数据时不能标 partial");
+        assert_eq!(view.segments[1].attempts, 240);
+        assert_eq!(view.segments[1].failures, 240);
+        assert_eq!(view.segments[1].loss_pct, Some(100.0));
+        assert_eq!(view.loss_pct, Some(100.0));
+        assert!(view.loss_partial, "第 1 段没有探测数据，整链只覆盖部分段");
     }
 
     #[test]
@@ -2278,6 +2493,202 @@ mod tests {
         assert_eq!(view.segments[0].failures, 10);
         assert_eq!(view.segments[0].loss_pct, Some(5.0));
         assert_eq!(view.loss_pct, Some(5.0));
+    }
+
+    /// 多成员最后一跳：每个成员的样本按自己的 server_id 归属到同一段，
+    /// 不能把 b1 的延迟挂到 b2 上；段内仍按成员池取中位数。
+    #[test]
+    fn a_multi_member_final_hop_is_attributed_per_source_member() {
+        let chain = chain(
+            "c1",
+            vec![(0, vec![("a", "A")]), (1, vec![("b1", "B1"), ("b2", "B2")])],
+        );
+        let ts = end_at(NOW, BUCKET) - 60;
+        let samples = vec![
+            sample(ts, "b1", forward("c1", 1, "b1", 2), "", 10),
+            sample(ts, "b2", forward("c1", 1, "b2", 2), "", 30),
+            sample(ts, "b1", forward("c1", 1, "b1", 2), "", 50),
+        ];
+        let probes = probes(&[
+            (forward("c1", 1, "b1", 2), 100, 1),
+            (forward("c1", 1, "b2", 2), 100, 2),
+        ]);
+        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        assert_eq!(aggregate.unmapped_forwards, 0);
+        let view = &aggregate.chains[0];
+        assert!(view.missing_hops.is_empty());
+        assert_eq!(view.segments.len(), 2, "2 组 = 2 段（含最后一跳）");
+        let last = &view.segments[1];
+        assert_eq!(last.seq, 2);
+        assert_eq!(last.from, "B1", "当前窗口样本最多的是 b1");
+        assert_eq!(last.to, CHAIN_TARGET_NAME);
+        assert_eq!(last.p50, Some(30.0), "10/30/50 的中位数");
+        // 多成员段与中间段同口径：先相加计数再算比值。
+        assert_eq!(last.attempts, 200);
+        assert_eq!(last.failures, 3);
+        assert_eq!(last.loss_pct, Some(1.5));
+        assert_eq!(view.loss_pct, Some(1.5));
+    }
+
+    /// 同一台服务器既做中间段的源、又做最后一跳的源时，必须按 target 区分：
+    /// 带真实目标的样本进中间段，空目标才进最后一跳。
+    #[test]
+    fn a_middle_segment_and_the_final_hop_do_not_mix_on_the_same_server() {
+        // 业务上同一台服务器不能重复出现在一条链里；这里只构造纯逻辑输入，
+        // 验证归属看的是 (forward, target) 而不是只看 server_id。
+        let chain = chain(
+            "c1",
+            vec![
+                (0, vec![("a", "A")]),
+                (1, vec![("x", "X1")]),
+                (2, vec![("x", "X2")]),
+            ],
+        );
+        let ts = end_at(NOW, BUCKET) - 60;
+        let samples = vec![
+            // 中间段：x 的 forward 在 seq=1，目标 x（下一组成员）。
+            sample(ts, "x", forward("c1", 1, "x", 1), "x", 10),
+            // 最后一跳：x 的 forward 在 seq=2，目标是链目标，空目标。
+            sample(ts, "x", forward("c1", 2, "x", 1), "", 50),
+        ];
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        assert_eq!(aggregate.unmapped_forwards, 0);
+        let view = &aggregate.chains[0];
+        assert!(view.missing_hops.is_empty());
+        assert_eq!(view.segments[1].seq, 2);
+        assert_eq!(view.segments[1].p50, Some(10.0), "中间段只吃真实目标的样本");
+        assert_eq!(view.segments[2].seq, 3);
+        assert_eq!(view.segments[2].p50, Some(50.0), "最后一跳只吃空目标样本");
+    }
+
+    /// 最后一跳带非空目标是历史残留：计入 unmapped，不能当成最后一跳样本。
+    #[test]
+    fn a_final_hop_sample_with_a_target_is_unmapped() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let ts = end_at(NOW, BUCKET) - 60;
+        let samples = vec![sample(ts, "b", forward("c1", 1, "b", 1), "ghost", 10)];
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        assert_eq!(aggregate.unmapped_forwards, 1);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.missing_hops, vec![2], "没有合法样本时仍声明缺失");
+        assert!(view.segments[1].p50.is_none());
+    }
+
+    /// 只有探测、没有时延的最后一跳不算「没有样本」：loss 可见，p50 才是 null。
+    #[test]
+    fn a_probe_only_final_hop_is_not_a_missing_hop() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let probes = probes(&[(forward("c1", 1, "b", 1), 100, 1)]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert!(view.missing_hops.is_empty());
+        assert!(
+            view.segments[1].p50.is_none(),
+            "没有时延样本时 p50 仍是 null"
+        );
+        assert_eq!(view.segments[1].loss_pct, Some(1.0));
+        assert_eq!(view.loss_pct, Some(1.0));
+    }
+
+    /// attempts = 0 的探测行只是基线，不能把最后一跳从 missing_hops 里「救」出来。
+    #[test]
+    fn a_zero_attempt_final_probe_is_not_data() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let probes = probes(&[(forward("c1", 1, "b", 1), 0, 0)]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.missing_hops, vec![2]);
+        assert_eq!(view.segments[1].attempts, 0);
+        assert_eq!(view.segments[1].loss_pct, None);
+        assert_eq!(view.loss_pct, None);
+    }
+
+    /// 拓扑节点：首组 source、中间/末组 hop、末尾 target；状态直取 servers.status。
+    #[test]
+    fn topology_nodes_carry_roles_and_server_status() {
+        let mut hk = full_member("a", "香港-01", "203.0.113.11", None, 21_001, 0);
+        hk.server_status = "online".into();
+        let mut tokyo = full_member("b", "东京-01", "198.51.100.21", None, 21_002, 0);
+        tokyo.server_status = "offline".into();
+        let mut osaka = full_member("c", "大阪-01", "198.51.100.23", None, 21_003, 0);
+        osaka.server_status = "abnormal".into();
+        let chain = topology(
+            "c1",
+            vec![
+                (0, Some(443), vec![hk]),
+                (1, None, vec![tokyo]),
+                (2, None, vec![osaka]),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(
+            view.nodes,
+            vec![
+                NodeView {
+                    seq: 0,
+                    server_id: Some("a".into()),
+                    name: "香港-01".into(),
+                    role: "source",
+                    status: Some("online".into()),
+                },
+                NodeView {
+                    seq: 1,
+                    server_id: Some("b".into()),
+                    name: "东京-01".into(),
+                    role: "hop",
+                    status: Some("offline".into()),
+                },
+                NodeView {
+                    seq: 2,
+                    server_id: Some("c".into()),
+                    name: "大阪-01".into(),
+                    role: "hop",
+                    status: Some("abnormal".into()),
+                },
+                NodeView {
+                    seq: 3,
+                    server_id: None,
+                    name: CHAIN_TARGET_NAME.into(),
+                    role: "target",
+                    status: None,
+                },
+            ]
+        );
+        // entry / exit 保留，node 与它们不冲突。
+        assert_eq!(view.entry.as_ref().unwrap().server_id, "a");
+        assert_eq!(view.exit.as_ref().unwrap().server_id, "c");
+    }
+
+    /// 多成员组的节点取 `(priority, server_id)` 最小的成员（与 entry/exit 同口径）。
+    #[test]
+    fn multi_member_nodes_pick_the_entry_exit_order_and_mark_estimated() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![
+                        full_member("z", "Z", "10.0.0.1", None, 21_001, 0),
+                        full_member("a", "A", "10.0.0.2", None, 21_002, 0),
+                    ],
+                ),
+                (
+                    1,
+                    None,
+                    vec![full_member("b", "B", "10.0.0.3", None, 21_003, 0)],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert!(view.estimated);
+        assert_eq!(view.nodes.len(), 3);
+        assert_eq!(view.nodes[0].server_id.as_deref(), Some("a"));
+        assert_eq!(view.nodes[0].role, "source");
+        assert_eq!(view.nodes[1].role, "hop");
+        assert_eq!(view.nodes[2].role, "target");
     }
 
     #[test]

@@ -11,7 +11,9 @@ import {
 import {
   buildChainTrendData,
   chainHasTrend,
+  chainLatestSeriesTs,
   chainLossAt,
+  chainTimeTicks,
   formatChainTime,
   formatLossPct,
   formatMs,
@@ -21,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { seriesVisual } from "@/lib/seriesStyle";
+import { useIsDesktop } from "@/lib/useIsDesktop";
 import { t, useI18n } from "@/i18n";
 
 interface LineVisual {
@@ -326,16 +329,39 @@ export function ChainLatencyTrendChart({
   useI18n();
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const [tableView, setTableView] = useState(false);
+  const desktop = useIsDesktop();
   const data = useMemo(() => buildChainTrendData(chains), [chains]);
   const visible = data.series.filter((chain) => !hidden.has(chain.id));
-  // 7d 用日界刻度：小时桶直接按默认刻度会连续出现同一个 MM/DD。
-  const xTicks = useMemo(() => {
-    if (bucket < 3600 || data.rows.length === 0) return undefined;
-    // 只取日界，不再追加最后一个点：末尾标签会贴住右边缘被裁掉。
-    return data.rows
-      .filter((_row, index) => index % 24 === 0)
-      .map((row) => row.ts);
-  }, [bucket, data.rows]);
+  /**
+   * 时间轴跟详情里的整体时延图共用一套刻度：24h 每 4h、7d 每 1d，
+   * 右端固定在最后一个真实样本，不是「现在」或最后一个空桶。
+   */
+  const axis = useMemo(() => {
+    const latest = data.series.reduce((max, chain) => {
+      const ts = chainLatestSeriesTs(chain.series);
+      return ts !== null && ts > max ? ts : max;
+    }, 0);
+    const endTs = latest > 0 ? latest : (data.rows.at(-1)?.ts ?? 0);
+    if (endTs <= 0) return null;
+    const hours = bucket >= 3_600 ? 168 : 24;
+    const startTs = endTs - hours * 3_600;
+    const ticks = chainTimeTicks(startTs, endTs, hours, bucket);
+    // 390 宽时 7 个标签会互相压住：丢掉最后一小段前的等距刻度，保留
+    // 末位真实样本，仍不少于 5 个刻度。桌面保持完整间隔。
+    const visibleTicks = desktop
+      ? ticks
+      : ticks.filter(
+          (tick) =>
+            tick.kind === "last" ||
+            (tick.ts - startTs) / (endTs - startTs) <= 0.78,
+        );
+    return {
+      startTs,
+      endTs,
+      ticks: visibleTicks,
+      labels: new Map(visibleTicks.map((tick) => [tick.ts, tick.label])),
+    };
+  }, [bucket, data, desktop]);
 
   function toggle(id: string) {
     setHidden((previous) => {
@@ -395,21 +421,24 @@ export function ChainLatencyTrendChart({
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
               data={data.rows}
-              margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+              margin={{ top: 8, right: 40, left: 0, bottom: 0 }}
             >
               <CartesianGrid
                 stroke="var(--border)"
+                strokeOpacity={0.7}
                 strokeDasharray="2 4"
-                vertical={false}
+                vertical
               />
               <XAxis
                 dataKey="ts"
                 type="number"
                 scale="time"
-                domain={["dataMin", "dataMax"]}
-                ticks={xTicks}
-                interval={xTicks ? 0 : "preserveStartEnd"}
-                tickFormatter={(value: number) => axisTick(value, bucket)}
+                domain={axis ? [axis.startTs, axis.endTs] : ["dataMin", "dataMax"]}
+                ticks={axis?.ticks.map((tick) => tick.ts)}
+                interval={0}
+                tickFormatter={(value: number) =>
+                  axis?.labels.get(value) ?? axisTick(value, bucket)
+                }
                 minTickGap={bucket >= 3600 ? 40 : 30}
                 tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
                 axisLine={false}

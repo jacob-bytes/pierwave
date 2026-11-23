@@ -4,7 +4,12 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import type { ChainAnomalyWindow, ChainHealthPoint } from "@/lib/chainHealth";
+import type {
+  ChainAnomalyWindow,
+  ChainHealthPoint,
+  ChainSeriesWindow,
+  ChainTimeTick,
+} from "@/lib/chainHealth";
 import {
   chainAnomalyWindows,
   chainPointX,
@@ -166,6 +171,8 @@ function stepIndex(
  */
 export function ChainLatencySparkline({
   points,
+  window,
+  timeTicks,
   bucketSecs,
   tone,
   showBand = true,
@@ -177,6 +184,10 @@ export function ChainLatencySparkline({
   heightClass = "h-10",
 }: {
   points: readonly ChainHealthPoint[];
+  /** 显式时间窗（整体时延图以最后一个样本为右端）；缺省用序列自身槽位。 */
+  window?: ChainSeriesWindow;
+  /** 时间刻度；提供时在对应 x 位置画极淡竖向 gridline。 */
+  timeTicks?: readonly ChainTimeTick[];
   bucketSecs: number;
   tone: Tone;
   showBand?: boolean;
@@ -200,8 +211,12 @@ export function ChainLatencySparkline({
   const max = chainSeriesMax(points);
   const domain = max > 0 ? max * 1.15 : 1;
   const color = toneColor(tone);
-  // 时间窗来自序列本身的槽位（含空槽）：x 只按 ts 定位，不按有效点个数。
-  const seriesWindow = useMemo(() => chainSeriesWindow(points), [points]);
+  // 时间窗默认来自序列本身的槽位（含空槽）：x 只按 ts 定位，不按有效点个数；
+  // 整体时延图传入显式窗口，右端固定在最后一个真实样本。
+  const seriesWindow = useMemo(
+    () => window ?? chainSeriesWindow(points),
+    [window, points],
+  );
 
   const xOf = (ts: number) =>
     seriesWindow === null
@@ -299,6 +314,20 @@ export function ChainLatencySparkline({
         role="img"
         aria-label={label}
       >
+        {(timeTicks ?? []).map((tick) => (
+          <line
+            key={`grid-${tick.ts}`}
+            data-chain-time-gridline
+            x1={xOf(tick.ts)}
+            x2={xOf(tick.ts)}
+            y1={0}
+            y2={VIEW_HEIGHT}
+            stroke="var(--border)"
+            strokeOpacity={0.7}
+            strokeWidth={1}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
         {anomalies.map((window) => (
           <AnomalyBand key={`${window.startTs}-${window.endTs}`} window={window} points={points} xOf={xOf} />
         ))}
@@ -402,7 +431,7 @@ function AnomalyBand({
       y={0}
       width={width}
       height={VIEW_HEIGHT}
-      fill="var(--warning)"
+      fill="var(--primary)"
       fillOpacity={0.16}
       data-chain-anomaly
     />

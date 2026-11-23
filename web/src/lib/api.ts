@@ -2239,6 +2239,18 @@ export interface OverviewChainHealthSegment {
   series?: (OverviewChainHealthPoint | null)[] | null;
 }
 
+/** 新契约的 `chains[].nodes[]`；旧主控不返回。 */
+export interface OverviewChainHealthNode {
+  /** 路径序号：source = 0，target 在末位。 */
+  seq?: number | null;
+  server_id?: string | null;
+  name?: string | null;
+  /** `source` | `hop` | `target`；未知值按位置推断。 */
+  role?: string | null;
+  /** `online` / `offline` …；目标节点为 null。 */
+  status?: string | null;
+}
+
 export interface OverviewChainHealthDiagnosis {
   /** `single_hop` | `overall` | `unknown`；未知值按 unknown 处理。 */
   kind?: string;
@@ -2264,6 +2276,8 @@ export interface OverviewChainHealthChain {
   entry?: OverviewChainHealthEndpoint | null;
   /** 链出口；旧主控缺失。 */
   exit?: OverviewChainHealthEndpoint | null;
+  /** 路径节点（含 source / target）；旧主控缺失时前端按 segments 回退。 */
+  nodes?: OverviewChainHealthNode[] | null;
   series?: (OverviewChainHealthPoint | null)[] | null;
   segments?: OverviewChainHealthSegment[] | null;
   diagnosis?: OverviewChainHealthDiagnosis | null;

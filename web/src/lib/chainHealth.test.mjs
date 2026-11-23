@@ -12,8 +12,10 @@ import {
   chainEndpointNameIssue,
   chainEndpointServerName,
   chainLatestSampleTs,
+  chainLatestSeriesTs,
   chainLatencyWindow,
   chainLossAt,
+  chainNodeStatusTone,
   chainLossTone,
   CHAIN_ROUTE_ELLIPSIS,
   chainPointX,
@@ -24,10 +26,13 @@ import {
   chainDeltaTone,
   chainHasTrend,
   chainStatus,
+  chainTimeTicks,
   chainTopology,
+  chainTopologyGraph,
   summaryDeltaTone,
   worstHopDeltaMs,
   worstHopTone,
+  formatChainClock,
   formatChainTime,
   formatLossPct,
   formatLossProbes,
@@ -613,6 +618,365 @@ test("topology keeps nodes for a segment with no samples", () => {
   assert.deepEqual(topology.nodes, ["香港-01", "东京-01"]);
   assert.deepEqual(topology.edges, [{ seq: 1, p50: null, missing: true }]);
   assert.equal(topology.targetMissing, true);
+});
+
+test("nodes contract drives source/hop/target roles and keeps the final hop data", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [],
+        series: [],
+        nodes: [
+          {
+            seq: 0,
+            server_id: "server-a",
+            name: "香港-01",
+            role: "source",
+            status: "online",
+          },
+          {
+            seq: 1,
+            name: " 东京-01 ",
+            role: "hop",
+            status: "OFFLINE",
+          },
+          { seq: 2, name: "链目标", role: "target", status: null },
+        ],
+        segments: [
+          {
+            seq: 1,
+            from: "香港-01",
+            to: "东京-01",
+            p50: 14,
+            delta_ms: 1,
+            contribution_pct: 100,
+          },
+          {
+            seq: 2,
+            from: "东京-01",
+            to: "10.0.0.8",
+            p50: 6,
+            delta_ms: 0,
+            contribution_pct: 0,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.deepEqual(
+    item.nodes.map((node) => [node.seq, node.name, node.role, node.status]),
+    [
+      [0, "香港-01", "source", "online"],
+      [1, "东京-01", "hop", "offline"],
+      [2, "链目标", "target", null],
+    ],
+  );
+
+  const graph = chainTopologyGraph(item);
+  assert.deepEqual(
+    graph.nodes.map((node) => [node.role, node.name, node.status]),
+    [
+      ["source", "香港-01", "online"],
+      ["hop", "东京-01", "offline"],
+      ["target", "链目标", null],
+    ],
+  );
+  // 最后一跳已有真实数据：不能因为位置靠后就标成「无历史数据」。
+  assert.deepEqual(graph.edges, [
+    { seq: 1, p50: 14, missing: false },
+    { seq: 2, p50: 6, missing: false },
+  ]);
+  assert.equal(graph.targetMissing, false);
+});
+
+test("a segment with series samples is not 'no history' when window p50 is missing", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [],
+        series: [],
+        nodes: [
+          { seq: 0, name: "香港-01", role: "source", status: "online" },
+          { seq: 1, name: "东京-01", role: "hop", status: "online" },
+          { seq: 2, name: "链目标", role: "target", status: null },
+        ],
+        segments: [
+          {
+            seq: 1,
+            from: "香港-01",
+            to: "东京-01",
+            p50: 14,
+            delta_ms: 1,
+            contribution_pct: 100,
+          },
+          {
+            seq: 2,
+            from: "东京-01",
+            to: "10.0.0.8",
+            p50: null,
+            delta_ms: null,
+            contribution_pct: 0,
+            series: [
+              { ts: 1_800_000_000, p50: 6, samples: 3 },
+              { ts: 1_800_000_900, p50: 7, samples: 3 },
+            ],
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  const graph = chainTopologyGraph(item);
+  assert.deepEqual(graph.edges.at(-1), {
+    seq: 2,
+    p50: 7,
+    missing: false,
+  });
+  assert.equal(graph.targetMissing, false);
+});
+
+test("edge seq follows the target node seq instead of assuming a zero-based path", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [],
+        series: [],
+        nodes: [
+          { seq: 10, name: "香港-01", role: "source", status: "online" },
+          { seq: 11, name: "东京-01", role: "hop", status: "online" },
+          { seq: 12, name: "链目标", role: "target", status: null },
+        ],
+        segments: [
+          {
+            seq: 11,
+            from: "香港-01",
+            to: "东京-01",
+            p50: 14,
+            delta_ms: 1,
+            contribution_pct: 100,
+          },
+          {
+            seq: 12,
+            from: "东京-01",
+            to: "链目标",
+            p50: 6,
+            delta_ms: 0,
+            contribution_pct: 0,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.deepEqual(chainTopologyGraph(item).edges.map((edge) => edge.seq), [
+    11, 12,
+  ]);
+});
+
+test("nodes contract with a missing last hop keeps the target dashed and empty edge", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [2],
+        series: [],
+        nodes: [
+          { seq: 0, name: "香港-01", role: "source", status: "online" },
+          { seq: 1, name: "东京-01", role: "hop", status: "online" },
+          { seq: 2, name: "链目标", role: "target", status: null },
+        ],
+        segments: [
+          {
+            seq: 1,
+            from: "香港-01",
+            to: "东京-01",
+            p50: 14,
+            delta_ms: 1,
+            contribution_pct: 100,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  const graph = chainTopologyGraph(item);
+  assert.equal(graph.nodes.at(-1).role, "target");
+  assert.deepEqual(graph.edges, [
+    { seq: 1, p50: 14, missing: false },
+    { seq: 2, p50: null, missing: true },
+  ]);
+  assert.equal(graph.targetMissing, true);
+});
+
+test("topology graph falls back to segments when the nodes contract is absent", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [],
+        series: [],
+        segments: [
+          {
+            seq: 1,
+            from: "香港-01",
+            to: "东京-01",
+            p50: 14,
+            delta_ms: 1,
+            contribution_pct: 100,
+          },
+          {
+            seq: 2,
+            from: "东京-01",
+            to: "10.0.0.8",
+            p50: 6,
+            delta_ms: 0,
+            contribution_pct: 0,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.equal(item.nodes.length, 0, "old controller has no nodes[]");
+  const graph = chainTopologyGraph(item);
+  assert.deepEqual(
+    graph.nodes.map((node) => [node.role, node.name, node.status]),
+    [
+      ["source", "香港-01", null],
+      ["hop", "东京-01", null],
+      ["target", "10.0.0.8", null],
+    ],
+  );
+  assert.deepEqual(graph.edges, [
+    { seq: 1, p50: 14, missing: false },
+    { seq: 2, p50: 6, missing: false },
+  ]);
+  assert.equal(graph.targetMissing, false);
+});
+
+test("fallback appends a synthetic target node only when the last hop is missing", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [2],
+        series: [],
+        segments: [
+          {
+            seq: 1,
+            from: "香港-01",
+            to: "东京-01",
+            p50: 14,
+            delta_ms: 1,
+            contribution_pct: 100,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  const graph = chainTopologyGraph(item);
+  assert.deepEqual(
+    graph.nodes.map((node) => [node.role, node.name]),
+    [
+      ["source", "香港-01"],
+      ["hop", "东京-01"],
+      ["target", ""],
+    ],
+  );
+  assert.deepEqual(graph.edges, [
+    { seq: 1, p50: 14, missing: false },
+    { seq: 2, p50: null, missing: true },
+  ]);
+  assert.equal(graph.targetMissing, true);
+});
+
+test("node status tone: online breathes green, any other known state is a still fault", () => {
+  assert.equal(chainNodeStatusTone("online"), "online");
+  assert.equal(chainNodeStatusTone(" ONLINE "), "online");
+  assert.equal(chainNodeStatusTone("offline"), "fault");
+  assert.equal(chainNodeStatusTone("degraded"), "fault");
+  assert.equal(chainNodeStatusTone("unknown"), "fault");
+  assert.equal(chainNodeStatusTone(null), "unknown");
+  assert.equal(chainNodeStatusTone(undefined), "unknown");
+  assert.equal(chainNodeStatusTone(""), "unknown");
+  assert.equal(chainNodeStatusTone("   "), "unknown");
+});
+
+test("chainLatestSeriesTs ignores trailing empty buckets and finds the real sample", () => {
+  assert.equal(chainLatestSeriesTs([]), null);
+  assert.equal(
+    chainLatestSeriesTs([
+      point(100, 10),
+      point(200, 11),
+      { ts: 300, p50: null, p10: null, p90: null, samples: 0, lossPct: null },
+    ]),
+    200,
+  );
+  assert.equal(
+    chainLatestSeriesTs([
+      { ts: 100, p50: 10, p10: null, p90: null, samples: 0, lossPct: null },
+    ]),
+    null,
+    "a p50 without samples is not a real sample",
+  );
+});
+
+/** UTC+8 墙上时间 → Unix 秒。 */
+function utc8(year, month, day, hour, minute) {
+  return Math.floor(Date.UTC(year, month - 1, day, hour - 8, minute) / 1_000);
+}
+
+test("24h axis uses 4h ticks and ends at the last real sample time", () => {
+  const start = utc8(2026, 11, 17, 23, 25);
+  const end = start + 24 * 3_600;
+  const ticks = chainTimeTicks(start, end, 24, 900);
+  assert.ok(ticks.length >= 5 && ticks.length <= 7, `got ${ticks.length}`);
+  assert.equal(ticks.at(-1).kind, "last");
+  assert.equal(ticks.at(-1).label, "23:25");
+  assert.equal(ticks.at(-1).ts, end);
+  const interval = ticks.filter((tick) => tick.kind === "interval");
+  assert.ok(interval.length >= 4);
+  for (let index = 1; index < interval.length; index += 1) {
+    assert.equal(interval[index].ts - interval[index - 1].ts, 4 * 3_600);
+  }
+  for (const tick of interval) assert.match(tick.label, /^\d{2}:00$/);
+  assert.equal(interval[0].label, "00:00");
+  assert.equal(interval.at(-1).label, "20:00");
+});
+
+test("7d axis uses 1d ticks, UTC+8 day boundaries, and the last sample time", () => {
+  const start = utc8(2026, 11, 17, 23, 0);
+  const end = start + 168 * 3_600;
+  const ticks = chainTimeTicks(start, end, 168, 3_600);
+  assert.ok(ticks.length >= 5 && ticks.length <= 7, `got ${ticks.length}`);
+  assert.equal(ticks.at(-1).kind, "last");
+  assert.equal(ticks.at(-1).label, "11/24 23:00");
+  const interval = ticks.filter((tick) => tick.kind === "interval");
+  assert.equal(interval.length, 6);
+  for (let index = 1; index < interval.length; index += 1) {
+    assert.equal(interval[index].ts - interval[index - 1].ts, 24 * 3_600);
+  }
+  assert.deepEqual(
+    interval.map((tick) => tick.label),
+    ["11/18", "11/19", "11/20", "11/21", "11/22", "11/23"],
+  );
+});
+
+test("the Now reference keeps real minutes even on the hourly 7d bucket", () => {
+  const ts = utc8(2026, 11, 23, 23, 37);
+  assert.equal(formatChainClock(ts, 24), "23:37");
+  assert.equal(formatChainClock(ts, 168), "11/23 23:37");
+});
+
+test("time ticks reject an empty or inverted window", () => {
+  assert.deepEqual(chainTimeTicks(100, 100, 24), []);
+  assert.deepEqual(chainTimeTicks(200, 100, 24), []);
+  assert.deepEqual(chainTimeTicks(Number.NaN, 100, 24), []);
 });
 
 test("diagnosis reason separates stable chains from missing samples", () => {

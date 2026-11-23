@@ -461,10 +461,10 @@ WHERE id LIKE 'c0ffee00-0005-%';
 -- ------------------------------------------------------------
 -- 链路拓扑 + 24h 时延样本（链路时延 tab 的预览数据）
 -- ------------------------------------------------------------
--- 3 条链：
---   港日中转链   4 组 / 3 个可测段：香港-01 → 东京-01 → 新加坡-01 → 大阪-01
---   港新直达链   2 组 / 1 个可测段：香港-02 → 新加坡-02
---   港日多路径   3 组，中间组两台：香港-01 → (东京-01 / 东京-02) → 大阪-01
+-- 3 条链（每种链的最后一组都再连链目标，所以段数 = 组数）：
+--   港日中转链   4 组 / 4 段：香港-01 → 东京-01 → 新加坡-01 → 大阪-01 → 链目标
+--   港新直达链   2 组 / 2 段：香港-02 → 新加坡-02 → 链目标
+--   港日多路径   3 组 / 3 段：香港-01 → (东京-01 / 东京-02) → 大阪-01 → 链目标
 -- 港日中转链的第 3 段（新加坡-01 → 大阪-01）最近 2 小时 +25ms，其余段持平，
 -- 用于验证「整体变慢 vs 单段变慢」的诊断。
 --
@@ -562,22 +562,24 @@ SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS IN
        24 + (slots.n % 4)
 FROM slots
 UNION ALL
--- 最后一跳到链目标：没有下一台服务器，聚合时不能混进段、不能当 0ms，也不计入 unmapped。
--- 只造最近 2h，避免把警告数字灌得太大。
+-- 最后一跳到链目标：Agent 对最后一组的 forward 目标就是 chains.target_host，
+-- 没有下一台服务器，所以 target_server_id 留空。聚合时它归属「最后一跳」段
+-- （seq = 最后一组 seq + 1），不再被丢弃，也不计入 unmapped。每条链都造满
+-- 24h，预览页上最后一跳的 p50 与链级整体 series 才完整可见。
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000006',
        'chain-c0ffee00-0006-4000-8000-000000000601-3', '',
        8
-FROM slots WHERE slots.n < 24
+FROM slots
 UNION ALL
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000008',
        'chain-c0ffee00-0006-4000-8000-000000000602-1', '',
        7
-FROM slots WHERE slots.n < 24
+FROM slots
 UNION ALL
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000006',
        'chain-c0ffee00-0006-4000-8000-000000000603-2', '',
        6
-FROM slots WHERE slots.n < 24;
+FROM slots;
 
 -- ------------------------------------------------------------
 -- 每跳探测计数（丢包）：最近 24h、5 分钟一桶的增量
@@ -585,8 +587,8 @@ FROM slots WHERE slots.n < 24;
 -- forward_probe_samples 与上方时延样本用同一套「组 → 成员 → forward」映射，
 -- 每个 forward 的探测就是该跳入口到下一跳的探测。第 2 段
 -- （东京-01 → 新加坡-01，forward ...-1）最近 2h 失败率约 3%，其余段 <0.2%，
--- 用于验证「单段丢包 vs 整链连乘」。最后一跳到链目标的探测也写入，
--- 聚合时不会归到任何段。
+-- 用于验证「单段丢包 vs 整链连乘」。最后一组的 forward 探测的是链目标，
+-- 同样写入；聚合时归到最后一跳段（不再被丢弃），并参与整链连乘。
 WITH RECURSIVE slots(n) AS (
   SELECT 0 UNION ALL SELECT n + 1 FROM slots WHERE n < 288
 ),

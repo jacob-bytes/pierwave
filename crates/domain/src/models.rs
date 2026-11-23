@@ -577,6 +577,10 @@ pub struct ChainGroupMember {
     pub strategy: String,
     pub server_id: String,
     pub server_name: String,
+    /// 该成员服务器的运行状态（`servers.status`：online / offline / …）。
+    ///
+    /// 链视图的 `nodes[].status` 直接透传它；链下发与探测口径都不读这个字段。
+    pub server_status: String,
     /// 下一跳 target 用；只给下发/校验，不直接出现在 API 响应里。
     pub server_address: String,
     /// 该成员服务器的内网地址；`None` = 未填写。组开关开启时用它替代

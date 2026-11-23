@@ -79,6 +79,7 @@
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-warning: var(--warning);
+  --color-success: var(--success);
   --color-qr: var(--qr-background);
   --color-qr-foreground: var(--qr-foreground);
   --color-accent-foreground: var(--accent-foreground);
@@ -140,6 +141,8 @@
   --accent-foreground: oklch(0.965 0.003 285);
   --destructive: oklch(0.62 0.2 25);
   --warning: oklch(0.82 0.16 80);
+  /* 在线 / 健康状态点；只用于状态点，不参与图表配色。 */
+  --success: oklch(0.73 0.16 152);
   /* 二维码固定白底黑码，任何主题下都保证可扫 */
   --qr-background: oklch(1 0 0);
   --qr-foreground: oklch(0 0 0);
@@ -219,6 +222,8 @@
   --destructive: oklch(0.57 0.208 25.3);
   /* 0.53：warning/10 底上 4.84:1（0.555 时只有 4.36:1） */
   --warning: oklch(0.53 0.146 49.0);
+  /* 浅底上保持可见的深绿；只用于状态点。 */
+  --success: oklch(0.52 0.14 152);
   --qr-background: oklch(1 0 0);
   --qr-foreground: oklch(0 0 0);
   --border: oklch(0.94 0.009 264.5);

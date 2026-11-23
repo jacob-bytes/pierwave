@@ -13,9 +13,13 @@ import {
   SLOW_CHAIN_DELTA_MS,
   chainDiagnosis,
   chainDiagnosisReason,
+  chainLatestSeriesTs,
   chainLossTone,
-  chainTopology,
-  formatChainTime,
+  chainNodeStatusTone,
+  chainPointX,
+  chainTimeTicks,
+  chainTopologyGraph,
+  formatChainClock,
   formatLossPct,
   formatLossProbes,
   formatMs,
@@ -28,7 +32,10 @@ import {
   type ChainHealthSegment,
   type ChainHealthSnapshot,
   type ChainLatencyRange,
+  type ChainSeriesWindow,
+  type ChainTimeTick,
   type ChainTopologyEdge,
+  type ChainTopologyNode,
 } from "@/lib/chainHealth";
 import { t, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -83,25 +90,64 @@ function DiagnosisBlock({ chain }: { chain: ChainHealthChain }) {
   );
 }
 
+/** 首节点 SOURCE、尾节点 TARGET、中间按位置编号 HOP 1 / HOP 2 … */
+function topologyNodeLabel(index: number, total: number): string {
+  if (index === 0) return "SOURCE";
+  if (index === total - 1) return "TARGET";
+  return `HOP ${index}`;
+}
+
 function TopologyNode({
-  name,
-  target = false,
+  node,
+  index,
+  total,
 }: {
-  name: string;
-  target?: boolean;
+  node: ChainTopologyNode;
+  index: number;
+  total: number;
 }) {
+  const target = node.role === "target";
+  const tone = chainNodeStatusTone(node.status);
+  // 目标节点不是服务器，没有状态点；旧主控缺状态时也不画点，避免把
+  // 「不知道」画成「正常」。非 online 的已知状态固定红点、不呼吸。
+  const showDot = !target && tone !== "unknown";
+  const name =
+    node.name.trim() === ""
+      ? t("overview.chainLatency.chainTarget")
+      : node.name;
   return (
     <span
       data-chain-topology-node
+      data-role={node.role}
+      data-status={node.status ?? "none"}
       className={cn(
-        "flex h-12 min-w-[96px] flex-1 items-center justify-center whitespace-nowrap rounded-md border px-2.5 text-center text-xs font-medium",
+        "relative flex h-14 min-w-[112px] flex-1 items-center justify-center whitespace-nowrap rounded-md border px-2.5 text-center text-xs font-medium",
         target
           ? "border-dashed border-border text-muted-foreground"
           : "border-border bg-card text-foreground",
       )}
       title={name}
     >
-      {name}
+      <span
+        data-chain-topology-node-label
+        className="absolute inset-x-0 top-1 flex items-center justify-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground"
+      >
+        <span>{topologyNodeLabel(index, total)}</span>
+        {showDot ? (
+          <span
+            data-chain-topology-node-dot
+            data-tone={tone}
+            aria-hidden="true"
+            className={cn(
+              "size-1.5 shrink-0 rounded-full",
+              tone === "online"
+                ? "bg-success status-breathe"
+                : "bg-destructive",
+            )}
+          />
+        ) : null}
+      </span>
+      <span className="max-w-full truncate leading-none">{name}</span>
     </span>
   );
 }
@@ -123,7 +169,7 @@ function TopologyEdge({ edge }: { edge: TopologyEdgeView }) {
       data-seq={edge.seq}
       data-missing={missing ? "true" : "false"}
       title={`${latency} · ${loss}`}
-      className="relative flex h-12 min-w-[76px] flex-1 flex-col items-center justify-center px-1"
+      className="relative flex h-14 min-w-[76px] flex-1 flex-col items-center justify-center px-1"
     >
       <span
         data-chain-topology-edge-latency
@@ -214,7 +260,7 @@ function ChainOverallStats({ chain }: { chain: ChainHealthChain }) {
 }
 
 function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
-  const topology = chainTopology(chain);
+  const topology = chainTopologyGraph(chain);
   const segmentsBySeq = new Map(
     chain.segments.map((segment) => [segment.seq, segment]),
   );
@@ -250,29 +296,17 @@ function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
                 data-chain-topology
               >
                 {topology.nodes.map((node, index) => (
-                  <Fragment key={`${node}-${index}`}>
-                    <TopologyNode name={node} />
+                  <Fragment key={`${node.seq}-${index}`}>
+                    <TopologyNode
+                      node={node}
+                      index={index}
+                      total={topology.nodes.length}
+                    />
                     {topology.edges[index] ? (
                       <TopologyEdge edge={withLoss(topology.edges[index])} />
                     ) : null}
                   </Fragment>
                 ))}
-                {topology.targetMissing ? (
-                  <>
-                    <TopologyEdge
-                      edge={{
-                        seq: chain.hops,
-                        p50: null,
-                        missing: true,
-                        lossPct: null,
-                      }}
-                    />
-                    <TopologyNode
-                      name={t("overview.chainLatency.chainTarget")}
-                      target
-                    />
-                  </>
-                ) : null}
               </div>
             </div>
             <p className="mt-1 text-[10px] text-muted-foreground sm:hidden">
@@ -280,7 +314,7 @@ function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
             </p>
           </>
         )}
-        {chain.lastHopMissing ? (
+        {topology.targetMissing ? (
           <p className="mt-2 flex items-start gap-1.5 text-[10px] leading-normal text-warning">
             <TriangleAlertIcon
               aria-hidden="true"
@@ -291,6 +325,52 @@ function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * 整体时延图的时间轴：等距刻度 + 末位真实样本时间。
+ *
+ * 刻度位置与图内竖向 gridline 用同一个 `chainPointX`，所以文字不会和线错位。
+ * 首尾标签分别左 / 右对齐，避免被卡片裁掉。
+ */
+function TimeAxis({
+  ticks,
+  window,
+}: {
+  ticks: readonly ChainTimeTick[];
+  window: ChainSeriesWindow;
+}) {
+  return (
+    <div
+      data-chain-time-axis
+      className="relative mt-1 h-3 font-mono text-[9px] text-muted-foreground tabular-nums"
+    >
+      {ticks.map((tick) => {
+        const left = chainPointX(tick.ts, window, 100);
+        const transform =
+          left < 4
+            ? "translateX(0)"
+            : left > 96
+              ? "translateX(-100%)"
+              : "translateX(-50%)";
+        return (
+          <span
+            key={`${tick.kind}-${tick.ts}`}
+            data-chain-time-tick
+            data-kind={tick.kind}
+            data-ts={tick.ts}
+            className={cn(
+              "absolute top-0 whitespace-nowrap",
+              tick.kind === "last" ? "text-foreground" : "text-muted-foreground",
+            )}
+            style={{ left: `${left}%`, transform }}
+          >
+            {tick.label}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -313,7 +393,30 @@ function OverallChartCard({
     p50: formatMs(chain.latestP50),
     delta: formatSignedMs(chain.deltaMs),
   });
-  const endTs = snapshot.generatedAt ?? chain.series.at(-1)?.ts ?? null;
+  // 轴右端是最后一个真实样本，而不是「现在」：数据滞后时不能把旧值标成当前值。
+  const lastSampleTs = chainLatestSeriesTs(chain.series);
+  const axisWindow: ChainSeriesWindow | null =
+    lastSampleTs === null
+      ? null
+      : {
+          startTs: lastSampleTs - snapshot.hours * 3_600,
+          endTs: lastSampleTs,
+        };
+  const ticks =
+    axisWindow === null
+      ? []
+      : chainTimeTicks(
+          axisWindow.startTs,
+          axisWindow.endTs,
+          snapshot.hours,
+          snapshot.bucket,
+        );
+  const lagSecs =
+    snapshot.generatedAt !== null && lastSampleTs !== null
+      ? snapshot.generatedAt - lastSampleTs
+      : null;
+  // 落后超过 5 分钟才补一行「现在」，避免正常的一个桶延迟也刷出参考值。
+  const showNow = lagSecs !== null && lagSecs > 300;
 
   return (
     <Card className="min-w-0 gap-0" data-chain-overall-card>
@@ -331,7 +434,10 @@ function OverallChartCard({
           </div>
         </div>
         {hasCurve ? (
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+          <div
+            data-chain-overall-legend
+            className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground"
+          >
             <span className="inline-flex items-center gap-1.5">
               <span
                 aria-hidden="true"
@@ -346,10 +452,10 @@ function OverallChartCard({
               />
               P10–P90
             </span>
-            <span className="inline-flex items-center gap-1.5 text-warning">
+            <span className="inline-flex items-center gap-1.5">
               <span
                 aria-hidden="true"
-                className="h-2 w-4 rounded-sm bg-warning/15"
+                className="h-2 w-4 rounded-sm bg-primary/30"
               />
               {t("overview.chainLatency.anomalyWindow")}
             </span>
@@ -357,11 +463,13 @@ function OverallChartCard({
         ) : null}
       </CardHeader>
       <CardContent className="min-w-0 p-3 sm:p-4">
-        {hasCurve ? (
+        {hasCurve && axisWindow !== null ? (
           <ChainLatencySparkline
             points={chain.series}
+            window={axisWindow}
             bucketSecs={snapshot.bucket}
-            tone={chain.slow ? "warning" : "primary"}
+            timeTicks={ticks}
+            tone="primary"
             label={chartLabel}
             heightClass="h-40 sm:h-56"
           />
@@ -370,13 +478,19 @@ function OverallChartCard({
             {t("overview.chainLatency.overallEmpty")}
           </div>
         )}
-        {hasCurve && endTs !== null ? (
-          <div className="mt-1 flex items-center justify-between font-mono text-[9px] text-muted-foreground tabular-nums">
-            <span>
-              {formatChainTime(endTs - snapshot.hours * 3600, snapshot.bucket)}
-            </span>
-            <span>{t("overview.chainLatency.now")}</span>
-          </div>
+        {hasCurve && axisWindow !== null ? (
+          <>
+            <TimeAxis ticks={ticks} window={axisWindow} />
+            {showNow && snapshot.generatedAt !== null ? (
+              <p
+                data-chain-axis-now
+                className="mt-0.5 text-right font-mono text-[9px] text-muted-foreground tabular-nums"
+              >
+                {t("overview.chainLatency.now")}{" "}
+                {formatChainClock(snapshot.generatedAt, snapshot.hours)}
+              </p>
+            ) : null}
+          </>
         ) : null}
         <DiagnosisBlock chain={chain} />
       </CardContent>

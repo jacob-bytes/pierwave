@@ -131,6 +131,8 @@ export interface ChainHealthChain {
   entry: ChainEndpoint | null;
   /** 链路出口；旧主控没有该字段时为 null。 */
   exit: ChainEndpoint | null;
+  /** 新契约的路径节点；旧主控没有该数组时为空。 */
+  nodes: ChainHealthNode[];
   /** 归一化后缺失的跳（含契约没列出的中间缺口）。 */
   missingHops: number[];
   estimated: boolean;
@@ -601,6 +603,7 @@ function readChain(
     ),
     entry: readEndpoint(raw.entry),
     exit: readEndpoint(raw.exit),
+    nodes: readNodes(raw.nodes),
     missingHops: built.missingHops,
     estimated: estimatedRaw ?? built.missingHops.length > 0,
     series,
@@ -954,6 +957,84 @@ export interface ChainTopology {
   targetMissing: boolean;
 }
 
+/** 节点在路径里的角色；首节点是 source、尾节点是 target，其余是 hop。 */
+export type ChainNodeRole = "source" | "hop" | "target";
+
+/**
+ * 新契约的 `chains[].nodes[]`：真实路径节点。
+ *
+ * 旧主控不返回该数组 → 归一化为空数组，组件回退到按 `segments.from/to`
+ * 拼出来的节点；两种情况都不能伪造状态。
+ */
+export interface ChainHealthNode {
+  /** 路径序号（source = 0，target = 末位）。 */
+  seq: number;
+  name: string;
+  /** 契约缺 role 时为 null，由位置推断。 */
+  role: ChainNodeRole | null;
+  /** 小写状态（`online` / `offline` …）；契约没给时为 null。 */
+  status: string | null;
+}
+
+/** 拓扑图节点：角色与位置已确定，供组件直接渲染标签与状态点。 */
+export interface ChainTopologyNode {
+  seq: number;
+  name: string;
+  role: ChainNodeRole;
+  status: string | null;
+}
+
+export interface ChainTopologyGraph {
+  /** 路径顺序；目标节点一定在末位（缺数据时为合成节点，name 为空串）。 */
+  nodes: ChainTopologyNode[];
+  /** `edges[i]` 连接 `nodes[i]` 与 `nodes[i + 1]`。 */
+  edges: ChainTopologyEdge[];
+  /** 最后一跳（最后一组 → 链目标）没有历史数据。 */
+  targetMissing: boolean;
+}
+
+/** 节点状态点的语义：online 呼吸绿点、其它非空状态静止红点、未知不画点。 */
+export type ChainNodeStatusTone = "online" | "fault" | "unknown";
+
+export function chainNodeStatusTone(
+  status: string | null | undefined,
+): ChainNodeStatusTone {
+  if (typeof status !== "string" || status.trim() === "") return "unknown";
+  return status.trim().toLowerCase() === "online" ? "online" : "fault";
+}
+
+function readNode(raw: unknown, index: number): ChainHealthNode | null {
+  if (!isRecord(raw)) return null;
+  const name = trimmedString(raw.name);
+  if (name === null) return null;
+  const seq = finiteInt(raw.seq);
+  const rawRole = trimmedString(raw.role);
+  const role: ChainNodeRole | null =
+    rawRole === "source" || rawRole === "hop" || rawRole === "target"
+      ? rawRole
+      : null;
+  const rawStatus = trimmedString(raw.status);
+  return {
+    seq: seq ?? index,
+    name,
+    role,
+    status: rawStatus === null ? null : rawStatus.toLowerCase(),
+  };
+}
+
+function readNodes(raw: unknown): ChainHealthNode[] {
+  if (!Array.isArray(raw)) return [];
+  const nodes: ChainHealthNode[] = [];
+  raw.forEach((entry, index) => {
+    const node = readNode(entry, index);
+    if (node) nodes.push(node);
+  });
+  // 契约按路径顺序给出；按 seq 排序只是为了容忍 JSON 顺序被打乱。
+  return nodes
+    .sort((a, b) => a.seq - b.seq)
+    .slice(0, 33);
+}
+
 /**
  * 把逐段行拼成「香港-01 → 东京-01 → …」的完整链路。
  *
@@ -977,6 +1058,86 @@ export function chainTopology(chain: ChainHealthChain): ChainTopology {
   }
 
   return { nodes, edges, targetMissing: chain.lastHopMissing };
+}
+
+function topologyEdge(
+  seq: number,
+  segments: ReadonlyMap<number, ChainHealthSegment>,
+): ChainTopologyEdge {
+  const segment = segments.get(seq);
+  // 契约可能只给逐段 `series` 而没填窗口 `p50`（尤其刚补上最后一跳时）；
+  // 有序列样本就不算「无历史数据」，取最后一个有效样本作为边上读数。
+  const p50 = segment?.p50 ?? latestSeriesP50(segment?.series ?? []) ?? null;
+  return {
+    seq,
+    p50,
+    missing: segment === undefined || segment.missing || p50 === null,
+  };
+}
+
+/**
+ * 拓扑树：优先用契约的 `nodes[]`，旧主控回退到 `segments.from/to`。
+ *
+ * 角色按位置固定（首个 source、末个 target、其余 hop），不依赖后端是否给
+ * `role`；这样新老契约的节点标签与目标虚线框保持一致。目标节点缺数据时
+ * 补一个 `name` 为空的合成节点，组件用本地文案渲染「链目标」。
+ */
+export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph {
+  const segments = new Map(chain.segments.map((segment) => [segment.seq, segment]));
+
+  if (chain.nodes.length > 0) {
+    const nodes: ChainTopologyNode[] = chain.nodes.map((node, index) => ({
+      seq: node.seq,
+      name: node.name,
+      role:
+        index === 0
+          ? "source"
+          : index === chain.nodes.length - 1
+            ? "target"
+            : "hop",
+      status: node.status,
+    }));
+    const edges: ChainTopologyEdge[] = [];
+    for (let index = 0; index < nodes.length - 1; index += 1) {
+      // 段的 seq 取**目标节点**的 seq：中间段是目标组 seq，最后一跳是
+      // 最后一组 seq + 1；与契约的 `segments[].seq` 一一对应，不假设从 0 开始。
+      edges.push(topologyEdge(nodes[index + 1].seq, segments));
+    }
+    // 只有 source 的残缺契约：补一个目标节点，避免画一条没有落点的线。
+    if (nodes.length === 1) {
+      nodes.push({ seq: 1, name: "", role: "target", status: null });
+      edges.push(topologyEdge(1, segments));
+    }
+    return {
+      nodes,
+      edges,
+      targetMissing: edges.length === 0 || edges[edges.length - 1].missing,
+    };
+  }
+
+  const fallback = chainTopology(chain);
+  if (fallback.nodes.length === 0) {
+    return { nodes: [], edges: [], targetMissing: chain.lastHopMissing };
+  }
+  const nodes: ChainTopologyNode[] = fallback.nodes.map((name, index) => ({
+    seq: index,
+    name,
+    role:
+      index === 0
+        ? "source"
+        : index === fallback.nodes.length - 1 && !fallback.targetMissing
+          ? "target"
+          : "hop",
+    status: null,
+  }));
+  const edges = [...fallback.edges];
+  if (fallback.targetMissing) {
+    const seq =
+      edges.length > 0 ? edges[edges.length - 1].seq + 1 : chain.hops;
+    nodes.push({ seq, name: "", role: "target", status: null });
+    edges.push({ seq, p50: null, missing: true });
+  }
+  return { nodes, edges, targetMissing: fallback.targetMissing };
 }
 
 /** 路由预览里的省略号；不是节点名，调用方不要把它当成数据。 */
@@ -1166,6 +1327,17 @@ export function chainLossAt(
   return point?.lossPct ?? null;
 }
 
+/** 一条序列里最后一个有效样本的时间；全空返回 null。 */
+export function chainLatestSeriesTs(
+  series: readonly ChainHealthPoint[],
+): number | null {
+  for (let index = series.length - 1; index >= 0; index -= 1) {
+    const point = series[index];
+    if (point.p50 !== null && point.samples > 0) return point.ts;
+  }
+  return null;
+}
+
 /**
  * 最近一次有效时延样本的时间（Unix 秒）：整体序列与逐段序列取最大。
  * 没有任何「p50 非空 + samples > 0」的点时返回 null。
@@ -1342,6 +1514,65 @@ export function formatLossProbes(
   return `${failures} / ${attempts}`;
 }
 
+/** 时间轴刻度：`interval` 是等距刻度，`last` 是最后一个真实样本。 */
+export interface ChainTimeTick {
+  ts: number;
+  label: string;
+  kind: "interval" | "last";
+}
+
+/**
+ * 整体时延图的时间轴刻度。
+ *
+ * 24h 每 4 小时一个刻度、7d 每 1 天一个；末位始终是**最后一个真实样本**
+ * 的时间（不是「现在」）。7d 的日界按 UTC+8 对齐，和 `formatChainTime`
+ * 使用同一个业务时区。末尾刻度离右端太近时丢掉最后一个等距刻度，
+ * 避免日期 + 时间的长标签与它重叠；总数夹在 5–7 个。
+ */
+export function chainTimeTicks(
+  startTs: number,
+  endTs: number,
+  hours: number,
+  bucketSecs = 900,
+): ChainTimeTick[] {
+  if (
+    !Number.isFinite(startTs) ||
+    !Number.isFinite(endTs) ||
+    endTs <= startTs
+  ) {
+    return [];
+  }
+  const span = endTs - startTs;
+  const interval = hours >= 168 ? 86_400 : 14_400;
+  // 4h 整除 UTC+8 的 8h 偏移；只有日界需要显式换算回业务时区零点。
+  const offset = interval === 86_400 ? 8 * 3_600 : 0;
+  const first = Math.ceil((startTs + offset) / interval) * interval - offset;
+  const minGapRatio = interval === 86_400 ? 0.2 : 0.12;
+  const intervalTicks: number[] = [];
+  for (let ts = first; ts < endTs; ts += interval) {
+    if (endTs - ts < span * minGapRatio) continue;
+    intervalTicks.push(ts);
+  }
+  // 最多 6 个等距刻度 + 1 个末位样本 = 7 个。
+  while (intervalTicks.length > 6) intervalTicks.shift();
+
+  const ticks: ChainTimeTick[] = intervalTicks.map((ts) => ({
+    ts,
+    label:
+      interval >= 86_400
+        ? formatChainTime(ts, interval).slice(0, 5)
+        : formatChainTime(ts, interval).slice(6),
+    kind: "interval",
+  }));
+  const lastText = formatChainTime(endTs, bucketSecs);
+  ticks.push({
+    ts: endTs,
+    label: hours >= 168 ? lastText : lastText.slice(6),
+    kind: "last",
+  });
+  return ticks;
+}
+
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
@@ -1354,6 +1585,17 @@ export function formatChainTime(ts: number, bucketSecs = 900): string {
   const minute =
     bucketSecs >= 3600 ? "00" : pad2(date.getUTCMinutes());
   return `${pad2(date.getUTCMonth() + 1)}/${pad2(date.getUTCDate())} ${hour}:${minute}`;
+}
+
+/**
+ * 墙钟时间标签：`HH:mm`（24h）或 `MM/DD HH:mm`（7d）。
+ *
+ * 与 `formatChainTime` 不同，这里**不**按桶宽把分钟抹成 `00`：图轴右端的
+ * 「现在」参考必须显示实际分钟，否则会把 23:37 写成 23:00。
+ */
+export function formatChainClock(ts: number, hours = 24): string {
+  const text = formatChainTime(ts, 900);
+  return hours >= 168 ? text : text.slice(6);
 }
 
 /** 30 秒刷新；与概览的 30–60s 节奏一致。 */
