@@ -26,14 +26,20 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
   },
   "chains": [{
     "id": "…", "name": "港日中转链", "hops": 4,
+    "entry": { "server_id": "…", "server_name": "香港-01",
+               "address": "203.0.113.11:443", "ip": "203.0.113.11", "port": 443 },
+    "exit":  { "server_id": "…", "server_name": "大阪-01",
+               "address": "198.51.100.21:21004", "ip": "198.51.100.21", "port": 21004 },
     "estimated": false,
     "missing_hops": [4],
     "series": [ { "ts": 1795312800, "p50": 71, "p10": 69, "p90": 74, "samples": 9, "loss_pct": 0.8 }, null ],
     "segments": [
       { "seq": 1, "from": "香港-01", "to": "东京-01",
+        "series": [ { "ts": 1795312800, "p50": 16.0, "loss_pct": 0.8333 }, null, "…" ],
         "p50": 16.0, "delta_ms": 0.0, "contribution_pct": 0,
         "attempts": 240, "failures": 2, "loss_pct": 0.8333 },
       { "seq": 3, "from": "新加坡-01", "to": "大阪-01",
+        "series": [ { "ts": 1795312800, "p50": 58.0, "loss_pct": 0.0 }, null, "…" ],
         "p50": 58.0, "delta_ms": 25.0, "contribution_pct": 100,
         "attempts": 240, "failures": 0, "loss_pct": 0.0 }
     ],
@@ -47,8 +53,35 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 }
 ```
 
-`series` 固定长度 = `hours*3600/bucket`，从旧到新；没有样本的桶是 `null`，
-不是 0。`segments[].p50` / `delta_ms` 无数据时同样是 `null`。
+`entry` / `exit` 是链的展示起点/终点（口径见 §1.1）；链没有任何组或组内没有
+成员时是 `null`。`series` 固定长度 = `hours*3600/bucket`，从旧到新；没有样本
+的桶是 `null`，不是 0。`segments[].p50` / `delta_ms` / `segments[].series[]`
+无数据时同样是 `null`。
+
+## 1.1 起点与终点
+
+`entry` / `exit` 只做展示，不参与链下发与探测口径；它们是**原链**的入口/出口，
+与 `server_ids` 筛选无关（见 §5）。
+
+- **起点**：第一个组（`seq` 最小）里优先级最高的成员。优先级按
+  `(priority ASC, server_id ASC)` 稳定排序，所以 `priority` 相同时取
+  `server_id` 较小的一台，与成员插入顺序无关。
+  - 端口优先用 `chain_groups.public_port`；该字段为空（`null`）时回退该成员的
+    `chain_group_members.listen_port`。`public_port` 只用于展示，链下发仍只用
+    `listen_port`。
+  - 地址 = `servers.address` + 该端口。
+- **终点**：最后一个组里优先级最高的成员（同一排序规则），端口**恒为**该成员的
+  `listen_port`——最后一跳由它监听并连链目标，没有 `public_port` 概念。
+- **地址兜底**：
+  - `servers.address` 为空或全空白时，回退 `servers.internal_address`，并在该
+    端点上输出 `"address_source": "internal"`。公网地址正常时**省略**
+    `address_source` 字段；
+  - 两者都没有时 `ip` / `address` 都是 `null`，`port` 仍按上述口径返回；
+  - 端口缺失或非正数（脏数据）时 `address: null`、`port: null`，但保留 `ip`，
+    前端仍能展示主机名；
+  - 组内没有成员时对应的 `entry` / `exit` 是 `null`。
+- **格式**：统一 `ip:port`；IPv6 写 `[ip]:port`，而 `ip` 字段本身不带方括号。
+  主机名按原样输出。不做 DNS 解析。
 
 ## 2. 跳的映射
 
@@ -144,6 +177,25 @@ p50 最高的段。
   一条及其 id / 名称；同值按 `chain_id` 稳定排序。没有任何可用丢包数据时
   两项都是 `null`。
 
+### 4.2 逐段时间序列
+
+`segments[].series` 把段级数据按时间桶展开，口径与链级 `series` 对齐：
+
+- **长度与桶宽**：与链级 `series` 完全相同——长度 `hours*3600/bucket`，桶宽
+  `bucket`，从旧到新，`ts` 是该桶起点；
+- **p50**：该段在该桶内所有 forward 时延样本的 p50（与段级当前值同一批样本，
+  只在时间上再切桶）。该段该桶**没有样本时整个元素是 `null`**，不是
+  `{ "p50": 0 }`；只有探测、没有时延样本的桶同样是 `null`；
+- **loss_pct**：该段在该桶的探测桶 `failures / attempts × 100`，保留 4 位小数。
+  `attempts = 0` 时是 `null`，**不补 0**（补 0 会被读成“完全不丢包”）。有时延
+  样本但该桶没有探测时元素仍存在，`p50` 有值、`loss_pct: null`；
+- **多成员段**：同一段的多个成员在同一个桶内的时延样本一起算 p50；探测
+  attempts / failures 先相加再算比值（与段级当前值同一口径）；
+- **与链级序列的关系**：链级 `series[]` 只在**所有段**该桶都有样本时非 null，
+  段级序列则是每段各自的可见性；两者不能互相推导；
+- **性能**：段级序列完全由同一批 `forward_latency_samples` /
+  `forward_probe_samples` 内存归并得到，**不按段发 SQL**。查询次数与段数无关。
+
 ## 5. 筛选
 
 `server_ids` 与 `/api/v1/overview`、`/overview/server-health` 完全同语义：
@@ -159,15 +211,19 @@ p50 最高的段。
 
 ## 6. 性能与查询计划
 
-查询次数固定，与链数/成员数无关：
+查询次数固定，与链数/成员数/段数无关：
 
 1. `chains`：`SELECT * FROM chains ORDER BY created_at ASC, rowid ASC`；
 2. `chain_groups`：全部组一次读出；
-3. `chain_group_members` JOIN `servers`：全部成员一次读出；
+3. `chain_group_members` JOIN `servers`：全部成员一次读出（`entry` / `exit`
+   的地址、内网地址、端口、优先级都来自这一条）；
 4. `forward_latency_samples`：所有成员 forward id 一次 `IN (...)`，时间下界
    覆盖 `series` 与 24h 基线中更老的一侧；
 5. `forward_probe_samples`：同一批 forward id 在 `series` 窗口内的 5 分钟
    探测桶，一次 `IN (...)` 读出；逐桶丢包在内存里按 `bucket` 再合并。
+
+起点/终点与逐段 `series` 都是这批结果的纯内存归并，**没有新增查询**，也不按
+段/按桶循环查库。
 
 在 `data/preview.db`（迁移建库、不跑 `ANALYZE`）上实测：
 
@@ -175,16 +231,16 @@ p50 最高的段。
 -- 链列表
 SCAN chains USING INDEX idx_chains_created
 
--- 某条链的组
-SEARCH chain_groups USING INDEX idx_chain_groups_chain (chain_id=?)
+-- 全部组（list_topology 的实际 SQL；SCAN ... USING INDEX 是按索引顺序读）
+SCAN chain_groups USING INDEX idx_chain_groups_chain
 
--- 某条链的成员
-SEARCH g USING INDEX idx_chain_groups_chain (chain_id=?)
-SEARCH m USING INDEX sqlite_autoindex_chain_group_members_1 (group_id=?)
+-- 全部成员（同一次 JOIN 里带上 servers 的地址/内网地址）
+SCAN m USING INDEX sqlite_autoindex_chain_group_members_1
+SEARCH g USING INDEX sqlite_autoindex_chain_groups_1 (id=?)
 SEARCH s USING INDEX sqlite_autoindex_servers_1 (id=?)
-USE TEMP B-TREE FOR RIGHT PART OF ORDER BY
+USE TEMP B-TREE FOR ORDER BY
 
--- 时延样本（5 个 forward id）
+-- 时延样本（4 个 forward id）
 SEARCH forward_latency_samples USING INDEX idx_forward_latency_samples_forward_ts (forward_id=? AND ts>?)
 USE TEMP B-TREE FOR ORDER BY
 
@@ -194,10 +250,12 @@ USE TEMP B-TREE FOR ORDER BY
 ```
 
 没有 `SCAN forward_latency_samples` / `SCAN forward_probe_samples` 全表扫描；
-`IN (...)` 对每个 forward id 各做一次 `(forward_id, ts)` 区间探测。`ORDER BY`
-的临时 B 树只排序本窗口命中的行，不是全表。`EXPLAIN QUERY PLAN` 的完整输出在
-`crates/domain/tests/query_plan.rs` 的回归里也以同样 SQL 形状锁定（含
-`forward_probe_samples` 的逐桶查询）。
+`IN (...)` 对每个 forward id 各做一次 `(forward_id, ts)` 区间探测。
+`SCAN chain_groups USING INDEX ...` 是按索引顺序扫描，不是整表扫描。
+`ORDER BY` 的临时 B 树只排序本窗口命中的行，不是全表。`EXPLAIN QUERY PLAN`
+的完整输出在 `crates/domain/tests/query_plan.rs` 的回归里也以同样 SQL 形状
+锁定（含 `forward_probe_samples` 的逐桶查询；那里用的是单链 `chain_id=?` 形状，
+与 `list_topology` 的全量读走同一批索引）。
 
 结果缓存 30 秒（`crates/master/src/state.rs::ChainHealthCache`），key =
 `(hours, bucket, 规范化后的请求 server_ids)`；命中的 + 未知的 id 都进 key，
@@ -238,10 +296,17 @@ USE TEMP B-TREE FOR ORDER BY
   `loss_partial=false`、部分段有数据 → 连乘 + `loss_partial=true`、
   最后一跳不计入段、多路径先加计数再算比值、`summary` 取最差链；
   `series[].loss_pct` 两个桶不同失败率 → 不同值、无探测桶 → null；
+  起点/终点覆盖单成员、多成员按 `(priority, server_id)` 选第一台、
+  `public_port` 为空回退 `listen_port`、内网地址兜底 + `address_source`、
+  IPv6 方括号、缺端口保留 `ip`、空组 → `null`；逐段序列与链级同长、缺桶
+  null、`attempts=0` → loss null、有时延无探测 → loss null、有探测无时延 →
+  整桶 null、多成员同桶合并；
 - 路由层（`crates/master/src/routes/chain_health.rs`）：单跳/多跳映射、
   最后一跳不伪装 0、段/整链丢包与时延回归、`series[]` 逐桶丢包、
-  `server_ids` 筛选后只汇总保留的链、筛选（命中/未知/空数组/非法/201 个
-  id）、非法 `hours`/`bucket`、缓存 key 隔离、非管理员 401/403；
+  `entry` / `exit` 的 `public_port` 与 `listen_port` 口径、多成员优先级、
+  `server_ids` 筛选后 entry/exit 仍取原链首尾、筛选后只汇总保留的链、
+  筛选（命中/未知/空数组/非法/201 个 id）、非法 `hours`/`bucket`、缓存 key
+  隔离、非管理员 401/403；
 - 查询计划（`crates/domain/tests/query_plan.rs`）：`forward_probe_samples`
   的逐桶查询必须走 `idx_forward_probe_samples_forward_ts`，不允许全表扫描；
 - 缓存层（`crates/master/src/state.rs`）：`(hours, bucket, 筛选)` 三维
@@ -251,10 +316,11 @@ USE TEMP B-TREE FOR ORDER BY
 
 - 不新增表/迁移：现有 `forward_latency_samples` + 链组映射足够；最后一跳到
   目标仍没有可靠历史，只声明 `missing_hops`；
-- 不提供逐段的完整时间序列（契约只要求段级 p50/delta/贡献；热力图若需要
-  逐段序列，需要再扩字段）；
-- 丢包不单独提供曲线/基线：逐桶值随 `series[]` 一起返回，链级值取当前 2h
-  窗口，不做 24h 丢包基线；
+- 逐段序列只给 `p50` + `loss_pct`，不返回 `p10` / `p90` / `samples`，也不做
+  段级 24h 基线；热力图需要更多分布字段时要再扩契约；
+- 丢包不单独提供曲线/基线：链级逐桶值随 `series[]`、段级逐桶值随
+  `segments[].series[]` 一起返回，链级/段级当前值都取最近 2h 窗口，不做 24h
+  丢包基线；
 - 多路径按「段中位数求和」估算，不做按实际选路权重的加权；
 - 不做跨进程缓存失效（30 秒 TTL，单进程）；
 - 不改 `web/`、`agent/`、`proto/`。
@@ -280,6 +346,27 @@ hop to the chain target has no reliable history: its seq (last group seq + 1)
 is listed in `missing_hops` and never replaced with 0. Multi-member groups make
 `estimated` true; segment values are medians and the overall value is the sum
 of those medians, not a real end-to-end path RTT.
+
+`entry` / `exit` are display-only endpoints of the **original** chain (they are
+not affected by `server_ids` filtering; see below).
+
+- **Entry**: the highest-priority member of the first group (smallest `seq`),
+  ordered by `(priority ASC, server_id ASC)` so equal priorities are broken by
+  server id, not insertion order. Its port is `chain_groups.public_port` when
+  set; when it is `null` the member's `chain_group_members.listen_port` is used.
+  `public_port` is display-only; the desired state still uses `listen_port`.
+- **Exit**: the highest-priority member of the last group (same ordering). Its
+  port is always that member's `listen_port`—the final hop listens there and
+  connects to the chain target, so `public_port` does not apply.
+- **Address fallback**: the address is `servers.address:port`. When
+  `servers.address` is empty or whitespace-only, `servers.internal_address` is
+  used instead and the endpoint carries `"address_source": "internal"`. The
+  field is omitted when the public address is used. When neither address exists,
+  `ip` and `address` are `null` while `port` is still reported as described
+  above. A missing or non-positive port (dirty data) makes `address` and `port`
+  `null` but keeps `ip`. Groups without members produce `entry` / `exit: null`.
+- **Format**: `ip:port`, with IPv6 written as `[ip]:port` (`ip` itself has no
+  brackets). Hostnames are returned verbatim; no DNS resolution is performed.
 
 Time windows: `series` covers the last `hours`; the current value uses the last
 2 hours of bucket medians and the baseline uses the 24 hours before that. The
@@ -330,12 +417,32 @@ highest chain loss among the visible (filtered) chains and `worst_loss` names
 that chain (id, name, loss); both are `null` when no chain has usable probe
 data.
 
+`segments[].series` expands each segment over the same time axis as the
+chain-level `series`: identical length (`hours*3600/bucket`), identical bucket
+width, oldest first, with `ts` at the bucket start. A point's `p50` is the p50
+of that segment's forward latency samples in that bucket (the same sample set
+as the segment's current value, sliced by time). A bucket with no samples for
+that segment is `null`, never `{ "p50": 0 }`; a bucket with probes but no
+latency samples is also `null`. The point's `loss_pct` is that segment's
+`failures / attempts × 100` in that bucket, rounded to 4 decimals; `attempts = 0`
+gives `null`, never 0. A point with latency but no probes keeps its `p50` and
+has `loss_pct: null`. For multi-member segments, latency samples in a bucket are
+pooled before taking the p50 and probe attempts/failures are summed before
+dividing, matching the segment-level rules. The chain-level `series[]` is
+non-null only when **all** segments have samples in that bucket; per-segment
+series are independent views and cannot be derived from each other. All of this
+is computed in memory from the same sample/probe rows—no SQL is issued per
+segment—so the query count is independent of the number of segments.
+
 Performance: three topology queries (chains / groups / members), one
 `forward_latency_samples` query with `forward_id IN (...)`, and one
 `forward_probe_samples` query reading the 5-minute buckets across the series
-window with `forward_id IN (...)`; no N+1. On the preview database
-`EXPLAIN QUERY PLAN` shows `idx_chains_created`, `idx_chain_groups_chain`, the
-`(group_id)` primary-key lookup,
+window with `forward_id IN (...)`; no N+1. Entry/exit and the per-segment series
+add no queries—they are derived from those same rows in memory. On the preview
+database `EXPLAIN QUERY PLAN` shows `SCAN chains USING INDEX idx_chains_created`,
+`SCAN chain_groups USING INDEX idx_chain_groups_chain` (an index-order scan, not
+a full table scan), the `chain_group_members` primary-key index plus primary-key
+lookups on `chain_groups` and `servers`,
 `idx_forward_latency_samples_forward_ts (forward_id=? AND ts>?)`, and
 `idx_forward_probe_samples_forward_ts (forward_id=? AND ts>? AND ts<?)` plus a
 temporary B-tree for the ordered result; there is no full table scan of either
@@ -359,9 +466,13 @@ uniform slowdowns, loss edge cases (`attempts = 0` → `null`, 2/240 = 0.8333,
 two 1% segments → 1.99%, missing segment → `loss_partial`, no probe data at all
 → `null` + `loss_partial: false`, per-bucket `series[].loss_pct` differing
 between buckets and `null` for a bucket without probes, final hop ignored,
-multi-member counts summed), per-bucket `series[].loss_pct` (different values
-per bucket, `null` for a bucket without probes), summary worst-loss selection,
-filtering (hit/unknown/empty/invalid/201 ids), loss under `server_ids`
-filtering, latency regression, bad `hours`/`bucket`, cache-key isolation, query
-plans, and 401/403. No migration is added; no `web/`, `agent/` or `proto/`
-changes are made.
+multi-member counts summed), entry/exit (single member, multi-member priority,
+`public_port` → `listen_port` fallback, internal-address fallback with
+`address_source`, IPv6 bracketing, missing port keeping `ip`, empty groups →
+`null`), per-segment series (same length as the chain series, missing buckets
+`null`, `attempts = 0` → `loss_pct: null`, probes without latency → `null`,
+multi-member buckets pooled), summary worst-loss selection, filtering
+(hit/unknown/empty/invalid/201 ids), entry/exit preserved under `server_ids`
+filtering, loss under `server_ids` filtering, latency regression, bad
+`hours`/`bucket`, cache-key isolation, query plans, and 401/403. No migration is
+added; no `web/`, `agent/` or `proto/` changes are made.

@@ -7,6 +7,10 @@ import {
   chainAnomalyWindows,
   chainDiagnosis,
   chainDiagnosisReason,
+  chainEndpointAddress,
+  chainEndpointAddressIssue,
+  chainEndpointNameIssue,
+  chainEndpointServerName,
   chainLatestSampleTs,
   chainLatencyWindow,
   chainLossAt,
@@ -888,4 +892,115 @@ test("chainLossAt never falls back to the window loss", () => {
   assert.equal(chainLossAt(item, 1_800_000_900), null);
   assert.equal(chainLossAt(item, null), null);
   assert.equal(chainLossAt(item, Number.NaN), null);
+});
+
+test("entry/exit normalize the new contract fields", () => {
+  const result = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 4,
+        entry: {
+          ip: "203.0.113.11",
+          port: 443,
+          address: "203.0.113.11:443",
+          server_name: "香港-01",
+        },
+        exit: {
+          ip: "198.51.100.21",
+          port: 8443,
+          address: "198.51.100.21:8443",
+          server_name: "大阪-01",
+        },
+      }),
+    ]),
+  );
+  const item = result.snapshot.chains[0];
+  assert.equal(item.hops, 4);
+  assert.deepEqual(item.entry, {
+    ip: "203.0.113.11",
+    port: 443,
+    address: "203.0.113.11:443",
+    serverName: "香港-01",
+  });
+  assert.deepEqual(item.exit, {
+    ip: "198.51.100.21",
+    port: 8443,
+    address: "198.51.100.21:8443",
+    serverName: "大阪-01",
+  });
+  assert.equal(chainEndpointAddress(item.entry), "203.0.113.11:443");
+  assert.equal(chainEndpointServerName(item.entry), "香港-01");
+  assert.equal(chainEndpointAddressIssue(item.entry), null);
+  assert.equal(chainEndpointNameIssue(item.entry), null);
+});
+
+test("an address is rebuilt from ip+port and a missing side is an em dash", () => {
+  const result = normalizeChainHealth(
+    payload([
+      chain({
+        entry: { ip: "203.0.113.11", port: 443, server_name: "香港-01" },
+        exit: { server_name: "大阪-01" },
+      }),
+    ]),
+  );
+  const item = result.snapshot.chains[0];
+  assert.equal(item.entry.address, "203.0.113.11:443");
+  assert.equal(item.exit.address, null);
+  assert.equal(chainEndpointAddress(item.exit), "—");
+  assert.equal(chainEndpointAddressIssue(item.entry), null);
+  assert.equal(chainEndpointAddressIssue(item.exit), "no_address");
+  assert.equal(chainEndpointServerName(item.exit), "大阪-01");
+});
+
+test("an old payload without entry/exit degrades the whole column to em dashes", () => {
+  const result = normalizeChainHealth(payload([chain()]));
+  const item = result.snapshot.chains[0];
+  assert.equal(item.entry, null);
+  assert.equal(item.exit, null);
+  assert.equal(chainEndpointAddress(item.entry), "—");
+  assert.equal(chainEndpointAddress(item.exit), "—");
+  assert.equal(chainEndpointServerName(item.entry), "—");
+  assert.equal(chainEndpointAddressIssue(item.entry), "missing");
+  assert.equal(chainEndpointNameIssue(item.exit), "missing");
+});
+
+test("invalid ports and half-filled endpoints never fake an address", () => {
+  const result = normalizeChainHealth(
+    payload([
+      chain({
+        entry: { ip: "203.0.113.11", port: 70_000 },
+        exit: { ip: "198.51.100.21", port: 8443, server_name: " " },
+      }),
+    ]),
+  );
+  const item = result.snapshot.chains[0];
+  assert.equal(item.entry.port, null);
+  assert.equal(item.entry.address, null);
+  assert.equal(chainEndpointAddressIssue(item.entry), "no_address");
+  assert.equal(item.exit.address, "198.51.100.21:8443");
+  assert.equal(item.exit.serverName, null);
+  assert.equal(chainEndpointServerName(item.exit), "—");
+  assert.equal(chainEndpointNameIssue(item.exit), "no_name");
+});
+
+test("an explicit address: null is respected even when ip/port exist", () => {
+  const result = normalizeChainHealth(
+    payload([
+      chain({
+        entry: {
+          ip: "203.0.113.11",
+          port: 443,
+          address: null,
+          server_name: "香港-01",
+        },
+      }),
+    ]),
+  );
+  const item = result.snapshot.chains[0];
+  assert.equal(item.entry.ip, "203.0.113.11");
+  assert.equal(item.entry.port, 443);
+  assert.equal(item.entry.address, null);
+  assert.equal(chainEndpointAddress(item.entry), "—");
+  assert.equal(chainEndpointAddressIssue(item.entry), "no_address");
+  assert.equal(chainEndpointServerName(item.entry), "香港-01");
 });

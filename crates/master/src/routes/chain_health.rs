@@ -6,7 +6,8 @@
 //! 一次取时间轴窗口内的 5 分钟探测桶（`forward_probe_samples` 的
 //! `forward_id IN (...)`），剩下的归并全部在
 //! [`pierwave_domain::chain_health`] 里做。查询次数与链数、成员数无关，
-//! 没有 N+1。
+//! 没有 N+1。`entry` / `exit` 与逐段 `segments[].series` 也全部由同一批
+//! 结果内存归并，不新增 SQL。
 //!
 //! 丢包口径：链级 `loss_pct` 取最近 [`aggregate::CURRENT_WINDOW_SECS`]（2 小时，
 //! 与 p50 的当前窗口一致）的 attempts/failures；`series[].loss_pct` 取该时间桶
@@ -347,6 +348,16 @@ mod tests {
 
     /// 建一条 `groups` 形态的链；每个成员分配全局互不冲突的监听端口。
     async fn chain(pool: &sqlx::SqlitePool, name: &str, groups: Vec<Vec<&str>>) -> String {
+        chain_with_entry_port(pool, name, groups, None).await
+    }
+
+    /// 同 [`chain`]，但入口组可指定展示用 `public_port`。
+    async fn chain_with_entry_port(
+        pool: &sqlx::SqlitePool,
+        name: &str,
+        groups: Vec<Vec<&str>>,
+        entry_public_port: Option<i64>,
+    ) -> String {
         static NEXT_PORT: AtomicI64 = AtomicI64::new(20_000);
         let groups = groups
             .into_iter()
@@ -369,7 +380,7 @@ mod tests {
                     name: Some(format!("hop-{seq}")),
                     strategy: "round_robin".into(),
                     cert_id: None,
-                    public_port: None,
+                    public_port: if seq == 0 { entry_public_port } else { None },
                     use_internal_address: false,
                     members,
                 }
@@ -394,6 +405,20 @@ mod tests {
         .unwrap()
         .chain
         .id
+    }
+
+    /// 取一条链里某台成员实际落库的 `listen_port`，用于断言终点端口。
+    async fn listen_port_of(pool: &sqlx::SqlitePool, chain_id: &str, server_id: &str) -> i64 {
+        repo::chains::find_by_id(pool, chain_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .groups
+            .iter()
+            .flat_map(|group| group.members.iter())
+            .find(|member| member.server_id == server_id)
+            .expect("成员必须存在")
+            .listen_port
     }
 
     fn end_at(now: i64, bucket: i64) -> i64 {
@@ -488,6 +513,172 @@ mod tests {
             17.0
         );
         assert_eq!(headers["x-chain-health-cache"], "miss");
+    }
+
+    /// 起点/终点：入口端口用 `public_port`，终点用成员 `listen_port`；
+    /// 逐段 `series` 与链级同长，缺桶 null、无探测 loss null。
+    #[tokio::test]
+    async fn chain_health_exposes_entry_exit_and_per_segment_series() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "203.0.113.11").await;
+        let b = server(pool, "东京-01", "198.51.100.21").await;
+        let c = server(pool, "大阪-01", "198.51.100.23").await;
+        let chain_id = chain_with_entry_port(
+            pool,
+            "港日链",
+            vec![vec![&a], vec![&b], vec![&c]],
+            Some(40001),
+        )
+        .await;
+        let end = end_at(repo::now(), 900);
+        let ts = end - 60;
+        // 第 1 段 16ms / 2/240；第 2 段 58ms / 24/240。
+        latency::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), "", 16)
+            .await
+            .unwrap();
+        latency::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), "", 58)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), 240, 2)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 1), 240, 24)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let view = &body["chains"][0];
+
+        assert_eq!(view["entry"]["server_id"], a);
+        assert_eq!(view["entry"]["server_name"], "香港-01");
+        assert_eq!(view["entry"]["address"], "203.0.113.11:40001");
+        assert_eq!(view["entry"]["ip"], "203.0.113.11");
+        assert_eq!(view["entry"]["port"], 40001);
+        assert!(
+            view["entry"].get("address_source").is_none(),
+            "正常公网地址不带 address_source：{view}"
+        );
+        let exit_port = listen_port_of(pool, &chain_id, &c).await;
+        assert_eq!(view["exit"]["server_id"], c);
+        assert_eq!(view["exit"]["server_name"], "大阪-01");
+        assert_eq!(
+            view["exit"]["address"],
+            format!("198.51.100.23:{exit_port}")
+        );
+        assert_eq!(view["exit"]["port"], exit_port);
+
+        let segments = view["segments"].as_array().unwrap();
+        let chain_series_len = view["series"].as_array().unwrap().len();
+        assert_eq!(chain_series_len, 4);
+        assert_eq!(segments.len(), 2);
+        for segment in segments {
+            assert_eq!(
+                segment["series"].as_array().unwrap().len(),
+                chain_series_len,
+                "段 {} 的序列必须与链级同长",
+                segment["seq"]
+            );
+        }
+        let first = &segments[0]["series"][3];
+        assert_eq!(first["ts"], end - 900);
+        assert_eq!(first["p50"], 16.0);
+        assert_eq!(first["loss_pct"], 0.8333);
+        assert!(segments[0]["series"][2].is_null(), "没有样本的桶是 null");
+        let second = &segments[1]["series"][3];
+        assert_eq!(second["p50"], 58.0);
+        assert_eq!(second["loss_pct"], 10.0);
+        assert!(
+            segments[1]["series"][2].is_null(),
+            "该段没有时延样本时整桶 null"
+        );
+
+        // 既有字段回归：逐段/整链时延与丢包口径不变。
+        assert_eq!(segments[0]["p50"], 16.0);
+        assert_eq!(segments[1]["p50"], 58.0);
+        assert_eq!(segments[0]["attempts"], 240);
+        assert_eq!(segments[0]["failures"], 2);
+        assert_eq!(segments[0]["loss_pct"], 0.8333);
+        assert_eq!(segments[1]["loss_pct"], 10.0);
+        assert_eq!(view["loss_pct"], 10.75);
+        assert_eq!(
+            view["loss_samples"],
+            json!({ "attempts": 480, "failures": 26 })
+        );
+        assert_eq!(view["series"][3]["p50"], 74.0);
+    }
+
+    /// 多成员组：起点/终点都按 `(priority, server_id)` 选第一台。
+    #[tokio::test]
+    async fn chain_health_multi_member_endpoints_use_priority_order() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "203.0.113.11").await;
+        let b = server(pool, "东京-01", "198.51.100.21").await;
+        let c = server(pool, "东京-02", "198.51.100.22").await;
+        let chain_id = chain(pool, "港日多路径", vec![vec![&a], vec![&b, &c]]).await;
+        let exit_port = listen_port_of(pool, &chain_id, &b).await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let view = &body["chains"][0];
+        assert_eq!(view["estimated"], true);
+        assert_eq!(view["entry"]["server_id"], a);
+        assert_eq!(
+            view["exit"]["server_id"], b,
+            "priority 0 的成员是终点，不受插入顺序影响"
+        );
+        assert_eq!(
+            view["exit"]["address"],
+            format!("198.51.100.21:{exit_port}")
+        );
+    }
+
+    /// 筛选命中中转服务器时链被保留，但起点/终点仍是原链的第一/最后一组。
+    #[tokio::test]
+    async fn chain_health_filter_keeps_the_original_entry_and_exit() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "203.0.113.11").await;
+        let b = server(pool, "东京-01", "198.51.100.21").await;
+        let c = server(pool, "大阪-01", "198.51.100.23").await;
+        let chain_id = chain_with_entry_port(
+            pool,
+            "港日链",
+            vec![vec![&a], vec![&b], vec![&c]],
+            Some(40002),
+        )
+        .await;
+        let exit_port = listen_port_of(pool, &chain_id, &c).await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            &format!("/api/v1/overview/chain-health?hours=1&bucket=900&server_ids={b}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["scope"]["filtered"], true);
+        assert_eq!(body["summary"]["total_chains"], 1);
+        let view = &body["chains"][0];
+        assert_eq!(view["entry"]["server_id"], a);
+        assert_eq!(view["entry"]["address"], "203.0.113.11:40002");
+        assert_eq!(view["exit"]["server_id"], c);
+        assert_eq!(
+            view["exit"]["address"],
+            format!("198.51.100.23:{exit_port}")
+        );
     }
 
     #[tokio::test]

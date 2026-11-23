@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { ChevronRightIcon, TriangleAlertIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import {
   ChainLatencyUpdatedBadge,
 } from "@/components/overview/ChainLatencyControls";
 import { ChainLossValue } from "@/components/overview/ChainLossValue";
+import { ChainSegmentTrendChart } from "@/components/overview/ChainSegmentTrendChart";
 import {
   SLOW_CHAIN_DELTA_MS,
   chainDiagnosis,
@@ -20,7 +21,6 @@ import {
   formatMs,
   formatPercentValue,
   formatSignedMs,
-  segmentSeries,
   type ChainDiagnosisReason,
   type ChainDiagnosisView,
   type ChainHealthChain,
@@ -345,170 +345,126 @@ function OverallChartCard({
   );
 }
 
-function SegmentRow({
-  segment,
-  dominant,
-  bucket,
-  trend,
-  trendPending,
-}: {
-  segment: ChainHealthSegment;
-  dominant: boolean;
-  bucket: number;
-  trend: ChainHealthSegment["series"];
-  trendPending: boolean;
-}) {
-  // 契约允许某段没有样本（p50 = null）；这时按「无历史数据」展示，
-  // 不能把它画成 0ms / 0% 的贡献。
-  const noData = segment.missing || segment.p50 === null;
-  const share =
-    segment.contributionPct === null
-      ? 0
-      : Math.max(0, Math.min(100, segment.contributionPct));
-  const deltaTone =
-    segment.missing || segment.deltaMs === null || segment.deltaMs === 0
-      ? "text-muted-foreground"
-      : segment.deltaMs > 0
-        ? "text-warning"
-        : "text-primary";
-  const route =
-    segment.from && segment.to
-      ? t("overview.chainLatency.segmentRoute", {
-          from: segment.from,
-          to: segment.to,
-        })
-      : t("overview.chainLatency.missingHop");
-  const probes = formatLossProbes(segment.attempts, segment.failures);
-  const probesTitle =
-    segment.attempts !== null && segment.failures !== null
-      ? t("overview.chainLatency.lossProbes", {
-          attempts: segment.attempts,
-          failures: segment.failures,
-        })
-      : undefined;
-  const label = t("overview.chainLatency.segmentAria", {
-    seq: segment.seq,
-    route,
-    p50: formatMs(segment.p50),
-    delta: formatSignedMs(segment.deltaMs),
-    pct: formatPercentValue(segment.contributionPct),
-    loss: formatLossPct(segment.lossPct),
-    probes,
-  });
-  const slowed =
-    dominant ||
-    (segment.deltaMs !== null && segment.deltaMs >= SLOW_CHAIN_DELTA_MS);
-  const trendTone = slowed ? "warning" : "primary";
+function segmentRoute(segment: ChainHealthSegment): string {
+  return segment.from && segment.to
+    ? t("overview.chainLatency.segmentRoute", {
+        from: segment.from,
+        to: segment.to,
+      })
+    : t("overview.chainLatency.missingHop");
+}
 
+/**
+ * 图表下方的贡献占比：每段一行，紧凑；不重复整张图。
+ *
+ * 段当前 P50 / 窗口丢包放在同一行右侧，是「窗口值」；图表 tooltip 里的
+ * 丢包是「该时刻值」，两者不能混。无数据段仍保留一行，值显示 `—`。
+ */
+function SegmentContributions({ chain }: { chain: ChainHealthChain }) {
   return (
-    <li
-      data-chain-segment
-      data-seq={segment.seq}
-      data-missing={segment.missing ? "true" : "false"}
-      aria-label={label}
-      className="rounded-md px-2.5 py-2 transition-colors duration-150 hover:bg-muted/40"
+    <div
+      data-chain-segment-contributions
+      className="mt-3 flex flex-col gap-1.5 border-t border-border pt-3"
     >
-      <div className="flex items-baseline gap-2">
-        <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-          {t("overview.chainLatency.segment", { seq: segment.seq })}
-        </span>
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-sm",
-            noData && "text-muted-foreground",
-          )}
-          title={route}
-        >
-          {segment.missing
-            ? t("overview.chainLatency.missingHop")
-            : route}
-        </span>
-        <span className="shrink-0 font-mono text-xs tabular-nums">
-          {formatMs(segment.p50)}
-        </span>
-        <span
-          data-segment-loss
-          data-loss-tone={chainLossTone(segment.lossPct) ?? "none"}
-          className="flex w-16 shrink-0 flex-col items-end leading-tight text-right"
-        >
-          <span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap">
-            <span className="text-[9px] text-muted-foreground">
-              {t("overview.chainLatency.loss")}
+      {chain.segments.map((segment) => {
+        const share =
+          segment.contributionPct === null
+            ? 0
+            : Math.max(0, Math.min(100, segment.contributionPct));
+        const slowed =
+          (chain.diagnosis.kind === "single_hop" &&
+            chain.diagnosis.seq === segment.seq) ||
+          (segment.deltaMs !== null &&
+            segment.deltaMs >= SLOW_CHAIN_DELTA_MS);
+        const route = segmentRoute(segment);
+        const probes = formatLossProbes(segment.attempts, segment.failures);
+        const probesTitle =
+          segment.attempts !== null && segment.failures !== null
+            ? t("overview.chainLatency.lossProbes", {
+                attempts: segment.attempts,
+                failures: segment.failures,
+              })
+            : undefined;
+        const label = t("overview.chainLatency.segmentAria", {
+          seq: segment.seq,
+          route,
+          p50: formatMs(segment.p50),
+          delta: formatSignedMs(segment.deltaMs),
+          pct: formatPercentValue(segment.contributionPct),
+          loss: formatLossPct(segment.lossPct),
+          probes,
+        });
+        return (
+          <div
+            key={segment.seq}
+            data-chain-segment
+            data-seq={segment.seq}
+            data-missing={segment.missing ? "true" : "false"}
+            aria-label={label}
+            className="flex min-w-0 items-center gap-2 text-[10px]"
+          >
+            <span className="w-12 shrink-0 font-mono text-muted-foreground sm:w-14">
+              {t("overview.chainLatency.segment", { seq: segment.seq })}
             </span>
-            <ChainLossValue value={segment.lossPct} className="text-[11px]" />
-          </span>
-          {segment.attempts !== null && segment.failures !== null ? (
             <span
-              className="font-mono text-[9px] text-muted-foreground tabular-nums"
+              className="hidden min-w-0 flex-1 truncate text-muted-foreground sm:block"
+              title={route}
+            >
+              {route}
+            </span>
+            <span
+              data-segment-current
+              className="shrink-0 whitespace-nowrap font-mono tabular-nums"
+            >
+              <span className="mr-1 text-[9px] text-muted-foreground">P50</span>
+              {formatMs(segment.p50)}
+            </span>
+            <span
+              data-segment-loss
+              data-loss-tone={chainLossTone(segment.lossPct) ?? "none"}
               title={probesTitle}
+              className="shrink-0 whitespace-nowrap"
             >
-              {probes}
+              <span className="mr-1 text-[9px] text-muted-foreground">
+                {t("overview.chainLatency.windowLoss")}
+              </span>
+              <ChainLossValue value={segment.lossPct} className="text-[10px]" />
             </span>
-          ) : null}
-        </span>
-      </div>
-      {noData ? (
-        segment.missing ? null : (
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            {t("overview.chainLatency.missingHop")}
-          </p>
-        )
-      ) : (
-        <>
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-muted-foreground">
-            <span className={cn("font-mono tabular-nums", deltaTone)}>
-              {t("overview.chainLatency.segmentDelta", {
-                value: formatSignedMs(segment.deltaMs),
-              })}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>
-              {t("overview.chainLatency.contribution", {
-                pct: formatPercentValue(segment.contributionPct),
-              })}
+            <span
+              data-segment-contribution
+              className="flex min-w-10 flex-1 items-center gap-1.5 sm:w-28 sm:flex-none"
+            >
+              <span
+                aria-hidden="true"
+                className="h-1.5 min-w-6 flex-1 overflow-hidden rounded-full bg-muted"
+              >
+                <span
+                  className={cn(
+                    "block h-full rounded-full",
+                    slowed ? "bg-warning" : "bg-primary",
+                  )}
+                  style={{ width: `${share}%` }}
+                />
+              </span>
+              <span className="w-7 shrink-0 text-right text-[9px] text-muted-foreground tabular-nums">
+                {formatPercentValue(segment.contributionPct)}%
+              </span>
             </span>
           </div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <div
-              aria-hidden="true"
-              className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted"
-            >
-              <div
-                className={cn(
-                  "h-full rounded-full",
-                  slowed ? "bg-warning" : "bg-primary",
-                )}
-                style={{ width: `${share}%` }}
-              />
-            </div>
-            <span className="w-8 shrink-0 text-right text-[9px] text-muted-foreground tabular-nums">
-              {formatPercentValue(segment.contributionPct)}%
-            </span>
-          </div>
-        </>
-      )}
-      {!noData && trend.length > 0 ? (
-        <ChainLatencySparkline
-          points={trend}
-          bucketSecs={bucket}
-          tone={trendTone}
-          showBand={false}
-          label={t("overview.chainLatency.segmentTrendAria", {
-            seq: segment.seq,
-            route,
-          })}
-          className="mt-1.5"
-          heightClass="h-8"
-        />
-      ) : noData ? null : (
-        <p className="mt-1 text-[9px] text-muted-foreground">
-          {trendPending
-            ? t("overview.chainLatency.segmentTrendLoading")
-            : t("overview.chainLatency.segmentTrendEmpty")}
-        </p>
-      )}
-    </li>
+        );
+      })}
+      {noDataHint(chain)}
+    </div>
   );
+}
+
+/** 全链都没有逐段样本时给一条说明；有数据时不加噪音。 */
+function noDataHint(chain: ChainHealthChain): ReactNode {
+  return chain.segments.length === 0 ? (
+    <p className="py-2 text-xs text-muted-foreground">
+      {t("overview.chainLatency.noSamplesShort")}
+    </p>
+  ) : null;
 }
 
 function SegmentsCard({
@@ -526,9 +482,11 @@ function SegmentsCard({
     <Card className="min-w-0 gap-0" data-chain-segments-card>
       <CardHeader className="border-b border-border pb-4">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-          <CardTitle className="text-sm font-medium">
-            {t("overview.chainLatency.detailTitle")}
-          </CardTitle>
+          <div className="min-w-0">
+            <CardTitle className="text-sm font-medium">
+              {t("overview.chainLatency.detailTitle")}
+            </CardTitle>
+          </div>
           <div className="flex min-w-0 items-center gap-1.5">
             {chain.estimated ? (
               <Badge
@@ -539,33 +497,32 @@ function SegmentsCard({
                 {t("overview.chainLatency.estimated")}
               </Badge>
             ) : null}
-            <Badge variant="outline" className="max-w-[55vw] font-normal" title={chain.name}>
+            <Badge
+              variant="outline"
+              className="max-w-[55vw] font-normal"
+              title={chain.name}
+            >
               <span className="truncate">{chain.name}</span>
             </Badge>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="min-w-0 p-2 sm:p-3">
-        <ul className="flex flex-col gap-0.5" data-chain-segments>
-          {chain.segments.map((segment) => (
-            <SegmentRow
-              key={segment.seq}
-              segment={segment}
-              dominant={
-                chain.diagnosis.kind === "single_hop" &&
-                chain.diagnosis.seq === segment.seq
-              }
-              bucket={bucket}
-              trend={segmentSeries(segment, trends)}
-              trendPending={trendPending}
-            />
-          ))}
-        </ul>
+      <CardContent className="min-w-0 p-2 sm:p-4">
         {chain.segments.length === 0 ? (
           <p className="px-2.5 py-3 text-xs text-muted-foreground">
             {t("overview.chainLatency.noSamplesShort")}
           </p>
-        ) : null}
+        ) : (
+          <div data-chain-segments>
+            <ChainSegmentTrendChart
+              segments={chain.segments}
+              trends={trends}
+              bucketSecs={bucket}
+              trendPending={trendPending}
+            />
+            <SegmentContributions chain={chain} />
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -573,7 +530,8 @@ function SegmentsCard({
 
 /**
  * 链路详情内容：弹窗里渲染，顺序按产品稿：
- * 完整链路（含整链 P50 / 丢包）→ 整体时延图（诊断句在图下方）→ 逐段明细。
+ * 完整链路（含整链 P50 / 丢包）→ 整体时延图（诊断句在图下方）→
+ * 逐段多序列折线 + 每段一行的贡献占比。
  *
  * 标题与关闭动作由外层 Dialog 负责，这里不再画面包屑 / 返回按钮。
  */

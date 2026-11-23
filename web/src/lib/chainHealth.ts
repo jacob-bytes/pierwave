@@ -105,10 +105,32 @@ export interface ChainHealthSegment {
   series: ChainHealthPoint[];
 }
 
+/**
+ * 链路两端：契约的 `chains[].entry` / `chains[].exit`。
+ *
+ * 旧主控完全不返回这两个字段 → 整个端点为 `null`；字段存在但地址缺失 →
+ * `address: null`。两种情况列表都显示 `—`，但 title 的降级原因不同，
+ * 不能把「契约没上线」和「这一侧没有地址」混成一句话。
+ */
+export interface ChainEndpoint {
+  ip: string | null;
+  port: number | null;
+  /** `ip:port`；契约没给时由 `ip` + `port` 拼出，两者都没有才是 null。 */
+  address: string | null;
+  serverName: string | null;
+}
+
+/** 端点某一行的缺失原因：整段缺失 / 只有地址缺失 / 只有服务器名缺失。 */
+export type ChainEndpointIssue = "missing" | "no_address" | "no_name" | null;
+
 export interface ChainHealthChain {
   id: string;
   name: string;
   hops: number;
+  /** 链路入口；旧主控没有该字段时为 null。 */
+  entry: ChainEndpoint | null;
+  /** 链路出口；旧主控没有该字段时为 null。 */
+  exit: ChainEndpoint | null;
   /** 归一化后缺失的跳（含契约没列出的中间缺口）。 */
   missingHops: number[];
   estimated: boolean;
@@ -301,6 +323,43 @@ function readLossSamples(raw: unknown): ChainLossSamples | null {
   return { attempts, failures: finiteInt(raw.failures) };
 }
 
+/** TCP 端口：只接受 1–65535；越界按「没有端口」处理，不夹成一个假端口。 */
+function readPort(value: unknown): number | null {
+  const port = positiveInt(value);
+  return port !== null && port <= 65_535 ? port : null;
+}
+
+/**
+ * 归一化 `chains[].entry` / `chains[].exit`。
+ *
+ * 契约同时给 `ip` / `port` / `address` / `server_name`；任一侧为空都不算错误。
+ * `address` 缺失时用 `ip:port` 拼，拼不出来就保持 null（列表显示 `—`）。
+ * 整个对象没有任何可用字段时返回 null，表示旧主控没有这个能力。
+ */
+function readEndpoint(raw: unknown): ChainEndpoint | null {
+  if (!isRecord(raw)) return null;
+  const ip = trimmedString(raw.ip);
+  const port = readPort(raw.port);
+  // 契约显式给 `address: null` 时必须显示 `—`；只有字段**缺失**时才用
+  // `ip:port` 拼。否则「这一侧没有可展示地址」会被悄悄补成一个假地址。
+  const address =
+    "address" in raw
+      ? trimmedString(raw.address)
+      : ip !== null && port !== null
+        ? `${ip}:${port}`
+        : null;
+  const serverName = trimmedString(raw.server_name);
+  if (
+    ip === null &&
+    port === null &&
+    address === null &&
+    serverName === null
+  ) {
+    return null;
+  }
+  return { ip, port, address, serverName };
+}
+
 function readSegment(raw: unknown): ChainHealthSegment | null {
   if (!isRecord(raw)) return null;
   const seq = positiveInt(raw.seq);
@@ -461,6 +520,8 @@ function readChain(raw: unknown): ChainHealthChain | null {
       positiveInt(raw.hops) ?? 0,
       built.missingHops.length,
     ),
+    entry: readEndpoint(raw.entry),
+    exit: readEndpoint(raw.exit),
     missingHops: built.missingHops,
     estimated: estimatedRaw ?? built.missingHops.length > 0,
     series,
@@ -971,6 +1032,39 @@ export function segmentSeries(
   return segment.series.length > 0
     ? segment.series
     : (trends.get(segment.seq) ?? []);
+}
+
+/**
+ * 端点地址（`ip:port`）；整个端点缺失或 address 为 null 都显示 `—`。
+ *
+ * 只做展示，不拿链配置里的组信息兜底：契约没上线时列表整列 `—`，
+ * 比猜一个「看起来像起点」的地址更安全。
+ */
+export function chainEndpointAddress(endpoint: ChainEndpoint | null): string {
+  return endpoint?.address ?? "—";
+}
+
+/** 端点服务器名；缺失显示 `—`（与地址独立，可能只有其中一项）。 */
+export function chainEndpointServerName(
+  endpoint: ChainEndpoint | null,
+): string {
+  return endpoint?.serverName ?? "—";
+}
+
+/** 地址缺失原因，用于列表 title：整段缺失 / 没给地址 / 正常。 */
+export function chainEndpointAddressIssue(
+  endpoint: ChainEndpoint | null,
+): ChainEndpointIssue {
+  if (endpoint === null) return "missing";
+  return endpoint.address === null ? "no_address" : null;
+}
+
+/** 服务器名缺失原因，用于列表 title：整段缺失 / 没给名字 / 正常。 */
+export function chainEndpointNameIssue(
+  endpoint: ChainEndpoint | null,
+): ChainEndpointIssue {
+  if (endpoint === null) return "missing";
+  return endpoint.serverName === null ? "no_name" : null;
 }
 
 /** `43 ms` / `14.1 ms`；null 显示 `—`，不把无样本写成 0ms。 */

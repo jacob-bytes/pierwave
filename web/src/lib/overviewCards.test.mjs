@@ -18,6 +18,9 @@ const chainList = read("../components/overview/ChainLatencyList.tsx");
 const chainDetail = read("../components/overview/ChainLatencyDetail.tsx");
 const chainDialog = read("../components/overview/ChainLatencyDetailDialog.tsx");
 const chainTrend = read("../components/overview/ChainLatencyTrendChart.tsx");
+const chainSegmentChart = read(
+  "../components/overview/ChainSegmentTrendChart.tsx",
+);
 const line = read("../components/overview/ResourceLineChart.tsx");
 const fxPopover = read("../components/overview/FxDetailsPopover.tsx");
 const scopeHook = read("../components/overview/useOverviewScope.ts");
@@ -287,7 +290,8 @@ test("链路 tab：详情改弹窗，列表只剩 KPI / 趋势 / 表格", () => 
       "overview.chainLatency.worstHop",
       "overview.chainLatency.healthHealthy",
       "overview.chainLatency.windowLoss",
-      "overview.chainLatency.colPath",
+      "overview.chainLatency.colEndpoint",
+      "overview.chainLatency.colHops",
       "overview.chainLatency.colStatus",
       "ChainLatencyTrendChart",
       "data-chain-trend-card",
@@ -295,8 +299,10 @@ test("链路 tab：详情改弹窗，列表只剩 KPI / 趋势 / 表格", () => 
       "data-chain-list-head",
       "data-chain-list-row",
       "data-chain-loss",
-      "data-chain-path",
+      "data-chain-endpoints",
+      "data-chain-hops",
       "data-chain-status",
+      "chainEndpointAddress",
       "overview.chainLatency.listTitle",
     ],
     "ChainLatencyList",
@@ -349,8 +355,12 @@ test("链路 tab：详情改弹窗，列表只剩 KPI / 趋势 / 表格", () => 
       "data-chain-loss-partial",
       "data-chain-loss-nodata",
       "data-chain-segments",
+      "data-chain-segment-contributions",
       "data-chain-segment",
       "data-segment-loss",
+      "data-segment-contribution",
+      "data-segment-current",
+      "ChainSegmentTrendChart",
       "chainTopology",
       "chainDiagnosis",
       "overview.chainLatency.diagnosisSingle",
@@ -363,6 +373,31 @@ test("链路 tab：详情改弹窗，列表只剩 KPI / 趋势 / 表格", () => 
       "overview.chainLatency.windowLossProbes",
     ],
     "ChainLatencyDetail",
+  );
+  // 逐段不再是表格行：每段一张卡片 + 折线图，详情里不能出现 table 语义。
+  assertExcludes(
+    chainDetail,
+    ["<table", "<thead", "<tbody", "<tr", "<td"],
+    "ChainLatencyDetail",
+  );
+  assertIncludes(
+    chainSegmentChart,
+    [
+      "LineChart",
+      "<Line",
+      "data-chain-segment-chart",
+      "data-segment-legend",
+      "data-segment-legend-item",
+      "data-segment-tooltip",
+      "data-segment-tooltip-p50",
+      "data-segment-tooltip-loss",
+      "formatLossPct",
+      "lossAtTime",
+      "segmentSeries",
+      "allSegmentsHidden",
+      "lowest",
+    ],
+    "ChainSegmentTrendChart",
   );
 });
 

@@ -1,0 +1,685 @@
+{
+  "results": [
+    {
+      "name": "[1440-dark] 列头含「起点 / 终点」与「跳数」",
+      "ok": true,
+      "detail": {
+        "visible": true,
+        "text": "链路 起点 / 终点 跳数 P50 窗口丢包 状态"
+      }
+    },
+    {
+      "name": "[1440-dark] 每行都有起点/终点与独立跳数列",
+      "ok": true,
+      "detail": [
+        {
+          "id": "cd85a4f7-bc9b-408e-889d-41bb6ed1d109",
+          "name": "健康",
+          "address": "203.0.113.11:443→198.51.100.21:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.11:443 → 198.51.100.21:8443"
+        },
+        {
+          "id": "fc547c5a-e9f0-4e8a-a315-b845f6207ff9",
+          "name": "健康",
+          "address": "203.0.113.12:443→198.51.100.22:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.12:443 → 198.51.100.22:8443"
+        },
+        {
+          "id": "bf56ea74-30ed-474f-93a1-99bb0401660b",
+          "name": "阻断",
+          "address": "203.0.113.13:8443→—",
+          "names": "香港-01→美国-04",
+          "hops": "2 跳",
+          "addressTitle": "203.0.113.13:8443 → 终点：没有可展示的地址（ip:port 缺失或端口无效）"
+        },
+        {
+          "id": "873e880f-63a9-4b0a-b365-fca4fc7ab161",
+          "name": "健康",
+          "address": "203.0.113.14:443→198.51.100.24:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.14:443 → 198.51.100.24:8443"
+        },
+        {
+          "id": "d1fdf18a-a5b8-43ce-bcd4-64efe6ba2af5",
+          "name": "健康",
+          "address": "203.0.113.15:443→198.51.100.25:8443",
+          "names": "香港-01→日本-02",
+          "hops": "2 跳",
+          "addressTitle": "203.0.113.15:443 → 198.51.100.25:8443"
+        }
+      ]
+    },
+    {
+      "name": "[1440-dark] 390 两行布局、无横向溢出",
+      "ok": true,
+      "detail": {
+        "listOverflow": 0,
+        "layout": {
+          "height": 60,
+          "mainTop": 0,
+          "metaTop": 0
+        }
+      }
+    },
+    {
+      "name": "[1440-dark] 详情不再用表格：一张多序列折线 + 图例 + 贡献条",
+      "ok": true,
+      "detail": {
+        "dialog": {
+          "width": 960,
+          "height": 920
+        },
+        "tableCount": 0,
+        "chartCount": 1,
+        "lineCount": 2,
+        "legendItems": [
+          {
+            "seq": "1",
+            "hasData": "true",
+            "text": "第 1 段"
+          },
+          {
+            "seq": "2",
+            "hasData": "true",
+            "text": "第 2 段"
+          },
+          {
+            "seq": "3",
+            "hasData": "false",
+            "text": "第 3 段 无历史数据"
+          }
+        ],
+        "contributionRows": 3,
+        "contributionBars": 3,
+        "currentReadouts": [
+          "P5033.5 ms",
+          "P5034.5 ms",
+          "P50—"
+        ],
+        "lossReadouts": [
+          "窗口丢包0.8%",
+          "窗口丢包2.9%",
+          "窗口丢包—"
+        ]
+      }
+    },
+    {
+      "name": "[1440-dark] 图例可隐藏/显示单段",
+      "ok": true,
+      "detail": {
+        "hiddenLines": 1,
+        "visibleCount": "1"
+      }
+    },
+    {
+      "name": "[1440-dark] 图表高度与 390 无横向溢出",
+      "ok": true,
+      "detail": {
+        "chartHeight": 260,
+        "dialogOverflow": 0
+      }
+    },
+    {
+      "name": "[1440-dark] tooltip 按段序同时含时延与该时刻丢包",
+      "ok": true,
+      "detail": {
+        "tooltipText": "11/23 13:30 第 1 段 38.3 ms 该时刻丢包 0.3% 最低 第 2 段 39.4 ms 该时刻丢包 0.2% 最高",
+        "tooltipRows": [
+          {
+            "seq": 1,
+            "text": "第 1 段 38.3 ms 该时刻丢包 0.3% 最低",
+            "highest": null,
+            "lowest": "true"
+          },
+          {
+            "seq": 2,
+            "text": "第 2 段 39.4 ms 该时刻丢包 0.2% 最高",
+            "highest": "true",
+            "lowest": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "[1440-dark] 某段 null 逐桶丢包显示 —",
+      "ok": true,
+      "detail": "第 2 段 49.8 ms 该时刻丢包 — 最高"
+    },
+    {
+      "name": "[1440-dark] 无数据段灰显「无历史数据」空态",
+      "ok": true,
+      "detail": {
+        "emptyCount": 1,
+        "emptyText": "无历史数据",
+        "emptyCharts": 0,
+        "greyLegends": 3
+      }
+    },
+    {
+      "name": "[1440-dark] page errors",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "[390-dark] 列头含「起点 / 终点」与「跳数」",
+      "ok": true,
+      "detail": {
+        "visible": false,
+        "text": ""
+      }
+    },
+    {
+      "name": "[390-dark] 每行都有起点/终点与独立跳数列",
+      "ok": true,
+      "detail": [
+        {
+          "id": "cd85a4f7-bc9b-408e-889d-41bb6ed1d109",
+          "name": "健康",
+          "address": "203.0.113.11:443→198.51.100.21:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.11:443 → 198.51.100.21:8443"
+        },
+        {
+          "id": "fc547c5a-e9f0-4e8a-a315-b845f6207ff9",
+          "name": "健康",
+          "address": "203.0.113.12:443→198.51.100.22:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.12:443 → 198.51.100.22:8443"
+        },
+        {
+          "id": "bf56ea74-30ed-474f-93a1-99bb0401660b",
+          "name": "阻断",
+          "address": "203.0.113.13:8443→—",
+          "names": "香港-01→美国-04",
+          "hops": "2 跳",
+          "addressTitle": "203.0.113.13:8443 → 终点：没有可展示的地址（ip:port 缺失或端口无效）"
+        },
+        {
+          "id": "873e880f-63a9-4b0a-b365-fca4fc7ab161",
+          "name": "健康",
+          "address": "203.0.113.14:443→198.51.100.24:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.14:443 → 198.51.100.24:8443"
+        },
+        {
+          "id": "d1fdf18a-a5b8-43ce-bcd4-64efe6ba2af5",
+          "name": "健康",
+          "address": "203.0.113.15:443→198.51.100.25:8443",
+          "names": "香港-01→日本-02",
+          "hops": "2 跳",
+          "addressTitle": "203.0.113.15:443 → 198.51.100.25:8443"
+        }
+      ]
+    },
+    {
+      "name": "[390-dark] 390 两行布局、无横向溢出",
+      "ok": true,
+      "detail": {
+        "listOverflow": 0,
+        "layout": {
+          "height": 82,
+          "mainTop": 1293,
+          "metaTop": 1320
+        }
+      }
+    },
+    {
+      "name": "[390-dark] 详情不再用表格：一张多序列折线 + 图例 + 贡献条",
+      "ok": true,
+      "detail": {
+        "dialog": {
+          "width": 382,
+          "height": 776
+        },
+        "tableCount": 0,
+        "chartCount": 1,
+        "lineCount": 2,
+        "legendItems": [
+          {
+            "seq": "1",
+            "hasData": "true",
+            "text": "第 1 段"
+          },
+          {
+            "seq": "2",
+            "hasData": "true",
+            "text": "第 2 段"
+          },
+          {
+            "seq": "3",
+            "hasData": "false",
+            "text": "第 3 段 无历史数据"
+          }
+        ],
+        "contributionRows": 3,
+        "contributionBars": 3,
+        "currentReadouts": [
+          "P5033.5 ms",
+          "P5034.5 ms",
+          "P50—"
+        ],
+        "lossReadouts": [
+          "窗口丢包0.8%",
+          "窗口丢包2.9%",
+          "窗口丢包—"
+        ]
+      }
+    },
+    {
+      "name": "[390-dark] 图例可隐藏/显示单段",
+      "ok": true,
+      "detail": {
+        "hiddenLines": 1,
+        "visibleCount": "1"
+      }
+    },
+    {
+      "name": "[390-dark] 图表高度与 390 无横向溢出",
+      "ok": true,
+      "detail": {
+        "chartHeight": 240,
+        "dialogOverflow": 0
+      }
+    },
+    {
+      "name": "[390-dark] tooltip 按段序同时含时延与该时刻丢包",
+      "ok": true,
+      "detail": {
+        "tooltipText": "11/23 13:00 第 1 段 37.2 ms 该时刻丢包 0.3% 最低 第 2 段 38.3 ms 该时刻丢包 0.2% 最高",
+        "tooltipRows": [
+          {
+            "seq": 1,
+            "text": "第 1 段 37.2 ms 该时刻丢包 0.3% 最低",
+            "highest": null,
+            "lowest": "true"
+          },
+          {
+            "seq": 2,
+            "text": "第 2 段 38.3 ms 该时刻丢包 0.2% 最高",
+            "highest": "true",
+            "lowest": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "[390-dark] 某段 null 逐桶丢包显示 —",
+      "ok": true,
+      "detail": "第 2 段 51.2 ms 该时刻丢包 — 最高"
+    },
+    {
+      "name": "[390-dark] 无数据段灰显「无历史数据」空态",
+      "ok": true,
+      "detail": {
+        "emptyCount": 1,
+        "emptyText": "无历史数据",
+        "emptyCharts": 0,
+        "greyLegends": 3
+      }
+    },
+    {
+      "name": "[390-dark] page errors",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "[1440-light] 列头含「起点 / 终点」与「跳数」",
+      "ok": true,
+      "detail": {
+        "visible": true,
+        "text": "链路 起点 / 终点 跳数 P50 窗口丢包 状态"
+      }
+    },
+    {
+      "name": "[1440-light] 每行都有起点/终点与独立跳数列",
+      "ok": true,
+      "detail": [
+        {
+          "id": "cd85a4f7-bc9b-408e-889d-41bb6ed1d109",
+          "name": "健康",
+          "address": "203.0.113.11:443→198.51.100.21:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.11:443 → 198.51.100.21:8443"
+        },
+        {
+          "id": "fc547c5a-e9f0-4e8a-a315-b845f6207ff9",
+          "name": "健康",
+          "address": "203.0.113.12:443→198.51.100.22:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.12:443 → 198.51.100.22:8443"
+        },
+        {
+          "id": "bf56ea74-30ed-474f-93a1-99bb0401660b",
+          "name": "阻断",
+          "address": "203.0.113.13:8443→—",
+          "names": "香港-01→美国-04",
+          "hops": "2 跳",
+          "addressTitle": "203.0.113.13:8443 → 终点：没有可展示的地址（ip:port 缺失或端口无效）"
+        },
+        {
+          "id": "873e880f-63a9-4b0a-b365-fca4fc7ab161",
+          "name": "健康",
+          "address": "203.0.113.14:443→198.51.100.24:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.14:443 → 198.51.100.24:8443"
+        },
+        {
+          "id": "d1fdf18a-a5b8-43ce-bcd4-64efe6ba2af5",
+          "name": "健康",
+          "address": "203.0.113.15:443→198.51.100.25:8443",
+          "names": "香港-01→日本-02",
+          "hops": "2 跳",
+          "addressTitle": "203.0.113.15:443 → 198.51.100.25:8443"
+        }
+      ]
+    },
+    {
+      "name": "[1440-light] 390 两行布局、无横向溢出",
+      "ok": true,
+      "detail": {
+        "listOverflow": 0,
+        "layout": {
+          "height": 60,
+          "mainTop": 0,
+          "metaTop": 0
+        }
+      }
+    },
+    {
+      "name": "[1440-light] 详情不再用表格：一张多序列折线 + 图例 + 贡献条",
+      "ok": true,
+      "detail": {
+        "dialog": {
+          "width": 960,
+          "height": 920
+        },
+        "tableCount": 0,
+        "chartCount": 1,
+        "lineCount": 2,
+        "legendItems": [
+          {
+            "seq": "1",
+            "hasData": "true",
+            "text": "第 1 段"
+          },
+          {
+            "seq": "2",
+            "hasData": "true",
+            "text": "第 2 段"
+          },
+          {
+            "seq": "3",
+            "hasData": "false",
+            "text": "第 3 段 无历史数据"
+          }
+        ],
+        "contributionRows": 3,
+        "contributionBars": 3,
+        "currentReadouts": [
+          "P5033.5 ms",
+          "P5034.5 ms",
+          "P50—"
+        ],
+        "lossReadouts": [
+          "窗口丢包0.8%",
+          "窗口丢包2.9%",
+          "窗口丢包—"
+        ]
+      }
+    },
+    {
+      "name": "[1440-light] 图例可隐藏/显示单段",
+      "ok": true,
+      "detail": {
+        "hiddenLines": 1,
+        "visibleCount": "1"
+      }
+    },
+    {
+      "name": "[1440-light] 图表高度与 390 无横向溢出",
+      "ok": true,
+      "detail": {
+        "chartHeight": 260,
+        "dialogOverflow": 0
+      }
+    },
+    {
+      "name": "[1440-light] tooltip 按段序同时含时延与该时刻丢包",
+      "ok": true,
+      "detail": {
+        "tooltipText": "11/23 13:30 第 1 段 38.3 ms 该时刻丢包 0.3% 最低 第 2 段 39.4 ms 该时刻丢包 0.2% 最高",
+        "tooltipRows": [
+          {
+            "seq": 1,
+            "text": "第 1 段 38.3 ms 该时刻丢包 0.3% 最低",
+            "highest": null,
+            "lowest": "true"
+          },
+          {
+            "seq": 2,
+            "text": "第 2 段 39.4 ms 该时刻丢包 0.2% 最高",
+            "highest": "true",
+            "lowest": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "[1440-light] 某段 null 逐桶丢包显示 —",
+      "ok": true,
+      "detail": "第 2 段 49.8 ms 该时刻丢包 — 最高"
+    },
+    {
+      "name": "[1440-light] 无数据段灰显「无历史数据」空态",
+      "ok": true,
+      "detail": {
+        "emptyCount": 1,
+        "emptyText": "无历史数据",
+        "emptyCharts": 0,
+        "greyLegends": 3
+      }
+    },
+    {
+      "name": "[1440-light] page errors",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "[390-light] 列头含「起点 / 终点」与「跳数」",
+      "ok": true,
+      "detail": {
+        "visible": false,
+        "text": ""
+      }
+    },
+    {
+      "name": "[390-light] 每行都有起点/终点与独立跳数列",
+      "ok": true,
+      "detail": [
+        {
+          "id": "cd85a4f7-bc9b-408e-889d-41bb6ed1d109",
+          "name": "健康",
+          "address": "203.0.113.11:443→198.51.100.21:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.11:443 → 198.51.100.21:8443"
+        },
+        {
+          "id": "fc547c5a-e9f0-4e8a-a315-b845f6207ff9",
+          "name": "健康",
+          "address": "203.0.113.12:443→198.51.100.22:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.12:443 → 198.51.100.22:8443"
+        },
+        {
+          "id": "bf56ea74-30ed-474f-93a1-99bb0401660b",
+          "name": "阻断",
+          "address": "203.0.113.13:8443→—",
+          "names": "香港-01→美国-04",
+          "hops": "2 跳",
+          "addressTitle": "203.0.113.13:8443 → 终点：没有可展示的地址（ip:port 缺失或端口无效）"
+        },
+        {
+          "id": "873e880f-63a9-4b0a-b365-fca4fc7ab161",
+          "name": "健康",
+          "address": "203.0.113.14:443→198.51.100.24:8443",
+          "names": "香港-01→美国-04",
+          "hops": "3 跳",
+          "addressTitle": "203.0.113.14:443 → 198.51.100.24:8443"
+        },
+        {
+          "id": "d1fdf18a-a5b8-43ce-bcd4-64efe6ba2af5",
+          "name": "健康",
+          "address": "203.0.113.15:443→198.51.100.25:8443",
+          "names": "香港-01→日本-02",
+          "hops": "2 跳",
+          "addressTitle": "203.0.113.15:443 → 198.51.100.25:8443"
+        }
+      ]
+    },
+    {
+      "name": "[390-light] 390 两行布局、无横向溢出",
+      "ok": true,
+      "detail": {
+        "listOverflow": 0,
+        "layout": {
+          "height": 82,
+          "mainTop": 1293,
+          "metaTop": 1320
+        }
+      }
+    },
+    {
+      "name": "[390-light] 详情不再用表格：一张多序列折线 + 图例 + 贡献条",
+      "ok": true,
+      "detail": {
+        "dialog": {
+          "width": 382,
+          "height": 776
+        },
+        "tableCount": 0,
+        "chartCount": 1,
+        "lineCount": 2,
+        "legendItems": [
+          {
+            "seq": "1",
+            "hasData": "true",
+            "text": "第 1 段"
+          },
+          {
+            "seq": "2",
+            "hasData": "true",
+            "text": "第 2 段"
+          },
+          {
+            "seq": "3",
+            "hasData": "false",
+            "text": "第 3 段 无历史数据"
+          }
+        ],
+        "contributionRows": 3,
+        "contributionBars": 3,
+        "currentReadouts": [
+          "P5033.5 ms",
+          "P5034.5 ms",
+          "P50—"
+        ],
+        "lossReadouts": [
+          "窗口丢包0.8%",
+          "窗口丢包2.9%",
+          "窗口丢包—"
+        ]
+      }
+    },
+    {
+      "name": "[390-light] 图例可隐藏/显示单段",
+      "ok": true,
+      "detail": {
+        "hiddenLines": 1,
+        "visibleCount": "1"
+      }
+    },
+    {
+      "name": "[390-light] 图表高度与 390 无横向溢出",
+      "ok": true,
+      "detail": {
+        "chartHeight": 240,
+        "dialogOverflow": 0
+      }
+    },
+    {
+      "name": "[390-light] tooltip 按段序同时含时延与该时刻丢包",
+      "ok": true,
+      "detail": {
+        "tooltipText": "11/23 13:00 第 1 段 37.2 ms 该时刻丢包 0.3% 最低 第 2 段 38.3 ms 该时刻丢包 0.2% 最高",
+        "tooltipRows": [
+          {
+            "seq": 1,
+            "text": "第 1 段 37.2 ms 该时刻丢包 0.3% 最低",
+            "highest": null,
+            "lowest": "true"
+          },
+          {
+            "seq": 2,
+            "text": "第 2 段 38.3 ms 该时刻丢包 0.2% 最高",
+            "highest": "true",
+            "lowest": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "[390-light] 某段 null 逐桶丢包显示 —",
+      "ok": true,
+      "detail": "第 2 段 51.2 ms 该时刻丢包 — 最高"
+    },
+    {
+      "name": "[390-light] 无数据段灰显「无历史数据」空态",
+      "ok": true,
+      "detail": {
+        "emptyCount": 1,
+        "emptyText": "无历史数据",
+        "emptyCharts": 0,
+        "greyLegends": 3
+      }
+    },
+    {
+      "name": "[390-light] page errors",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "旧主控缺 entry/exit：整列 —，title 说明未返回",
+      "ok": true,
+      "detail": {
+        "addresses": [
+          "—→—",
+          "—→—",
+          "—→—",
+          "—→—",
+          "—→—"
+        ],
+        "titles": [
+          "起点：主控未返回该端信息 → 终点：主控未返回该端信息",
+          "起点：主控未返回该端信息 → 终点：主控未返回该端信息",
+          "起点：主控未返回该端信息 → 终点：主控未返回该端信息",
+          "起点：主控未返回该端信息 → 终点：主控未返回该端信息",
+          "起点：主控未返回该端信息 → 终点：主控未返回该端信息"
+        ]
+      }
+    }
+  ],
+  "failures": []
+}

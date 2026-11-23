@@ -23,6 +23,13 @@
 //!   探测计数连乘；桶内所有段都没探测时为 null（桶级不设 partial）。
 //! * 多成员组（多路径）按段中位数求和，链级 `estimated = true`；丢包则把
 //!   各成员的探测计数相加后再算比值。
+//! * `entry` / `exit` 是链的展示起点/终点：首/末组里 `(priority, server_id)`
+//!   最小的成员；入口端口优先 `chain_groups.public_port`，为空回退成员
+//!   `listen_port`，终点固定用 `listen_port`。`servers.address` 为空时回退
+//!   `internal_address` 并标 `address_source: "internal"`。
+//! * `segments[].series` 与链级 `series` 同桶宽、同长度：每桶 p50 来自该段
+//!   时延样本，loss_pct 来自该段探测桶（attempts = 0 → null），无样本桶为
+//!   null。它与 entry/exit 一样只做内存归并，不新增 SQL。
 
 use std::collections::HashMap;
 
@@ -73,6 +80,9 @@ pub struct SegmentView {
     pub from: String,
     /// 目标组代表成员名。
     pub to: String,
+    /// 与链级 `series` **同桶宽、同长度**的逐段序列；没有该段样本的桶是
+    /// `null`，不是 `{ p50: 0 }`。
+    pub series: Vec<Option<SegmentSeriesPoint>>,
     /// 当前窗口的桶中位数；没有样本时 null，不是 0。
     pub p50: Option<f64>,
     /// `p50 - 基线 p50`；任一侧无样本时 null。
@@ -85,6 +95,38 @@ pub struct SegmentView {
     pub failures: i64,
     /// `failures / attempts × 100`（保留 4 位）；attempts = 0 时 null，不是 0。
     pub loss_pct: Option<f64>,
+}
+
+/// 逐段时间序列的一个点。空桶在 `SegmentView::series` 里是 `null`。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SegmentSeriesPoint {
+    pub ts: i64,
+    /// 该段在该桶的 p50；能出现在这里就一定有值（空桶整体是 null）。
+    pub p50: f64,
+    /// 该段在该桶的丢包（%）；`attempts = 0` 时为 null，不是 0。
+    pub loss_pct: Option<f64>,
+}
+
+/// 链的起点或终点：展示用的 `服务器地址:端口`。
+///
+/// 口径见 `docs/CHAIN-HEALTH.md`：起点是第一个组里 `priority` 最小的成员，
+/// 端口优先用组级 `public_port`（为空回退该成员 `listen_port`）；终点是最后
+/// 一组里 `priority` 最小的成员，端口固定用该成员 `listen_port`。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Endpoint {
+    pub server_id: String,
+    pub server_name: String,
+    /// `ip:port`；IPv6 写成 `[ip]:port`。缺地址或缺端口时为 null，
+    /// 但 `ip` 仍会保留（缺端口时）。
+    pub address: Option<String>,
+    /// `address` 里的主机部分；不做 DNS 解析，IPv6 不带方括号。
+    pub ip: Option<String>,
+    /// 实际用于拼 `address` 的端口；端口缺失/非法时为 null。
+    pub port: Option<i64>,
+    /// 只有 `servers.address` 为空、回退到 `internal_address` 时才出现，
+    /// 值为 `"internal"`；正常情况省略这个字段。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address_source: Option<&'static str>,
 }
 
 /// 一组探测计数（整链各段之和）。
@@ -114,6 +156,10 @@ pub struct ChainHealth {
     pub name: String,
     /// 链的组数（入口 + 中转 + 出口）。4 组 = 4 跳、3 个可测段。
     pub hops: i64,
+    /// 链的起点：第一个组里优先级最高的成员。没有任何成员时 null。
+    pub entry: Option<Endpoint>,
+    /// 链的终点：最后一个组里优先级最高的成员。没有任何成员时 null。
+    pub exit: Option<Endpoint>,
     /// 存在多成员组（多路径），整体/逐段都是估算值。
     pub estimated: bool,
     /// 无法测量的跳：最后一跳（到链目标）的 seq 恒在其中；成员为空的组
@@ -448,13 +494,37 @@ pub fn aggregate(
             bucket,
         );
 
+        // 逐段序列与链级 series 同桶宽、同长度；空桶 null。数据全部来自
+        // 上面那批内存 map，不新增任何 SQL。
+        let segment_series: Vec<Vec<Option<SegmentSeriesPoint>>> = (0..segment_count)
+            .map(|segment_index| {
+                (0..count)
+                    .map(|index| {
+                        let ts = series_start + index * bucket;
+                        stats
+                            .get(&(chain_index, segment_index, ts))
+                            .map(|bucket_stats| SegmentSeriesPoint {
+                                ts,
+                                p50: round1(bucket_stats.p50),
+                                loss_pct: segment_loss_for_bucket(
+                                    &segment_probe_buckets,
+                                    chain_index,
+                                    segment_index,
+                                    ts,
+                                ),
+                            })
+                    })
+                    .collect()
+            })
+            .collect();
+
         let mut segments = Vec::with_capacity(segment_count);
         let mut deltas = Vec::with_capacity(segment_count);
         let mut survival = 1.0_f64;
         let mut loss_samples = LossSamples::default();
         let mut loss_segments = 0_usize;
         let mut missing_segments = 0_usize;
-        for segment_index in 0..segment_count {
+        for (segment_index, series) in segment_series.into_iter().enumerate() {
             let current_p50 = current.segment_p50[segment_index];
             let baseline_p50 = baseline.segment_p50[segment_index];
             let delta = match (current_p50, baseline_p50) {
@@ -484,6 +554,7 @@ pub fn aggregate(
                 seq: layout.segment_seq[segment_index],
                 from,
                 to,
+                series,
                 p50: current_p50.map(round1),
                 delta_ms: delta.map(round1),
                 contribution_pct: 0,
@@ -523,6 +594,8 @@ pub fn aggregate(
                 id: layout.chain_id.clone(),
                 name: layout.chain_name.clone(),
                 hops: layout.hops,
+                entry: layout.entry.clone(),
+                exit: layout.exit.clone(),
                 estimated: layout.estimated,
                 missing_hops: layout.missing_hops.clone(),
                 series,
@@ -572,6 +645,25 @@ fn chain_loss_for_bucket(
     seen.then(|| round4((1.0 - survival) * 100.0))
 }
 
+/// 某一段在某个时间桶的丢包（%）：`failures / attempts × 100`。
+///
+/// 该桶没有探测（`attempts = 0`）时返回 null，不补 0。只做一次哈希查找，
+/// 逐段序列因此仍然是纯内存遍历。
+fn segment_loss_for_bucket(
+    probes: &HashMap<(usize, usize, i64), ProbeCounts>,
+    chain_index: usize,
+    segment_index: usize,
+    ts: i64,
+) -> Option<f64> {
+    let counts = probes
+        .get(&(chain_index, segment_index, ts))
+        .copied()
+        .unwrap_or_default();
+    (counts.attempts > 0).then(|| {
+        round4((counts.failures.max(0) as f64 / counts.attempts as f64).clamp(0.0, 1.0) * 100.0)
+    })
+}
+
 /// (链, 段) → (源成员, 目标成员) → 当前窗口样本数。
 type PairCounts = HashMap<(usize, usize), HashMap<(String, String), i64>>;
 
@@ -586,6 +678,8 @@ struct Layout {
     chain_id: String,
     chain_name: String,
     hops: i64,
+    entry: Option<Endpoint>,
+    exit: Option<Endpoint>,
     estimated: bool,
     missing_hops: Vec<i64>,
     /// 每组在链里的 `seq`，与 `groups` 下标一一对应。
@@ -603,6 +697,9 @@ struct Layout {
 struct Member {
     id: String,
     name: String,
+    address: String,
+    internal_address: Option<String>,
+    listen_port: i64,
 }
 
 impl Layout {
@@ -622,10 +719,30 @@ impl Layout {
                     .map(|member| Member {
                         id: member.server_id.clone(),
                         name: member.server_name.clone(),
+                        address: member.server_address.clone(),
+                        internal_address: member.server_internal_address.clone(),
+                        listen_port: member.listen_port,
                     })
                     .collect()
             })
             .collect();
+        let entry = groups
+            .first()
+            .zip(members.first())
+            .and_then(|(group, members)| {
+                members.first().map(|member| {
+                    // 入口端口优先用组级 public_port（只用于展示）；为空时
+                    // 回退到入口成员的 listen_port。
+                    endpoint(
+                        member,
+                        group.group.public_port.unwrap_or(member.listen_port),
+                    )
+                })
+            });
+        let exit = members
+            .last()
+            .and_then(|members| members.first())
+            .map(|member| endpoint(member, member.listen_port));
         let estimated = members.iter().any(|group| group.len() > 1);
         let hops = groups.len() as i64;
 
@@ -662,6 +779,8 @@ impl Layout {
             chain_id: chain.chain.id.clone(),
             chain_name: chain.chain.name.clone(),
             hops,
+            entry,
+            exit,
             estimated,
             missing_hops,
             group_seq,
@@ -717,6 +836,59 @@ impl Layout {
             .flatten()
             .find(|member| member.id == server_id)
             .map(|member| member.name.as_str())
+    }
+}
+
+/// 把一个成员 + 端口组装成起点/终点。
+///
+/// 地址优先用 `servers.address`；为空（历史脏数据 / 只填了内网地址）时回退
+/// `servers.internal_address` 并标记 `address_source = "internal"`。端口非法
+/// （<= 0 或缺失）时 `address` 为 null，但 `ip` 保留——前端仍能展示主机。
+fn endpoint(member: &Member, port: i64) -> Endpoint {
+    let external = member.address.trim();
+    let internal = member
+        .internal_address
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let (host, address_source) = if external.is_empty() {
+        (internal, Some("internal"))
+    } else {
+        (Some(external), None)
+    };
+    let ip = host.map(normalize_host);
+    let port = (port > 0).then_some(port);
+    let address = ip
+        .as_deref()
+        .zip(port)
+        .map(|(host, port)| format_endpoint(host, port));
+    Endpoint {
+        server_id: member.id.clone(),
+        server_name: member.name.clone(),
+        address,
+        ip,
+        port,
+        // 只有真正回退成功时才是 `"internal"`；地址完全缺失时不标注来源。
+        address_source: address_source.filter(|_| host.is_some()),
+    }
+}
+
+/// 去掉 IPv6 方括号，保证 `ip` 是可读的裸地址。
+fn normalize_host(raw: &str) -> String {
+    let trimmed = raw.trim();
+    trimmed
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+/// `ip:port`；IPv6（两个及以上冒号）补方括号。
+fn format_endpoint(host: &str, port: i64) -> String {
+    if host.matches(':').count() >= 2 {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
     }
 }
 
@@ -1015,23 +1187,7 @@ mod tests {
 
     /// 构造一条链：`groups` 是 `(seq, [(server_id, name)])`。
     fn chain(id: &str, groups: Vec<(i64, Vec<(&str, &str)>)>) -> ChainWithGroups {
-        let chain = Chain {
-            id: id.into(),
-            name: format!("chain-{id}"),
-            target_host: "target".into(),
-            target_port: 443,
-            enabled: true,
-            engine: "native".into(),
-            udp: false,
-            protocol: "tcp".into(),
-            proxy_protocol: false,
-            transport: "none".into(),
-            tunnel_security: "tls".into(),
-            template_id: None,
-            owner_user_id: None,
-            created_at: 1,
-            updated_at: 1,
-        };
+        let chain = chain_base(id);
         let groups = groups
             .into_iter()
             .map(|(seq, members)| {
@@ -1061,6 +1217,87 @@ mod tests {
                         )
                     })
                     .collect();
+                ChainGroupWithMembers { group, members }
+            })
+            .collect();
+        ChainWithGroups { chain, groups }
+    }
+
+    fn chain_base(id: &str) -> Chain {
+        Chain {
+            id: id.into(),
+            name: format!("chain-{id}"),
+            target_host: "target".into(),
+            target_port: 443,
+            enabled: true,
+            engine: "native".into(),
+            udp: false,
+            protocol: "tcp".into(),
+            proxy_protocol: false,
+            transport: "none".into(),
+            tunnel_security: "tls".into(),
+            template_id: None,
+            owner_user_id: None,
+            created_at: 1,
+            updated_at: 1,
+        }
+    }
+
+    /// 起点/终点测试用的成员：地址、内网地址、端口、优先级都可控。
+    fn full_member(
+        server_id: &str,
+        server_name: &str,
+        address: &str,
+        internal_address: Option<&str>,
+        listen_port: i64,
+        priority: i64,
+    ) -> ChainGroupMember {
+        ChainGroupMember {
+            group_id: String::new(),
+            chain_id: String::new(),
+            seq: 0,
+            strategy: "round_robin".into(),
+            server_id: server_id.into(),
+            server_name: server_name.into(),
+            server_address: address.into(),
+            server_internal_address: internal_address.map(str::to_string),
+            listen_port,
+            priority,
+            weight: 1,
+            realm_transport: None,
+            nftables_available: None,
+            tunnel_available: None,
+            server_protocol_version: None,
+            last_seen_at: None,
+        }
+    }
+
+    /// 显式指定每组 `(seq, public_port, 成员)`；成员顺序故意由调用方给乱，
+    /// 由 `Layout` 再按 `(priority, server_id)` 排序。
+    fn topology(
+        id: &str,
+        groups: Vec<(i64, Option<i64>, Vec<ChainGroupMember>)>,
+    ) -> ChainWithGroups {
+        let chain = chain_base(id);
+        let groups = groups
+            .into_iter()
+            .map(|(seq, public_port, mut members)| {
+                let group_id = format!("{id}-g{seq}");
+                for member in &mut members {
+                    member.group_id = group_id.clone();
+                    member.chain_id = id.into();
+                    member.seq = seq;
+                }
+                let group = ChainGroup {
+                    id: group_id,
+                    chain_id: id.into(),
+                    seq,
+                    name: None,
+                    strategy: "round_robin".into(),
+                    cert_id: None,
+                    public_port,
+                    use_internal_address: false,
+                };
                 ChainGroupWithMembers { group, members }
             })
             .collect();
@@ -1112,6 +1349,333 @@ mod tests {
                 failures: *failures,
             })
             .collect()
+    }
+
+    #[test]
+    fn entry_and_exit_use_the_first_and_last_group_members() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    Some(443),
+                    vec![full_member("a", "香港-01", "203.0.113.11", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![full_member(
+                        "b",
+                        "大阪-01",
+                        "198.51.100.21",
+                        None,
+                        21_004,
+                        0,
+                    )],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.hops, 2);
+
+        let entry = view.entry.as_ref().expect("起点不能为空");
+        assert_eq!(entry.server_id, "a");
+        assert_eq!(entry.server_name, "香港-01");
+        assert_eq!(
+            entry.address.as_deref(),
+            Some("203.0.113.11:443"),
+            "入口端口优先用 chain_groups.public_port"
+        );
+        assert_eq!(entry.ip.as_deref(), Some("203.0.113.11"));
+        assert_eq!(entry.port, Some(443));
+        assert_eq!(entry.address_source, None, "正常地址不标注来源");
+
+        let exit = view.exit.as_ref().expect("终点不能为空");
+        assert_eq!(exit.server_id, "b");
+        assert_eq!(exit.server_name, "大阪-01");
+        assert_eq!(
+            exit.address.as_deref(),
+            Some("198.51.100.21:21004"),
+            "终点端口用该成员的 listen_port"
+        );
+        assert_eq!(exit.ip.as_deref(), Some("198.51.100.21"));
+        assert_eq!(exit.port, Some(21_004));
+        assert_eq!(exit.address_source, None);
+    }
+
+    #[test]
+    fn entry_and_exit_pick_the_lowest_priority_then_smallest_server_id() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    Some(40001),
+                    vec![
+                        full_member("z", "Z", "10.0.0.1", None, 21_001, 0),
+                        full_member("a", "A", "10.0.0.2", None, 21_002, 0),
+                        full_member("m", "M", "10.0.0.3", None, 21_003, 5),
+                    ],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("y", "Y", "10.0.0.4", None, 21_004, 9),
+                        full_member("x", "X", "10.0.0.5", None, 21_005, 2),
+                    ],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        let entry = view.entry.as_ref().unwrap();
+        assert_eq!(
+            entry.server_id, "a",
+            "同优先级按 server_id 稳定排序，不受插入顺序影响"
+        );
+        assert_eq!(entry.address.as_deref(), Some("10.0.0.2:40001"));
+        let exit = view.exit.as_ref().unwrap();
+        assert_eq!(exit.server_id, "x");
+        assert_eq!(exit.address.as_deref(), Some("10.0.0.5:21005"));
+    }
+
+    #[test]
+    fn entry_port_falls_back_to_listen_port_when_public_port_is_empty() {
+        let chain = topology(
+            "c1",
+            vec![(
+                0,
+                None,
+                vec![full_member("a", "A", "203.0.113.11", None, 21_001, 0)],
+            )],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let entry = aggregate.chains[0].entry.as_ref().unwrap();
+        assert_eq!(
+            entry.address.as_deref(),
+            Some("203.0.113.11:21001"),
+            "public_port 为空时回退该成员的 listen_port"
+        );
+        assert_eq!(entry.port, Some(21_001));
+        // 单组链的终点就是同一个成员，端口仍用 listen_port。
+        assert_eq!(
+            aggregate.chains[0]
+                .exit
+                .as_ref()
+                .unwrap()
+                .address
+                .as_deref(),
+            Some("203.0.113.11:21001")
+        );
+    }
+
+    #[test]
+    fn a_missing_public_address_falls_back_to_internal_and_is_marked() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    Some(8443),
+                    vec![full_member(
+                        "a",
+                        "香港-01",
+                        "   ",
+                        Some("10.0.0.11"),
+                        21_001,
+                        0,
+                    )],
+                ),
+                (
+                    1,
+                    None,
+                    vec![full_member(
+                        "b",
+                        "大阪-01",
+                        "203.0.113.21",
+                        Some("10.0.0.21"),
+                        21_004,
+                        0,
+                    )],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let entry = aggregate.chains[0].entry.as_ref().unwrap();
+        assert_eq!(entry.address.as_deref(), Some("10.0.0.11:8443"));
+        assert_eq!(entry.ip.as_deref(), Some("10.0.0.11"));
+        assert_eq!(
+            entry.address_source,
+            Some("internal"),
+            "回退到 internal_address 时必须标注"
+        );
+        // 公网地址存在时不回退，即使 internal_address 也有值。
+        let exit = aggregate.chains[0].exit.as_ref().unwrap();
+        assert_eq!(exit.address.as_deref(), Some("203.0.113.21:21004"));
+        assert_eq!(exit.address_source, None);
+    }
+
+    #[test]
+    fn an_endpoint_without_any_address_keeps_null_hosts() {
+        let chain = topology(
+            "c1",
+            vec![(
+                0,
+                Some(443),
+                vec![full_member("a", "A", "", None, 21_001, 0)],
+            )],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let entry = aggregate.chains[0].entry.as_ref().unwrap();
+        assert_eq!(entry.server_id, "a");
+        assert_eq!(entry.address, None);
+        assert_eq!(entry.ip, None);
+        assert_eq!(entry.port, Some(443));
+        assert_eq!(entry.address_source, None, "没有回退成功就不标来源");
+    }
+
+    #[test]
+    fn ipv6_endpoints_are_bracketed_and_the_ip_stays_bare() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    Some(443),
+                    vec![full_member("a", "A", "2001:db8::11", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![full_member("b", "B", "[2001:db8::21]", None, 21_004, 0)],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let entry = aggregate.chains[0].entry.as_ref().unwrap();
+        assert_eq!(entry.ip.as_deref(), Some("2001:db8::11"));
+        assert_eq!(entry.address.as_deref(), Some("[2001:db8::11]:443"));
+        let exit = aggregate.chains[0].exit.as_ref().unwrap();
+        assert_eq!(
+            exit.ip.as_deref(),
+            Some("2001:db8::21"),
+            "输入已带方括号时 ip 不重复包裹"
+        );
+        assert_eq!(exit.address.as_deref(), Some("[2001:db8::21]:21004"));
+    }
+
+    #[test]
+    fn a_missing_port_keeps_the_ip_but_nulls_the_address() {
+        let chain = topology(
+            "c1",
+            vec![(
+                0,
+                None,
+                vec![full_member("a", "A", "203.0.113.11", None, 0, 0)],
+            )],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let entry = aggregate.chains[0].entry.as_ref().unwrap();
+        assert_eq!(entry.ip.as_deref(), Some("203.0.113.11"));
+        assert_eq!(entry.port, None);
+        assert_eq!(entry.address, None, "缺端口只丢 address，不丢 ip");
+    }
+
+    #[test]
+    fn groups_without_members_have_no_entry_or_exit() {
+        let chain = chain("c1", vec![(0, vec![]), (1, vec![])]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert!(view.entry.is_none());
+        assert!(view.exit.is_none());
+    }
+
+    #[test]
+    fn every_segment_series_has_the_same_length_as_the_chain_series() {
+        let chain = chain(
+            "c1",
+            vec![
+                (0, vec![("a", "A")]),
+                (1, vec![("b", "B")]),
+                (2, vec![("c", "C")]),
+                (3, vec![("d", "D")]),
+            ],
+        );
+        let end = end_at(NOW, BUCKET);
+        let samples = vec![
+            sample(end - 2 * BUCKET + 60, "a", forward("c1", 0, "a", 1), "", 10),
+            sample(end - BUCKET + 60, "a", forward("c1", 0, "a", 1), "", 20),
+            sample(end - BUCKET + 60, "b", forward("c1", 1, "b", 1), "", 30),
+        ];
+        let probes = probes_in_bucket(
+            end - BUCKET + 60,
+            &[
+                (forward("c1", 0, "a", 1), 100, 1),
+                (forward("c1", 1, "b", 1), 200, 10),
+            ],
+        );
+
+        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.series.len(), 4);
+        for segment in &view.segments {
+            assert_eq!(
+                segment.series.len(),
+                view.series.len(),
+                "段 {} 的序列必须与链级同长",
+                segment.seq
+            );
+        }
+        // 桶 3（最新）：第 1 段 20ms / 1%，第 2 段 30ms / 5%。
+        let first = view.segments[0].series[3].as_ref().unwrap();
+        assert_eq!(first.ts, end - BUCKET);
+        assert_eq!(first.p50, 20.0);
+        assert_eq!(first.loss_pct, Some(1.0));
+        let second = view.segments[1].series[3].as_ref().unwrap();
+        assert_eq!(second.p50, 30.0);
+        assert_eq!(second.loss_pct, Some(5.0));
+        // 桶 2 只有第 1 段时延、没有探测：loss 是 null，不是 0。
+        let older = view.segments[0].series[2].as_ref().unwrap();
+        assert_eq!(older.p50, 10.0);
+        assert_eq!(older.loss_pct, None);
+        // 第 3 段完全没有样本：整段序列全是 null，不能补 {p50: 0}。
+        assert!(view.segments[2].series.iter().all(Option::is_none));
+        assert!(
+            view.segments[0].series[0].is_none(),
+            "没有样本的桶也是 null"
+        );
+        assert!(view.segments[1].series[2].is_none());
+    }
+
+    #[test]
+    fn a_segment_bucket_with_zero_attempts_has_null_loss() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let end = end_at(NOW, BUCKET);
+        let samples = vec![sample(
+            end - BUCKET + 60,
+            "a",
+            forward("c1", 0, "a", 1),
+            "",
+            20,
+        )];
+        // 计数行存在但 attempts = 0：必须保持 null，不能写成 0%。
+        let probes = probes_in_bucket(end - BUCKET + 60, &[(forward("c1", 0, "a", 1), 0, 0)]);
+        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        let point = aggregate.chains[0].segments[0].series[3].as_ref().unwrap();
+        assert_eq!(point.p50, 20.0);
+        assert_eq!(point.loss_pct, None);
+    }
+
+    #[test]
+    fn a_segment_bucket_with_probes_but_no_latency_is_null() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let end = end_at(NOW, BUCKET);
+        // 只有探测、没有时延样本：整桶为 null，不能只返回丢包。
+        let probes = probes_in_bucket(end - BUCKET + 60, &[(forward("c1", 0, "a", 1), 100, 50)]);
+        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        assert!(aggregate.chains[0].segments[0].series[3].is_none());
     }
 
     #[test]
