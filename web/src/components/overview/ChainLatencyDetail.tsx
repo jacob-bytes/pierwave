@@ -92,8 +92,9 @@ function TopologyNode({
 }) {
   return (
     <span
+      data-chain-topology-node
       className={cn(
-        "shrink-0 whitespace-nowrap rounded-md border px-2.5 py-1.5 text-xs font-medium",
+        "flex h-12 min-w-[96px] flex-1 items-center justify-center whitespace-nowrap rounded-md border px-2.5 text-center text-xs font-medium",
         target
           ? "border-dashed border-border text-muted-foreground"
           : "border-border bg-card text-foreground",
@@ -105,27 +106,51 @@ function TopologyNode({
   );
 }
 
-function TopologyEdge({ edge }: { edge: ChainTopologyEdge }) {
-  const missing = edge.missing;
+/** 拓扑边：链级边 + 该段窗口丢包（没有探测为 null）。 */
+interface TopologyEdgeView extends ChainTopologyEdge {
+  lossPct: number | null;
+}
+
+function TopologyEdge({ edge }: { edge: TopologyEdgeView }) {
+  const missing = edge.missing || edge.p50 === null;
+  const latency = missing
+    ? t("overview.chainLatency.missingHop")
+    : formatMs(edge.p50);
+  const loss = formatLossPct(edge.lossPct);
   return (
-    <span className="flex min-w-14 shrink-0 flex-col items-center gap-0.5 px-1">
+    <span
+      data-chain-topology-edge
+      data-seq={edge.seq}
+      data-missing={missing ? "true" : "false"}
+      title={`${latency} · ${loss}`}
+      className="relative flex h-12 min-w-[76px] flex-1 flex-col items-center justify-center px-1"
+    >
       <span
+        data-chain-topology-edge-latency
         className={cn(
-          "whitespace-nowrap font-mono text-[10px] tabular-nums",
+          "absolute top-0 max-w-full truncate whitespace-nowrap font-mono text-[10px] tabular-nums",
           missing ? "text-warning" : "text-muted-foreground",
         )}
       >
-        {missing ? t("overview.chainLatency.missingHop") : formatMs(edge.p50)}
+        {latency}
       </span>
-      <span className="flex w-full items-center text-muted-foreground">
-        <span
-          aria-hidden="true"
-          className={cn(
-            "h-0 flex-1 border-t",
-            missing ? "border-dashed border-warning/40" : "border-border",
-          )}
-        />
-        <ChevronRightIcon aria-hidden="true" className="size-3 shrink-0" />
+      <span
+        data-chain-topology-edge-line
+        aria-hidden="true"
+        className={cn(
+          "absolute top-1/2 right-0 left-0 h-0 -translate-y-1/2 border-t",
+          missing ? "border-dashed border-warning/40" : "border-border",
+        )}
+      />
+      <ChevronRightIcon
+        aria-hidden="true"
+        className="absolute top-1/2 right-0 size-3 -translate-y-1/2 text-muted-foreground"
+      />
+      <span
+        data-chain-topology-edge-loss
+        className="absolute bottom-0 max-w-full truncate whitespace-nowrap font-mono text-[10px] tabular-nums text-muted-foreground"
+      >
+        {loss}
       </span>
     </span>
   );
@@ -190,6 +215,15 @@ function ChainOverallStats({ chain }: { chain: ChainHealthChain }) {
 
 function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
   const topology = chainTopology(chain);
+  const segmentsBySeq = new Map(
+    chain.segments.map((segment) => [segment.seq, segment]),
+  );
+  /** 把每段窗口丢包贴到对应的拓扑边上；目标跳没有探测，保持 null。 */
+  const withLoss = (edge: ChainTopologyEdge): TopologyEdgeView => ({
+    ...edge,
+    lossPct: segmentsBySeq.get(edge.seq)?.lossPct ?? null,
+  });
+
   return (
     <Card className="min-w-0 gap-0" data-chain-topology-card>
       <CardHeader className="border-b border-border pb-4">
@@ -212,21 +246,26 @@ function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
               data-chain-topology-scroll
             >
               <div
-                className="flex w-max items-center gap-0.5"
+                className="flex w-full min-w-max items-stretch"
                 data-chain-topology
               >
                 {topology.nodes.map((node, index) => (
                   <Fragment key={`${node}-${index}`}>
                     <TopologyNode name={node} />
                     {topology.edges[index] ? (
-                      <TopologyEdge edge={topology.edges[index]} />
+                      <TopologyEdge edge={withLoss(topology.edges[index])} />
                     ) : null}
                   </Fragment>
                 ))}
                 {topology.targetMissing ? (
                   <>
                     <TopologyEdge
-                      edge={{ seq: chain.hops, p50: null, missing: true }}
+                      edge={{
+                        seq: chain.hops,
+                        p50: null,
+                        missing: true,
+                        lossPct: null,
+                      }}
                     />
                     <TopologyNode
                       name={t("overview.chainLatency.chainTarget")}

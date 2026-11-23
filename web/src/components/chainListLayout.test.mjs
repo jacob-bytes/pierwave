@@ -63,19 +63,33 @@ test("rows do not repeat P50 or window-loss labels", () => {
   assert.match(row, /data-chain-loss/);
 });
 
-test("hops are 13px and P50 keeps tabular digits", () => {
+test("hops, P50 and status share 15px tabular digits", () => {
   const hops = row.slice(
     row.indexOf("data-chain-hops"),
     row.indexOf("data-chain-p50"),
   );
-  assert.match(hops, /text-\[13px\]/);
-  assert.match(hops, /text-muted-foreground/);
+  assert.match(hops, /text-\[15px\]/);
+  assert.match(hops, /tabular-nums/);
   const p50 = row.slice(
     row.indexOf("data-chain-p50"),
     row.indexOf("data-chain-loss"),
   );
   assert.match(p50, /text-\[15px\]/);
   assert.match(p50, /tabular-nums/);
+  const status = source.slice(
+    source.indexOf("function ChainHealthStatusCell"),
+    source.indexOf("function ChainListRow"),
+  );
+  assert.match(status, /text-\[15px\]/);
+  assert.match(status, /tabular-nums/);
+});
+
+test("all columns are left aligned and rows use bottom separators", () => {
+  assert.doesNotMatch(source, /text-right/);
+  assert.doesNotMatch(row, /justify-end/);
+  assert.match(source, /text-left/);
+  assert.match(row, /data-chain-list-row-item/);
+  assert.match(row, /border-b border-border\/60 last:border-b-0/);
 });
 
 test("mobile stacks link → address → route → metrics", () => {

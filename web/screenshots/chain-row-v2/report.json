@@ -55,11 +55,11 @@
           },
           "hops": {
             "x": 1003,
-            "y": 1046,
+            "y": 1044,
             "width": 64,
-            "height": 21,
+            "height": 24,
             "right": 1067,
-            "bottom": 1067
+            "bottom": 1068
           },
           "p50": {
             "x": 1079,
@@ -79,18 +79,18 @@
           },
           "status": {
             "x": 1271,
-            "y": 1048,
+            "y": 1044,
             "width": 88,
-            "height": 18,
+            "height": 24,
             "right": 1359,
-            "bottom": 1065
+            "bottom": 1068
           },
           "chevron": {
-            "x": 1379,
+            "x": 1371,
             "y": 1048,
             "width": 16,
             "height": 16,
-            "right": 1395,
+            "right": 1387,
             "bottom": 1064
           },
           "columns": [
@@ -106,24 +106,37 @@
           "columnGap": 12,
           "rowHeight": 70,
           "fonts": {
-            "hops": 13,
+            "hops": 15,
             "address": 12,
             "route": 12,
             "sample": 12,
             "p50": 15,
-            "loss": 14
+            "loss": 14,
+            "status": 15
           },
+          "aligns": [
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left"
+          ],
+          "separatorCount": 2,
+          "lastSeparatorWidth": 0,
           "addressWidth": 295,
           "headerCount": 1,
           "headerVisible": true,
           "headerText": "链路 起点 → 终点 路由 跳数 P50 窗口丢包 状态",
-          "rowText": "港日中转链 变慢 最近样本 18 分钟前 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 4 93 ms 3.2% 健康",
+          "rowText": "港日中转链 变慢 最近样本 17 分钟前 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 4 93 ms 3.2% 健康",
           "connectorCount": 0,
           "scrollOverflow": 0,
           "text": {
             "address": "203.0.113.11:21001→198.51.100.23:21004",
             "route": "香港-01 → 东京-01 → … → 大阪-01",
-            "sample": "最近样本 18 分钟前"
+            "sample": "最近样本 17 分钟前"
           }
         },
         "rowCount": 3,
@@ -136,7 +149,7 @@
       "detail": {
         "headerText": "链路 起点 → 终点 路由 跳数 P50 窗口丢包 状态",
         "headerVisible": true,
-        "rowText": "港日中转链 变慢 最近样本 18 分钟前 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 4 93 ms 3.2% 健康",
+        "rowText": "港日中转链 变慢 最近样本 17 分钟前 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 4 93 ms 3.2% 健康",
         "connectorCount": 0
       }
     },
@@ -191,6 +204,139 @@
       }
     },
     {
+      "name": "[1440-dark] 拓扑铺满宽度，线在节点中心 ±2px",
+      "ok": true,
+      "detail": {
+        "card": {
+          "width": 928,
+          "height": 180
+        },
+        "rightBlank": 4,
+        "scrollOverflow": 0,
+        "nodeCount": 5,
+        "edgeCount": 4,
+        "nodeWidths": [
+          106,
+          106,
+          106,
+          106,
+          106
+        ],
+        "nodeHeights": [
+          48,
+          48,
+          48,
+          48,
+          48
+        ],
+        "nodeOverflow": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": [
+          {
+            "seq": 1,
+            "missing": false,
+            "latency": "16 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 2,
+            "missing": false,
+            "latency": "22 ms",
+            "loss": "2.9%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 3,
+            "missing": false,
+            "latency": "58 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 4,
+            "missing": true,
+            "latency": "无历史数据",
+            "loss": "—",
+            "lineStyle": "dashed",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "[1440-dark] 拓扑上下标注与目标段虚线",
+      "ok": true,
+      "detail": {
+        "edges": [
+          {
+            "seq": 1,
+            "missing": false,
+            "latency": "16 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 2,
+            "missing": false,
+            "latency": "22 ms",
+            "loss": "2.9%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 3,
+            "missing": false,
+            "latency": "58 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 4,
+            "missing": true,
+            "latency": "无历史数据",
+            "loss": "—",
+            "lineStyle": "dashed",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          }
+        ]
+      }
+    },
+    {
       "name": "[1440-dark] 没有页面错误",
       "ok": true,
       "detail": {
@@ -206,9 +352,9 @@
             "x": 32,
             "y": 1306,
             "width": 326,
-            "height": 173,
+            "height": 174,
             "right": 358,
-            "bottom": 1479
+            "bottom": 1480
           },
           "lead": {
             "x": 45,
@@ -246,74 +392,87 @@
             "x": 45,
             "y": 1447,
             "width": 300,
-            "height": 22,
+            "height": 24,
             "right": 345,
-            "bottom": 1470
+            "bottom": 1471
           },
           "hops": {
             "x": 45,
-            "y": 1448,
-            "width": 30,
-            "height": 21,
-            "right": 75,
-            "bottom": 1469
+            "y": 1447,
+            "width": 32,
+            "height": 24,
+            "right": 77,
+            "bottom": 1471
           },
           "p50": {
-            "x": 87,
-            "y": 1450,
+            "x": 89,
+            "y": 1451,
             "width": 69,
             "height": 17,
-            "right": 156,
-            "bottom": 1467
+            "right": 158,
+            "bottom": 1468
           },
           "loss": {
-            "x": 168,
-            "y": 1447,
+            "x": 170,
+            "y": 1448,
             "width": 58,
             "height": 22,
-            "right": 226,
+            "right": 228,
             "bottom": 1470
           },
           "status": {
-            "x": 238,
-            "y": 1450,
-            "width": 34,
-            "height": 18,
-            "right": 272,
-            "bottom": 1467
+            "x": 240,
+            "y": 1447,
+            "width": 42,
+            "height": 24,
+            "right": 282,
+            "bottom": 1471
           },
           "chevron": {
-            "x": 284,
-            "y": 1450,
+            "x": 294,
+            "y": 1451,
             "width": 16,
             "height": 16,
-            "right": 300,
-            "bottom": 1466
+            "right": 310,
+            "bottom": 1467
           },
           "columns": [
             300
           ],
           "columnGap": 12,
-          "rowHeight": 173,
+          "rowHeight": 174,
           "fonts": {
-            "hops": 13,
+            "hops": 15,
             "address": 12,
             "route": 12,
             "sample": 12,
             "p50": 15,
-            "loss": 14
+            "loss": 14,
+            "status": 15
           },
+          "aligns": [
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left"
+          ],
+          "separatorCount": 2,
+          "lastSeparatorWidth": 0,
           "addressWidth": 300,
           "headerCount": 1,
           "headerVisible": false,
           "headerText": "链路起点 → 终点路由跳数P50窗口丢包状态",
-          "rowText": "港日中转链 变慢 最近样本 18 分钟前 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 路由 香港-01 → 东京-01 → … → 大阪-01 跳数 4 时延 93 ms 丢包 3.2% 健康",
+          "rowText": "港日中转链 变慢 最近样本 17 分钟前 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 路由 香港-01 → 东京-01 → … → 大阪-01 跳数 4 时延 93 ms 丢包 3.2% 健康",
           "connectorCount": 0,
           "scrollOverflow": 0,
           "text": {
             "address": "203.0.113.11:21001→198.51.100.23:21004",
             "route": "香港-01 → 东京-01 → … → 大阪-01",
-            "sample": "最近样本 18 分钟前"
+            "sample": "最近样本 17 分钟前"
           }
         },
         "rowCount": 3,
@@ -326,7 +485,7 @@
       "detail": {
         "headerText": "链路起点 → 终点路由跳数P50窗口丢包状态",
         "headerVisible": false,
-        "rowText": "港日中转链 变慢 最近样本 18 分钟前 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 路由 香港-01 → 东京-01 → … → 大阪-01 跳数 4 时延 93 ms 丢包 3.2% 健康",
+        "rowText": "港日中转链 变慢 最近样本 17 分钟前 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 路由 香港-01 → 东京-01 → … → 大阪-01 跳数 4 时延 93 ms 丢包 3.2% 健康",
         "connectorCount": 0
       }
     },
@@ -365,9 +524,9 @@
             "x": 45,
             "y": 1447,
             "width": 300,
-            "height": 22,
+            "height": 24,
             "right": 345,
-            "bottom": 1470
+            "bottom": 1471
           }
         }
       }
@@ -378,6 +537,139 @@
       "detail": {
         "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
         "slowBadge": 1
+      }
+    },
+    {
+      "name": "[390-dark] 拓扑铺满宽度，线在节点中心 ±2px",
+      "ok": true,
+      "detail": {
+        "card": {
+          "width": 358,
+          "height": 184
+        },
+        "rightBlank": -438,
+        "scrollOverflow": 442,
+        "nodeCount": 5,
+        "edgeCount": 4,
+        "nodeWidths": [
+          96,
+          96,
+          96,
+          96,
+          96
+        ],
+        "nodeHeights": [
+          48,
+          48,
+          48,
+          48,
+          48
+        ],
+        "nodeOverflow": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": [
+          {
+            "seq": 1,
+            "missing": false,
+            "latency": "16 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 2,
+            "missing": false,
+            "latency": "22 ms",
+            "loss": "2.9%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 3,
+            "missing": false,
+            "latency": "58 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 4,
+            "missing": true,
+            "latency": "无历史数据",
+            "loss": "—",
+            "lineStyle": "dashed",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "[390-dark] 拓扑上下标注与目标段虚线",
+      "ok": true,
+      "detail": {
+        "edges": [
+          {
+            "seq": 1,
+            "missing": false,
+            "latency": "16 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 2,
+            "missing": false,
+            "latency": "22 ms",
+            "loss": "2.9%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 3,
+            "missing": false,
+            "latency": "58 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 4,
+            "missing": true,
+            "latency": "无历史数据",
+            "loss": "—",
+            "lineStyle": "dashed",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          }
+        ]
       }
     },
     {
@@ -442,11 +734,11 @@
           },
           "hops": {
             "x": 1003,
-            "y": 1046,
+            "y": 1044,
             "width": 64,
-            "height": 21,
+            "height": 24,
             "right": 1067,
-            "bottom": 1067
+            "bottom": 1068
           },
           "p50": {
             "x": 1079,
@@ -466,18 +758,18 @@
           },
           "status": {
             "x": 1271,
-            "y": 1048,
+            "y": 1044,
             "width": 88,
-            "height": 18,
+            "height": 24,
             "right": 1359,
-            "bottom": 1065
+            "bottom": 1068
           },
           "chevron": {
-            "x": 1379,
+            "x": 1371,
             "y": 1048,
             "width": 16,
             "height": 16,
-            "right": 1395,
+            "right": 1387,
             "bottom": 1064
           },
           "columns": [
@@ -493,24 +785,37 @@
           "columnGap": 12,
           "rowHeight": 70,
           "fonts": {
-            "hops": 13,
+            "hops": 15,
             "address": 12,
             "route": 12,
             "sample": 12,
             "p50": 15,
-            "loss": 14
+            "loss": 14,
+            "status": 15
           },
+          "aligns": [
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left"
+          ],
+          "separatorCount": 2,
+          "lastSeparatorWidth": 0,
           "addressWidth": 295,
           "headerCount": 1,
           "headerVisible": true,
           "headerText": "链路 起点 → 终点 路由 跳数 P50 窗口丢包 状态",
-          "rowText": "港日中转链 变慢 最近样本 18 分钟前 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 4 93 ms 3.2% 健康",
+          "rowText": "港日中转链 变慢 最近样本 17 分钟前 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 4 93 ms 3.2% 健康",
           "connectorCount": 0,
           "scrollOverflow": 0,
           "text": {
             "address": "203.0.113.11:21001→198.51.100.23:21004",
             "route": "香港-01 → 东京-01 → … → 大阪-01",
-            "sample": "最近样本 18 分钟前"
+            "sample": "最近样本 17 分钟前"
           }
         },
         "rowCount": 3,
@@ -523,7 +828,7 @@
       "detail": {
         "headerText": "链路 起点 → 终点 路由 跳数 P50 窗口丢包 状态",
         "headerVisible": true,
-        "rowText": "港日中转链 变慢 最近样本 18 分钟前 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 4 93 ms 3.2% 健康",
+        "rowText": "港日中转链 变慢 最近样本 17 分钟前 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 4 93 ms 3.2% 健康",
         "connectorCount": 0
       }
     },
@@ -578,6 +883,139 @@
       }
     },
     {
+      "name": "[1440-light] 拓扑铺满宽度，线在节点中心 ±2px",
+      "ok": true,
+      "detail": {
+        "card": {
+          "width": 928,
+          "height": 180
+        },
+        "rightBlank": 4,
+        "scrollOverflow": 0,
+        "nodeCount": 5,
+        "edgeCount": 4,
+        "nodeWidths": [
+          106,
+          106,
+          106,
+          106,
+          106
+        ],
+        "nodeHeights": [
+          48,
+          48,
+          48,
+          48,
+          48
+        ],
+        "nodeOverflow": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": [
+          {
+            "seq": 1,
+            "missing": false,
+            "latency": "16 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 2,
+            "missing": false,
+            "latency": "22 ms",
+            "loss": "2.9%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 3,
+            "missing": false,
+            "latency": "58 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 4,
+            "missing": true,
+            "latency": "无历史数据",
+            "loss": "—",
+            "lineStyle": "dashed",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "[1440-light] 拓扑上下标注与目标段虚线",
+      "ok": true,
+      "detail": {
+        "edges": [
+          {
+            "seq": 1,
+            "missing": false,
+            "latency": "16 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 2,
+            "missing": false,
+            "latency": "22 ms",
+            "loss": "2.9%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 3,
+            "missing": false,
+            "latency": "58 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          },
+          {
+            "seq": 4,
+            "missing": true,
+            "latency": "无历史数据",
+            "loss": "—",
+            "lineStyle": "dashed",
+            "latencyBottom": 187.28125,
+            "lossTop": 203.28125,
+            "lineCenter": 195.28125,
+            "centerOffset": 0
+          }
+        ]
+      }
+    },
+    {
       "name": "[1440-light] 没有页面错误",
       "ok": true,
       "detail": {
@@ -593,9 +1031,9 @@
             "x": 32,
             "y": 1306,
             "width": 326,
-            "height": 173,
+            "height": 174,
             "right": 358,
-            "bottom": 1479
+            "bottom": 1480
           },
           "lead": {
             "x": 45,
@@ -633,74 +1071,87 @@
             "x": 45,
             "y": 1447,
             "width": 300,
-            "height": 22,
+            "height": 24,
             "right": 345,
-            "bottom": 1470
+            "bottom": 1471
           },
           "hops": {
             "x": 45,
-            "y": 1448,
-            "width": 30,
-            "height": 21,
-            "right": 75,
-            "bottom": 1469
+            "y": 1447,
+            "width": 32,
+            "height": 24,
+            "right": 77,
+            "bottom": 1471
           },
           "p50": {
-            "x": 87,
-            "y": 1450,
+            "x": 89,
+            "y": 1451,
             "width": 69,
             "height": 17,
-            "right": 156,
-            "bottom": 1467
+            "right": 158,
+            "bottom": 1468
           },
           "loss": {
-            "x": 168,
-            "y": 1447,
+            "x": 170,
+            "y": 1448,
             "width": 58,
             "height": 22,
-            "right": 226,
+            "right": 228,
             "bottom": 1470
           },
           "status": {
-            "x": 238,
-            "y": 1450,
-            "width": 34,
-            "height": 18,
-            "right": 272,
-            "bottom": 1467
+            "x": 240,
+            "y": 1447,
+            "width": 42,
+            "height": 24,
+            "right": 282,
+            "bottom": 1471
           },
           "chevron": {
-            "x": 284,
-            "y": 1450,
+            "x": 294,
+            "y": 1451,
             "width": 16,
             "height": 16,
-            "right": 300,
-            "bottom": 1466
+            "right": 310,
+            "bottom": 1467
           },
           "columns": [
             300
           ],
           "columnGap": 12,
-          "rowHeight": 173,
+          "rowHeight": 174,
           "fonts": {
-            "hops": 13,
+            "hops": 15,
             "address": 12,
             "route": 12,
             "sample": 12,
             "p50": 15,
-            "loss": 14
+            "loss": 14,
+            "status": 15
           },
+          "aligns": [
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left",
+            "left"
+          ],
+          "separatorCount": 2,
+          "lastSeparatorWidth": 0,
           "addressWidth": 300,
           "headerCount": 1,
           "headerVisible": false,
           "headerText": "链路起点 → 终点路由跳数P50窗口丢包状态",
-          "rowText": "港日中转链 变慢 最近样本 18 分钟前 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 路由 香港-01 → 东京-01 → … → 大阪-01 跳数 4 时延 93 ms 丢包 3.2% 健康",
+          "rowText": "港日中转链 变慢 最近样本 17 分钟前 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 路由 香港-01 → 东京-01 → … → 大阪-01 跳数 4 时延 93 ms 丢包 3.2% 健康",
           "connectorCount": 0,
           "scrollOverflow": 0,
           "text": {
             "address": "203.0.113.11:21001→198.51.100.23:21004",
             "route": "香港-01 → 东京-01 → … → 大阪-01",
-            "sample": "最近样本 18 分钟前"
+            "sample": "最近样本 17 分钟前"
           }
         },
         "rowCount": 3,
@@ -713,7 +1164,7 @@
       "detail": {
         "headerText": "链路起点 → 终点路由跳数P50窗口丢包状态",
         "headerVisible": false,
-        "rowText": "港日中转链 变慢 最近样本 18 分钟前 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 路由 香港-01 → 东京-01 → … → 大阪-01 跳数 4 时延 93 ms 丢包 3.2% 健康",
+        "rowText": "港日中转链 变慢 最近样本 17 分钟前 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 路由 香港-01 → 东京-01 → … → 大阪-01 跳数 4 时延 93 ms 丢包 3.2% 健康",
         "connectorCount": 0
       }
     },
@@ -752,9 +1203,9 @@
             "x": 45,
             "y": 1447,
             "width": 300,
-            "height": 22,
+            "height": 24,
             "right": 345,
-            "bottom": 1470
+            "bottom": 1471
           }
         }
       }
@@ -765,6 +1216,139 @@
       "detail": {
         "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
         "slowBadge": 1
+      }
+    },
+    {
+      "name": "[390-light] 拓扑铺满宽度，线在节点中心 ±2px",
+      "ok": true,
+      "detail": {
+        "card": {
+          "width": 358,
+          "height": 184
+        },
+        "rightBlank": -438,
+        "scrollOverflow": 442,
+        "nodeCount": 5,
+        "edgeCount": 4,
+        "nodeWidths": [
+          96,
+          96,
+          96,
+          96,
+          96
+        ],
+        "nodeHeights": [
+          48,
+          48,
+          48,
+          48,
+          48
+        ],
+        "nodeOverflow": [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": [
+          {
+            "seq": 1,
+            "missing": false,
+            "latency": "16 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 2,
+            "missing": false,
+            "latency": "22 ms",
+            "loss": "2.9%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 3,
+            "missing": false,
+            "latency": "58 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 4,
+            "missing": true,
+            "latency": "无历史数据",
+            "loss": "—",
+            "lineStyle": "dashed",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "[390-light] 拓扑上下标注与目标段虚线",
+      "ok": true,
+      "detail": {
+        "edges": [
+          {
+            "seq": 1,
+            "missing": false,
+            "latency": "16 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 2,
+            "missing": false,
+            "latency": "22 ms",
+            "loss": "2.9%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 3,
+            "missing": false,
+            "latency": "58 ms",
+            "loss": "0.2%",
+            "lineStyle": "solid",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          },
+          {
+            "seq": 4,
+            "missing": true,
+            "latency": "无历史数据",
+            "loss": "—",
+            "lineStyle": "dashed",
+            "latencyBottom": 169.046875,
+            "lossTop": 185.046875,
+            "lineCenter": 177.046875,
+            "centerOffset": 0
+          }
+        ]
       }
     },
     {

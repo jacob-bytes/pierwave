@@ -138,3 +138,17 @@ test("dead chainLatency i18n keys are gone from both dictionaries", async () => 
 test("chainHealth no longer exports the dead chainLatestP50 alias", () => {
   assert.doesNotMatch(read("lib/chainHealth.ts"), /export function chainLatestP50/);
 });
+
+test("topology fills the card and labels latency/loss around a centered line", () => {
+  const source = read("components/overview/ChainLatencyDetail.tsx");
+  assert.match(source, /flex w-full min-w-max items-stretch/);
+  assert.match(source, /data-chain-topology-node/);
+  assert.match(source, /data-chain-topology-edge/);
+  assert.match(source, /data-chain-topology-edge-latency/);
+  assert.match(source, /data-chain-topology-edge-loss/);
+  assert.match(source, /data-chain-topology-edge-line/);
+  assert.match(source, /top-1\/2/);
+  assert.match(source, /formatLossPct/);
+  assert.match(source, /border-dashed/);
+  assert.match(source, /h-12/);
+});

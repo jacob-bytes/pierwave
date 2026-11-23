@@ -165,7 +165,19 @@ const GEOMETRY = () => {
       sample: font(row.querySelector("[data-chain-sample]")),
       p50: font(row.querySelector("[data-chain-p50] .font-mono")),
       loss: font(row.querySelector("[data-chain-loss] .text-sm")),
+      status: font(row.querySelector("[data-chain-status]")),
     },
+    aligns: [lead, addressCell, route, hops, p50, loss, status, chevron].map(
+      (element) => getComputedStyle(element).textAlign,
+    ),
+    separatorCount: [...document.querySelectorAll("[data-chain-list-row-item]")].filter(
+      (item) => Number.parseFloat(getComputedStyle(item).borderBottomWidth) > 0,
+    ).length,
+    lastSeparatorWidth: (() => {
+      const items = document.querySelectorAll("[data-chain-list-row-item]");
+      const last = items[items.length - 1];
+      return last ? Number.parseFloat(getComputedStyle(last).borderBottomWidth) : 0;
+    })(),
     addressWidth: Math.round(address.getBoundingClientRect().width),
     headerCount: document.querySelectorAll("[data-chain-list-head]").length,
     headerVisible: Boolean(head && head.offsetParent !== null),
@@ -186,6 +198,52 @@ const GEOMETRY = () => {
         ?.textContent.replace(/\s+/g, " ")
         .trim(),
     },
+  };
+};
+
+const TOPOLOGY = () => {
+  const card = document.querySelector("[data-chain-topology-card]");
+  const scroll = document.querySelector("[data-chain-topology-scroll]");
+  const topo = document.querySelector("[data-chain-topology]");
+  const nodes = [...document.querySelectorAll("[data-chain-topology-node]")];
+  const edges = [...document.querySelectorAll("[data-chain-topology-edge]")];
+  const lines = [...document.querySelectorAll("[data-chain-topology-edge-line]")];
+  const rect = (element) => element.getBoundingClientRect();
+  const nodeCenters = nodes.map(
+    (node) => rect(node).top + rect(node).height / 2,
+  );
+  const edgeData = edges.map((edge, index) => {
+    const line = rect(lines[index]);
+    const latency = edge.querySelector("[data-chain-topology-edge-latency]");
+    const loss = edge.querySelector("[data-chain-topology-edge-loss]");
+    const latencyRect = rect(latency);
+    const lossRect = rect(loss);
+    return {
+      seq: Number(edge.getAttribute("data-seq")),
+      missing: edge.getAttribute("data-missing") === "true",
+      latency: latency.textContent.trim(),
+      loss: loss.textContent.trim(),
+      lineStyle: getComputedStyle(lines[index]).borderTopStyle,
+      latencyBottom: latencyRect.bottom,
+      lossTop: lossRect.top,
+      lineCenter: line.top + line.height / 2,
+      centerOffset: Math.abs(
+        line.top + line.height / 2 - (nodeCenters[index] ?? 0),
+      ),
+    };
+  });
+  return {
+    card: { width: Math.round(rect(card).width), height: Math.round(rect(card).height) },
+    rightBlank: Math.round(
+      (rect(scroll).right - rect(topo).right) * 10,
+    ) / 10,
+    scrollOverflow: scroll.scrollWidth - scroll.clientWidth,
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    nodeWidths: nodes.map((node) => Math.round(rect(node).width)),
+    nodeHeights: nodes.map((node) => Math.round(rect(node).height)),
+    nodeOverflow: nodes.map((node) => node.scrollWidth - node.clientWidth),
+    edges: edgeData,
   };
 };
 
@@ -224,7 +282,8 @@ for (const theme of ["dark", "light"]) {
 
     await check(`[${key}] 标准表格列宽 / 行高 / 字号`, async () => {
       assert.equal(rowCount, 3, `expected 3 chains, got ${rowCount}`);
-      assert.equal(geometry.fonts.hops, 13, "跳数 13px");
+      assert.equal(geometry.fonts.hops, 15, "跳数 15px");
+      assert.equal(geometry.fonts.status, 15, "状态 15px");
       assert.equal(geometry.fonts.address, 12, "地址 12px");
       assert.equal(geometry.fonts.route, 12, "路由 12px");
       assert.equal(geometry.fonts.sample, 12, "样本时间 12px");
@@ -244,10 +303,16 @@ for (const theme of ["dark", "light"]) {
         assert.ok(Math.abs(linkAddress - 20 / 32) <= 0.08, `链路/地址比 ${linkAddress}`);
         assert.ok(Math.abs(routeAddress - 22 / 32) <= 0.08, `路由/地址比 ${routeAddress}`);
         assert.ok(
-          geometry.rowHeight >= 56 && geometry.rowHeight <= 80,
+          geometry.rowHeight >= 68 && geometry.rowHeight <= 72,
           `行高 ${geometry.rowHeight}px`,
         );
         assert.ok(geometry.columnGap <= 40, `列间距 ${geometry.columnGap}px`);
+        assert.ok(
+          geometry.aligns.every((align) => align === "left"),
+          `列对齐 ${geometry.aligns.join(",")}`,
+        );
+        assert.equal(geometry.separatorCount, rowCount - 1, "分隔线数量");
+        assert.equal(geometry.lastSeparatorWidth, 0, "最后一行无分隔线");
       } else {
         assert.ok(geometry.scrollOverflow <= 1, `溢出 ${geometry.scrollOverflow}px`);
       }
@@ -324,16 +389,89 @@ for (const theme of ["dark", "light"]) {
       return { fourHopRoute, slowBadge };
     });
 
-    await check(`[${key}] 没有页面错误`, async () => {
-      assert.deepEqual(errors, []);
-      return { errors };
-    });
-
     const card = page.locator("[data-chain-list-card]");
     await card.scrollIntoViewIfNeeded();
     await page.waitForTimeout(250);
     await card.screenshot({ path: path.join(OUT, `rows-${key}.png`) });
     console.log(`saved rows-${key}.png`);
+
+    await fourHop.click();
+    await page.locator("[data-chain-topology]").waitFor();
+    await page.waitForTimeout(350);
+    const topology = await page.evaluate(TOPOLOGY);
+
+    await check(`[${key}] 拓扑铺满宽度，线在节点中心 ±2px`, async () => {
+      assert.equal(topology.nodeCount, 5, "4 跳节点 + 链目标");
+      assert.equal(topology.edgeCount, 4, "3 段 + 目标段");
+      assert.ok(
+        topology.edges.every((edge) => edge.centerOffset <= 2),
+        `线偏移 ${topology.edges.map((edge) => edge.centerOffset).join(",")}`,
+      );
+      if (width === 1440) {
+        assert.ok(topology.rightBlank <= 8, `右侧空白 ${topology.rightBlank}px`);
+        assert.ok(topology.scrollOverflow <= 1, `横向溢出 ${topology.scrollOverflow}px`);
+        const widths = topology.nodeWidths;
+        assert.ok(Math.max(...widths) - Math.min(...widths) <= 2, `节点宽 ${widths}`);
+      } else {
+        assert.ok(topology.scrollOverflow > 0, "390 节点过多必须可横向滚动");
+        assert.ok(
+          topology.nodeOverflow.every((overflow) => overflow <= 1),
+          `节点文字被压缩 ${topology.nodeOverflow}`,
+        );
+      }
+      return topology;
+    });
+
+    await check(`[${key}] 拓扑上下标注与目标段虚线`, async () => {
+      for (const edge of topology.edges) {
+        assert.ok(edge.latency.length > 0, `段 ${edge.seq} 缺少时延`);
+        assert.ok(edge.loss.length > 0, `段 ${edge.seq} 缺少丢包`);
+        assert.ok(
+          edge.latencyBottom <= edge.lineCenter + 1,
+          `段 ${edge.seq} 时延不在线上方`,
+        );
+        assert.ok(
+          edge.lossTop >= edge.lineCenter - 1,
+          `段 ${edge.seq} 丢包不在线下方`,
+        );
+      }
+      const target = topology.edges[topology.edges.length - 1];
+      assert.equal(target.seq, 4);
+      assert.equal(target.missing, true);
+      assert.equal(target.latency, "无历史数据");
+      assert.equal(target.loss, "—");
+      assert.equal(target.lineStyle, "dashed");
+      assert.ok(
+        topology.edges
+          .slice(0, -1)
+          .every((edge) => edge.lineStyle === "solid"),
+        "普通段用实线",
+      );
+      return { edges: topology.edges };
+    });
+
+    const topologyCard = page.locator("[data-chain-topology-card]");
+    await topologyCard.screenshot({
+      path: path.join(OUT, `topology-${key}.png`),
+    });
+    console.log(`saved topology-${key}.png`);
+
+    if (width === 390) {
+      await page.evaluate(() => {
+        const scroll = document.querySelector("[data-chain-topology-scroll]");
+        scroll.scrollLeft = scroll.scrollWidth;
+      });
+      await page.waitForTimeout(200);
+      await topologyCard.screenshot({
+        path: path.join(OUT, `topology-${key}-end.png`),
+      });
+      console.log(`saved topology-${key}-end.png`);
+    }
+
+    await check(`[${key}] 没有页面错误`, async () => {
+      assert.deepEqual(errors, []);
+      return { errors };
+    });
 
     await context.close();
   }

@@ -223,7 +223,7 @@ function ChainHealthStatusCell({
     return (
       <span
         data-chain-status="unknown"
-        className={cn("text-[11px] text-muted-foreground", className)}
+        className={cn("text-[15px] font-medium tabular-nums text-muted-foreground", className)}
       >
         —
       </span>
@@ -253,7 +253,7 @@ function ChainHealthStatusCell({
       data-chain-status={status}
       title={title}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 text-[11px] whitespace-nowrap",
+        "inline-flex shrink-0 items-center gap-1.5 text-[15px] font-medium tabular-nums whitespace-nowrap",
         meta.text,
         className,
       )}
@@ -315,7 +315,10 @@ function ChainListRow({
   const routeTitle = routeLabels.length > 0 ? routeText : nameTitle;
 
   return (
-    <li>
+    <li
+      data-chain-list-row-item
+      className="border-b border-border/60 last:border-b-0"
+    >
       <button
         type="button"
         data-chain-list-row
@@ -414,7 +417,7 @@ function ChainListRow({
         >
           <span
             data-chain-hops
-            className="text-[13px] text-muted-foreground tabular-nums lg:col-start-4 lg:row-start-1 lg:text-right"
+            className="text-[15px] font-medium text-muted-foreground tabular-nums lg:col-start-4 lg:row-start-1"
           >
             <span className="text-[10px] lg:hidden">
               {t("overview.chainLatency.colHops")}{" "}
@@ -423,7 +426,7 @@ function ChainListRow({
           </span>
           <span
             data-chain-p50
-            className="inline-flex items-baseline justify-end gap-1 lg:col-start-5 lg:row-start-1"
+            className="inline-flex items-baseline gap-1 lg:col-start-5 lg:row-start-1"
             title={sampleText}
           >
             <span className="text-[10px] text-muted-foreground lg:hidden">
@@ -435,7 +438,7 @@ function ChainListRow({
           </span>
           <span
             data-chain-loss
-            className="inline-flex items-baseline justify-end gap-1 lg:col-start-6 lg:row-start-1"
+            className="inline-flex items-baseline gap-1 lg:col-start-6 lg:row-start-1"
             title={lossTitle}
           >
             <span className="text-[10px] text-muted-foreground lg:hidden">
@@ -450,7 +453,7 @@ function ChainListRow({
           <ChevronRightIcon
             aria-hidden="true"
             data-chain-chevron
-            className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 lg:col-start-8 lg:row-start-1 lg:justify-self-end"
+            className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 lg:col-start-8 lg:row-start-1"
           />
         </span>
       </button>
@@ -533,24 +536,20 @@ export function ChainLatencyList({
             data-chain-list-head
             aria-hidden="true"
             className={cn(
-              "hidden items-center gap-x-3 px-3 pb-1 text-[10px] text-muted-foreground lg:grid",
+              "hidden items-center gap-x-3 px-3 pb-1 text-left text-[10px] text-muted-foreground lg:grid",
               LIST_GRID,
             )}
           >
             <span>{t("overview.chainLatency.listTitle")}</span>
             <span>{t("overview.chainLatency.colEndpoint")}</span>
             <span>{t("overview.chainLatency.colRoute")}</span>
-            <span className="text-right">
-              {t("overview.chainLatency.colHops")}
-            </span>
-            <span className="text-right">P50</span>
-            <span className="text-right">
-              {t("overview.chainLatency.windowLoss")}
-            </span>
+            <span>{t("overview.chainLatency.colHops")}</span>
+            <span>P50</span>
+            <span>{t("overview.chainLatency.windowLoss")}</span>
             <span>{t("overview.chainLatency.colStatus")}</span>
             <span />
           </div>
-          <ul className="flex flex-col gap-0.5">
+          <ul className="flex flex-col">
             {snapshot.chains.map((chain) => (
               <ChainListRow
                 key={chain.id}
