@@ -74,7 +74,7 @@ function DiagnosisBlock({ chain }: { chain: ChainHealthChain }) {
   const tone =
     reason === "unknown" || reason === "stable"
       ? "border-border bg-muted/30 text-muted-foreground"
-      : "border-warning/30 bg-warning/5 text-warning";
+      : "border-primary/30 bg-primary/10 text-foreground";
   return (
     <div
       data-chain-diagnosis
@@ -169,14 +169,15 @@ function TopologyEdge({ edge }: { edge: TopologyEdgeView }) {
       data-seq={edge.seq}
       data-missing={missing ? "true" : "false"}
       title={`${latency} · ${loss}`}
-      className="relative flex h-14 min-w-[76px] flex-1 flex-col items-center justify-center px-1"
+      className="relative flex h-14 min-w-[80px] flex-1 flex-col items-center justify-center px-0.5"
     >
       <span
         data-chain-topology-edge-latency
         className={cn(
-          "absolute top-0 max-w-full truncate whitespace-nowrap font-mono text-[10px] tabular-nums",
+          "absolute left-1/2 max-w-full -translate-x-1/2 -translate-y-full truncate whitespace-nowrap font-mono text-[10px] leading-none tabular-nums",
           missing ? "text-warning" : "text-muted-foreground",
         )}
+        style={{ top: "calc(50% - 3px)" }}
       >
         {latency}
       </span>
@@ -194,7 +195,8 @@ function TopologyEdge({ edge }: { edge: TopologyEdgeView }) {
       />
       <span
         data-chain-topology-edge-loss
-        className="absolute bottom-0 max-w-full truncate whitespace-nowrap font-mono text-[10px] tabular-nums text-muted-foreground"
+        className="absolute left-1/2 max-w-full -translate-x-1/2 truncate whitespace-nowrap font-mono text-[10px] leading-none tabular-nums text-muted-foreground"
+        style={{ top: "calc(50% + 3px)" }}
       >
         {loss}
       </span>

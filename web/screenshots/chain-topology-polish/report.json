@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-23T15:48:01.212Z",
+  "generatedAt": "2026-11-23T16:03:02.278Z",
   "base": "http://127.0.0.1:5173",
   "chain": {
     "id": "c0ffee00-0006-4000-8000-000000000601",
@@ -22,7 +22,7 @@
     {
       "name": "trend tooltip 1440 dark",
       "ok": true,
-      "detail": "11/23 16:15 港日中转链 68 ms 最高 丢包 0.4% 港日多路径 40.5 ms 丢包 0.3% 港新直达链 37 ms 丢包 0.1%"
+      "detail": "11/23 16:30 港日中转链 82 ms 最高 丢包 0.6% 港日多路径 45.5 ms 丢包 0.4% 港新直达链 43 ms 丢包 0.3%"
     },
     {
       "name": "24h 1440 dark: topology labels",
@@ -89,8 +89,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -100,9 +100,65 @@
         "count": 7,
         "intervalGap": 14400,
         "first": "00:00",
-        "last": "23:30",
+        "last": "23:45",
         "gridlines": 7,
-        "nowReference": "现在 23:47"
+        "nowReference": "现在 00:01"
+      }
+    },
+    {
+      "name": "24h 1440 dark: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "24h 1440 dark: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 904,
+        "clientWidth": 904,
+        "rowRight": 1168,
+        "contentRight": 1168,
+        "rightGap": 0,
+        "overflow": 0
+      }
+    },
+    {
+      "name": "24h 1440 dark: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.662 -0.0168454 -0.178206 / 0.1)",
+        "border": "oklab(0.662 -0.0168454 -0.178206 / 0.3)",
+        "color": "oklch(0.965 0.003 285)"
       }
     },
     {
@@ -122,7 +178,7 @@
     {
       "name": "segment tooltip 1440 dark",
       "ok": true,
-      "detail": "11/23 19:00 第 1 段 17 ms 丢包 0.1% 第 2 段 23 ms 丢包 0.1% 第 3 段 34 ms 丢包 0.1% 最高 第 4 段 14.8 ms 丢包 0.2% 最低"
+      "detail": "11/23 19:15 第 1 段 15 ms 丢包 0.1% 第 2 段 21 ms 丢包 0.1% 第 3 段 32 ms 丢包 0.1% 最高 第 4 段 8 ms 丢包 0.1% 最低"
     },
     {
       "name": "7d 1440 dark: topology labels",
@@ -189,8 +245,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18.6 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -202,7 +258,63 @@
         "first": "11/17",
         "last": "11/23 23:00",
         "gridlines": 7,
-        "nowReference": "现在 11/23 23:47"
+        "nowReference": "现在 11/24 00:01"
+      }
+    },
+    {
+      "name": "7d 1440 dark: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "7d 1440 dark: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 904,
+        "clientWidth": 904,
+        "rowRight": 1168,
+        "contentRight": 1168,
+        "rightGap": 0,
+        "overflow": 0
+      }
+    },
+    {
+      "name": "7d 1440 dark: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.662 -0.0168454 -0.178206 / 0.1)",
+        "border": "oklab(0.662 -0.0168454 -0.178206 / 0.3)",
+        "color": "oklch(0.965 0.003 285)"
       }
     },
     {
@@ -284,8 +396,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -295,9 +407,65 @@
         "count": 7,
         "intervalGap": 14400,
         "first": "00:00",
-        "last": "23:30",
+        "last": "23:45",
         "gridlines": 7,
-        "nowReference": "现在 23:47"
+        "nowReference": "现在 00:01"
+      }
+    },
+    {
+      "name": "24h 1440 dark: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "24h 1440 dark: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 904,
+        "clientWidth": 904,
+        "rowRight": 1168,
+        "contentRight": 1168,
+        "rightGap": 0,
+        "overflow": 0
+      }
+    },
+    {
+      "name": "24h 1440 dark: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.662 -0.0168454 -0.178206 / 0.1)",
+        "border": "oklab(0.662 -0.0168454 -0.178206 / 0.3)",
+        "color": "oklch(0.965 0.003 285)"
       }
     },
     {
@@ -331,7 +499,7 @@
     {
       "name": "trend tooltip 1440 light",
       "ok": true,
-      "detail": "11/23 16:15 港日中转链 68 ms 最高 丢包 0.4% 港日多路径 40.5 ms 丢包 0.3% 港新直达链 37 ms 丢包 0.1%"
+      "detail": "11/23 16:30 港日中转链 82 ms 最高 丢包 0.6% 港日多路径 45.5 ms 丢包 0.4% 港新直达链 43 ms 丢包 0.3%"
     },
     {
       "name": "24h 1440 light: topology labels",
@@ -398,8 +566,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -409,9 +577,65 @@
         "count": 7,
         "intervalGap": 14400,
         "first": "00:00",
-        "last": "23:30",
+        "last": "23:45",
         "gridlines": 7,
-        "nowReference": "现在 23:47"
+        "nowReference": "现在 00:02"
+      }
+    },
+    {
+      "name": "24h 1440 light: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "24h 1440 light: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 904,
+        "clientWidth": 904,
+        "rowRight": 1168,
+        "contentRight": 1168,
+        "rightGap": 0,
+        "overflow": 0
+      }
+    },
+    {
+      "name": "24h 1440 light: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.424 -0.0151355 -0.198424 / 0.1)",
+        "border": "oklab(0.424 -0.0151355 -0.198424 / 0.3)",
+        "color": "oklch(0.253 0.03 267.4)"
       }
     },
     {
@@ -431,7 +655,7 @@
     {
       "name": "segment tooltip 1440 light",
       "ok": true,
-      "detail": "11/23 19:00 第 1 段 17 ms 丢包 0.1% 第 2 段 23 ms 丢包 0.1% 第 3 段 34 ms 丢包 0.1% 最高 第 4 段 14.8 ms 丢包 0.2% 最低"
+      "detail": "11/23 19:15 第 1 段 15 ms 丢包 0.1% 第 2 段 21 ms 丢包 0.1% 第 3 段 32 ms 丢包 0.1% 最高 第 4 段 8 ms 丢包 0.1% 最低"
     },
     {
       "name": "7d 1440 light: topology labels",
@@ -498,8 +722,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18.6 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -511,7 +735,63 @@
         "first": "11/17",
         "last": "11/23 23:00",
         "gridlines": 7,
-        "nowReference": "现在 11/23 23:47"
+        "nowReference": "现在 11/24 00:02"
+      }
+    },
+    {
+      "name": "7d 1440 light: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "7d 1440 light: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 904,
+        "clientWidth": 904,
+        "rowRight": 1168,
+        "contentRight": 1168,
+        "rightGap": 0,
+        "overflow": 0
+      }
+    },
+    {
+      "name": "7d 1440 light: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.424 -0.0151355 -0.198424 / 0.1)",
+        "border": "oklab(0.424 -0.0151355 -0.198424 / 0.3)",
+        "color": "oklch(0.253 0.03 267.4)"
       }
     },
     {
@@ -593,8 +873,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -604,9 +884,65 @@
         "count": 7,
         "intervalGap": 14400,
         "first": "00:00",
-        "last": "23:30",
+        "last": "23:45",
         "gridlines": 7,
-        "nowReference": "现在 23:47"
+        "nowReference": "现在 00:02"
+      }
+    },
+    {
+      "name": "24h 1440 light: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "24h 1440 light: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 904,
+        "clientWidth": 904,
+        "rowRight": 1168,
+        "contentRight": 1168,
+        "rightGap": 0,
+        "overflow": 0
+      }
+    },
+    {
+      "name": "24h 1440 light: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.424 -0.0151355 -0.198424 / 0.1)",
+        "border": "oklab(0.424 -0.0151355 -0.198424 / 0.3)",
+        "color": "oklch(0.253 0.03 267.4)"
       }
     },
     {
@@ -640,7 +976,7 @@
     {
       "name": "trend tooltip 390 dark",
       "ok": true,
-      "detail": "11/23 17:15 港日中转链 74 ms 最高 丢包 0.4% 港日多路径 40.5 ms 丢包 0.3% 港新直达链 37 ms 丢包 0.1%"
+      "detail": "11/23 17:30 港日中转链 76 ms 最高 丢包 0.6% 港日多路径 45.5 ms 丢包 0.4% 港新直达链 43 ms 丢包 0.3%"
     },
     {
       "name": "24h 390 dark: topology labels",
@@ -707,8 +1043,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -718,9 +1054,65 @@
         "count": 7,
         "intervalGap": 14400,
         "first": "00:00",
-        "last": "23:30",
+        "last": "23:45",
         "gridlines": 7,
-        "nowReference": "现在 23:47"
+        "nowReference": "现在 00:02"
+      }
+    },
+    {
+      "name": "24h 390 dark: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "24h 390 dark: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 888,
+        "clientWidth": 350,
+        "rowRight": 904,
+        "contentRight": 366,
+        "rightGap": -538,
+        "overflow": 538
+      }
+    },
+    {
+      "name": "24h 390 dark: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.662 -0.0168454 -0.178206 / 0.1)",
+        "border": "oklab(0.662 -0.0168454 -0.178206 / 0.3)",
+        "color": "oklch(0.965 0.003 285)"
       }
     },
     {
@@ -735,12 +1127,12 @@
     {
       "name": "24h 390 dark: target scrollable on 390",
       "ok": true,
-      "detail": "522px overflow"
+      "detail": "538px overflow"
     },
     {
       "name": "segment tooltip 390 dark",
       "ok": true,
-      "detail": "11/23 18:45 第 1 段 15 ms 丢包 0.1% 第 2 段 21 ms 丢包 0.1% 第 3 段 32 ms 丢包 0.1% 最高 第 4 段 12.6 ms 丢包 0.2% 最低"
+      "detail": "11/23 19:00 第 1 段 17 ms 丢包 0.1% 第 2 段 23 ms 丢包 0.1% 第 3 段 34 ms 丢包 0.1% 最高 第 4 段 8 ms 丢包 0.1% 最低"
     },
     {
       "name": "7d 390 dark: topology labels",
@@ -807,8 +1199,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18.6 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -820,7 +1212,63 @@
         "first": "11/17",
         "last": "11/23 23:00",
         "gridlines": 7,
-        "nowReference": "现在 11/23 23:47"
+        "nowReference": "现在 11/24 00:02"
+      }
+    },
+    {
+      "name": "7d 390 dark: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "7d 390 dark: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 888,
+        "clientWidth": 350,
+        "rowRight": 366,
+        "contentRight": 366,
+        "rightGap": 0,
+        "overflow": 538
+      }
+    },
+    {
+      "name": "7d 390 dark: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.662 -0.0168454 -0.178206 / 0.1)",
+        "border": "oklab(0.662 -0.0168454 -0.178206 / 0.3)",
+        "color": "oklch(0.965 0.003 285)"
       }
     },
     {
@@ -835,7 +1283,7 @@
     {
       "name": "7d 390 dark: target scrollable on 390",
       "ok": true,
-      "detail": "522px overflow"
+      "detail": "538px overflow"
     },
     {
       "name": "24h 390 dark: topology labels",
@@ -902,8 +1350,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -913,9 +1361,65 @@
         "count": 7,
         "intervalGap": 14400,
         "first": "00:00",
-        "last": "23:30",
+        "last": "23:45",
         "gridlines": 7,
-        "nowReference": "现在 23:47"
+        "nowReference": "现在 00:02"
+      }
+    },
+    {
+      "name": "24h 390 dark: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "24h 390 dark: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 888,
+        "clientWidth": 350,
+        "rowRight": 904,
+        "contentRight": 366,
+        "rightGap": -538,
+        "overflow": 538
+      }
+    },
+    {
+      "name": "24h 390 dark: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.662 -0.0168454 -0.178206 / 0.1)",
+        "border": "oklab(0.662 -0.0168454 -0.178206 / 0.3)",
+        "color": "oklch(0.965 0.003 285)"
       }
     },
     {
@@ -930,7 +1434,7 @@
     {
       "name": "24h 390 dark: target scrollable on 390",
       "ok": true,
-      "detail": "522px overflow"
+      "detail": "538px overflow"
     },
     {
       "name": "24h 390 dark: fault dot is red and still",
@@ -949,7 +1453,7 @@
     {
       "name": "trend tooltip 390 light",
       "ok": true,
-      "detail": "11/23 17:15 港日中转链 74 ms 最高 丢包 0.4% 港日多路径 40.5 ms 丢包 0.3% 港新直达链 37 ms 丢包 0.1%"
+      "detail": "11/23 17:30 港日中转链 76 ms 最高 丢包 0.6% 港日多路径 45.5 ms 丢包 0.4% 港新直达链 43 ms 丢包 0.3%"
     },
     {
       "name": "24h 390 light: topology labels",
@@ -1016,8 +1520,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -1027,9 +1531,65 @@
         "count": 7,
         "intervalGap": 14400,
         "first": "00:00",
-        "last": "23:30",
+        "last": "23:45",
         "gridlines": 7,
-        "nowReference": "现在 23:47"
+        "nowReference": "现在 00:02"
+      }
+    },
+    {
+      "name": "24h 390 light: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "24h 390 light: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 888,
+        "clientWidth": 350,
+        "rowRight": 904,
+        "contentRight": 366,
+        "rightGap": -538,
+        "overflow": 538
+      }
+    },
+    {
+      "name": "24h 390 light: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.424 -0.0151355 -0.198424 / 0.1)",
+        "border": "oklab(0.424 -0.0151355 -0.198424 / 0.3)",
+        "color": "oklch(0.253 0.03 267.4)"
       }
     },
     {
@@ -1044,12 +1604,12 @@
     {
       "name": "24h 390 light: target scrollable on 390",
       "ok": true,
-      "detail": "522px overflow"
+      "detail": "538px overflow"
     },
     {
       "name": "segment tooltip 390 light",
       "ok": true,
-      "detail": "11/23 18:45 第 1 段 15 ms 丢包 0.1% 第 2 段 21 ms 丢包 0.1% 第 3 段 32 ms 丢包 0.1% 最高 第 4 段 12.6 ms 丢包 0.2% 最低"
+      "detail": "11/23 19:00 第 1 段 17 ms 丢包 0.1% 第 2 段 23 ms 丢包 0.1% 第 3 段 34 ms 丢包 0.1% 最高 第 4 段 8 ms 丢包 0.1% 最低"
     },
     {
       "name": "7d 390 light: topology labels",
@@ -1116,8 +1676,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18.6 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -1129,7 +1689,63 @@
         "first": "11/17",
         "last": "11/23 23:00",
         "gridlines": 7,
-        "nowReference": "现在 11/23 23:47"
+        "nowReference": "现在 11/24 00:02"
+      }
+    },
+    {
+      "name": "7d 390 light: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "7d 390 light: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 888,
+        "clientWidth": 350,
+        "rowRight": 366,
+        "contentRight": 366,
+        "rightGap": 0,
+        "overflow": 538
+      }
+    },
+    {
+      "name": "7d 390 light: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.424 -0.0151355 -0.198424 / 0.1)",
+        "border": "oklab(0.424 -0.0151355 -0.198424 / 0.3)",
+        "color": "oklch(0.253 0.03 267.4)"
       }
     },
     {
@@ -1144,7 +1760,7 @@
     {
       "name": "7d 390 light: target scrollable on 390",
       "ok": true,
-      "detail": "522px overflow"
+      "detail": "538px overflow"
     },
     {
       "name": "24h 390 light: topology labels",
@@ -1211,8 +1827,8 @@
       "detail": {
         "seq": 4,
         "missing": false,
-        "latency": "18 ms",
-        "loss": "0.2%"
+        "latency": "8 ms",
+        "loss": "0.1%"
       }
     },
     {
@@ -1222,9 +1838,65 @@
         "count": 7,
         "intervalGap": 14400,
         "first": "00:00",
-        "last": "23:30",
+        "last": "23:45",
         "gridlines": 7,
-        "nowReference": "现在 23:47"
+        "nowReference": "现在 00:02"
+      }
+    },
+    {
+      "name": "24h 390 light: edge labels hug the connector",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 2,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 3,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        },
+        {
+          "seq": 4,
+          "latencyGap": 2.5,
+          "lossGap": 2.5,
+          "latencyCenterOffset": 0,
+          "lossCenterOffset": 0
+        }
+      ]
+    },
+    {
+      "name": "24h 390 light: topology fills the card",
+      "ok": true,
+      "detail": {
+        "scrollWidth": 888,
+        "clientWidth": 350,
+        "rowRight": 904,
+        "contentRight": 366,
+        "rightGap": -538,
+        "overflow": 538
+      }
+    },
+    {
+      "name": "24h 390 light: diagnosis bar uses primary",
+      "ok": true,
+      "detail": {
+        "className": "mt-3 rounded-md border px-3 py-2 text-xs leading-normal border-primary/30 bg-primary/10 text-foreground",
+        "background": "oklab(0.424 -0.0151355 -0.198424 / 0.1)",
+        "border": "oklab(0.424 -0.0151355 -0.198424 / 0.3)",
+        "color": "oklch(0.253 0.03 267.4)"
       }
     },
     {
@@ -1239,7 +1911,7 @@
     {
       "name": "24h 390 light: target scrollable on 390",
       "ok": true,
-      "detail": "522px overflow"
+      "detail": "538px overflow"
     },
     {
       "name": "24h 390 light: fault dot is red and still",

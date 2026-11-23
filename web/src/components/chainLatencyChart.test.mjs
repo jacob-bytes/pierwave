@@ -152,6 +152,20 @@ test("topology fills the card and labels latency/loss around a centered line", (
   assert.match(source, /formatLossPct/);
   assert.match(source, /border-dashed/);
   assert.match(source, /h-14/);
+  // 线上时延 / 线下丢包必须贴着连接线并水平居中，而不是落在边块上下缘。
+  assert.match(source, /calc\(50% - 3px\)/);
+  assert.match(source, /calc\(50% \+ 3px\)/);
+  assert.match(source, /left-1\/2 max-w-full -translate-x-1\/2/);
+});
+
+test("the diagnosis bar uses primary instead of warning", () => {
+  const source = read("components/overview/ChainLatencyDetail.tsx");
+  const start = source.indexOf("function DiagnosisBlock");
+  const end = source.indexOf("function TopologyNode", start);
+  assert.ok(start >= 0 && end > start);
+  const block = source.slice(start, end);
+  assert.match(block, /border-primary\/30 bg-primary\/10 text-foreground/);
+  assert.doesNotMatch(block, /warning/);
 });
 
 test("topology nodes carry SOURCE/HOP/TARGET labels and a breathing status dot", () => {

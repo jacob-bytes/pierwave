@@ -297,6 +297,30 @@ const READ_STATE = ({ range, hops }) => {
       loss: edge.querySelector("[data-chain-topology-edge-loss]")?.textContent,
     }),
   );
+  const edgeGeometry = [...document.querySelectorAll("[data-chain-topology-edge]")].map(
+    (edge) => {
+      const line = edge.querySelector("[data-chain-topology-edge-line]");
+      const latency = edge.querySelector("[data-chain-topology-edge-latency]");
+      const loss = edge.querySelector("[data-chain-topology-edge-loss]");
+      const lineRect = line.getBoundingClientRect();
+      const latencyRect = latency.getBoundingClientRect();
+      const lossRect = loss.getBoundingClientRect();
+      const lineCenter = (lineRect.left + lineRect.right) / 2;
+      return {
+        seq: Number(edge.dataset.seq),
+        latencyGap: Math.round((lineRect.top - latencyRect.bottom) * 10) / 10,
+        lossGap: Math.round((lossRect.top - lineRect.bottom) * 10) / 10,
+        latencyCenterOffset:
+          Math.round(
+            Math.abs((latencyRect.left + latencyRect.right) / 2 - lineCenter) * 10,
+          ) / 10,
+        lossCenterOffset:
+          Math.round(
+            Math.abs((lossRect.left + lossRect.right) / 2 - lineCenter) * 10,
+          ) / 10,
+      };
+    },
+  );
   const ticks = [...document.querySelectorAll("[data-chain-time-tick]")].map(
     (tick) => ({
       text: tick.textContent,
@@ -315,17 +339,43 @@ const READ_STATE = ({ range, hops }) => {
   const anomaly = document.querySelector("[data-chain-anomaly]");
   const gridlines = document.querySelectorAll("[data-chain-time-gridline]");
   const axisNow = document.querySelector("[data-chain-axis-now]");
+  const diagnosis = document.querySelector("[data-chain-diagnosis]");
+  const scroll = document.querySelector("[data-chain-topology-scroll]");
+  const row = document.querySelector("[data-chain-topology]");
+  const content = scroll?.parentElement;
+  const topologyFill = {
+    scrollWidth: scroll?.scrollWidth ?? 0,
+    clientWidth: scroll?.clientWidth ?? 0,
+    rowRight: row ? Math.round(row.getBoundingClientRect().right) : 0,
+    contentRight: content
+      ? Math.round(
+          content.getBoundingClientRect().right -
+            Number.parseFloat(getComputedStyle(content).paddingRight || "0"),
+        )
+      : 0,
+  };
   return {
     nodes,
     edges,
+    edgeGeometry,
     ticks,
     swatches,
     anomalyFill: anomaly?.getAttribute("fill") ?? null,
     gridlineCount: gridlines.length,
     nowReference: axisNow?.textContent?.trim() ?? null,
+    topologyFill,
+    diagnosis: diagnosis
+      ? {
+          className: diagnosis.className,
+          background: getComputedStyle(diagnosis).backgroundColor,
+          border: getComputedStyle(diagnosis).borderColor,
+          color: getComputedStyle(diagnosis).color,
+        }
+      : null,
+    primary: readColor("--primary"),
+    foreground: readColor("--foreground"),
     success: readColor("--success"),
     destructive: readColor("--destructive"),
-    primary: readColor("--primary"),
     warning: readColor("--warning"),
     range,
     hops,
@@ -422,6 +472,56 @@ async function assertDetail(page, width, theme, range, options) {
     };
   });
 
+  await check(`${tag}: edge labels hug the connector`, () => {
+    assert.ok(state.edgeGeometry.length >= 2);
+    for (const edge of state.edgeGeometry) {
+      assert.ok(
+        edge.latencyGap >= 0 && edge.latencyGap <= 6,
+        `seg ${edge.seq} latency gap ${edge.latencyGap}`,
+      );
+      assert.ok(
+        edge.lossGap >= 0 && edge.lossGap <= 6,
+        `seg ${edge.seq} loss gap ${edge.lossGap}`,
+      );
+      assert.ok(
+        edge.latencyCenterOffset <= 2,
+        `seg ${edge.seq} latency center offset ${edge.latencyCenterOffset}`,
+      );
+      assert.ok(
+        edge.lossCenterOffset <= 2,
+        `seg ${edge.seq} loss center offset ${edge.lossCenterOffset}`,
+      );
+    }
+    return state.edgeGeometry;
+  });
+
+  await check(`${tag}: topology fills the card`, () => {
+    const gap = state.topologyFill.contentRight - state.topologyFill.rowRight;
+    if (width >= 768) {
+      assert.ok(
+        state.topologyFill.scrollWidth - state.topologyFill.clientWidth <= 1,
+        "desktop topology must not overflow",
+      );
+      assert.ok(gap >= 0 && gap <= 6, `right gap ${gap}`);
+    }
+    return {
+      ...state.topologyFill,
+      rightGap: gap,
+      overflow:
+        state.topologyFill.scrollWidth - state.topologyFill.clientWidth,
+    };
+  });
+
+  await check(`${tag}: diagnosis bar uses primary`, () => {
+    assert.ok(state.diagnosis, "diagnosis block must render");
+    assert.match(state.diagnosis.className, /bg-primary\/10/);
+    assert.match(state.diagnosis.className, /border-primary\/30/);
+    assert.match(state.diagnosis.className, /text-foreground/);
+    assert.doesNotMatch(state.diagnosis.className, /warning/);
+    assert.equal(state.diagnosis.color, state.foreground);
+    return state.diagnosis;
+  });
+
   await check(`${tag}: legend uses primary only`, () => {
     assert.equal(state.swatches.length, 3);
     for (const swatch of state.swatches) {
@@ -511,6 +611,11 @@ for (const width of VIEWPORTS) {
         page,
         "[data-chain-overall-card]",
         `overall-24h-${width}-${theme}.png`,
+      );
+      await shootCard(
+        page,
+        "[data-chain-diagnosis]",
+        `diagnosis-${width}-${theme}.png`,
       );
 
       const segmentTooltip = await hoverSegment(page);

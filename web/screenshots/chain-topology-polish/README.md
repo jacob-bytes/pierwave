@@ -14,7 +14,11 @@
 5. 整体图图例只用 `--primary`：P50 实线、P10–P90 与异常窗口分别用
    primary/15、primary/30；异常窗口色块也是 primary；
 6. 逐段与整体趋势 tooltip 的「该时刻丢包」统一为「丢包」，`hoverLossHint`
-   同步去掉「该时刻」。
+   同步去掉「该时刻」；
+7. 拓扑上的时延 / 丢包改为紧贴连接线：上方 2.5px、下方 2.5px，水平居中
+   （偏差 0px）；段内左右留白减小、连接段宽度略增到 80px，总宽仍铺满卡片；
+8. 诊断条改为主题蓝：`bg-primary/10`、`border-primary/30`、`text-foreground`，
+   不再使用 warning 色。
 
 **English**: Acceptance screenshots and a machine-readable report for the
 chain-latency detail page. All changes are under `web/`:
@@ -31,7 +35,12 @@ chain-latency detail page. All changes are under `web/`:
    reference only when the sample lags by more than five minutes;
 5. the overall legend uses `--primary` only: P50, P10–P90 and the anomaly
    window reuse primary at different opacities;
-6. per-hop and overall tooltips now say "Loss" instead of "Loss at that time".
+6. per-hop and overall tooltips now say "Loss" instead of "Loss at that time";
+7. topology latency/loss labels now hug the connector (2.5px above/below) and are
+   horizontally centred (0px offset); segment padding shrinks and the connector
+   grows to 80px while the row still fills the card;
+8. the diagnosis bar is primary blue (`bg-primary/10`, `border-primary/30`,
+   `text-foreground`) with no warning colour.
 
 ## 数据说明 / Data note
 
@@ -56,10 +65,12 @@ list stay real.
 - `topology-{1440,390}-{dark,light}-end.png`：390 横向滚到末端，展示目标虚线。
 - `topology-fault-{1440,390}-{dark,light}.png`：HOP 2 故障红点与其它绿点同屏。
 - `topology-reduced-motion-1440-dark.png`：`prefers-reduced-motion` 下绿点静止。
+- `diagnosis-{1440,390}-{dark,light}.png`：诊断条主题蓝。
 - `overall-{24h,7d}-{1440,390}-{dark,light}.png`：整体时延图与时间轴。
 - `trend-{24h,7d}-{1440,390}-{dark,light}.png`：列表页多链趋势的同一套刻度。
 - `tooltip-trend-*` / `tooltip-segment-*`：两种 tooltip 的「丢包」文案。
-- `report.json`：85 项断言（标签、状态点颜色 / 动画、目标虚线、末跳数据、
+- `report.json`：121 项断言（标签、状态点颜色 / 动画、目标虚线、末跳数据、
+  标注与线的间距 / 水平居中、1440 拓扑铺满卡片、诊断条 primary token、
   刻度数量与间隔、末位样本时间、gridline、图例单色、tooltip 文案、
   390 横向滚动、reduced-motion）。
 
@@ -72,13 +83,16 @@ list stay real.
 | 状态点 | online `--success` + `status-breathe`；offline `--destructive` + `animation: none` |
 | 目标节点 | `border-style: dashed`，无状态点 |
 | 末跳 | 边 `seq = hops`、`missing = false`，线上有 ms、线下有 % |
+| 标注 / 线 | 时延下沿距线 2.5px、丢包上沿距线 2.5px；水平居中偏差 0px（4 段均） |
+| 连接段 | 80px 宽；节点 112px 宽；1440 下右侧空白 0px、无溢出 |
+| 诊断条 | 背景 `primary/10`、边框 `primary/30`、文字 `foreground`，class 无 warning |
 | 24h 刻度 | 5–7 个；等距刻度间隔 14400s，末位为真实样本 `HH:mm` |
 | 7d 刻度 | 5–7 个；等距刻度间隔 86400s，末位为 `MM/DD HH:00` |
 | gridline | 与刻度数量一一对应，`stroke: var(--border)` |
 | 图例 | 3 个色块全部为 `bg-primary*`，无 warning / destructive |
 | tooltip | 含「丢包」，不含「该时刻」 |
 
-`report.json` 的 85 项全部通过。Light / dark 两套主题分别读取
+`report.json` 的 121 项全部通过。Light / dark 两套主题分别读取
 `--success`、`--destructive`、`--primary` 的实际计算值再比对，不是写死颜色。
 
 ## 重新生成 / Regenerate
