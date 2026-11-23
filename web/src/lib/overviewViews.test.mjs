@@ -70,3 +70,20 @@ test("server ↔ cost 往返不会留下重复的 view 参数", () => {
   assert.equal(params.getAll("view").length, 1);
   assert.equal(params.get("view"), "cost");
 });
+
+test("leaving the chain view drops the chain deep-link parameter", () => {
+  const params = new URLSearchParams("view=chain&chain=abc&range=7d");
+  const next = applyOverviewView(params, "cost");
+
+  assert.equal(next.get("view"), "cost");
+  assert.equal(next.get("chain"), null, "chain 深链不能跟到其它 tab");
+  assert.equal(next.get("range"), "7d");
+});
+
+test("staying on the chain view keeps the deep-link parameter", () => {
+  const params = new URLSearchParams("view=chain&chain=abc");
+  const next = applyOverviewView(params, "chain");
+
+  assert.equal(next.get("view"), "chain");
+  assert.equal(next.get("chain"), "abc");
+});

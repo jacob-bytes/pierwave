@@ -22,3 +22,23 @@ export class ApiError extends Error {
     this.params = params;
   }
 }
+
+/**
+ * 读取响应体：非 JSON 一律包成带状态码的 [`ApiError`]。
+ *
+ * 网关 / 旧主控的 404 经常返回 HTML；以前 `JSON.parse` 会抛 `SyntaxError`，
+ * `isChainHealthUnsupported` / `isServerHealthUnsupported` 只认 `ApiError`，
+ * 页面就会把「能力未上线」显示成解析失败。空 body 仍然是 `null`（成功但无内容）。
+ */
+export function parseJsonBody(
+  text: string,
+  status: number,
+  fallbackMessage: string,
+): unknown {
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new ApiError(fallbackMessage, status);
+  }
+}

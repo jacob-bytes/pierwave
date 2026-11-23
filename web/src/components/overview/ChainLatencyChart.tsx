@@ -7,7 +7,9 @@ import {
 import type { ChainAnomalyWindow, ChainHealthPoint } from "@/lib/chainHealth";
 import {
   chainAnomalyWindows,
+  chainPointX,
   chainSeriesMax,
+  chainSeriesWindow,
   formatChainTime,
   formatMs,
 } from "@/lib/chainHealth";
@@ -31,7 +33,7 @@ function usable(point: ChainHealthPoint | undefined): boolean {
 
 function linePath(
   points: readonly ChainHealthPoint[],
-  xOf: (index: number) => number,
+  xOf: (ts: number) => number,
   yOf: (value: number) => number,
   bucketSecs: number,
 ): string {
@@ -44,7 +46,7 @@ function linePath(
     current = [];
   };
 
-  points.forEach((point, index) => {
+  points.forEach((point) => {
     if (!usable(point)) {
       close();
       previousTs = point.ts;
@@ -57,7 +59,7 @@ function linePath(
     ) {
       close();
     }
-    current.push(`${xOf(index)},${yOf(point.p50 as number)}`);
+    current.push(`${xOf(point.ts)},${yOf(point.p50 as number)}`);
     previousTs = point.ts;
   });
   close();
@@ -66,7 +68,7 @@ function linePath(
 
 function bandPath(
   points: readonly ChainHealthPoint[],
-  xOf: (index: number) => number,
+  xOf: (ts: number) => number,
   yOf: (value: number) => number,
   bucketSecs: number,
 ): string {
@@ -86,7 +88,7 @@ function bandPath(
     current = [];
   };
 
-  points.forEach((point, index) => {
+  points.forEach((point) => {
     if (
       !usable(point) ||
       point.p10 === null ||
@@ -104,7 +106,7 @@ function bandPath(
       close();
     }
     current.push({
-      x: xOf(index),
+      x: xOf(point.ts),
       top: yOf(point.p90),
       bottom: yOf(point.p10),
     });
@@ -114,15 +116,30 @@ function bandPath(
   return parts.join("");
 }
 
+/**
+ * 指针 ratio → 最近的**有效**点。空槽保留在时间轴上，但悬停空槽没有可读数值，
+ * 因此向左右找最近的有样本桶。
+ */
 function nearestIndex(
   points: readonly ChainHealthPoint[],
+  window: { startTs: number; endTs: number },
   ratio: number,
 ): number {
   if (points.length === 0) return 0;
-  return Math.max(
-    0,
-    Math.min(points.length - 1, Math.round(ratio * (points.length - 1))),
-  );
+  const span = window.endTs - window.startTs;
+  const target = window.startTs + Math.max(0, Math.min(1, ratio)) * span;
+  let best = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  points.forEach((point, index) => {
+    if (!usable(point)) return;
+    const distance = Math.abs(point.ts - target);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = index;
+    }
+  });
+  if (best >= 0) return best;
+  return Math.max(0, Math.min(points.length - 1, Math.round(ratio * (points.length - 1))));
 }
 
 function stepIndex(
@@ -183,11 +200,13 @@ export function ChainLatencySparkline({
   const max = chainSeriesMax(points);
   const domain = max > 0 ? max * 1.15 : 1;
   const color = toneColor(tone);
+  // 时间窗来自序列本身的槽位（含空槽）：x 只按 ts 定位，不按有效点个数。
+  const seriesWindow = useMemo(() => chainSeriesWindow(points), [points]);
 
-  const xOf = (index: number) =>
-    points.length <= 1
+  const xOf = (ts: number) =>
+    seriesWindow === null
       ? VIEW_WIDTH / 2
-      : (index / (points.length - 1)) * VIEW_WIDTH;
+      : chainPointX(ts, seriesWindow, VIEW_WIDTH);
   const yOf = (value: number) => {
     const ratio = Math.max(0, Math.min(1, value / domain));
     return (
@@ -207,16 +226,17 @@ export function ChainLatencySparkline({
     return -1;
   }, [points]);
 
-  if (points.length === 0 || lastIndex < 0) {
+  if (points.length === 0 || lastIndex < 0 || seriesWindow === null) {
     return <div className={cn("w-full", heightClass)} aria-hidden="true" />;
   }
 
-  const activePoint = active === null ? null : points[active];
-  const activeX = active === null ? null : xOf(active);
+  // 切时窗后 points 长度会变；旧的 active 下标可能越界，必须先夹回有效范围。
+  const activeIndex =
+    active !== null && active >= 0 && active < points.length ? active : null;
+  const activePoint = activeIndex === null ? null : points[activeIndex];
+  const activeX = activePoint === null ? null : xOf(activePoint.ts);
   const activePct =
-    active === null || points.length <= 1
-      ? 50
-      : (active / (points.length - 1)) * 100;
+    activeX === null ? 50 : (activeX / VIEW_WIDTH) * 100;
   const transform =
     activePct < 12
       ? "translateX(0)"
@@ -225,9 +245,16 @@ export function ChainLatencySparkline({
         : "translateX(-50%)";
 
   function showAt(event: PointerEvent<HTMLDivElement>) {
+    if (seriesWindow === null) return;
     const rect = event.currentTarget.getBoundingClientRect();
     if (rect.width <= 0) return;
-    setActive(nearestIndex(points, (event.clientX - rect.left) / rect.width));
+    setActive(
+      nearestIndex(
+        points,
+        seriesWindow,
+        (event.clientX - rect.left) / rect.width,
+      ),
+    );
   }
 
   function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
@@ -241,14 +268,17 @@ export function ChainLatencySparkline({
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
     event.preventDefault();
     const direction = event.key === "ArrowLeft" ? -1 : 1;
-    const start = active ?? (direction === 1 ? -1 : points.length);
+    const start = activeIndex ?? (direction === 1 ? -1 : points.length);
     const next = stepIndex(points, start, direction);
     setActive(next);
   }
 
   return (
     <div
-      className={cn("relative min-w-0", className)}
+      className={cn(
+        "relative min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        className,
+      )}
       data-chain-sparkline
       onPointerMove={showAt}
       onPointerDown={showAt}
@@ -259,14 +289,15 @@ export function ChainLatencySparkline({
       onFocus={interactive ? () => setActive(lastIndex) : undefined}
       onBlur={interactive ? () => setActive(null) : undefined}
       tabIndex={interactive ? 0 : undefined}
-      role="img"
+      role="group"
       aria-label={label}
     >
       <svg
         viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
         preserveAspectRatio="none"
         className={cn("block w-full", heightClass)}
-        aria-hidden="true"
+        role="img"
+        aria-label={label}
       >
         {anomalies.map((window) => (
           <AnomalyBand key={`${window.startTs}-${window.endTs}`} window={window} points={points} xOf={xOf} />
@@ -306,7 +337,7 @@ export function ChainLatencySparkline({
             tone === "warning" ? "bg-warning" : "bg-primary",
           )}
           style={{
-            left: `${(lastIndex / Math.max(1, points.length - 1)) * 100}%`,
+            left: `${(xOf(points[lastIndex].ts) / VIEW_WIDTH) * 100}%`,
             top: `${(yOf(points[lastIndex].p50 as number) / VIEW_HEIGHT) * 100}%`,
           }}
         />
@@ -316,6 +347,7 @@ export function ChainLatencySparkline({
         <div
           data-chain-sparkline-tooltip
           role="tooltip"
+          aria-live="polite"
           className="pointer-events-none absolute top-0 z-20 min-w-36 rounded-md border border-border bg-popover px-2 py-1.5 text-[10px] leading-normal text-popover-foreground shadow-md/30"
           style={{ left: `${activePct}%`, transform }}
         >
@@ -352,18 +384,18 @@ function AnomalyBand({
 }: {
   window: ChainAnomalyWindow;
   points: readonly ChainHealthPoint[];
-  xOf: (index: number) => number;
+  xOf: (ts: number) => number;
 }) {
-  let first = -1;
-  let last = -1;
-  points.forEach((point, index) => {
+  let firstTs: number | null = null;
+  let lastTs: number | null = null;
+  points.forEach((point) => {
     if (point.ts < window.startTs || point.ts > window.endTs) return;
-    if (first < 0) first = index;
-    last = index;
+    if (firstTs === null) firstTs = point.ts;
+    lastTs = point.ts;
   });
-  if (first < 0 || last < 0) return null;
-  const x = xOf(first);
-  const width = Math.max(2, xOf(last) - x);
+  if (firstTs === null || lastTs === null) return null;
+  const x = xOf(firstTs);
+  const width = Math.max(2, xOf(lastTs) - x);
   return (
     <rect
       x={x}

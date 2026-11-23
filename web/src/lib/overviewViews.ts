@@ -50,5 +50,8 @@ export function applyOverviewView(
   const param = overviewViewParam(view);
   if (param === null) next.delete("view");
   else next.set("view", param);
+  // `chain` 只属于链路时延视图；离开时必须清掉，否则切回来会重新弹窗，
+  // 后退历史里也会留下指向已关闭弹窗的脏参数。
+  if (view !== "chain") next.delete("chain");
   return next;
 }

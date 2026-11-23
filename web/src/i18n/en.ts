@@ -662,12 +662,8 @@ const en = {
       "Once servers are connected and carry traffic, trends, breakdowns, leaders and alerts will appear here.",
     trafficEmptyAction: "Go to servers",
     chainLatency: {
-      title: "Chain latency",
-      statusNormal: "Normal",
       statusSlow: "Slow",
-      statusInsufficient: "Not enough samples",
       healthHealthy: "Healthy",
-      currentP50: "Current P50",
       deltaVsBaseline: "vs. baseline",
       openChainAria:
         "Open chain details for {name}; {status}; current P50 {p50}, change {delta}, loss {loss}",
@@ -679,9 +675,6 @@ const en = {
       now: "Now",
       overallChartAria:
         "Overall latency trend for {name}; current P50 {p50}, change {delta}",
-      notFoundTitle: "This chain no longer exists",
-      notFoundDesc: "Return to the chain list, or check the server filter.",
-      backToList: "Back to chain list",
       emptyScopeTitle: "No chains touch the selected servers",
       emptyScopeDesc: "Adjust the server filter to see chains.",
       range24: "24 hours",
@@ -696,7 +689,6 @@ const en = {
       worstHop: "Slowest hop",
       noSamplesShort: "No latency samples",
       lastSample: "Last sample {time}",
-      loss: "Loss",
       lossNoData: "No probe data",
       lossPartial: "Some hops lack probe data",
       lossProbes: "{attempts} probes, {failures} failed",
@@ -706,6 +698,9 @@ const en = {
       windowLossProbes: "Window loss · {attempts} probes, {failures} failed",
       windowLossNoData: "Window loss · no probe data",
       hoverLossHint: "Hover to see loss at that time",
+      tableView: "Table view",
+      chartView: "Chart view",
+      colTime: "Time",
       entry: "Entry",
       exit: "Exit",
       colEndpoint: "Entry / exit",
@@ -736,12 +731,8 @@ const en = {
       detailTitle: "Per-hop latency",
       segment: "Hop {seq}",
       segmentRoute: "{from} → {to}",
-      segmentDelta: "Change {value}",
-      contribution: "Contribution {pct}%",
       segmentAria:
         "Hop {seq} {route}, P50 {p50}, change {delta}, contribution {pct}%, loss {loss}, probes {probes}",
-      segmentTrendAria: "Latency trend for hop {seq} {route}",
-      segmentTrendEmpty: "No per-hop trend yet",
       segmentTrendLoading: "Loading per-hop trend…",
       missingHop: "No history",
       diagnosisSingle:

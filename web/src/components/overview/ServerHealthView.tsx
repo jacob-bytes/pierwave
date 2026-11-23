@@ -107,7 +107,10 @@ export default function ServerHealthView({
   );
 
   if (filtered && selectedIds.length === 0) return <EmptyServerHealthScope />;
-  if (query.isPending) return <ServerHealthSkeleton />;
+  // 只有第一次请求才铺骨架；切换筛选时继续渲染上一份快照。
+  if (query.isPending && query.data === undefined) {
+    return <ServerHealthSkeleton />;
+  }
 
   if (query.isError) {
     return (

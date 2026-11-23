@@ -16,22 +16,10 @@ import {
   type ChainHealthPoint,
   type ChainHealthSegment,
 } from "@/lib/chainHealth";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { seriesVisual } from "@/lib/seriesStyle";
 import { t, useI18n } from "@/i18n";
-
-/** 同一色相的明度阶梯：段再多也不引入新色相。 */
-const SEGMENT_OPACITY = [1, 0.84, 0.7, 0.58, 0.48, 0.4, 0.34, 0.29];
-
-/** 线型与明度同时区分，超过 1 段时仍能不看颜色分辨。 */
-const SEGMENT_DASH = [
-  undefined,
-  "7 4",
-  "2 3",
-  "10 3 2 3",
-  "5 3 1 3",
-  "1 3",
-  "12 4",
-] as const;
 
 interface SegmentTrendEntry {
   segment: ChainHealthSegment;
@@ -59,16 +47,13 @@ function hasTrend(points: readonly ChainHealthPoint[]): boolean {
   return points.some((point) => point.p50 !== null && point.samples > 0);
 }
 
+/** 与链级趋势共用同一套色板 / 线型 / 不透明度下限。 */
 function segmentVisual(index: number): {
   color: string;
   opacity: number;
   dash?: string;
 } {
-  return {
-    color: "var(--primary)",
-    opacity: SEGMENT_OPACITY[index % SEGMENT_OPACITY.length] ?? 0.29,
-    dash: SEGMENT_DASH[index % SEGMENT_DASH.length],
-  };
+  return seriesVisual(index);
 }
 
 function LineSwatch({
@@ -104,6 +89,68 @@ function LineSwatch({
 function axisTick(ts: number, bucket: number): string {
   const text = formatChainTime(ts, bucket);
   return bucket >= 3600 ? text.slice(0, 5) : text.slice(6);
+}
+
+/** 逐段趋势的纯文本替代；窄屏横向滚动。 */
+function SegmentTrendTable({
+  rows,
+  entries,
+  bucket,
+}: {
+  rows: readonly SegmentTrendRow[];
+  entries: readonly SegmentTrendEntry[];
+  bucket: number;
+}) {
+  return (
+    <div
+      data-chain-segment-table
+      className="max-h-[260px] overflow-auto rounded-md border border-border"
+    >
+      <table className="w-full min-w-[520px] border-collapse text-left text-[10px] tabular-nums">
+        <thead className="sticky top-0 bg-card">
+          <tr className="border-b border-border">
+            <th scope="col" className="px-2 py-1.5 font-medium text-muted-foreground">
+              {t("overview.chainLatency.colTime")}
+            </th>
+            {entries.map((entry) => (
+              <th
+                key={entry.segment.seq}
+                scope="col"
+                className="px-2 py-1.5 font-medium text-muted-foreground"
+              >
+                {t("overview.chainLatency.segment", {
+                  seq: entry.segment.seq,
+                })}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.ts} className="border-b border-border/60 last:border-0">
+              <th
+                scope="row"
+                className="whitespace-nowrap px-2 py-1 font-mono font-normal text-muted-foreground"
+              >
+                {formatChainTime(row.ts, bucket)}
+              </th>
+              {entries.map((entry) => {
+                const value = row[p50Key(entry.segment.seq)];
+                return (
+                  <td
+                    key={entry.segment.seq}
+                    className="whitespace-nowrap px-2 py-1 font-mono"
+                  >
+                    {formatMs(typeof value === "number" ? value : null)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 /**
@@ -156,6 +203,8 @@ function SegmentTrendTooltip({
   return (
     <div
       data-segment-tooltip
+      role="tooltip"
+      aria-live="polite"
       className="min-w-52 max-w-72 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40"
     >
       <p className="mb-2 font-mono text-[10px] text-muted-foreground">
@@ -248,7 +297,7 @@ function SegmentLegend({
               if (usable) onToggle(segment.seq);
             }}
             className={cn(
-              "inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] transition-opacity duration-150",
+              "inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] transition-opacity duration-150",
               usable
                 ? hiddenHere
                   ? "opacity-35 hover:opacity-60"
@@ -294,6 +343,7 @@ export function ChainSegmentTrendChart({
 }) {
   useI18n();
   const [hidden, setHidden] = useState<Set<number>>(() => new Set());
+  const [tableView, setTableView] = useState(false);
 
   const entries = useMemo<SegmentTrendEntry[]>(
     () =>
@@ -364,6 +414,25 @@ export function ChainSegmentTrendChart({
         hidden={hidden}
         onToggle={toggle}
       />
+      {usable.length > 0 ? (
+        <div className="flex justify-end pb-1">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-chain-table-toggle
+            aria-pressed={tableView}
+            onClick={() => setTableView((value) => !value)}
+            className="h-7 shrink-0 px-2 text-[10px] font-normal"
+          >
+            {t(
+              tableView
+                ? "overview.chainLatency.chartView"
+                : "overview.chainLatency.tableView",
+            )}
+          </Button>
+        </div>
+      ) : null}
       {usable.length === 0 ? (
         <div
           data-segment-empty
@@ -377,6 +446,12 @@ export function ChainSegmentTrendChart({
         <div className="flex h-[240px] items-center justify-center text-[11px] text-muted-foreground sm:h-[260px]">
           {t("overview.chainLatency.allSegmentsHidden")}
         </div>
+      ) : tableView ? (
+        <SegmentTrendTable
+          rows={data}
+          entries={visible}
+          bucket={bucketSecs}
+        />
       ) : (
         <div className="h-[240px] w-full sm:h-[260px]">
           <ResponsiveContainer width="100%" height="100%">

@@ -16,21 +16,12 @@ import {
   formatLossPct,
   formatMs,
   type ChainHealthChain,
+  type ChainTrendRow,
 } from "@/lib/chainHealth";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { seriesVisual } from "@/lib/seriesStyle";
 import { t, useI18n } from "@/i18n";
-
-/** 正常 = primary，变慢 = warning；通过透明度做同一色相的明度阶梯。 */
-const OPACITY_LADDER = [1, 0.82, 0.68, 0.55, 0.44, 0.34];
-
-/** 超过 5 条链时再用线型区分；前 3 种即实线 / 虚线 / 点线。 */
-const DASH_PATTERNS = [
-  undefined,
-  "7 4",
-  "2 3",
-  "10 3 2 3",
-  "5 3 1 3",
-] as const;
 
 interface LineVisual {
   color: string;
@@ -38,22 +29,15 @@ interface LineVisual {
   dash?: string;
 }
 
-function lineVisual(
-  chain: ChainHealthChain,
-  index: number,
-  total: number,
-  muted = false,
-): LineVisual {
-  const color = muted
-    ? "var(--muted-foreground)"
-    : chain.slow
-      ? "var(--warning)"
-      : "var(--primary)";
-  const opacity = muted
-    ? 0.45
-    : (OPACITY_LADDER[index % OPACITY_LADDER.length] ?? 0.34);
-  const dash = total > 5 ? DASH_PATTERNS[index % DASH_PATTERNS.length] : undefined;
-  return { color, opacity, dash };
+/**
+ * 正常序列用 `--series-1..4` + 线型；样本不足的图例项灰显。
+ * 变慢不再换色相：颜色只负责区分序列，状态由「变慢」徽章与 tooltip 文案表达。
+ */
+function lineVisual(index: number, muted = false): LineVisual {
+  if (muted) {
+    return { color: "var(--muted-foreground)", opacity: 0.55 };
+  }
+  return seriesVisual(index);
 }
 
 function LineSwatch({ visual }: { visual: LineVisual }) {
@@ -99,7 +83,7 @@ function ChainTrendLegend({
       {chains.map((chain, index) => {
         const hasTrend = chainHasTrend(chain);
         const hiddenHere = hasTrend && hidden.has(chain.id);
-        const visual = lineVisual(chain, index, chains.length, !hasTrend);
+        const visual = lineVisual(index, !hasTrend);
         return (
           <button
             key={chain.id}
@@ -114,7 +98,7 @@ function ChainTrendLegend({
               if (hasTrend) onToggle(chain.id);
             }}
             className={cn(
-              "inline-flex max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] transition-opacity duration-150",
+              "inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] transition-opacity duration-150",
               hasTrend
                 ? hiddenHere
                   ? "opacity-35 hover:opacity-60"
@@ -191,6 +175,8 @@ function ChainTrendTooltip({
   return (
     <div
       data-chain-trend-tooltip
+      role="tooltip"
+      aria-live="polite"
       className="min-w-52 max-w-64 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40"
     >
       <p className="mb-2 font-mono text-[10px] text-muted-foreground">
@@ -199,7 +185,7 @@ function ChainTrendTooltip({
       <div className="flex flex-col gap-1">
         {rows.map((row, index) => {
           const highest = index === highestIndex;
-          const visual = lineVisual(row.chain, row.index, chains.length);
+          const visual = lineVisual(row.index);
           return (
             <div
               key={row.chain.id}
@@ -263,10 +249,72 @@ function axisTick(ts: number, bucket: number): string {
 }
 
 /**
+ * 折线图的纯文本替代：时间 + 每条可见序列的 P50。
+ * 窄屏（390px）由外层横向滚动，不把 7 天 × 多条链挤成不可读的细线。
+ */
+function ChainTrendTable({
+  rows,
+  chains,
+  bucket,
+}: {
+  rows: readonly ChainTrendRow[];
+  chains: readonly ChainHealthChain[];
+  bucket: number;
+}) {
+  return (
+    <div
+      data-chain-trend-table
+      className="max-h-[280px] overflow-auto rounded-md border border-border"
+    >
+      <table className="w-full min-w-[560px] border-collapse text-left text-[10px] tabular-nums">
+        <thead className="sticky top-0 bg-card">
+          <tr className="border-b border-border">
+            <th scope="col" className="px-2 py-1.5 font-medium text-muted-foreground">
+              {t("overview.chainLatency.colTime")}
+            </th>
+            {chains.map((chain) => (
+              <th
+                key={chain.id}
+                scope="col"
+                className="px-2 py-1.5 font-medium text-muted-foreground"
+              >
+                <span className="block max-w-40 truncate" title={chain.name}>
+                  {chain.name}
+                </span>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.ts} className="border-b border-border/60 last:border-0">
+              <th
+                scope="row"
+                className="whitespace-nowrap px-2 py-1 font-mono font-normal text-muted-foreground"
+              >
+                {formatChainTime(row.ts, bucket)}
+              </th>
+              {chains.map((chain) => {
+                const value = row[chain.id];
+                return (
+                  <td key={chain.id} className="whitespace-nowrap px-2 py-1 font-mono">
+                    {formatMs(typeof value === "number" ? value : null)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
  * 列表页的多序列整体时延折线：一条链一条线。
  *
  * 只画有整体曲线的链；空样本链保留在图例里灰显并标「样本不足」。
- * 变慢用 warning，正常用 primary 明度阶梯；超过 5 条再加线型区分。
+ * 序列用 `--series-1..4` + 第 2 条起的线型区分，超过 4 条再用不透明度阶梯。
  */
 export function ChainLatencyTrendChart({
   chains,
@@ -277,6 +325,7 @@ export function ChainLatencyTrendChart({
 }) {
   useI18n();
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const [tableView, setTableView] = useState(false);
   const data = useMemo(() => buildChainTrendData(chains), [chains]);
   const visible = data.series.filter((chain) => !hidden.has(chain.id));
   // 7d 用日界刻度：小时桶直接按默认刻度会连续出现同一个 MM/DD。
@@ -308,12 +357,29 @@ export function ChainLatencyTrendChart({
       })}
     >
       <ChainTrendLegend chains={chains} hidden={hidden} onToggle={toggle} />
-      <p
-        data-chain-trend-hint
-        className="pb-1 pr-1 text-right text-[9px] text-muted-foreground"
-      >
-        {t("overview.chainLatency.hoverLossHint")}
-      </p>
+      <div className="flex items-center justify-between gap-2 pb-1">
+        <p
+          data-chain-trend-hint
+          className="flex-1 truncate text-[9px] text-muted-foreground"
+        >
+          {t("overview.chainLatency.hoverLossHint")}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-chain-table-toggle
+          aria-pressed={tableView}
+          onClick={() => setTableView((value) => !value)}
+          className="h-7 shrink-0 px-2 text-[10px] font-normal"
+        >
+          {t(
+            tableView
+              ? "overview.chainLatency.chartView"
+              : "overview.chainLatency.tableView",
+          )}
+        </Button>
+      </div>
       {data.series.length === 0 ? (
         <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground">
           {t("overview.chainLatency.noSamplesShort")}
@@ -322,6 +388,8 @@ export function ChainLatencyTrendChart({
         <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground">
           {t("overview.chainLatency.allHidden")}
         </div>
+      ) : tableView ? (
+        <ChainTrendTable rows={data.rows} chains={visible} bucket={bucket} />
       ) : (
         <div className="h-[220px] w-full sm:h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -366,7 +434,7 @@ export function ChainLatencyTrendChart({
               />
               {visible.map((chain) => {
                 const index = chains.findIndex((item) => item.id === chain.id);
-                const visual = lineVisual(chain, Math.max(0, index), chains.length);
+                const visual = lineVisual(Math.max(0, index));
                 return (
                   <Line
                     key={chain.id}

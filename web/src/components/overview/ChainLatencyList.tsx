@@ -10,14 +10,19 @@ import { ChainLatencyTrendChart } from "@/components/overview/ChainLatencyTrendC
 import { ChainLossValue } from "@/components/overview/ChainLossValue";
 import type { Chain } from "@/lib/api";
 import {
+  chainDeltaTone,
   chainEndpointAddress,
   chainEndpointAddressIssue,
   chainEndpointNameIssue,
   chainEndpointServerName,
   chainLatestSampleTs,
+  chainStatus,
   formatLossPct,
   formatMs,
   formatSignedMs,
+  summaryDeltaTone,
+  worstHopTone,
+  type ChainDeltaTone,
   type ChainEndpoint,
   type ChainHealthChain,
   type ChainHealthSnapshot,
@@ -127,23 +132,30 @@ function KpiCell({
   );
 }
 
+function deltaToneClass(tone: ChainDeltaTone): string {
+  return tone === "warning"
+    ? "text-warning"
+    : tone === "primary"
+      ? "text-primary"
+      : "text-muted-foreground";
+}
+
 /** 列表页 KPI：跳间 P50 / 变化 / 变慢链 / 最慢段。 */
 export function ChainLatencyKpis({
   summary,
+  chains,
 }: {
   summary: ChainHealthSummary;
+  /** 用来解析「最慢段」自己的 delta；缺失时 KPI 保持 muted。 */
+  chains?: readonly ChainHealthChain[];
 }) {
-  const deltaTone =
-    summary.deltaMs === null || summary.deltaMs === 0
-      ? "muted"
-      : summary.deltaMs > 0
-        ? "warning"
-        : "primary";
+  const deltaTone = summaryDeltaTone(summary.deltaMs);
   const slowTone =
     summary.slowChains !== null && summary.slowChains > 0
       ? "warning"
       : "muted";
   const worst = summary.worstHop;
+  const worstTone = worstHopTone(chains ?? [], worst);
   const worstHint =
     worst === null
       ? t("overview.chainLatency.noSamplesShort")
@@ -184,7 +196,7 @@ export function ChainLatencyKpis({
           label={t("overview.chainLatency.worstHop")}
           value={formatMs(worst?.p50Ms ?? null)}
           hint={worstHint}
-          tone={worst === null ? "muted" : "warning"}
+          tone={worstTone}
         />
       </CardContent>
     </Card>
@@ -267,12 +279,12 @@ function ChainListRow({
   source: Chain | null;
   onOpen: () => void;
 }) {
-  const deltaTone =
-    chain.deltaMs === null || chain.deltaMs === 0
-      ? "text-muted-foreground"
-      : chain.deltaMs > 0
-        ? "text-warning"
-        : "text-primary";
+  const deltaTone = deltaToneClass(
+    chainDeltaTone(chain.deltaMs, chain.slow),
+  );
+  // `chainStatus` 是列表状态的唯一来源：normal / slow / insufficient。
+  // 只有 slow 才在行上挂徽章，避免把「暂无样本」也标成异常。
+  const latencyStatus = chainStatus(chain);
   const hopsLabel = t(
     chain.hops === 1 ? "overview.chainHopsOne" : "overview.chainHops",
     { n: chain.hops },
@@ -330,10 +342,19 @@ function ChainListRow({
           className="flex min-w-0 items-center gap-2 sm:contents"
         >
           <span
-            className="min-w-0 flex-1 truncate text-sm sm:col-start-1 sm:row-start-1"
+            className="flex min-w-0 flex-1 items-center gap-1.5 sm:col-start-1 sm:row-start-1"
             title={chain.name}
           >
-            {chain.name}
+            <span className="min-w-0 truncate text-sm">{chain.name}</span>
+            {latencyStatus === "slow" ? (
+              <Badge
+                variant="outline"
+                data-chain-slow-badge
+                className="shrink-0 border-warning/40 px-1 py-0 font-normal text-warning"
+              >
+                {t("overview.chainLatency.statusSlow")}
+              </Badge>
+            ) : null}
           </span>
           <ChainHealthStatusCell
             chain={source}
@@ -452,7 +473,7 @@ export function ChainLatencyList({
 
   return (
     <div className="space-y-4" data-chain-list>
-      <ChainLatencyKpis summary={snapshot.summary} />
+      <ChainLatencyKpis summary={snapshot.summary} chains={snapshot.chains} />
       {snapshot.hasSamples ? null : <NoSamplesBanner />}
 
       <Card className="gap-0" data-chain-trend-card>

@@ -6,7 +6,7 @@ import type {
   AgentUpgradeBatchItemStatus,
   AgentUpgradeBatchStatus,
 } from "@/lib/agentUpgradeBatch";
-import { ApiError } from "@/lib/apiError";
+import { ApiError, parseJsonBody } from "@/lib/apiError";
 import { restorePath } from "@/lib/backup";
 import type { ChainStrategy } from "@/lib/chains";
 import type { UpdatesResponse } from "@/lib/updates";
@@ -47,9 +47,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     ...init,
+    // 15 秒没有响应就中止；调用方自定义 signal 时以调用方为准。
+    signal: init?.signal ?? AbortSignal.timeout(15_000),
   });
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  const body = parseJsonBody(
+    text,
+    res.status,
+    t("common.requestFailed", { status: res.status }),
+  );
   if (!res.ok) {
     throw toApiError(body, res.status);
   }
@@ -2200,6 +2206,19 @@ export interface OverviewChainHealthPoint {
   p10?: number | null;
   p90?: number | null;
   samples?: number | null;
+  /** 该时间桶的整链丢包（%）；桶内没有探测时为 null。 */
+  loss_pct?: number | null;
+}
+
+/** 链的起点 / 终点：契约的 `chains[].entry` / `chains[].exit`。 */
+export interface OverviewChainHealthEndpoint {
+  server_id?: string | null;
+  server_name?: string | null;
+  address?: string | null;
+  ip?: string | null;
+  port?: number | null;
+  /** `internal` 表示地址回退到了内网地址；正常时字段缺失。 */
+  address_source?: string | null;
 }
 
 export interface OverviewChainHealthSegment {
@@ -2210,6 +2229,12 @@ export interface OverviewChainHealthSegment {
   p50?: number | null;
   delta_ms?: number | null;
   contribution_pct?: number | null;
+  /** 当前窗口探测次数；没有探测时 0，`loss_pct` 为 null。 */
+  attempts?: number | null;
+  /** 当前窗口探测失败次数。 */
+  failures?: number | null;
+  /** 当前窗口丢包（%）；attempts = 0 时为 null。 */
+  loss_pct?: number | null;
   /** 新契约可能直接给逐段序列；旧主控没有。 */
   series?: (OverviewChainHealthPoint | null)[] | null;
 }
@@ -2218,6 +2243,12 @@ export interface OverviewChainHealthDiagnosis {
   /** `single_hop` | `overall` | `unknown`；未知值按 unknown 处理。 */
   kind?: string;
   seq?: number | null;
+}
+
+/** 整链探测计数（各段之和）。 */
+export interface OverviewChainHealthLossSamples {
+  attempts?: number | null;
+  failures?: number | null;
 }
 
 export interface OverviewChainHealthChain {
@@ -2229,9 +2260,19 @@ export interface OverviewChainHealthChain {
   missing_hops?: number[] | null;
   /** 合计是否由缺失跳估算。 */
   estimated?: boolean | null;
+  /** 链入口；旧主控缺失。 */
+  entry?: OverviewChainHealthEndpoint | null;
+  /** 链出口；旧主控缺失。 */
+  exit?: OverviewChainHealthEndpoint | null;
   series?: (OverviewChainHealthPoint | null)[] | null;
   segments?: OverviewChainHealthSegment[] | null;
   diagnosis?: OverviewChainHealthDiagnosis | null;
+  /** 整链丢包（%）；无探测时为 null。 */
+  loss_pct?: number | null;
+  /** 部分跳没有探测数据：`loss_pct` 只是可见跳的汇总。 */
+  loss_partial?: boolean | null;
+  /** 整链探测计数；旧主控缺失。 */
+  loss_samples?: OverviewChainHealthLossSamples | null;
 }
 
 export interface OverviewChainHealthHop {
@@ -2239,6 +2280,13 @@ export interface OverviewChainHealthHop {
   chain_name?: string | null;
   seq?: number | null;
   p50_ms?: number | null;
+}
+
+/** 丢包最严重的链。 */
+export interface OverviewChainHealthWorstLoss {
+  chain_id?: string | null;
+  chain_name?: string | null;
+  loss_pct?: number | null;
 }
 
 export interface OverviewChainHealthSummary {
@@ -2249,6 +2297,9 @@ export interface OverviewChainHealthSummary {
   slow_chains?: number | null;
   total_chains?: number | null;
   worst_hop?: OverviewChainHealthHop | null;
+  /** 全局面板丢包（%）；旧主控缺失时为 null。 */
+  loss_pct?: number | null;
+  worst_loss?: OverviewChainHealthWorstLoss | null;
 }
 
 export interface OverviewChainHealthResponse {

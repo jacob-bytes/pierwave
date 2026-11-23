@@ -223,6 +223,12 @@ function finiteInt(value: unknown): number | null {
   return number === null ? null : Math.max(0, Math.floor(number));
 }
 
+/** 时延值必须是非负有限数；负数 / NaN / Infinity 都按「无效」处理。 */
+function nonNegativeNumber(value: unknown): number | null {
+  const number = finiteNumber(value);
+  return number !== null && number >= 0 ? number : null;
+}
+
 function positiveInt(value: unknown): number | null {
   const number = finiteInt(value);
   return number === null || number <= 0 ? null : number;
@@ -257,9 +263,9 @@ function readPoint(raw: unknown): ChainHealthPoint | null {
   const ts = unixSeconds(raw.ts);
   if (ts === null) return null;
 
-  const p50 = finiteNumber(raw.p50);
-  const p10Raw = finiteNumber(raw.p10);
-  const p90Raw = finiteNumber(raw.p90);
+  const p50 = nonNegativeNumber(raw.p50);
+  const p10Raw = nonNegativeNumber(raw.p10);
+  const p90Raw = nonNegativeNumber(raw.p90);
   const samplesRaw = finiteInt(raw.samples);
   // 显式 `samples: 0` 表示没有采样：值一律置空，不能画成 0ms。
   const samples = samplesRaw ?? (p50 !== null ? 1 : 0);
@@ -275,22 +281,75 @@ function readPoint(raw: unknown): ChainHealthPoint | null {
   return { ts, p50, p10, p90, samples, lossPct: readLossPct(raw.loss_pct) };
 }
 
-function readSeries(raw: unknown): ChainHealthPoint[] {
-  if (!Array.isArray(raw)) return [];
+/** 契约的时间轴：固定 `count` 个等距桶，空桶在 JSON 里是 `null`。 */
+interface SeriesWindowSpec {
+  count: number;
+  bucketSecs: number;
+}
+
+function sortedSeries(points: ChainHealthPoint[]): ChainHealthPoint[] {
   const byTs = new Map<number, ChainHealthPoint>();
-  for (const entry of raw) {
-    const point = readPoint(entry);
-    if (point) byTs.set(point.ts, point);
-  }
+  for (const point of points) byTs.set(point.ts, point);
   return [...byTs.values()].sort((a, b) => a.ts - b.ts);
 }
 
-function readPositiveInts(raw: unknown): number[] {
+/**
+ * 读一条序列。
+ *
+ * 新契约的 `series` 是**定长数组**：`null` 表示该桶没有样本，但桶仍在时间轴上。
+ * 直接把 `null` 过滤掉会让 x 轴按「有效点个数」压缩，20–29 槽的 10 个空桶
+ * 消失后，后面的点会整体左移。这里用相邻有效桶的时间戳反推空槽的 `ts`
+ * （`ts = anchorTs + (index - anchorIndex) * bucket`），保留定长空槽。
+ *
+ * 旧主控 / 测试里的稀疏数组不是定长契约，仍按原来的去重 + 排序处理。
+ */
+function readSeries(raw: unknown, window?: SeriesWindowSpec): ChainHealthPoint[] {
+  if (!Array.isArray(raw)) return [];
+  const parsed = raw.map(readPoint);
+  const fixedLength =
+    window !== undefined &&
+    window.count > 0 &&
+    window.bucketSecs > 0 &&
+    raw.length === window.count;
+  if (!fixedLength) {
+    return sortedSeries(
+      parsed.filter((point): point is ChainHealthPoint => point !== null),
+    );
+  }
+
+  const anchorIndex = parsed.findIndex(
+    (point): point is ChainHealthPoint => point !== null,
+  );
+  if (anchorIndex < 0) return [];
+  const anchor = parsed[anchorIndex] as ChainHealthPoint;
+  const bucket = window.bucketSecs;
+  const points: ChainHealthPoint[] = [];
+  for (let index = 0; index < parsed.length; index += 1) {
+    const point = parsed[index];
+    if (point !== null) {
+      points.push(point);
+      continue;
+    }
+    const ts = anchor.ts + (index - anchorIndex) * bucket;
+    if (ts <= 0) continue;
+    points.push({
+      ts,
+      p50: null,
+      p10: null,
+      p90: null,
+      samples: 0,
+      lossPct: null,
+    });
+  }
+  return sortedSeries(points);
+}
+
+function readPositiveInts(raw: unknown, max = Number.POSITIVE_INFINITY): number[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<number>();
   for (const entry of raw) {
     const value = positiveInt(entry);
-    if (value !== null) seen.add(value);
+    if (value !== null && value <= max) seen.add(value);
   }
   return [...seen].sort((a, b) => a - b);
 }
@@ -320,7 +379,10 @@ function readLossSamples(raw: unknown): ChainLossSamples | null {
   const attempts = positiveInt(raw.attempts);
   // attempts 是比值的分母：没有它就没有可展示的探测次数，整组按缺失处理。
   if (attempts === null) return null;
-  return { attempts, failures: finiteInt(raw.failures) };
+  const failures = finiteInt(raw.failures);
+  // 失败数大于探测数是脏数据：整组计数不渲染，而不是画一个不可能的比值。
+  if (failures !== null && failures > attempts) return null;
+  return { attempts, failures };
 }
 
 /** TCP 端口：只接受 1–65535；越界按「没有端口」处理，不夹成一个假端口。 */
@@ -360,24 +422,32 @@ function readEndpoint(raw: unknown): ChainEndpoint | null {
   return { ip, port, address, serverName };
 }
 
-function readSegment(raw: unknown): ChainHealthSegment | null {
+function readSegment(
+  raw: unknown,
+  window?: SeriesWindowSpec,
+): ChainHealthSegment | null {
   if (!isRecord(raw)) return null;
   const seq = positiveInt(raw.seq);
   if (seq === null) return null;
   const contribution = finiteNumber(raw.contribution_pct);
+  const attempts = positiveInt(raw.attempts);
+  const failures = finiteInt(raw.failures);
+  // 失败数不能大于探测数；脏数据按「没有计数」处理，避免渲染 11 / 10。
+  const probesValid =
+    attempts === null || failures === null || failures <= attempts;
   return {
     seq,
     from: trimmedString(raw.from),
     to: trimmedString(raw.to),
-    p50: finiteNumber(raw.p50),
+    p50: nonNegativeNumber(raw.p50),
     deltaMs: finiteNumber(raw.delta_ms),
     contributionPct:
       contribution === null ? null : clamp(contribution, 0, 100),
     missing: false,
     lossPct: readLossPct(raw.loss_pct),
-    attempts: positiveInt(raw.attempts),
-    failures: finiteInt(raw.failures),
-    series: readSeries(raw.series),
+    attempts: probesValid ? attempts : null,
+    failures: probesValid ? failures : null,
+    series: readSeries(raw.series, window),
   };
 }
 
@@ -389,15 +459,17 @@ function buildSegments(
   rawSegments: unknown,
   rawHops: unknown,
   rawMissing: unknown,
+  window?: SeriesWindowSpec,
 ): { segments: ChainHealthSegment[]; missingHops: number[]; lastHopMissing: boolean } {
   const bySeq = new Map<number, ChainHealthSegment>();
   if (Array.isArray(rawSegments)) {
     for (const raw of rawSegments) {
-      const segment = readSegment(raw);
+      const segment = readSegment(raw, window);
       if (segment) bySeq.set(segment.seq, segment);
     }
   }
-  const declaredMissing = readPositiveInts(rawMissing);
+  // 契约最多 8 组（7 段）；>32 的 missing_hops 是脏数据，直接丢弃。
+  const declaredMissing = readPositiveInts(rawMissing, 32);
   const maxSeq = Math.max(
     0,
     ...[...bySeq.keys()],
@@ -494,14 +566,17 @@ function sumSegmentP50(segments: readonly ChainHealthSegment[]): number | null {
   return found ? sum : null;
 }
 
-function readChain(raw: unknown): ChainHealthChain | null {
+function readChain(
+  raw: unknown,
+  window?: SeriesWindowSpec,
+): ChainHealthChain | null {
   if (!isRecord(raw)) return null;
   const id = trimmedString(raw.id);
   const name = trimmedString(raw.name);
   if (!id || !name) return null;
 
-  const series = readSeries(raw.series);
-  const built = buildSegments(raw.segments, raw.hops, raw.missing_hops);
+  const series = readSeries(raw.series, window);
+  const built = buildSegments(raw.segments, raw.hops, raw.missing_hops, window);
   const segments = built.segments;
   const deltaMs = chainDelta(segments);
   const latestP50 = latestSeriesP50(series) ?? sumSegmentP50(segments);
@@ -515,10 +590,14 @@ function readChain(raw: unknown): ChainHealthChain | null {
   return {
     id,
     name,
-    hops: Math.max(
-      segments.length,
-      positiveInt(raw.hops) ?? 0,
-      built.missingHops.length,
+    hops: clamp(
+      Math.max(
+        segments.length,
+        positiveInt(raw.hops) ?? 1,
+        built.missingHops.length,
+      ),
+      1,
+      32,
     ),
     entry: readEndpoint(raw.entry),
     exit: readEndpoint(raw.exit),
@@ -561,7 +640,7 @@ function worstHopFromChains(
 
 function readWorstHop(raw: unknown): ChainHealthWorstHop | null {
   if (!isRecord(raw)) return null;
-  const p50Ms = finiteNumber(raw.p50_ms);
+  const p50Ms = nonNegativeNumber(raw.p50_ms);
   const seq = positiveInt(raw.seq);
   const chainId = trimmedString(raw.chain_id);
   const chainName = trimmedString(raw.chain_name);
@@ -619,7 +698,7 @@ function buildSummary(
     .filter((value): value is number => value !== null);
 
   const hopP50 =
-    finiteNumber(rawSummary.hop_p50_ms) ??
+    nonNegativeNumber(rawSummary.hop_p50_ms) ??
     median(segmentP50) ??
     median(
       chains
@@ -657,7 +736,7 @@ function buildSnapshot(
   return {
     generatedAt: unixSeconds(raw.generated_at),
     hours: finiteInt(raw.hours) ?? 24,
-    bucket: finiteInt(raw.bucket) ?? 900,
+    bucket: Math.max(1, finiteInt(raw.bucket) ?? 900),
     summary: buildSummary(raw, chains),
     chains,
     hasSamples: chains.some((chain) => chain.hasSamples),
@@ -676,8 +755,12 @@ export function normalizeChainHealth(raw: unknown): ChainHealthParseResult {
   if (!isRecord(raw) || !Array.isArray(raw.chains)) {
     return { status: "unsupported" };
   }
+  const hours = finiteInt(raw.hours) ?? 24;
+  const bucketSecs = Math.max(1, finiteInt(raw.bucket) ?? 900);
+  const count = Math.max(1, Math.floor((hours * 3600) / bucketSecs));
+  const seriesWindow: SeriesWindowSpec = { count, bucketSecs };
   const chains = raw.chains
-    .map(readChain)
+    .map((entry) => readChain(entry, seriesWindow))
     .filter((chain): chain is ChainHealthChain => chain !== null);
   if (raw.chains.length > 0 && chains.length === 0) {
     return { status: "unsupported" };
@@ -804,6 +887,56 @@ export type ChainLatencyStatus = "normal" | "slow" | "insufficient";
 export function chainStatus(chain: ChainHealthChain): ChainLatencyStatus {
   if (!chain.hasSamples || chain.deltaMs === null) return "insufficient";
   return chain.slow ? "slow" : "normal";
+}
+
+/** 数值变化的语义色：只有后端标记 slow（≥8ms）才 warning。 */
+export type ChainDeltaTone = "warning" | "primary" | "muted";
+
+/**
+ * 单条链的「较基线」色。
+ *
+ * `deltaMs > 0` 不等于「变慢」：几毫秒的抖动是噪声。只有 `chain.slow`
+ * （后端按 8ms 阈值判定）才 warning；变快用 primary；其余用 muted。
+ */
+export function chainDeltaTone(
+  deltaMs: number | null,
+  slow: boolean,
+): ChainDeltaTone {
+  if (deltaMs === null || deltaMs === 0) return "muted";
+  if (slow) return "warning";
+  return deltaMs < 0 ? "primary" : "muted";
+}
+
+/** KPI「较上一周期」：没有 chain.slow，按同一个 8ms 阈值判断。 */
+export function summaryDeltaTone(deltaMs: number | null): ChainDeltaTone {
+  if (deltaMs === null || deltaMs === 0) return "muted";
+  if (deltaMs >= SLOW_CHAIN_DELTA_MS) return "warning";
+  return deltaMs < 0 ? "primary" : "muted";
+}
+
+/** 「最慢段」KPI 对应段的 delta；缺口 / 找不到段时 null。 */
+export function worstHopDeltaMs(
+  chains: readonly ChainHealthChain[],
+  worst: ChainHealthWorstHop | null,
+): number | null {
+  if (worst === null || worst.chainId === null || worst.seq === null) {
+    return null;
+  }
+  const chain = chains.find((item) => item.id === worst.chainId);
+  const segment = chain?.segments.find((item) => item.seq === worst.seq);
+  return segment?.deltaMs ?? null;
+}
+
+/** 「最慢段」KPI 的色：只有该段 delta ≥8ms 才 warning。 */
+export function worstHopTone(
+  chains: readonly ChainHealthChain[],
+  worst: ChainHealthWorstHop | null,
+): ChainDeltaTone {
+  if (worst === null) return "muted";
+  const delta = worstHopDeltaMs(chains, worst);
+  if (delta === null || delta === 0) return "muted";
+  if (delta >= SLOW_CHAIN_DELTA_MS) return "warning";
+  return delta < 0 ? "primary" : "muted";
 }
 
 /** 链路拓扑的一条边：段序号 + 该段 P50；没有样本时 missing = true。 */
@@ -936,9 +1069,42 @@ export function chainSeriesMax(series: readonly ChainHealthPoint[]): number {
   return max;
 }
 
-/** 一条链最近一个有效 P50；没有样本返回 null。 */
-export function chainLatestP50(series: readonly ChainHealthPoint[]): number | null {
-  return latestSeriesP50(series);
+/** 曲线的时间窗：第一个与最后一个槽的 `ts`（包含空槽）。 */
+export interface ChainSeriesWindow {
+  startTs: number;
+  endTs: number;
+}
+
+export function chainSeriesWindow(
+  series: readonly Pick<ChainHealthPoint, "ts">[],
+): ChainSeriesWindow | null {
+  let first: number | null = null;
+  let last: number | null = null;
+  for (const point of series) {
+    if (!Number.isFinite(point.ts)) continue;
+    if (first === null || point.ts < first) first = point.ts;
+    if (last === null || point.ts > last) last = point.ts;
+  }
+  if (first === null || last === null) return null;
+  return { startTs: first, endTs: last };
+}
+
+/**
+ * 时间戳 → viewBox x：`(ts - windowStart) / (windowEnd - windowStart) * width`。
+ *
+ * 只按时间定位，不按「第几个有效点」定位；否则一个 10 桶的空窗会把后面的
+ * 点整体压缩左移。单点 / 零跨度窗口画在中间。
+ */
+export function chainPointX(
+  ts: number,
+  window: ChainSeriesWindow,
+  width: number,
+): number {
+  if (!Number.isFinite(width) || width <= 0) return 0;
+  const span = window.endTs - window.startTs;
+  if (!Number.isFinite(ts) || !(span > 0)) return width / 2;
+  const ratio = (ts - window.startTs) / span;
+  return clamp(ratio, 0, 1) * width;
 }
 
 /**
@@ -989,7 +1155,9 @@ export function segmentTrends(
     if (
       !Number.isFinite(point.ts) ||
       !Number.isFinite(point.seq) ||
-      !Number.isFinite(point.latency_ms)
+      !Number.isFinite(point.latency_ms) ||
+      // 负时延是无效样本，不能参与中位数。
+      point.latency_ms < 0
     ) {
       continue;
     }
@@ -1112,12 +1280,21 @@ export function formatLossPct(value: number | null): string {
   return `${Number.isInteger(rounded) ? rounded : rounded.toFixed(1)}%`;
 }
 
-/** 探测计数 `2 / 240`（失败 / 总数）；任一侧缺失或为 0 次显示 `—`。 */
+/** 探测计数 `2 / 240`（失败 / 总数）；任一侧缺失、为 0 或失败数超过总数
+ * （脏数据）时显示 `—`，不渲染一个不可能的比值。 */
 export function formatLossProbes(
   attempts: number | null,
   failures: number | null,
 ): string {
-  if (attempts === null || failures === null || attempts <= 0) return "—";
+  if (
+    attempts === null ||
+    failures === null ||
+    attempts <= 0 ||
+    failures < 0 ||
+    failures > attempts
+  ) {
+    return "—";
+  }
   return `${failures} / ${attempts}`;
 }
 

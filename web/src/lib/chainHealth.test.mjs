@@ -15,11 +15,17 @@ import {
   chainLatencyWindow,
   chainLossAt,
   chainLossTone,
+  chainPointX,
   chainSeriesMax,
+  chainSeriesWindow,
   buildChainTrendData,
+  chainDeltaTone,
   chainHasTrend,
   chainStatus,
   chainTopology,
+  summaryDeltaTone,
+  worstHopDeltaMs,
+  worstHopTone,
   formatChainTime,
   formatLossPct,
   formatLossProbes,
@@ -219,7 +225,7 @@ test("a chain with a declared missing hop but no segments still has a row per ho
   assert.equal(item.estimated, true);
 });
 
-test("series is sorted, de-duplicated and never fills gaps with zero", () => {
+test("legacy sparse series is sorted and de-duplicated", () => {
   const result = normalizeChainHealth(
     payload([
       chain({
@@ -227,7 +233,6 @@ test("series is sorted, de-duplicated and never fills gaps with zero", () => {
           point(300, 30, 40, 20),
           point(100, 10),
           { ts: 200, p50: 20, samples: 0 },
-          null,
           point(100, 11),
         ],
       }),
@@ -244,6 +249,41 @@ test("series is sorted, de-duplicated and never fills gaps with zero", () => {
   // P10 / P90 swapped for display.
   assert.equal(series[2].p10, 20);
   assert.equal(series[2].p90, 40);
+});
+
+test("fixed-length contract series keeps empty buckets and positions x by ts", () => {
+  const start = 1_800_000_000;
+  const bucket = 900;
+  const slots = Array.from({ length: 96 }, (_, index) =>
+    index >= 20 && index < 30
+      ? null
+      : rawPoint(start + index * bucket, 20 + (index % 5)),
+  );
+  const result = normalizeChainHealth(
+    payload([chain({ series: slots })]),
+  );
+  const series = result.snapshot.chains[0].series;
+
+  assert.equal(series.length, 96, "空槽不能被丢掉，时间轴仍是 96 个桶");
+  for (let index = 20; index < 30; index += 1) {
+    assert.equal(series[index].ts, start + index * bucket);
+    assert.equal(series[index].p50, null, `第 ${index} 槽必须保留为空桶`);
+    assert.equal(series[index].samples, 0);
+  }
+  // 第 19 槽与第 30 槽之间跨过 10 个空槽：11 个桶的间隔不能被压缩。
+  assert.equal(series[30].ts - series[19].ts, 11 * bucket);
+
+  const window = chainSeriesWindow(series);
+  assert.deepEqual(window, {
+    startTs: start,
+    endTs: start + 95 * bucket,
+  });
+  const xOfSlot = (index) =>
+    chainPointX(series[index].ts, window, 1000);
+  // 96 个等距槽：第 20 槽在 20/95 处，误差 <1px；按有效点压缩会偏出 20px。
+  assert.ok(Math.abs(xOfSlot(20) - (20 / 95) * 1000) < 1);
+  assert.ok(Math.abs(xOfSlot(30) - (30 / 95) * 1000) < 1);
+  assert.ok(Math.abs(xOfSlot(20) - (20 / 85) * 1000) > 10);
 });
 
 test("slow chain is derived from segment deltas when summary is absent", () => {
@@ -438,6 +478,62 @@ test("list status is normal / slow / insufficient", () => {
   );
   assert.equal(chainStatus({ ...base, deltaMs: null }), "insufficient");
   assert.equal(chainStatus({ ...base, slow: true, deltaMs: 8 }), "slow");
+});
+
+test("delta tone warns only for chains marked slow, not for any positive delta", () => {
+  assert.equal(chainDeltaTone(3, false), "muted", "小幅变慢不是 warning");
+  assert.equal(chainDeltaTone(3, true), "warning");
+  assert.equal(chainDeltaTone(-3, false), "primary", "变快用 primary");
+  assert.equal(chainDeltaTone(0, false), "muted");
+  assert.equal(chainDeltaTone(null, false), "muted");
+  assert.equal(chainDeltaTone(null, true), "muted");
+
+  // KPI 的「较上一周期」没有 chain.slow，只能按同一个 8ms 阈值判断。
+  assert.equal(summaryDeltaTone(3), "muted");
+  assert.equal(summaryDeltaTone(SLOW_CHAIN_DELTA_MS), "warning");
+  assert.equal(summaryDeltaTone(-1), "primary");
+  assert.equal(summaryDeltaTone(null), "muted");
+});
+
+test("worst hop KPI warns only when that segment is actually slow", () => {
+  const chains = normalizeChainHealth(
+    payload([
+      chain({
+        segments: [
+          {
+            seq: 1,
+            from: "A",
+            to: "B",
+            p50: 40,
+            delta_ms: 3,
+            contribution_pct: 100,
+          },
+          {
+            seq: 2,
+            from: "B",
+            to: "C",
+            p50: 80,
+            delta_ms: 12,
+            contribution_pct: 100,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains;
+  const fast = {
+    chainId: "chain-1",
+    chainName: "香港 → 东京",
+    seq: 1,
+    p50Ms: 40,
+  };
+  const slow = { ...fast, seq: 2, p50Ms: 80 };
+
+  assert.equal(worstHopDeltaMs(chains, fast), 3);
+  assert.equal(worstHopDeltaMs(chains, slow), 12);
+  assert.equal(worstHopTone(chains, fast), "muted", "3ms 不足以告警");
+  assert.equal(worstHopTone(chains, slow), "warning");
+  assert.equal(worstHopTone(chains, null), "muted");
+  assert.equal(worstHopDeltaMs(chains, null), null);
 });
 
 test("topology stitches segment from/to and flags the missing target hop", () => {
@@ -1003,4 +1099,138 @@ test("an explicit address: null is respected even when ip/port exist", () => {
   assert.equal(chainEndpointAddress(item.entry), "—");
   assert.equal(chainEndpointAddressIssue(item.entry), "no_address");
   assert.equal(chainEndpointServerName(item.entry), "香港-01");
+});
+
+test("negative latency is invalid, not a faster reading", () => {
+  const result = normalizeChainHealth(
+    payload([
+      chain({
+        series: [rawPoint(1_800_000_000, -5, -2, -1)],
+        segments: [
+          {
+            seq: 1,
+            from: "A",
+            to: "B",
+            p50: -3,
+            delta_ms: -3,
+            contribution_pct: 0,
+          },
+        ],
+      }),
+    ]),
+  );
+  const item = result.snapshot.chains[0];
+  assert.equal(item.series[0].p50, null);
+  assert.equal(item.series[0].p10, null);
+  assert.equal(item.series[0].p90, null);
+  assert.equal(item.segments[0].p50, null);
+  // delta 允许为负（变快），不能被一并夹掉。
+  assert.equal(item.segments[0].deltaMs, -3);
+});
+
+test("hops clamp to 1..32 and missing_hops above 32 are ignored", () => {
+  const zero = normalizeChainHealth(
+    payload([chain({ hops: 0, segments: [] })]),
+  ).snapshot.chains[0];
+  assert.equal(zero.hops, 1);
+
+  const huge = normalizeChainHealth(
+    payload([chain({ hops: 99, segments: [] })]),
+  ).snapshot.chains[0];
+  assert.equal(huge.hops, 32);
+
+  const dirtyMissing = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [33, 40],
+        segments: [
+          {
+            seq: 1,
+            from: "A",
+            to: "B",
+            p50: 10,
+            delta_ms: 0,
+            contribution_pct: 0,
+          },
+          {
+            seq: 2,
+            from: "B",
+            to: "C",
+            p50: 20,
+            delta_ms: 0,
+            contribution_pct: 0,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+  assert.deepEqual(dirtyMissing.missingHops, []);
+  assert.equal(dirtyMissing.segments.length, 2);
+  assert.ok(dirtyMissing.missingHops.every((seq) => seq <= 32));
+});
+
+test("failures above attempts never render as a probe count", () => {
+  assert.equal(formatLossProbes(10, 11), "—");
+  assert.equal(formatLossProbes(10, 10), "10 / 10");
+  assert.equal(formatLossProbes(null, 0), "—");
+});
+
+test("segment trends ignore negative latency samples", () => {
+  const trends = segmentTrends(
+    [
+      { ts: 1_800_000_000, seq: 1, latency_ms: -5 },
+      { ts: 1_800_000_000, seq: 1, latency_ms: 20 },
+      { ts: 1_800_000_300, seq: 1, latency_ms: 30 },
+    ],
+    900,
+  );
+  const series = trends.get(1);
+  assert.equal(series.length, 1);
+  assert.equal(series[0].p50, 25, "负数不参与中位数，[20,30] 的中位数是 25");
+});
+
+test("probe counts with failures > attempts normalize to missing", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        loss_samples: { attempts: 10, failures: 11 },
+        segments: [
+          {
+            seq: 1,
+            from: "A",
+            to: "B",
+            p50: 10,
+            delta_ms: 0,
+            contribution_pct: 0,
+            attempts: 10,
+            failures: 11,
+            loss_pct: 110,
+          },
+        ],
+      }),
+    ]),
+  ).snapshot.chains[0];
+  assert.equal(item.lossSamples, null);
+  assert.equal(item.segments[0].attempts, null);
+  assert.equal(item.segments[0].failures, null);
+  // 丢包百分比仍按契约范围校验，越界值本来就是 null。
+  assert.equal(item.segments[0].lossPct, null);
+});
+
+test("negative summary latency and worst-hop latency are invalid", () => {
+  const result = normalizeChainHealth(
+    payload([chain({ series: [], segments: [] })], {
+      hop_p50_ms: -1,
+      worst_hop: {
+        chain_id: "chain-1",
+        chain_name: "香港 → 东京",
+        seq: 1,
+        p50_ms: -2,
+      },
+    }),
+  );
+  assert.equal(result.snapshot.summary.hopP50, null);
+  // worst_hop 整条被丢；没有可回落的段时保持 null。
+  assert.equal(result.snapshot.summary.worstHop, null);
 });

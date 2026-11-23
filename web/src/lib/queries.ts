@@ -487,6 +487,8 @@ export function useServerHealth(
     enabled: enabled && hours > 0,
     retry: false,
     staleTime: 60_000,
+    // 切换筛选 / 时窗时保留上一份快照，避免整块视图退回骨架态。
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -518,6 +520,8 @@ export function useChainHealth(
     enabled: enabled && hours > 0,
     retry: false,
     staleTime: CHAIN_HEALTH_POLL_MS,
+    // 24h ↔ 7d 切换时继续用上一份快照渲染：详情弹窗不能因 isPending 被卸载。
+    placeholderData: keepPreviousData,
     // 旧主控返回 null 后停止轮询：升级前的每次 404 都没有信息量。
     refetchInterval: (query) =>
       query.state.data === null ? false : CHAIN_HEALTH_POLL_MS,

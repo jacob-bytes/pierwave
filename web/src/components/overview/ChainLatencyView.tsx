@@ -108,12 +108,17 @@ export default function ChainLatencyView({
   }, [chainParam, snapshot, setSearchParams]);
 
   function openChain(id: string) {
-    setSearchParams((previous) => {
-      const next = new URLSearchParams(previous);
-      next.set("view", "chain");
-      next.set("chain", id);
-      return next;
-    });
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.set("view", "chain");
+        next.set("chain", id);
+        return next;
+      },
+      // 打开详情只是覆盖当前 URL，不是一次新的历史记录；否则关闭后按后退
+      // 又会回到同一个 `?chain=`，看起来像按钮失灵。
+      { replace: true },
+    );
   }
 
   function closeChain() {
@@ -138,7 +143,11 @@ export default function ChainLatencyView({
     );
   }
 
-  if (query.isPending) return <ChainLatencySkeleton />;
+  // 只有第一次请求（还没有任何 payload）才铺骨架；切时窗时 placeholderData
+  // 会先顶上旧快照，整棵视图（含详情弹窗）保持挂载。
+  if (query.isPending && query.data === undefined) {
+    return <ChainLatencySkeleton />;
+  }
 
   if (query.isError) {
     return (
