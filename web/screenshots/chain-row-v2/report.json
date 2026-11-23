@@ -1,0 +1,377 @@
+{
+  "results": [
+    {
+      "name": "[1440-dark] 两行式三段布局",
+      "ok": true,
+      "detail": {
+        "geometry": {
+          "row": {
+            "x": 272,
+            "y": 1021,
+            "width": 1136,
+            "height": 72,
+            "right": 1408,
+            "bottom": 1094
+          },
+          "lead": {
+            "x": 285,
+            "y": 1034,
+            "width": 311,
+            "height": 46,
+            "right": 596,
+            "bottom": 1081
+          },
+          "route": {
+            "x": 608,
+            "y": 1035,
+            "width": 519,
+            "height": 44,
+            "right": 1127,
+            "bottom": 1079
+          },
+          "metrics": {
+            "x": 1139,
+            "y": 1036,
+            "width": 256,
+            "height": 42,
+            "right": 1395,
+            "bottom": 1079
+          },
+          "gapLeadRoute": 12,
+          "gapRouteMetrics": 12,
+          "gapAddressMetrics": 12,
+          "address": {
+            "x": 608,
+            "y": 1035,
+            "width": 519,
+            "height": 20,
+            "right": 1127,
+            "bottom": 1055
+          },
+          "fonts": {
+            "hops": 13,
+            "sample": 13,
+            "address": 13,
+            "names": 12,
+            "p50": 20,
+            "loss": 14
+          },
+          "text": {
+            "hops": "4 跳",
+            "sample": "最近样本 12 分钟前",
+            "address": "203.0.113.11:21001→198.51.100.23:21004",
+            "names": "香港-01 → 东京-01 → … → 大阪-01"
+          },
+          "scrollOverflow": 0
+        },
+        "rowCount": 3,
+        "slowBadge": 1,
+        "headVisible": true
+      }
+    },
+    {
+      "name": "[1440-dark] 块之间没有 >40px 空白",
+      "ok": true,
+      "detail": {
+        "gapLeadRoute": 12,
+        "gapRouteMetrics": 12,
+        "gapAddressMetrics": 12
+      }
+    },
+    {
+      "name": "[1440-dark] 4 跳链路由用省略号，不编造中间节点",
+      "ok": true,
+      "detail": {
+        "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
+        "slowBadge": 1
+      }
+    },
+    {
+      "name": "[1440-dark] 没有页面错误",
+      "ok": true,
+      "detail": {
+        "errors": []
+      }
+    },
+    {
+      "name": "[390-dark] 两行式三段布局",
+      "ok": true,
+      "detail": {
+        "geometry": {
+          "row": {
+            "x": 32,
+            "y": 1306,
+            "width": 326,
+            "height": 167,
+            "right": 358,
+            "bottom": 1473
+          },
+          "lead": {
+            "x": 45,
+            "y": 1315,
+            "width": 300,
+            "height": 46,
+            "right": 345,
+            "bottom": 1361
+          },
+          "route": {
+            "x": 45,
+            "y": 1369,
+            "width": 300,
+            "height": 44,
+            "right": 345,
+            "bottom": 1413
+          },
+          "metrics": {
+            "x": 45,
+            "y": 1421,
+            "width": 300,
+            "height": 42,
+            "right": 345,
+            "bottom": 1464
+          },
+          "gapLeadRoute": -300,
+          "gapRouteMetrics": -300,
+          "gapAddressMetrics": -300,
+          "address": {
+            "x": 45,
+            "y": 1369,
+            "width": 300,
+            "height": 20,
+            "right": 345,
+            "bottom": 1389
+          },
+          "fonts": {
+            "hops": 13,
+            "sample": 13,
+            "address": 13,
+            "names": 12,
+            "p50": 20,
+            "loss": 14
+          },
+          "text": {
+            "hops": "4 跳",
+            "sample": "最近样本 12 分钟前",
+            "address": "203.0.113.11:21001→198.51.100.23:21004",
+            "names": "香港-01 → 东京-01 → … → 大阪-01"
+          },
+          "scrollOverflow": 0
+        },
+        "rowCount": 3,
+        "slowBadge": 1,
+        "headVisible": false
+      }
+    },
+    {
+      "name": "[390-dark] 块之间没有 >40px 空白",
+      "ok": true,
+      "detail": {
+        "gapLeadRoute": -300,
+        "gapRouteMetrics": -300,
+        "gapAddressMetrics": -300
+      }
+    },
+    {
+      "name": "[390-dark] 4 跳链路由用省略号，不编造中间节点",
+      "ok": true,
+      "detail": {
+        "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
+        "slowBadge": 1
+      }
+    },
+    {
+      "name": "[390-dark] 没有页面错误",
+      "ok": true,
+      "detail": {
+        "errors": []
+      }
+    },
+    {
+      "name": "[1440-light] 两行式三段布局",
+      "ok": true,
+      "detail": {
+        "geometry": {
+          "row": {
+            "x": 272,
+            "y": 1021,
+            "width": 1136,
+            "height": 72,
+            "right": 1408,
+            "bottom": 1094
+          },
+          "lead": {
+            "x": 285,
+            "y": 1034,
+            "width": 311,
+            "height": 46,
+            "right": 596,
+            "bottom": 1081
+          },
+          "route": {
+            "x": 608,
+            "y": 1035,
+            "width": 519,
+            "height": 44,
+            "right": 1127,
+            "bottom": 1079
+          },
+          "metrics": {
+            "x": 1139,
+            "y": 1036,
+            "width": 256,
+            "height": 42,
+            "right": 1395,
+            "bottom": 1079
+          },
+          "gapLeadRoute": 12,
+          "gapRouteMetrics": 12,
+          "gapAddressMetrics": 12,
+          "address": {
+            "x": 608,
+            "y": 1035,
+            "width": 519,
+            "height": 20,
+            "right": 1127,
+            "bottom": 1055
+          },
+          "fonts": {
+            "hops": 13,
+            "sample": 13,
+            "address": 13,
+            "names": 12,
+            "p50": 20,
+            "loss": 14
+          },
+          "text": {
+            "hops": "4 跳",
+            "sample": "最近样本 12 分钟前",
+            "address": "203.0.113.11:21001→198.51.100.23:21004",
+            "names": "香港-01 → 东京-01 → … → 大阪-01"
+          },
+          "scrollOverflow": 0
+        },
+        "rowCount": 3,
+        "slowBadge": 1,
+        "headVisible": true
+      }
+    },
+    {
+      "name": "[1440-light] 块之间没有 >40px 空白",
+      "ok": true,
+      "detail": {
+        "gapLeadRoute": 12,
+        "gapRouteMetrics": 12,
+        "gapAddressMetrics": 12
+      }
+    },
+    {
+      "name": "[1440-light] 4 跳链路由用省略号，不编造中间节点",
+      "ok": true,
+      "detail": {
+        "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
+        "slowBadge": 1
+      }
+    },
+    {
+      "name": "[1440-light] 没有页面错误",
+      "ok": true,
+      "detail": {
+        "errors": []
+      }
+    },
+    {
+      "name": "[390-light] 两行式三段布局",
+      "ok": true,
+      "detail": {
+        "geometry": {
+          "row": {
+            "x": 32,
+            "y": 1306,
+            "width": 326,
+            "height": 167,
+            "right": 358,
+            "bottom": 1473
+          },
+          "lead": {
+            "x": 45,
+            "y": 1315,
+            "width": 300,
+            "height": 46,
+            "right": 345,
+            "bottom": 1361
+          },
+          "route": {
+            "x": 45,
+            "y": 1369,
+            "width": 300,
+            "height": 44,
+            "right": 345,
+            "bottom": 1413
+          },
+          "metrics": {
+            "x": 45,
+            "y": 1421,
+            "width": 300,
+            "height": 42,
+            "right": 345,
+            "bottom": 1464
+          },
+          "gapLeadRoute": -300,
+          "gapRouteMetrics": -300,
+          "gapAddressMetrics": -300,
+          "address": {
+            "x": 45,
+            "y": 1369,
+            "width": 300,
+            "height": 20,
+            "right": 345,
+            "bottom": 1389
+          },
+          "fonts": {
+            "hops": 13,
+            "sample": 13,
+            "address": 13,
+            "names": 12,
+            "p50": 20,
+            "loss": 14
+          },
+          "text": {
+            "hops": "4 跳",
+            "sample": "最近样本 12 分钟前",
+            "address": "203.0.113.11:21001→198.51.100.23:21004",
+            "names": "香港-01 → 东京-01 → … → 大阪-01"
+          },
+          "scrollOverflow": 0
+        },
+        "rowCount": 3,
+        "slowBadge": 1,
+        "headVisible": false
+      }
+    },
+    {
+      "name": "[390-light] 块之间没有 >40px 空白",
+      "ok": true,
+      "detail": {
+        "gapLeadRoute": -300,
+        "gapRouteMetrics": -300,
+        "gapAddressMetrics": -300
+      }
+    },
+    {
+      "name": "[390-light] 4 跳链路由用省略号，不编造中间节点",
+      "ok": true,
+      "detail": {
+        "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
+        "slowBadge": 1
+      }
+    },
+    {
+      "name": "[390-light] 没有页面错误",
+      "ok": true,
+      "detail": {
+        "errors": []
+      }
+    }
+  ],
+  "failures": []
+}

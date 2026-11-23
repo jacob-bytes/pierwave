@@ -15,7 +15,9 @@ import {
   chainLatencyWindow,
   chainLossAt,
   chainLossTone,
+  CHAIN_ROUTE_ELLIPSIS,
   chainPointX,
+  chainRoutePreview,
   chainSeriesMax,
   chainSeriesWindow,
   buildChainTrendData,
@@ -1233,4 +1235,95 @@ test("negative summary latency and worst-hop latency are invalid", () => {
   assert.equal(result.snapshot.summary.hopP50, null);
   // worst_hop 整条被丢；没有可回落的段时保持 null。
   assert.equal(result.snapshot.summary.worstHop, null);
+});
+
+test("route preview keeps real nodes and uses an ellipsis for missing middles", () => {
+  const routeSegments = (nodes) =>
+    nodes.slice(1).map((to, index) => ({
+      seq: index + 1,
+      from: nodes[index],
+      to,
+      p50: 10,
+      delta_ms: 0,
+      contribution_pct: 0,
+    }));
+
+  const three = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 3,
+        segments: routeSegments(["香港-01", "东京-01", "大阪-01"]),
+        entry: { server_name: "香港-01" },
+        exit: { server_name: "大阪-01" },
+      }),
+    ]),
+  ).snapshot.chains[0];
+  assert.deepEqual(chainRoutePreview(three), [
+    "香港-01",
+    "东京-01",
+    "大阪-01",
+  ]);
+
+  const four = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 4,
+        segments: routeSegments([
+          "香港-01",
+          "东京-01",
+          "新加坡-01",
+          "大阪-01",
+        ]),
+        entry: { server_name: "香港-01" },
+        exit: { server_name: "大阪-01" },
+      }),
+    ]),
+  ).snapshot.chains[0];
+  assert.deepEqual(chainRoutePreview(four), [
+    "香港-01",
+    "东京-01",
+    CHAIN_ROUTE_ELLIPSIS,
+    "大阪-01",
+  ]);
+  assert.ok(!chainRoutePreview(four).includes("新加坡-01"), "中间节点被省略");
+
+  // 只有一段历史 + 契约出口：不补假中转，用省略号表达中间缺失。
+  const missing = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 4,
+        segments: routeSegments(["香港-01", "东京-01"]),
+        entry: { server_name: "香港-01" },
+        exit: { server_name: "大阪-01" },
+      }),
+    ]),
+  ).snapshot.chains[0];
+  assert.deepEqual(chainRoutePreview(missing), [
+    "香港-01",
+    "东京-01",
+    CHAIN_ROUTE_ELLIPSIS,
+    "大阪-01",
+  ]);
+
+  // 完全没有逐段数据时只回落到契约两端，不编造中间节点。
+  const endpointsOnly = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 4,
+        series: [],
+        segments: [],
+        entry: { server_name: "香港-01" },
+        exit: { server_name: "大阪-01" },
+      }),
+    ]),
+  ).snapshot.chains[0];
+  assert.deepEqual(chainRoutePreview(endpointsOnly), [
+    "香港-01",
+    CHAIN_ROUTE_ELLIPSIS,
+    "大阪-01",
+  ]);
+
+  const empty = normalizeChainHealth(payload([chain({ series: [], segments: [] })]))
+    .snapshot.chains[0];
+  assert.deepEqual(chainRoutePreview(empty), []);
 });

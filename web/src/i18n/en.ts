@@ -704,7 +704,6 @@ const en = {
       entry: "Entry",
       exit: "Exit",
       colEndpoint: "Entry / exit",
-      colHops: "Hops",
       endpointMissing: "{side}: the controller did not return this endpoint",
       endpointAddressMissing:
         "{side}: no displayable address (missing ip:port or invalid port)",

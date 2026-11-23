@@ -683,7 +683,6 @@ const zhCN = {
       entry: "起点",
       exit: "终点",
       colEndpoint: "起点 / 终点",
-      colHops: "跳数",
       endpointMissing: "{side}：主控未返回该端信息",
       endpointAddressMissing:
         "{side}：没有可展示的地址（ip:port 缺失或端口无效）",

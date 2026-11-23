@@ -979,6 +979,50 @@ export function chainTopology(chain: ChainHealthChain): ChainTopology {
   return { nodes, edges, targetMissing: chain.lastHopMissing };
 }
 
+/** 路由预览里的省略号；不是节点名，调用方不要把它当成数据。 */
+export const CHAIN_ROUTE_ELLIPSIS = "…";
+
+/**
+ * 列表第二行的服务器路由预览：只用真实节点名，不补假中转。
+ *
+ * - 正常 3 跳以内：`A → B → C`；
+ * - 超过 3 个节点 / 契约缺中间跳：保留前两个 + `…` + 出口，
+ *   例如 `香港-01 → 东京-01 → … → 大阪-01`；
+ * - 逐段数据不足时回落到契约的 `entry` / `exit` 名字；再不足就返回空数组，
+ *   由调用方显示 `—`，绝不编造节点名。
+ *
+ * 返回值是 label 数组（含 `…`），UI 自己决定分隔符。
+ */
+export function chainRoutePreview(chain: ChainHealthChain): string[] {
+  const topology = chainTopology(chain).nodes.filter(
+    (node) => node.trim() !== "",
+  );
+  const entry = chain.entry?.serverName ?? null;
+  const exit = chain.exit?.serverName ?? null;
+
+  let nodes = [...topology];
+  if (nodes.length === 0) {
+    nodes = [entry, exit].filter(
+      (node): node is string => node !== null && node !== "",
+    );
+  } else if (exit !== null && nodes[nodes.length - 1] !== exit) {
+    // 逐段数据只到中间跳时，契约的出口仍是真实节点；补在末尾再做省略。
+    nodes.push(exit);
+  }
+
+  if (nodes.length === 0) return [];
+  if (nodes.length === 1) {
+    return chain.hops > 1 ? [nodes[0], CHAIN_ROUTE_ELLIPSIS] : [nodes[0]];
+  }
+
+  const missingMiddle = chain.hops > nodes.length;
+  if (!missingMiddle && nodes.length <= 3) return nodes;
+
+  // 保留前两个真实节点 + 出口；中间省略，不伪造任何名字。
+  const head = nodes.length >= 3 ? nodes.slice(0, 2) : nodes.slice(0, 1);
+  return [...head, CHAIN_ROUTE_ELLIPSIS, nodes[nodes.length - 1]];
+}
+
 /**
  * 诊断句分支：后端把「整体稳定 / 变快」也归到 `unknown`，所以不能只看
  * kind；有样本且 delta ≤ 0 时是 stable，真正缺样本才是 unknown。
