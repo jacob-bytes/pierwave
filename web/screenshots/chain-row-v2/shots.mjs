@@ -116,7 +116,7 @@ const GEOMETRY = () => {
   const lead = row.querySelector("[data-chain-row-lead]");
   const addressCell = row.querySelector("[data-chain-row-address]");
   const address = row.querySelector("[data-chain-endpoint-address]");
-  const meta = row.querySelector("[data-chain-row-meta]");
+  const route = row.querySelector("[data-chain-row-route]");
   const metrics = row.querySelector("[data-chain-row-metrics]");
   const hops = row.querySelector("[data-chain-hops]");
   const p50 = row.querySelector("[data-chain-p50]");
@@ -148,7 +148,7 @@ const GEOMETRY = () => {
     lead: box(lead),
     addressCell: box(addressCell),
     address: box(address),
-    meta: box(meta),
+    routeCell: box(route),
     metrics: box(metrics),
     hops: box(hops),
     p50: box(p50),
@@ -225,24 +225,26 @@ for (const theme of ["dark", "light"]) {
     await check(`[${key}] 标准表格列宽 / 行高 / 字号`, async () => {
       assert.equal(rowCount, 3, `expected 3 chains, got ${rowCount}`);
       assert.equal(geometry.fonts.hops, 13, "跳数 13px");
-      assert.equal(geometry.fonts.address, 13, "地址 13px");
+      assert.equal(geometry.fonts.address, 12, "地址 12px");
       assert.equal(geometry.fonts.route, 12, "路由 12px");
       assert.equal(geometry.fonts.sample, 12, "样本时间 12px");
-      assert.equal(geometry.fonts.p50, 17, "P50 17px");
+      assert.equal(geometry.fonts.p50, 15, "P50 15px");
       assert.equal(geometry.fonts.loss, 14, "丢包 14px");
       assert.ok(geometry.addressWidth <= 520, `地址宽 ${geometry.addressWidth}px`);
       if (width === 1440) {
-        assert.equal(geometry.columns.length, 7, "7 列");
-        const [, , hops, p50, loss, status, chevron] = geometry.columns;
+        assert.equal(geometry.columns.length, 8, "8 列");
+        const [, , , hops, p50, loss, status, chevron] = geometry.columns;
         assert.ok(Math.abs(hops - 64) <= 4, `跳数列 ${hops}px`);
-        assert.ok(Math.abs(p50 - 88) <= 4, `P50 列 ${p50}px`);
-        assert.ok(Math.abs(loss - 96) <= 4, `丢包列 ${loss}px`);
-        assert.ok(Math.abs(status - 96) <= 4, `状态列 ${status}px`);
+        assert.ok(Math.abs(p50 - 80) <= 4, `P50 列 ${p50}px`);
+        assert.ok(Math.abs(loss - 88) <= 4, `丢包列 ${loss}px`);
+        assert.ok(Math.abs(status - 88) <= 4, `状态列 ${status}px`);
         assert.ok(Math.abs(chevron - 24) <= 4, `chevron 列 ${chevron}px`);
-        const ratio = geometry.columns[0] / geometry.columns[1];
-        assert.ok(Math.abs(ratio - 0.5) <= 0.08, `链路/地址比 ${ratio}`);
+        const linkAddress = geometry.columns[0] / geometry.columns[1];
+        const routeAddress = geometry.columns[2] / geometry.columns[1];
+        assert.ok(Math.abs(linkAddress - 20 / 32) <= 0.08, `链路/地址比 ${linkAddress}`);
+        assert.ok(Math.abs(routeAddress - 22 / 32) <= 0.08, `路由/地址比 ${routeAddress}`);
         assert.ok(
-          geometry.rowHeight >= 64 && geometry.rowHeight <= 72,
+          geometry.rowHeight >= 56 && geometry.rowHeight <= 80,
           `行高 ${geometry.rowHeight}px`,
         );
         assert.ok(geometry.columnGap <= 40, `列间距 ${geometry.columnGap}px`);
@@ -264,6 +266,7 @@ for (const theme of ["dark", "light"]) {
         1,
         "表头只写一次窗口丢包",
       );
+      assert.ok(geometry.headerText.includes("路由"), "表头必须有路由列");
       assert.ok(
         !geometry.rowText.includes("窗口丢包"),
         `行内出现窗口丢包: ${geometry.rowText}`,
@@ -288,11 +291,11 @@ for (const theme of ["dark", "light"]) {
           "地址必须在名称下方",
         );
         assert.ok(
-          geometry.meta.y >= geometry.address.bottom,
-          "路由/样本在地址下方",
+          geometry.routeCell.y >= geometry.address.bottom,
+          "路由必须在地址下方",
         );
         assert.ok(
-          geometry.metrics.y >= geometry.meta.bottom,
+          geometry.metrics.y >= geometry.routeCell.bottom,
           "指标在最后一行",
         );
         assert.ok(geometry.scrollOverflow <= 1, `溢出 ${geometry.scrollOverflow}px`);
@@ -303,7 +306,7 @@ for (const theme of ["dark", "light"]) {
         positions: {
           lead: geometry.lead,
           address: geometry.addressCell,
-          meta: geometry.meta,
+          route: geometry.routeCell,
           metrics: geometry.metrics,
         },
       };

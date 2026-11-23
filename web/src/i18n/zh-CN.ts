@@ -682,6 +682,7 @@ const zhCN = {
       exit: "终点",
       colEndpoint: "起点 → 终点",
       colHops: "跳数",
+      colRoute: "路由",
       mobileLatency: "时延",
       mobileLoss: "丢包",
       endpointMissing: "{side}：主控未返回该端信息",

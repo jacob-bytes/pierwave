@@ -35,11 +35,11 @@ import { t, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 /**
- * 标准表格列：链路 22% / 起点·终点 44% / 跳数 64 / P50 88 / 丢包 96 /
- * 状态 96 / chevron 24。百分比列吃掉剩余空间，地址不会被拉成整行。
+ * 标准表格列：链路 20% / 起点·终点 32% / 路由 22% / 跳数 64 / P50 80 /
+ * 丢包 88 / 状态 88 / chevron 24。三个百分比列吃掉剩余空间。
  */
 const LIST_GRID =
-  "lg:grid-cols-[minmax(0,22fr)_minmax(0,44fr)_64px_88px_96px_96px_24px]";
+  "lg:grid-cols-[minmax(0,20fr)_minmax(0,32fr)_minmax(0,22fr)_64px_80px_88px_88px_24px]";
 
 /**
  * 端点单元格的 title：地址行和服务器名行各自说明缺失原因。
@@ -309,7 +309,7 @@ function ChainListRow({
     delta: formatSignedMs(chain.deltaMs),
     loss: formatLossPct(chain.lossPct),
   });
-  // 第二行路由只显示真实节点：>3 个节点或契约缺中间跳时用 `…`。
+  // 路由列只显示真实节点：>3 个节点或契约缺中间跳时用 `…`。
   const routeLabels = chainRoutePreview(chain);
   const routeText = routeLabels.length > 0 ? routeLabels.join(" → ") : "—";
   const routeTitle = routeLabels.length > 0 ? routeText : nameTitle;
@@ -323,30 +323,39 @@ function ChainListRow({
         onClick={onOpen}
         aria-label={label}
         className={cn(
-          "group grid w-full grid-cols-1 gap-x-3 gap-y-1 rounded-lg border border-transparent px-3 py-2 text-left outline-none transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 lg:items-center",
+          "group grid w-full grid-cols-1 gap-x-3 gap-y-1 rounded-lg border border-transparent px-3 py-2 text-left outline-none transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 lg:items-center lg:py-3",
           LIST_GRID,
         )}
       >
-        {/* 链路名：桌面表头已给列名，行内不再重复标签。 */}
+        {/* 链路名 + 名下小字样本时间；表头已给列名，行内不再重复标签。 */}
         <span
           data-chain-row-lead
-          className="flex min-w-0 items-center gap-2 lg:col-start-1 lg:row-start-1"
+          className="flex min-w-0 flex-col gap-0.5 lg:col-start-1 lg:row-start-1"
         >
-          <span
-            className="min-w-0 truncate text-sm font-medium"
-            title={chain.name}
-          >
-            {chain.name}
-          </span>
-          {latencyStatus === "slow" ? (
-            <Badge
-              variant="outline"
-              data-chain-slow-badge
-              className="shrink-0 border-warning/40 px-1 py-0 font-normal text-warning"
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className="min-w-0 truncate text-sm font-medium"
+              title={chain.name}
             >
-              {t("overview.chainLatency.statusSlow")}
-            </Badge>
-          ) : null}
+              {chain.name}
+            </span>
+            {latencyStatus === "slow" ? (
+              <Badge
+                variant="outline"
+                data-chain-slow-badge
+                className="shrink-0 border-warning/40 px-1 py-0 font-normal text-warning"
+              >
+                {t("overview.chainLatency.statusSlow")}
+              </Badge>
+            ) : null}
+          </span>
+          <span
+            data-chain-sample
+            className="truncate text-xs leading-5 text-muted-foreground"
+            title={sampleText}
+          >
+            {sampleText}
+          </span>
         </span>
 
         {/* 地址：只有一个 muted 箭头，不画连接线、不拉伸。 */}
@@ -360,7 +369,7 @@ function ChainListRow({
           </span>
           <span
             data-chain-endpoint-address
-            className="flex w-full min-w-0 max-w-[520px] items-center gap-1 font-mono text-[13px] leading-5 tabular-nums"
+            className="flex w-full min-w-0 max-w-[520px] items-center gap-1 font-mono text-xs leading-5 tabular-nums"
             title={addressTitle}
           >
             <span
@@ -381,28 +390,20 @@ function ChainListRow({
           </span>
         </span>
 
-        {/* 第二行：真实路由 + 样本时间，12px muted。 */}
+        {/* 路由独立成列：12px muted，超长截断，title 给完整序列。 */}
         <span
-          data-chain-row-meta
           data-chain-row-route
-          className="flex min-w-0 items-center gap-x-2 text-xs leading-5 text-muted-foreground lg:col-span-2 lg:col-start-1 lg:row-start-2"
+          className="flex min-w-0 flex-col gap-0.5 lg:col-start-3 lg:row-start-1"
         >
+          <span className="text-[10px] text-muted-foreground lg:hidden">
+            {t("overview.chainLatency.colRoute")}
+          </span>
           <span
             data-chain-endpoint-name
-            className="min-w-0 truncate"
+            className="min-w-0 truncate text-xs leading-5 text-muted-foreground"
             title={routeTitle}
           >
             {routeText}
-          </span>
-          <span aria-hidden="true" className="shrink-0">
-            ·
-          </span>
-          <span
-            data-chain-sample
-            className="shrink-0 whitespace-nowrap"
-            title={sampleText}
-          >
-            {sampleText}
           </span>
         </span>
 
@@ -413,7 +414,7 @@ function ChainListRow({
         >
           <span
             data-chain-hops
-            className="text-[13px] text-muted-foreground tabular-nums lg:col-start-3 lg:row-start-1 lg:text-right"
+            className="text-[13px] text-muted-foreground tabular-nums lg:col-start-4 lg:row-start-1 lg:text-right"
           >
             <span className="text-[10px] lg:hidden">
               {t("overview.chainLatency.colHops")}{" "}
@@ -422,19 +423,19 @@ function ChainListRow({
           </span>
           <span
             data-chain-p50
-            className="inline-flex items-baseline justify-end gap-1 lg:col-start-4 lg:row-start-1"
+            className="inline-flex items-baseline justify-end gap-1 lg:col-start-5 lg:row-start-1"
             title={sampleText}
           >
             <span className="text-[10px] text-muted-foreground lg:hidden">
               {t("overview.chainLatency.mobileLatency")}
             </span>
-            <span className="font-mono text-[17px] leading-none font-medium tabular-nums">
+            <span className="font-mono text-[15px] leading-none font-medium tabular-nums">
               {formatMs(chain.latestP50)}
             </span>
           </span>
           <span
             data-chain-loss
-            className="inline-flex items-baseline justify-end gap-1 lg:col-start-5 lg:row-start-1"
+            className="inline-flex items-baseline justify-end gap-1 lg:col-start-6 lg:row-start-1"
             title={lossTitle}
           >
             <span className="text-[10px] text-muted-foreground lg:hidden">
@@ -444,12 +445,12 @@ function ChainListRow({
           </span>
           <ChainHealthStatusCell
             chain={source}
-            className="lg:col-start-6 lg:row-start-1"
+            className="lg:col-start-7 lg:row-start-1"
           />
           <ChevronRightIcon
             aria-hidden="true"
             data-chain-chevron
-            className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 lg:col-start-7 lg:row-start-1 lg:justify-self-end"
+            className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 lg:col-start-8 lg:row-start-1 lg:justify-self-end"
           />
         </span>
       </button>
@@ -538,6 +539,7 @@ export function ChainLatencyList({
           >
             <span>{t("overview.chainLatency.listTitle")}</span>
             <span>{t("overview.chainLatency.colEndpoint")}</span>
+            <span>{t("overview.chainLatency.colRoute")}</span>
             <span className="text-right">
               {t("overview.chainLatency.colHops")}
             </span>

@@ -703,6 +703,7 @@ const en = {
       exit: "Exit",
       colEndpoint: "Entry → exit",
       colHops: "Hops",
+      colRoute: "Route",
       mobileLatency: "Latency",
       mobileLoss: "Loss",
       endpointMissing: "{side}: the controller did not return this endpoint",
