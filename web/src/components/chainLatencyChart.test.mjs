@@ -65,9 +65,8 @@ test("legend buttons keep a 24px touch target", () => {
   }
 });
 
-test("chain rows use the shared delta tone and a slow badge", () => {
+test("chain rows keep the shared KPI tones and a slow badge", () => {
   const source = read("components/overview/ChainLatencyList.tsx");
-  assert.match(source, /chainDeltaTone/);
   assert.match(source, /summaryDeltaTone/);
   assert.match(source, /worstHopTone/);
   assert.match(source, /data-chain-slow-badge/);

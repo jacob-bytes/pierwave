@@ -11,78 +11,90 @@ function read(relative) {
 }
 
 const source = read("components/overview/ChainLatencyList.tsx");
+const rowStart = source.indexOf("function ChainListRow({");
+const rowEnd = source.indexOf("/**\n * 链路时延列表", rowStart);
+const row = source.slice(rowStart, rowEnd);
 
-test("chain rows use the three-block grid and drop the fixed hops column", () => {
-  assert.match(source, /minmax\(180px,1\.2fr\)/);
-  assert.match(source, /minmax\(320px,2fr\)/);
-  assert.match(source, /_16rem\]/);
-  // 旧 6 列布局的固定宽度不能再出现。
-  assert.doesNotMatch(source, /3\.25rem/);
-  assert.doesNotMatch(source, /sm:grid-cols-\[minmax/);
-  assert.doesNotMatch(source, /sm:col-start-/);
-});
-
-test("lead block carries 13px hops and the same-size sample time", () => {
-  const start = source.indexOf("data-chain-row-lead");
-  const end = source.indexOf("data-chain-row-route", start);
-  assert.ok(start >= 0 && end > start, "row blocks must be in order");
-  const lead = source.slice(start, end);
-  assert.match(lead, /data-chain-hops/);
-  assert.match(lead, /data-chain-sample/);
-  // 跳数和最近样本同字号，且都走 muted 文本。
-  const sizes = [...lead.matchAll(/text-\[(\d+)px\]/g)].map((match) =>
-    Number(match[1]),
+test("standard table columns replace the previous three-block grid", () => {
+  assert.match(
+    source,
+    /22fr\)\s*_minmax\(0,44fr\)_64px_88px_96px_96px_24px/,
   );
-  assert.ok(sizes.length >= 1);
-  assert.ok(sizes.every((size) => size >= 13), "hops/sample must be >=13px");
-  assert.match(lead, /text-muted-foreground/);
+  assert.match(source, /minmax\(0,22fr\)/);
+  assert.match(source, /minmax\(0,44fr\)/);
+  assert.match(source, /64px_88px_96px_96px_24px/);
+  assert.doesNotMatch(source, /minmax\(180px,1\.2fr\)/);
+  assert.doesNotMatch(source, /16rem/);
 });
 
-test("address is 13px mono and the server route is 12px muted", () => {
-  const start = source.indexOf("data-chain-row-route");
-  const end = source.indexOf("data-chain-row-metrics", start);
-  assert.ok(start >= 0 && end > start);
-  const route = source.slice(start, end);
-  assert.match(route, /data-chain-endpoint-address/);
-  assert.match(route, /font-mono text-\[13px\]/);
-  assert.match(route, /data-chain-endpoint-name/);
-  assert.match(route, /text-xs/);
-  assert.match(route, /text-muted-foreground/);
+test("address is capped at 520px and has only a small muted arrow", () => {
+  const start = row.indexOf("data-chain-row-address");
+  const end = row.indexOf("data-chain-row-meta", start);
+  const address = row.slice(start, end);
+  assert.match(address, /data-chain-endpoint-address/);
+  assert.match(address, /max-w-\[520px\]/);
+  assert.match(address, /font-mono text-\[13px\]/);
+  assert.match(address, /→/);
+  // 连接线 / 大箭头 / 拉伸填充都不允许再出现。
+  assert.doesNotMatch(address, /h-px/);
+  assert.doesNotMatch(address, /flex-1/);
+  assert.doesNotMatch(address, /data-chain-connector/);
 });
 
-test("metrics block uses 20px P50, 14px loss, status badge and chevron", () => {
-  const start = source.indexOf("data-chain-row-metrics");
-  assert.ok(start >= 0);
-  const metrics = source.slice(start);
-  assert.match(metrics, /data-chain-p50/);
-  assert.match(metrics, /text-xl/);
-  assert.match(metrics, /data-chain-loss/);
-  assert.match(metrics, /text-sm/);
-  assert.match(metrics, /<ChainHealthStatusCell/);
-  assert.match(metrics, /<ChevronRightIcon/);
+test("rows do not repeat P50 or window-loss labels", () => {
+  // 行内只留数值；标签只出现在表头一次。
+  assert.doesNotMatch(row, />\s*P50\s*</);
+  assert.doesNotMatch(row, />\s*窗口丢包\s*</);
+  assert.doesNotMatch(row, /text-xl/);
+  assert.match(row, /text-\[17px\]/);
+  assert.match(row, /data-chain-p50/);
+  assert.match(row, /data-chain-loss/);
 });
 
-test("mobile stacks name / address / metrics without a fixed min width", () => {
+test("hops are 13px and the secondary line is 12px muted", () => {
+  const hops = row.slice(
+    row.indexOf("data-chain-hops"),
+    row.indexOf("data-chain-p50"),
+  );
+  assert.match(hops, /text-\[13px\]/);
+  assert.match(hops, /text-muted-foreground/);
+  const meta = row.slice(
+    row.indexOf("data-chain-row-meta"),
+    row.indexOf("data-chain-row-metrics"),
+  );
+  assert.match(meta, /text-xs/);
+  assert.match(meta, /text-muted-foreground/);
+  assert.match(meta, /data-chain-endpoint-name/);
+  assert.match(meta, /data-chain-sample/);
+});
+
+test("mobile keeps inline labels and stacks without horizontal stretch", () => {
   const start = source.indexOf("data-chain-list-row");
   const end = source.indexOf("data-chain-row-lead", start);
   const button = source.slice(start, end);
   assert.match(button, /grid-cols-1/);
-  assert.match(button, /lg:gap-y-0/);
   assert.match(button, /w-full/);
-  // 三块自身都允许收缩，长地址/长路由用 truncate 而不是撑破页面。
-  assert.ok(source.includes('data-chain-row-lead className="min-w-0"'));
-  assert.ok(source.includes('data-chain-endpoints data-chain-row-route className="min-w-0"'));
-  assert.ok(source.includes('data-chain-row-metrics'));
-  assert.match(source, /truncate/);
+  assert.match(row, /overview\.chainLatency\.colHops/);
+  assert.match(row, /overview\.chainLatency\.mobileLatency/);
+  assert.match(row, /overview\.chainLatency\.mobileLoss/);
+  // 移动端标签只在 lg 以下显示，桌面端不重复表头。
+  assert.match(row, /lg:hidden/);
+  assert.match(row, /truncate/);
 });
 
-test("header keeps only the three block labels", () => {
+test("header appears once with all seven column labels", () => {
   const start = source.indexOf("data-chain-list-head");
   const end = source.indexOf("<ul", start);
   const head = source.slice(start, end);
-  assert.match(head, /overview\.chainLatency\.listTitle/);
-  assert.match(head, /overview\.chainLatency\.colEndpoint/);
-  assert.match(head, /overview\.chainLatency\.colStatus/);
-  assert.doesNotMatch(head, /colHops/);
-  assert.doesNotMatch(head, /3\.25rem/);
+  for (const key of [
+    "overview.chainLatency.listTitle",
+    "overview.chainLatency.colEndpoint",
+    "overview.chainLatency.colHops",
+    "overview.chainLatency.windowLoss",
+    "overview.chainLatency.colStatus",
+  ]) {
+    assert.match(head, new RegExp(key.replace(".", "\\.")));
+  }
+  assert.match(head, />P50</);
+  assert.equal((head.match(/data-chain-list-head/g) ?? []).length, 1);
 });

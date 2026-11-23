@@ -291,6 +291,7 @@ test("链路 tab：详情改弹窗，列表只剩 KPI / 趋势 / 表格", () => 
       "overview.chainLatency.healthHealthy",
       "overview.chainLatency.windowLoss",
       "overview.chainLatency.colEndpoint",
+      "overview.chainLatency.colHops",
       "overview.chainLatency.colStatus",
       "ChainLatencyTrendChart",
       "data-chain-trend-card",

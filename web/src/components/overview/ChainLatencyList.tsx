@@ -10,7 +10,6 @@ import { ChainLatencyTrendChart } from "@/components/overview/ChainLatencyTrendC
 import { ChainLossValue } from "@/components/overview/ChainLossValue";
 import type { Chain } from "@/lib/api";
 import {
-  chainDeltaTone,
   chainEndpointAddress,
   chainEndpointAddressIssue,
   chainEndpointNameIssue,
@@ -23,7 +22,6 @@ import {
   formatSignedMs,
   summaryDeltaTone,
   worstHopTone,
-  type ChainDeltaTone,
   type ChainEndpoint,
   type ChainHealthChain,
   type ChainHealthSnapshot,
@@ -37,11 +35,11 @@ import { t, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 /**
- * 链路行：左侧「链路 + 跳数/样本时间」、中间「地址 + 服务器路由」、
- * 右侧固定宽度的指标块。三段之间只留 12px，不再用 6 个固定列。
+ * 标准表格列：链路 22% / 起点·终点 44% / 跳数 64 / P50 88 / 丢包 96 /
+ * 状态 96 / chevron 24。百分比列吃掉剩余空间，地址不会被拉成整行。
  */
 const LIST_GRID =
-  "lg:grid-cols-[minmax(180px,1.2fr)_minmax(320px,2fr)_16rem]";
+  "lg:grid-cols-[minmax(0,22fr)_minmax(0,44fr)_64px_88px_96px_96px_24px]";
 
 /**
  * 端点单元格的 title：地址行和服务器名行各自说明缺失原因。
@@ -136,14 +134,6 @@ function KpiCell({
   );
 }
 
-function deltaToneClass(tone: ChainDeltaTone): string {
-  return tone === "warning"
-    ? "text-warning"
-    : tone === "primary"
-      ? "text-primary"
-      : "text-muted-foreground";
-}
-
 /** 列表页 KPI：跳间 P50 / 变化 / 变慢链 / 最慢段。 */
 export function ChainLatencyKpis({
   summary,
@@ -233,10 +223,7 @@ function ChainHealthStatusCell({
     return (
       <span
         data-chain-status="unknown"
-        className={cn(
-          "inline-flex shrink-0 items-center rounded-full border border-border bg-card px-2 py-0.5 text-[10px] text-muted-foreground",
-          className,
-        )}
+        className={cn("text-[11px] text-muted-foreground", className)}
       >
         —
       </span>
@@ -266,7 +253,7 @@ function ChainHealthStatusCell({
       data-chain-status={status}
       title={title}
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-card px-2 py-0.5 text-[10px] whitespace-nowrap",
+        "inline-flex shrink-0 items-center gap-1.5 text-[11px] whitespace-nowrap",
         meta.text,
         className,
       )}
@@ -286,16 +273,9 @@ function ChainListRow({
   source: Chain | null;
   onOpen: () => void;
 }) {
-  const deltaTone = deltaToneClass(
-    chainDeltaTone(chain.deltaMs, chain.slow),
-  );
   // `chainStatus` 是列表状态的唯一来源：normal / slow / insufficient。
   // 只有 slow 才在行上挂徽章，避免把「暂无样本」也标成异常。
   const latencyStatus = chainStatus(chain);
-  const hopsLabel = t(
-    chain.hops === 1 ? "overview.chainHopsOne" : "overview.chainHops",
-    { n: chain.hops },
-  );
   const entrySide = t("overview.chainLatency.entry");
   const exitSide = t("overview.chainLatency.exit");
   const addressTitle = `${endpointTitle(chain.entry, entrySide, "address")} → ${endpointTitle(chain.exit, exitSide, "address")}`;
@@ -343,130 +323,133 @@ function ChainListRow({
         onClick={onOpen}
         aria-label={label}
         className={cn(
-          "group grid w-full grid-cols-1 items-center gap-x-4 gap-y-2 rounded-lg border border-transparent px-3 py-2 text-left outline-none transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 lg:gap-x-3 lg:gap-y-0 lg:py-3",
+          "group grid w-full grid-cols-1 gap-x-3 gap-y-1 rounded-lg border border-transparent px-3 py-2 text-left outline-none transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 lg:items-center",
           LIST_GRID,
         )}
       >
-        {/* 左块：链路名 / 变慢徽章 + 第二行 跳数 · 最近样本 */}
-        <span data-chain-row-lead className="min-w-0">
-          <span className="flex min-w-0 items-center gap-2">
-            <span
-              className="min-w-0 truncate text-sm font-medium"
-              title={chain.name}
-            >
-              {chain.name}
-            </span>
-            {latencyStatus === "slow" ? (
-              <Badge
-                variant="outline"
-                data-chain-slow-badge
-                className="shrink-0 border-warning/40 px-1 py-0 font-normal text-warning"
-              >
-                {t("overview.chainLatency.statusSlow")}
-              </Badge>
-            ) : null}
+        {/* 链路名：桌面表头已给列名，行内不再重复标签。 */}
+        <span
+          data-chain-row-lead
+          className="flex min-w-0 items-center gap-2 lg:col-start-1 lg:row-start-1"
+        >
+          <span
+            className="min-w-0 truncate text-sm font-medium"
+            title={chain.name}
+          >
+            {chain.name}
           </span>
-          <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[13px] leading-5 text-muted-foreground">
-            <span
-              data-chain-hops
-              className="shrink-0 font-medium tabular-nums"
+          {latencyStatus === "slow" ? (
+            <Badge
+              variant="outline"
+              data-chain-slow-badge
+              className="shrink-0 border-warning/40 px-1 py-0 font-normal text-warning"
             >
-              {hopsLabel}
-            </span>
-            <span aria-hidden="true" className="shrink-0">
-              ·
-            </span>
-            <span
-              data-chain-sample
-              className="min-w-0 truncate"
-              title={sampleText}
-            >
-              {sampleText}
-            </span>
-          </span>
+              {t("overview.chainLatency.statusSlow")}
+            </Badge>
+          ) : null}
         </span>
 
-        {/* 中块：地址行 + 服务器路由行 */}
-        <span data-chain-endpoints data-chain-row-route className="min-w-0">
+        {/* 地址：只有一个 muted 箭头，不画连接线、不拉伸。 */}
+        <span
+          data-chain-endpoints
+          data-chain-row-address
+          className="flex min-w-0 flex-col gap-0.5 lg:col-start-2 lg:row-start-1"
+        >
+          <span className="text-[10px] text-muted-foreground lg:hidden">
+            {t("overview.chainLatency.colEndpoint")}
+          </span>
           <span
             data-chain-endpoint-address
-            className="flex min-w-0 items-center gap-1.5 font-mono text-[13px] leading-5 tabular-nums"
+            className="flex w-full min-w-0 max-w-[520px] items-center gap-1 font-mono text-[13px] leading-5 tabular-nums"
             title={addressTitle}
           >
             <span
               data-chain-entry-address
-              className="min-w-0 shrink-0 truncate lg:shrink"
+              className="min-w-0 shrink-0 truncate"
             >
               {chainEndpointAddress(chain.entry)}
             </span>
-            {/* 桌面端用一条极淡的连接线吃掉地址与指标之间的空段；390 隐藏。 */}
             <span
               aria-hidden="true"
-              className="hidden h-px min-w-6 flex-1 bg-border lg:block"
-            />
-            <span aria-hidden="true" className="shrink-0 text-muted-foreground">
+              className="shrink-0 text-muted-foreground"
+            >
               →
             </span>
-            <span
-              aria-hidden="true"
-              className="hidden h-px min-w-6 flex-1 bg-border lg:block"
-            />
             <span data-chain-exit-address className="min-w-0 truncate">
               {chainEndpointAddress(chain.exit)}
             </span>
           </span>
+        </span>
+
+        {/* 第二行：真实路由 + 样本时间，12px muted。 */}
+        <span
+          data-chain-row-meta
+          data-chain-row-route
+          className="flex min-w-0 items-center gap-x-2 text-xs leading-5 text-muted-foreground lg:col-span-2 lg:col-start-1 lg:row-start-2"
+        >
           <span
             data-chain-endpoint-name
-            className="mt-1 block truncate text-xs leading-5 text-muted-foreground"
+            className="min-w-0 truncate"
             title={routeTitle}
           >
             {routeText}
           </span>
-        </span>
-
-        {/* 右块：P50 20px / 窗口丢包 14px / 状态徽章 / chevron */}
-        <span
-          data-chain-row-metrics
-          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 lg:flex-nowrap lg:justify-end"
-        >
+          <span aria-hidden="true" className="shrink-0">
+            ·
+          </span>
           <span
-            data-chain-p50
-            className="flex shrink-0 flex-col items-start lg:items-end"
+            data-chain-sample
+            className="shrink-0 whitespace-nowrap"
             title={sampleText}
           >
-            <span className="flex items-baseline gap-1.5">
-              <span className="text-[10px] text-muted-foreground">P50</span>
-              <span className="font-mono text-xl leading-none font-medium tabular-nums">
-                {formatMs(chain.latestP50)}
-              </span>
+            {sampleText}
+          </span>
+        </span>
+
+        {/* 数值列：表头已给 P50 / 窗口丢包 / 状态，行内只留值。 */}
+        <span
+          data-chain-row-metrics
+          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 lg:contents"
+        >
+          <span
+            data-chain-hops
+            className="text-[13px] text-muted-foreground tabular-nums lg:col-start-3 lg:row-start-1 lg:text-right"
+          >
+            <span className="text-[10px] lg:hidden">
+              {t("overview.chainLatency.colHops")}{" "}
             </span>
-            <span
-              className={cn(
-                "mt-1 font-mono text-[10px] leading-none tabular-nums",
-                deltaTone,
-              )}
-              title={t("overview.chainLatency.deltaVsBaseline")}
-            >
-              {formatSignedMs(chain.deltaMs)}
+            {chain.hops}
+          </span>
+          <span
+            data-chain-p50
+            className="inline-flex items-baseline justify-end gap-1 lg:col-start-4 lg:row-start-1"
+            title={sampleText}
+          >
+            <span className="text-[10px] text-muted-foreground lg:hidden">
+              {t("overview.chainLatency.mobileLatency")}
+            </span>
+            <span className="font-mono text-[17px] leading-none font-medium tabular-nums">
+              {formatMs(chain.latestP50)}
             </span>
           </span>
           <span
             data-chain-loss
-            className="flex shrink-0 flex-col items-start lg:items-end"
+            className="inline-flex items-baseline justify-end gap-1 lg:col-start-5 lg:row-start-1"
             title={lossTitle}
           >
-            <span className="text-[10px] text-muted-foreground">
-              {t("overview.chainLatency.windowLoss")}
+            <span className="text-[10px] text-muted-foreground lg:hidden">
+              {t("overview.chainLatency.mobileLoss")}
             </span>
-            <ChainLossValue
-              value={chain.lossPct}
-              className="mt-1 text-sm"
-            />
+            <ChainLossValue value={chain.lossPct} className="text-sm" />
           </span>
-          <ChainHealthStatusCell chain={source} className="shrink-0" />
+          <ChainHealthStatusCell
+            chain={source}
+            className="lg:col-start-6 lg:row-start-1"
+          />
           <ChevronRightIcon
             aria-hidden="true"
-            className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5"
+            data-chain-chevron
+            className="size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 lg:col-start-7 lg:row-start-1 lg:justify-self-end"
           />
         </span>
       </button>
@@ -555,10 +538,15 @@ export function ChainLatencyList({
           >
             <span>{t("overview.chainLatency.listTitle")}</span>
             <span>{t("overview.chainLatency.colEndpoint")}</span>
-            <span className="truncate text-right">
-              P50 / {t("overview.chainLatency.windowLoss")} /{" "}
-              {t("overview.chainLatency.colStatus")}
+            <span className="text-right">
+              {t("overview.chainLatency.colHops")}
             </span>
+            <span className="text-right">P50</span>
+            <span className="text-right">
+              {t("overview.chainLatency.windowLoss")}
+            </span>
+            <span>{t("overview.chainLatency.colStatus")}</span>
+            <span />
           </div>
           <ul className="flex flex-col gap-0.5">
             {snapshot.chains.map((chain) => (

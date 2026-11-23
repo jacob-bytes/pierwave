@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * 链路列表两行式改版的验收截图 + 几何报告。
+ * 链路列表「标准表格」改版的验收截图 + 几何报告。
  *
  * 数据来自真实主控（`data/chain-rows-v2.db`，复制自 `data/preview.db` 并把
- * 时延/探测样本平移到当前窗口）。不注入 mock：4 跳链、3 跳链、2 跳链、慢链
- * 徽章、起点/出口和窗口丢包都来自真实接口。
+ * 时延/探测样本平移到当前窗口）。4 跳链、慢链、地址、路由、样本时间、P50、
+ * 窗口丢包都来自真实接口，不注入 mock。
  *
  * 前置 / Prerequisite:
  *   PIERWAVE_ADMIN_PASSWORD=devpass PIERWAVE_ADDR=127.0.0.1:8787 \
@@ -114,17 +114,20 @@ async function openList(page) {
 const GEOMETRY = () => {
   const row = document.querySelector("[data-chain-list-row]");
   const lead = row.querySelector("[data-chain-row-lead]");
-  const route = row.querySelector("[data-chain-row-route]");
+  const addressCell = row.querySelector("[data-chain-row-address]");
+  const address = row.querySelector("[data-chain-endpoint-address]");
+  const meta = row.querySelector("[data-chain-row-meta]");
   const metrics = row.querySelector("[data-chain-row-metrics]");
   const hops = row.querySelector("[data-chain-hops]");
-  const sample = row.querySelector("[data-chain-sample]");
-  const address = row.querySelector("[data-chain-endpoint-address]");
-  const names = row.querySelector("[data-chain-endpoint-name]");
-  const p50 = row.querySelector("[data-chain-p50] .font-mono");
-  const loss = row.querySelector("[data-chain-loss] .text-sm");
+  const p50 = row.querySelector("[data-chain-p50]");
+  const loss = row.querySelector("[data-chain-loss]");
+  const status = row.querySelector("[data-chain-status]");
+  const chevron = row.querySelector("[data-chain-chevron]");
+  const head = document.querySelector("[data-chain-list-head]");
   const font = (element) =>
     element ? Number.parseFloat(getComputedStyle(element).fontSize) : null;
   const box = (element) => {
+    if (!element) return null;
     const rect = element.getBoundingClientRect();
     return {
       x: Math.round(rect.x),
@@ -135,34 +138,54 @@ const GEOMETRY = () => {
       bottom: Math.round(rect.bottom),
     };
   };
-  const leadBox = box(lead);
-  const routeBox = box(route);
-  const metricsBox = box(metrics);
-  const addressBox = box(address);
+  const rowStyle = getComputedStyle(row);
+  const columns = rowStyle.gridTemplateColumns
+    .split(" ")
+    .map((value) => Number.parseFloat(value))
+    .filter((value) => Number.isFinite(value));
   return {
     row: box(row),
-    lead: leadBox,
-    route: routeBox,
-    metrics: metricsBox,
-    gapLeadRoute: routeBox.x - leadBox.right,
-    gapRouteMetrics: metricsBox.x - routeBox.right,
-    gapAddressMetrics: metricsBox.x - addressBox.right,
-    address: addressBox,
+    lead: box(lead),
+    addressCell: box(addressCell),
+    address: box(address),
+    meta: box(meta),
+    metrics: box(metrics),
+    hops: box(hops),
+    p50: box(p50),
+    loss: box(loss),
+    status: box(status),
+    chevron: box(chevron),
+    columns,
+    columnGap: Number.parseFloat(rowStyle.columnGap),
+    rowHeight: Math.round(row.getBoundingClientRect().height),
     fonts: {
       hops: font(hops),
-      sample: font(sample),
       address: font(address),
-      names: font(names),
-      p50: font(p50),
-      loss: font(loss),
+      route: font(row.querySelector("[data-chain-endpoint-name]")),
+      sample: font(row.querySelector("[data-chain-sample]")),
+      p50: font(row.querySelector("[data-chain-p50] .font-mono")),
+      loss: font(row.querySelector("[data-chain-loss] .text-sm")),
     },
-    text: {
-      hops: hops?.textContent?.trim(),
-      sample: sample?.textContent?.trim(),
-      address: address?.textContent?.replace(/\s+/g, " ").trim(),
-      names: names?.textContent?.replace(/\s+/g, " ").trim(),
-    },
+    addressWidth: Math.round(address.getBoundingClientRect().width),
+    headerCount: document.querySelectorAll("[data-chain-list-head]").length,
+    headerVisible: Boolean(head && head.offsetParent !== null),
+    headerText: head?.innerText.replace(/\s+/g, " ").trim() ?? "",
+    rowText: row.innerText.replace(/\s+/g, " ").trim(),
+    connectorCount: row.querySelectorAll(
+      "[data-chain-connector], .h-px",
+    ).length,
     scrollOverflow: document.documentElement.scrollWidth - window.innerWidth,
+    text: {
+      address: address.textContent.replace(/\s+/g, " ").trim(),
+      route: row
+        .querySelector("[data-chain-endpoint-name]")
+        ?.textContent.replace(/\s+/g, " ")
+        .trim(),
+      sample: row
+        .querySelector("[data-chain-sample]")
+        ?.textContent.replace(/\s+/g, " ")
+        .trim(),
+    },
   };
 };
 
@@ -198,61 +221,102 @@ for (const theme of ["dark", "light"]) {
       .replace(/\s+/g, " ")
       .trim();
     const slowBadge = await fourHop.locator("[data-chain-slow-badge]").count();
-    const headVisible = await page.locator("[data-chain-list-head]").isVisible();
 
-    await check(`[${key}] 两行式三段布局`, async () => {
+    await check(`[${key}] 标准表格列宽 / 行高 / 字号`, async () => {
       assert.equal(rowCount, 3, `expected 3 chains, got ${rowCount}`);
-      assert.equal(geometry.fonts.hops, 13, "跳数字号必须是 13px");
-      assert.equal(geometry.fonts.sample, 13, "最近样本与跳数同字号");
-      assert.equal(geometry.fonts.address, 13, "地址等宽 13px");
-      assert.equal(geometry.fonts.names, 12, "服务器路由 12px");
-      assert.equal(geometry.fonts.p50, 20, "P50 20px");
-      assert.equal(geometry.fonts.loss, 14, "窗口丢包 14px");
-      assert.ok(geometry.row.height >= 56, `row height ${geometry.row.height}`);
-      assert.ok(geometry.scrollOverflow <= 1, `overflow ${geometry.scrollOverflow}px`);
-      return { geometry, rowCount, slowBadge, headVisible };
+      assert.equal(geometry.fonts.hops, 13, "跳数 13px");
+      assert.equal(geometry.fonts.address, 13, "地址 13px");
+      assert.equal(geometry.fonts.route, 12, "路由 12px");
+      assert.equal(geometry.fonts.sample, 12, "样本时间 12px");
+      assert.equal(geometry.fonts.p50, 17, "P50 17px");
+      assert.equal(geometry.fonts.loss, 14, "丢包 14px");
+      assert.ok(geometry.addressWidth <= 520, `地址宽 ${geometry.addressWidth}px`);
+      if (width === 1440) {
+        assert.equal(geometry.columns.length, 7, "7 列");
+        const [, , hops, p50, loss, status, chevron] = geometry.columns;
+        assert.ok(Math.abs(hops - 64) <= 4, `跳数列 ${hops}px`);
+        assert.ok(Math.abs(p50 - 88) <= 4, `P50 列 ${p50}px`);
+        assert.ok(Math.abs(loss - 96) <= 4, `丢包列 ${loss}px`);
+        assert.ok(Math.abs(status - 96) <= 4, `状态列 ${status}px`);
+        assert.ok(Math.abs(chevron - 24) <= 4, `chevron 列 ${chevron}px`);
+        const ratio = geometry.columns[0] / geometry.columns[1];
+        assert.ok(Math.abs(ratio - 0.5) <= 0.08, `链路/地址比 ${ratio}`);
+        assert.ok(
+          geometry.rowHeight >= 64 && geometry.rowHeight <= 72,
+          `行高 ${geometry.rowHeight}px`,
+        );
+        assert.ok(geometry.columnGap <= 40, `列间距 ${geometry.columnGap}px`);
+      } else {
+        assert.ok(geometry.scrollOverflow <= 1, `溢出 ${geometry.scrollOverflow}px`);
+      }
+      return { geometry, rowCount, slowBadge };
     });
 
-    await check(`[${key}] 块之间没有 >40px 空白`, async () => {
-      if (width === 1440) {
-        assert.ok(
-          geometry.gapLeadRoute <= 40,
-          `lead→route gap ${geometry.gapLeadRoute}px`,
-        );
-        assert.ok(
-          geometry.gapRouteMetrics <= 40,
-          `route→metrics gap ${geometry.gapRouteMetrics}px`,
-        );
-        assert.ok(
-          geometry.gapAddressMetrics <= 40,
-          `address→metrics gap ${geometry.gapAddressMetrics}px`,
-        );
-      } else {
-        // 390：三块纵向堆叠，名称 → 地址 → 指标。
-        assert.ok(
-          geometry.route.y >= geometry.lead.bottom,
-          "route must stack below lead",
-        );
-        assert.ok(
-          geometry.metrics.y >= geometry.route.bottom,
-          "metrics must stack below route",
-        );
-      }
+    await check(`[${key}] 表头只出现一次，行内不重复标签`, async () => {
+      assert.equal(geometry.headerCount, 1, "表头必须唯一");
+      assert.equal(
+        geometry.headerVisible,
+        width === 1440,
+        "表头只在桌面显示",
+      );
+      assert.equal(
+        geometry.headerText.split("窗口丢包").length - 1,
+        1,
+        "表头只写一次窗口丢包",
+      );
+      assert.ok(
+        !geometry.rowText.includes("窗口丢包"),
+        `行内出现窗口丢包: ${geometry.rowText}`,
+      );
+      assert.ok(!geometry.rowText.includes("P50"), `行内出现 P50: ${geometry.rowText}`);
+      assert.equal(geometry.connectorCount, 0, "不允许连接线元素");
       return {
-        gapLeadRoute: geometry.gapLeadRoute,
-        gapRouteMetrics: geometry.gapRouteMetrics,
-        gapAddressMetrics: geometry.gapAddressMetrics,
+        headerText: geometry.headerText,
+        headerVisible: geometry.headerVisible,
+        rowText: geometry.rowText,
+        connectorCount: geometry.connectorCount,
       };
     });
 
-    await check(`[${key}] 4 跳链路由用省略号，不编造中间节点`, async () => {
+    await check(`[${key}] 地址不拉伸，390 单列堆叠`, async () => {
+      if (width === 1440) {
+        assert.ok(geometry.addressWidth <= 520, `地址宽 ${geometry.addressWidth}px`);
+        assert.ok(geometry.columnGap <= 40, `列间距 ${geometry.columnGap}px`);
+      } else {
+        assert.ok(
+          geometry.address.y >= geometry.lead.bottom,
+          "地址必须在名称下方",
+        );
+        assert.ok(
+          geometry.meta.y >= geometry.address.bottom,
+          "路由/样本在地址下方",
+        );
+        assert.ok(
+          geometry.metrics.y >= geometry.meta.bottom,
+          "指标在最后一行",
+        );
+        assert.ok(geometry.scrollOverflow <= 1, `溢出 ${geometry.scrollOverflow}px`);
+      }
+      return {
+        addressWidth: geometry.addressWidth,
+        columnGap: geometry.columnGap,
+        positions: {
+          lead: geometry.lead,
+          address: geometry.addressCell,
+          meta: geometry.meta,
+          metrics: geometry.metrics,
+        },
+      };
+    });
+
+    await check(`[${key}] 4 跳路由用省略号，不编造中间节点`, async () => {
       const labels = fourHopRoute.split(" → ");
       assert.equal(labels.length, 4, `route labels: ${fourHopRoute}`);
       assert.equal(labels[0], "香港-01");
       assert.equal(labels[1], "东京-01");
       assert.equal(labels[2], "…");
       assert.equal(labels[3], "大阪-01");
-      assert.ok(!fourHopRoute.includes("新加坡-01"), "中间节点必须省略");
+      assert.ok(!fourHopRoute.includes("新加坡-01"));
       assert.equal(slowBadge, 1, "慢链显示「变慢」徽章");
       return { fourHopRoute, slowBadge };
     });

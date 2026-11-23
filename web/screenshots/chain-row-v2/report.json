@@ -1,7 +1,7 @@
 {
   "results": [
     {
-      "name": "[1440-dark] 两行式三段布局",
+      "name": "[1440-dark] 标准表格列宽 / 行高 / 字号",
       "ok": true,
       "detail": {
         "geometry": {
@@ -9,77 +9,180 @@
             "x": 272,
             "y": 1021,
             "width": 1136,
-            "height": 72,
+            "height": 64,
             "right": 1408,
-            "bottom": 1094
+            "bottom": 1086
           },
           "lead": {
             "x": 285,
-            "y": 1034,
-            "width": 311,
-            "height": 46,
-            "right": 596,
-            "bottom": 1081
+            "y": 1030,
+            "width": 223,
+            "height": 22,
+            "right": 508,
+            "bottom": 1053
           },
-          "route": {
-            "x": 608,
-            "y": 1035,
-            "width": 519,
-            "height": 44,
-            "right": 1127,
-            "bottom": 1079
+          "addressCell": {
+            "x": 520,
+            "y": 1031,
+            "width": 447,
+            "height": 20,
+            "right": 967,
+            "bottom": 1051
+          },
+          "address": {
+            "x": 520,
+            "y": 1031,
+            "width": 447,
+            "height": 20,
+            "right": 967,
+            "bottom": 1051
+          },
+          "meta": {
+            "x": 285,
+            "y": 1057,
+            "width": 682,
+            "height": 20,
+            "right": 967,
+            "bottom": 1077
           },
           "metrics": {
-            "x": 1139,
-            "y": 1036,
-            "width": 256,
-            "height": 42,
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "hops": {
+            "x": 979,
+            "y": 1031,
+            "width": 64,
+            "height": 21,
+            "right": 1043,
+            "bottom": 1052
+          },
+          "p50": {
+            "x": 1055,
+            "y": 1033,
+            "width": 88,
+            "height": 17,
+            "right": 1143,
+            "bottom": 1050
+          },
+          "loss": {
+            "x": 1155,
+            "y": 1030,
+            "width": 96,
+            "height": 22,
+            "right": 1251,
+            "bottom": 1053
+          },
+          "status": {
+            "x": 1263,
+            "y": 1033,
+            "width": 96,
+            "height": 18,
+            "right": 1359,
+            "bottom": 1050
+          },
+          "chevron": {
+            "x": 1379,
+            "y": 1033,
+            "width": 16,
+            "height": 16,
             "right": 1395,
-            "bottom": 1079
+            "bottom": 1049
           },
-          "gapLeadRoute": 12,
-          "gapRouteMetrics": 12,
-          "gapAddressMetrics": 12,
-          "address": {
-            "x": 608,
-            "y": 1035,
-            "width": 519,
-            "height": 20,
-            "right": 1127,
-            "bottom": 1055
-          },
+          "columns": [
+            223.328,
+            446.672,
+            64,
+            88,
+            96,
+            96,
+            24
+          ],
+          "columnGap": 12,
+          "rowHeight": 64,
           "fonts": {
             "hops": 13,
-            "sample": 13,
             "address": 13,
-            "names": 12,
-            "p50": 20,
+            "route": 12,
+            "sample": 12,
+            "p50": 17,
             "loss": 14
           },
+          "addressWidth": 447,
+          "headerCount": 1,
+          "headerVisible": true,
+          "headerText": "链路 起点 → 终点 跳数 P50 窗口丢包 状态",
+          "rowText": "港日中转链 变慢 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 · 最近样本 13 分钟前 4 93 ms 3.2% 健康",
+          "connectorCount": 0,
+          "scrollOverflow": 0,
           "text": {
-            "hops": "4 跳",
-            "sample": "最近样本 12 分钟前",
             "address": "203.0.113.11:21001→198.51.100.23:21004",
-            "names": "香港-01 → 东京-01 → … → 大阪-01"
-          },
-          "scrollOverflow": 0
+            "route": "香港-01 → 东京-01 → … → 大阪-01",
+            "sample": "最近样本 13 分钟前"
+          }
         },
         "rowCount": 3,
-        "slowBadge": 1,
-        "headVisible": true
+        "slowBadge": 1
       }
     },
     {
-      "name": "[1440-dark] 块之间没有 >40px 空白",
+      "name": "[1440-dark] 表头只出现一次，行内不重复标签",
       "ok": true,
       "detail": {
-        "gapLeadRoute": 12,
-        "gapRouteMetrics": 12,
-        "gapAddressMetrics": 12
+        "headerText": "链路 起点 → 终点 跳数 P50 窗口丢包 状态",
+        "headerVisible": true,
+        "rowText": "港日中转链 变慢 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 · 最近样本 13 分钟前 4 93 ms 3.2% 健康",
+        "connectorCount": 0
       }
     },
     {
-      "name": "[1440-dark] 4 跳链路由用省略号，不编造中间节点",
+      "name": "[1440-dark] 地址不拉伸，390 单列堆叠",
+      "ok": true,
+      "detail": {
+        "addressWidth": 447,
+        "columnGap": 12,
+        "positions": {
+          "lead": {
+            "x": 285,
+            "y": 1030,
+            "width": 223,
+            "height": 22,
+            "right": 508,
+            "bottom": 1053
+          },
+          "address": {
+            "x": 520,
+            "y": 1031,
+            "width": 447,
+            "height": 20,
+            "right": 967,
+            "bottom": 1051
+          },
+          "meta": {
+            "x": 285,
+            "y": 1057,
+            "width": 682,
+            "height": 20,
+            "right": 967,
+            "bottom": 1077
+          },
+          "metrics": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "[1440-dark] 4 跳路由用省略号，不编造中间节点",
       "ok": true,
       "detail": {
         "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
@@ -94,7 +197,7 @@
       }
     },
     {
-      "name": "[390-dark] 两行式三段布局",
+      "name": "[390-dark] 标准表格列宽 / 行高 / 字号",
       "ok": true,
       "detail": {
         "geometry": {
@@ -102,77 +205,174 @@
             "x": 32,
             "y": 1306,
             "width": 326,
-            "height": 167,
+            "height": 133,
             "right": 358,
-            "bottom": 1473
+            "bottom": 1439
           },
           "lead": {
             "x": 45,
             "y": 1315,
             "width": 300,
-            "height": 46,
+            "height": 22,
             "right": 345,
-            "bottom": 1361
+            "bottom": 1337
           },
-          "route": {
+          "addressCell": {
             "x": 45,
-            "y": 1369,
+            "y": 1341,
             "width": 300,
-            "height": 44,
+            "height": 38,
             "right": 345,
-            "bottom": 1413
+            "bottom": 1379
           },
-          "metrics": {
-            "x": 45,
-            "y": 1421,
-            "width": 300,
-            "height": 42,
-            "right": 345,
-            "bottom": 1464
-          },
-          "gapLeadRoute": -300,
-          "gapRouteMetrics": -300,
-          "gapAddressMetrics": -300,
           "address": {
             "x": 45,
-            "y": 1369,
+            "y": 1359,
             "width": 300,
             "height": 20,
             "right": 345,
-            "bottom": 1389
+            "bottom": 1379
           },
+          "meta": {
+            "x": 45,
+            "y": 1383,
+            "width": 300,
+            "height": 20,
+            "right": 345,
+            "bottom": 1403
+          },
+          "metrics": {
+            "x": 45,
+            "y": 1407,
+            "width": 300,
+            "height": 22,
+            "right": 345,
+            "bottom": 1430
+          },
+          "hops": {
+            "x": 45,
+            "y": 1408,
+            "width": 30,
+            "height": 21,
+            "right": 75,
+            "bottom": 1429
+          },
+          "p50": {
+            "x": 87,
+            "y": 1409,
+            "width": 75,
+            "height": 19,
+            "right": 163,
+            "bottom": 1428
+          },
+          "loss": {
+            "x": 175,
+            "y": 1407,
+            "width": 58,
+            "height": 22,
+            "right": 232,
+            "bottom": 1430
+          },
+          "status": {
+            "x": 244,
+            "y": 1410,
+            "width": 34,
+            "height": 18,
+            "right": 278,
+            "bottom": 1427
+          },
+          "chevron": {
+            "x": 290,
+            "y": 1410,
+            "width": 16,
+            "height": 16,
+            "right": 306,
+            "bottom": 1426
+          },
+          "columns": [
+            300
+          ],
+          "columnGap": 12,
+          "rowHeight": 133,
           "fonts": {
             "hops": 13,
-            "sample": 13,
             "address": 13,
-            "names": 12,
-            "p50": 20,
+            "route": 12,
+            "sample": 12,
+            "p50": 17,
             "loss": 14
           },
+          "addressWidth": 300,
+          "headerCount": 1,
+          "headerVisible": false,
+          "headerText": "链路起点 → 终点跳数P50窗口丢包状态",
+          "rowText": "港日中转链 变慢 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 · 最近样本 13 分钟前 跳数 4 时延 93 ms 丢包 3.2% 健康",
+          "connectorCount": 0,
+          "scrollOverflow": 0,
           "text": {
-            "hops": "4 跳",
-            "sample": "最近样本 12 分钟前",
             "address": "203.0.113.11:21001→198.51.100.23:21004",
-            "names": "香港-01 → 东京-01 → … → 大阪-01"
-          },
-          "scrollOverflow": 0
+            "route": "香港-01 → 东京-01 → … → 大阪-01",
+            "sample": "最近样本 13 分钟前"
+          }
         },
         "rowCount": 3,
-        "slowBadge": 1,
-        "headVisible": false
+        "slowBadge": 1
       }
     },
     {
-      "name": "[390-dark] 块之间没有 >40px 空白",
+      "name": "[390-dark] 表头只出现一次，行内不重复标签",
       "ok": true,
       "detail": {
-        "gapLeadRoute": -300,
-        "gapRouteMetrics": -300,
-        "gapAddressMetrics": -300
+        "headerText": "链路起点 → 终点跳数P50窗口丢包状态",
+        "headerVisible": false,
+        "rowText": "港日中转链 变慢 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 · 最近样本 13 分钟前 跳数 4 时延 93 ms 丢包 3.2% 健康",
+        "connectorCount": 0
       }
     },
     {
-      "name": "[390-dark] 4 跳链路由用省略号，不编造中间节点",
+      "name": "[390-dark] 地址不拉伸，390 单列堆叠",
+      "ok": true,
+      "detail": {
+        "addressWidth": 300,
+        "columnGap": 12,
+        "positions": {
+          "lead": {
+            "x": 45,
+            "y": 1315,
+            "width": 300,
+            "height": 22,
+            "right": 345,
+            "bottom": 1337
+          },
+          "address": {
+            "x": 45,
+            "y": 1341,
+            "width": 300,
+            "height": 38,
+            "right": 345,
+            "bottom": 1379
+          },
+          "meta": {
+            "x": 45,
+            "y": 1383,
+            "width": 300,
+            "height": 20,
+            "right": 345,
+            "bottom": 1403
+          },
+          "metrics": {
+            "x": 45,
+            "y": 1407,
+            "width": 300,
+            "height": 22,
+            "right": 345,
+            "bottom": 1430
+          }
+        }
+      }
+    },
+    {
+      "name": "[390-dark] 4 跳路由用省略号，不编造中间节点",
       "ok": true,
       "detail": {
         "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
@@ -187,7 +387,7 @@
       }
     },
     {
-      "name": "[1440-light] 两行式三段布局",
+      "name": "[1440-light] 标准表格列宽 / 行高 / 字号",
       "ok": true,
       "detail": {
         "geometry": {
@@ -195,77 +395,180 @@
             "x": 272,
             "y": 1021,
             "width": 1136,
-            "height": 72,
+            "height": 64,
             "right": 1408,
-            "bottom": 1094
+            "bottom": 1086
           },
           "lead": {
             "x": 285,
-            "y": 1034,
-            "width": 311,
-            "height": 46,
-            "right": 596,
-            "bottom": 1081
+            "y": 1030,
+            "width": 223,
+            "height": 22,
+            "right": 508,
+            "bottom": 1053
           },
-          "route": {
-            "x": 608,
-            "y": 1035,
-            "width": 519,
-            "height": 44,
-            "right": 1127,
-            "bottom": 1079
+          "addressCell": {
+            "x": 520,
+            "y": 1031,
+            "width": 447,
+            "height": 20,
+            "right": 967,
+            "bottom": 1051
+          },
+          "address": {
+            "x": 520,
+            "y": 1031,
+            "width": 447,
+            "height": 20,
+            "right": 967,
+            "bottom": 1051
+          },
+          "meta": {
+            "x": 285,
+            "y": 1057,
+            "width": 682,
+            "height": 20,
+            "right": 967,
+            "bottom": 1077
           },
           "metrics": {
-            "x": 1139,
-            "y": 1036,
-            "width": 256,
-            "height": 42,
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          },
+          "hops": {
+            "x": 979,
+            "y": 1031,
+            "width": 64,
+            "height": 21,
+            "right": 1043,
+            "bottom": 1052
+          },
+          "p50": {
+            "x": 1055,
+            "y": 1033,
+            "width": 88,
+            "height": 17,
+            "right": 1143,
+            "bottom": 1050
+          },
+          "loss": {
+            "x": 1155,
+            "y": 1030,
+            "width": 96,
+            "height": 22,
+            "right": 1251,
+            "bottom": 1053
+          },
+          "status": {
+            "x": 1263,
+            "y": 1033,
+            "width": 96,
+            "height": 18,
+            "right": 1359,
+            "bottom": 1050
+          },
+          "chevron": {
+            "x": 1379,
+            "y": 1033,
+            "width": 16,
+            "height": 16,
             "right": 1395,
-            "bottom": 1079
+            "bottom": 1049
           },
-          "gapLeadRoute": 12,
-          "gapRouteMetrics": 12,
-          "gapAddressMetrics": 12,
-          "address": {
-            "x": 608,
-            "y": 1035,
-            "width": 519,
-            "height": 20,
-            "right": 1127,
-            "bottom": 1055
-          },
+          "columns": [
+            223.328,
+            446.672,
+            64,
+            88,
+            96,
+            96,
+            24
+          ],
+          "columnGap": 12,
+          "rowHeight": 64,
           "fonts": {
             "hops": 13,
-            "sample": 13,
             "address": 13,
-            "names": 12,
-            "p50": 20,
+            "route": 12,
+            "sample": 12,
+            "p50": 17,
             "loss": 14
           },
+          "addressWidth": 447,
+          "headerCount": 1,
+          "headerVisible": true,
+          "headerText": "链路 起点 → 终点 跳数 P50 窗口丢包 状态",
+          "rowText": "港日中转链 变慢 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 · 最近样本 13 分钟前 4 93 ms 3.2% 健康",
+          "connectorCount": 0,
+          "scrollOverflow": 0,
           "text": {
-            "hops": "4 跳",
-            "sample": "最近样本 12 分钟前",
             "address": "203.0.113.11:21001→198.51.100.23:21004",
-            "names": "香港-01 → 东京-01 → … → 大阪-01"
-          },
-          "scrollOverflow": 0
+            "route": "香港-01 → 东京-01 → … → 大阪-01",
+            "sample": "最近样本 13 分钟前"
+          }
         },
         "rowCount": 3,
-        "slowBadge": 1,
-        "headVisible": true
+        "slowBadge": 1
       }
     },
     {
-      "name": "[1440-light] 块之间没有 >40px 空白",
+      "name": "[1440-light] 表头只出现一次，行内不重复标签",
       "ok": true,
       "detail": {
-        "gapLeadRoute": 12,
-        "gapRouteMetrics": 12,
-        "gapAddressMetrics": 12
+        "headerText": "链路 起点 → 终点 跳数 P50 窗口丢包 状态",
+        "headerVisible": true,
+        "rowText": "港日中转链 变慢 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 · 最近样本 13 分钟前 4 93 ms 3.2% 健康",
+        "connectorCount": 0
       }
     },
     {
-      "name": "[1440-light] 4 跳链路由用省略号，不编造中间节点",
+      "name": "[1440-light] 地址不拉伸，390 单列堆叠",
+      "ok": true,
+      "detail": {
+        "addressWidth": 447,
+        "columnGap": 12,
+        "positions": {
+          "lead": {
+            "x": 285,
+            "y": 1030,
+            "width": 223,
+            "height": 22,
+            "right": 508,
+            "bottom": 1053
+          },
+          "address": {
+            "x": 520,
+            "y": 1031,
+            "width": 447,
+            "height": 20,
+            "right": 967,
+            "bottom": 1051
+          },
+          "meta": {
+            "x": 285,
+            "y": 1057,
+            "width": 682,
+            "height": 20,
+            "right": 967,
+            "bottom": 1077
+          },
+          "metrics": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "right": 0,
+            "bottom": 0
+          }
+        }
+      }
+    },
+    {
+      "name": "[1440-light] 4 跳路由用省略号，不编造中间节点",
       "ok": true,
       "detail": {
         "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
@@ -280,7 +583,7 @@
       }
     },
     {
-      "name": "[390-light] 两行式三段布局",
+      "name": "[390-light] 标准表格列宽 / 行高 / 字号",
       "ok": true,
       "detail": {
         "geometry": {
@@ -288,77 +591,174 @@
             "x": 32,
             "y": 1306,
             "width": 326,
-            "height": 167,
+            "height": 133,
             "right": 358,
-            "bottom": 1473
+            "bottom": 1439
           },
           "lead": {
             "x": 45,
             "y": 1315,
             "width": 300,
-            "height": 46,
+            "height": 22,
             "right": 345,
-            "bottom": 1361
+            "bottom": 1337
           },
-          "route": {
+          "addressCell": {
             "x": 45,
-            "y": 1369,
+            "y": 1341,
             "width": 300,
-            "height": 44,
+            "height": 38,
             "right": 345,
-            "bottom": 1413
+            "bottom": 1379
           },
-          "metrics": {
-            "x": 45,
-            "y": 1421,
-            "width": 300,
-            "height": 42,
-            "right": 345,
-            "bottom": 1464
-          },
-          "gapLeadRoute": -300,
-          "gapRouteMetrics": -300,
-          "gapAddressMetrics": -300,
           "address": {
             "x": 45,
-            "y": 1369,
+            "y": 1359,
             "width": 300,
             "height": 20,
             "right": 345,
-            "bottom": 1389
+            "bottom": 1379
           },
+          "meta": {
+            "x": 45,
+            "y": 1383,
+            "width": 300,
+            "height": 20,
+            "right": 345,
+            "bottom": 1403
+          },
+          "metrics": {
+            "x": 45,
+            "y": 1407,
+            "width": 300,
+            "height": 22,
+            "right": 345,
+            "bottom": 1430
+          },
+          "hops": {
+            "x": 45,
+            "y": 1408,
+            "width": 30,
+            "height": 21,
+            "right": 75,
+            "bottom": 1429
+          },
+          "p50": {
+            "x": 87,
+            "y": 1409,
+            "width": 75,
+            "height": 19,
+            "right": 163,
+            "bottom": 1428
+          },
+          "loss": {
+            "x": 175,
+            "y": 1407,
+            "width": 58,
+            "height": 22,
+            "right": 232,
+            "bottom": 1430
+          },
+          "status": {
+            "x": 244,
+            "y": 1410,
+            "width": 34,
+            "height": 18,
+            "right": 278,
+            "bottom": 1427
+          },
+          "chevron": {
+            "x": 290,
+            "y": 1410,
+            "width": 16,
+            "height": 16,
+            "right": 306,
+            "bottom": 1426
+          },
+          "columns": [
+            300
+          ],
+          "columnGap": 12,
+          "rowHeight": 133,
           "fonts": {
             "hops": 13,
-            "sample": 13,
             "address": 13,
-            "names": 12,
-            "p50": 20,
+            "route": 12,
+            "sample": 12,
+            "p50": 17,
             "loss": 14
           },
+          "addressWidth": 300,
+          "headerCount": 1,
+          "headerVisible": false,
+          "headerText": "链路起点 → 终点跳数P50窗口丢包状态",
+          "rowText": "港日中转链 变慢 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 · 最近样本 13 分钟前 跳数 4 时延 93 ms 丢包 3.2% 健康",
+          "connectorCount": 0,
+          "scrollOverflow": 0,
           "text": {
-            "hops": "4 跳",
-            "sample": "最近样本 12 分钟前",
             "address": "203.0.113.11:21001→198.51.100.23:21004",
-            "names": "香港-01 → 东京-01 → … → 大阪-01"
-          },
-          "scrollOverflow": 0
+            "route": "香港-01 → 东京-01 → … → 大阪-01",
+            "sample": "最近样本 13 分钟前"
+          }
         },
         "rowCount": 3,
-        "slowBadge": 1,
-        "headVisible": false
+        "slowBadge": 1
       }
     },
     {
-      "name": "[390-light] 块之间没有 >40px 空白",
+      "name": "[390-light] 表头只出现一次，行内不重复标签",
       "ok": true,
       "detail": {
-        "gapLeadRoute": -300,
-        "gapRouteMetrics": -300,
-        "gapAddressMetrics": -300
+        "headerText": "链路起点 → 终点跳数P50窗口丢包状态",
+        "headerVisible": false,
+        "rowText": "港日中转链 变慢 起点 → 终点 203.0.113.11:21001 → 198.51.100.23:21004 香港-01 → 东京-01 → … → 大阪-01 · 最近样本 13 分钟前 跳数 4 时延 93 ms 丢包 3.2% 健康",
+        "connectorCount": 0
       }
     },
     {
-      "name": "[390-light] 4 跳链路由用省略号，不编造中间节点",
+      "name": "[390-light] 地址不拉伸，390 单列堆叠",
+      "ok": true,
+      "detail": {
+        "addressWidth": 300,
+        "columnGap": 12,
+        "positions": {
+          "lead": {
+            "x": 45,
+            "y": 1315,
+            "width": 300,
+            "height": 22,
+            "right": 345,
+            "bottom": 1337
+          },
+          "address": {
+            "x": 45,
+            "y": 1341,
+            "width": 300,
+            "height": 38,
+            "right": 345,
+            "bottom": 1379
+          },
+          "meta": {
+            "x": 45,
+            "y": 1383,
+            "width": 300,
+            "height": 20,
+            "right": 345,
+            "bottom": 1403
+          },
+          "metrics": {
+            "x": 45,
+            "y": 1407,
+            "width": 300,
+            "height": 22,
+            "right": 345,
+            "bottom": 1430
+          }
+        }
+      }
+    },
+    {
+      "name": "[390-light] 4 跳路由用省略号，不编造中间节点",
       "ok": true,
       "detail": {
         "fourHopRoute": "香港-01 → 东京-01 → … → 大阪-01",
