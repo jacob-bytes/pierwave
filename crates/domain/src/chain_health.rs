@@ -38,6 +38,12 @@
 //!   `role = target` 的链目标节点（`server_id` / `status` 都是 null）。多成员组
 //!   的节点只代表该组的代表成员，链级 `estimated = true` 表示段值是估算。
 //!   `entry` / `exit` 保留，前端可渐进迁移。
+//! * `status` 是链级可用性状态：任一 `source` / `hop` 节点离线 → `blocked`
+//!   （`node_offline`，并点名第一台离线节点）；否则节点非在线 → `degraded`
+//!   （`node_unhealthy`）；否则无当前样本 / 有断点 → `degraded`（`no_samples`）；
+//!   否则较基线变慢 → `degraded`（`slow`）；否则 `ok`。节点状态优先于数据
+//!   质量，所以掉线导致的缺样本不会被误判成 `no_samples`。链目标节点
+//!   （`role = "target"`，`status` 恒为 null）不参与判定。
 
 use std::collections::HashMap;
 
@@ -168,6 +174,116 @@ pub struct NodeView {
     pub status: Option<String>,
 }
 
+/// 链级可用性状态里被点名的节点。
+///
+/// 只带展示需要的 `seq` / `name`；具体原因由上层 `cause` 表达，不在这里重复。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct StatusNode {
+    pub seq: i64,
+    pub name: String,
+}
+
+/// 链级可用性状态：把节点状态与链路数据合成为一个用户能直接看的状态。
+///
+/// 判定优先级（高 → 低）：
+/// 1. 任一 `source` / `hop` 节点 `status == "offline"` → `blocked` + `node_offline`，
+///    `node` 指向 `seq` 最小的那台离线节点；
+/// 2. 任一 `source` / `hop` 节点 `status != "online"`（`abnormal` / `no_data` /
+///    空组导致的 `null` 等）→ `degraded` + `node_unhealthy`；
+/// 3. 当前窗口没有整体样本，或 `missing_hops` 非空 → `degraded` + `no_samples`；
+/// 4. 整体较基线变慢（与 `summary.slow_chains` 同一个 [`SLOW_DELTA_MS`] 阈值）
+///    → `degraded` + `slow`；
+/// 5. 其余 → `ok`，`cause` / `node` 都是 `null`。
+///
+/// `role = "target"` 的链目标节点不参与判定：它没有服务器行，`status` 恒为
+/// `null`。节点优先级高于数据质量，所以「节点掉线导致缺样本」会得到
+/// `blocked` / `node_offline`，不会被误判成 `no_samples`。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ChainStatus {
+    /// `ok` / `degraded` / `blocked`。
+    pub kind: &'static str,
+    /// `node_offline` / `node_unhealthy` / `no_samples` / `slow`；`ok` 时为 `null`。
+    pub cause: Option<&'static str>,
+    /// 只有 `node_offline` 时给出第一台离线节点；其余情况为 `null`。
+    pub node: Option<StatusNode>,
+}
+
+impl ChainStatus {
+    fn ok() -> Self {
+        Self {
+            kind: "ok",
+            cause: None,
+            node: None,
+        }
+    }
+
+    fn degraded(cause: &'static str) -> Self {
+        Self {
+            kind: "degraded",
+            cause: Some(cause),
+            node: None,
+        }
+    }
+}
+
+/// 根据节点状态与数据质量判定链级可用性；优先级见 [`ChainStatus`]。
+fn chain_status(
+    nodes: &[NodeView],
+    missing_hops: &[i64],
+    current_overall: Option<f64>,
+    baseline_overall: Option<f64>,
+) -> ChainStatus {
+    let mut first_offline: Option<&NodeView> = None;
+    let mut unhealthy = false;
+    for node in nodes.iter().filter(|node| node.role != "target") {
+        match node.status.as_deref() {
+            Some("online") => {}
+            Some("offline") => {
+                if first_offline.is_none() {
+                    first_offline = Some(node);
+                }
+            }
+            // `abnormal` / `no_data` 等库内值，以及空组没有服务器可引用时的
+            // `null`，都算「非在线」：链路上有一台状态不明就不能说这条链健康。
+            _ => unhealthy = true,
+        }
+    }
+    if let Some(node) = first_offline {
+        return ChainStatus {
+            kind: "blocked",
+            cause: Some("node_offline"),
+            node: Some(StatusNode {
+                seq: node.seq,
+                name: node.name.clone(),
+            }),
+        };
+    }
+    if unhealthy {
+        return ChainStatus::degraded("node_unhealthy");
+    }
+    // 当前窗口没有任何一个「所有段齐全」的桶，说明最近 2 小时测不出整链时延；
+    // 有断点（空组 / 最后一跳完全没有样本）同样算样本不足。
+    if missing_hops.is_empty() && current_overall.is_some() {
+        return if is_slow(current_overall, baseline_overall) {
+            ChainStatus::degraded("slow")
+        } else {
+            ChainStatus::ok()
+        };
+    }
+    ChainStatus::degraded("no_samples")
+}
+
+/// 整体变慢：当前整体 p50 比 24h 基线高至少 [`SLOW_DELTA_MS`]。
+///
+/// `summary.slow_chains` 与逐链 `status.cause = "slow"` 共用这一个口径，
+/// 避免两处阈值漂移。
+fn is_slow(current: Option<f64>, baseline: Option<f64>) -> bool {
+    match (current, baseline) {
+        (Some(current), Some(baseline)) => current - baseline >= SLOW_DELTA_MS,
+        _ => false,
+    }
+}
+
 /// 整体时间序列的一个点；空桶在数组里是 `null`。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SeriesPoint {
@@ -201,6 +317,9 @@ pub struct ChainHealth {
     /// 才会列进来；有最后一跳样本时**不含**最后一跳。空数组只可能出现在
     /// 没有任何组的脏数据上。
     pub missing_hops: Vec<i64>,
+    /// 链级可用性状态：节点掉线 → `blocked`，节点异常 / 样本不足 / 变慢 →
+    /// `degraded`，其余 `ok`。判定优先级见 [`ChainStatus`]。
+    pub status: ChainStatus,
     /// 固定长度 = `hours * 3600 / bucket`；无样本桶是 `null`。
     pub series: Vec<Option<SeriesPoint>>,
     /// 逐段视图，按目标组 seq 升序。
@@ -658,6 +777,12 @@ pub fn aggregate(
         let current_overall = median(&current.overall);
         let baseline_overall = median(&baseline.overall);
         let diagnosis = diagnose(&segments, current_overall, baseline_overall);
+        let status = chain_status(
+            &layout.nodes,
+            &missing_hops,
+            current_overall,
+            baseline_overall,
+        );
 
         views.push(ChainViewBuild {
             view: ChainHealth {
@@ -669,6 +794,7 @@ pub fn aggregate(
                 nodes: layout.nodes.clone(),
                 estimated: layout.estimated,
                 missing_hops,
+                status,
                 series,
                 segments,
                 loss_pct: chain_loss_pct,
@@ -1176,12 +1302,7 @@ fn summarize(views: &[ChainViewBuild]) -> Summary {
     );
     let slow_chains = views
         .iter()
-        .filter(
-            |build| match (build.current_overall, build.baseline_overall) {
-                (Some(current), Some(baseline)) => current - baseline >= SLOW_DELTA_MS,
-                _ => false,
-            },
-        )
+        .filter(|build| is_slow(build.current_overall, build.baseline_overall))
         .count() as i64;
 
     let mut worst: Option<HopRef> = None;
@@ -2689,6 +2810,270 @@ mod tests {
         assert_eq!(view.nodes[0].role, "source");
         assert_eq!(view.nodes[1].role, "hop");
         assert_eq!(view.nodes[2].role, "target");
+    }
+
+    /// 指定服务器状态的成员：用于链级可用性判定。
+    fn status_member(
+        server_id: &str,
+        server_name: &str,
+        status: &str,
+        listen_port: i64,
+    ) -> ChainGroupMember {
+        let mut member = full_member(server_id, server_name, "10.0.0.1", None, listen_port, 0);
+        member.server_status = status.into();
+        member
+    }
+
+    /// 一条三段链、所有段在当前窗口都有样本时的「健康」输入。
+    fn healthy_samples(chain_id: &str) -> Vec<LatencySample> {
+        let ts = end_at(NOW, BUCKET) - 60;
+        vec![
+            sample(ts, "a", forward(chain_id, 0, "a", 1), "", 12),
+            sample(ts, "b", forward(chain_id, 1, "b", 1), "", 8),
+            sample(ts, "c", forward(chain_id, 2, "c", 1), "", 6),
+        ]
+    }
+
+    /// 24h 样本：第 2 段最近 2h +20ms，其余段持平 → 整体变慢。
+    fn slowed_samples(chain_id: &str) -> Vec<LatencySample> {
+        let end = end_at(NOW, BUCKET);
+        let current_start = end - 2 * 3600;
+        let baseline_start = current_start - 24 * 3600;
+        let mut samples = Vec::new();
+        let mut ts = baseline_start;
+        while ts < end {
+            samples.push(sample(ts + 60, "a", forward(chain_id, 0, "a", 1), "", 20));
+            let second = if ts >= current_start { 50 } else { 30 };
+            samples.push(sample(
+                ts + 60,
+                "b",
+                forward(chain_id, 1, "b", 1),
+                "",
+                second,
+            ));
+            samples.push(sample(ts + 60, "c", forward(chain_id, 2, "c", 1), "", 10));
+            ts += BUCKET;
+        }
+        samples
+    }
+
+    /// 三种 kind 之一：所有节点在线、当前窗口数据完整且不慢 → `ok`。
+    /// 链目标节点的 `status` 恒为 null，不能把链判成 degraded。
+    #[test]
+    fn chain_status_is_ok_when_every_node_is_online_and_data_is_current() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![status_member("b", "东京-01", "online", 21_002)],
+                ),
+                (
+                    2,
+                    None,
+                    vec![status_member("c", "大阪-01", "online", 21_003)],
+                ),
+            ],
+        );
+        let aggregate = aggregate(
+            &[chain],
+            &healthy_samples("c1"),
+            &no_probes(),
+            NOW,
+            1,
+            BUCKET,
+        );
+        let view = &aggregate.chains[0];
+        assert!(view.missing_hops.is_empty());
+        assert_eq!(view.status.kind, "ok");
+        assert_eq!(view.status.cause, None);
+        assert_eq!(view.status.node, None);
+        // 链目标节点不参与判定：它的 status 是 null，但链仍是 ok。
+        let target = view.nodes.last().unwrap();
+        assert_eq!(target.role, "target");
+        assert_eq!(target.status, None);
+    }
+
+    /// 非 online 的普通节点（abnormal / no_data …）→ `degraded` / `node_unhealthy`。
+    #[test]
+    fn an_unhealthy_hop_degrades_the_chain_without_naming_a_node() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![status_member("b", "东京-01", "no_data", 21_002)],
+                ),
+                (
+                    2,
+                    None,
+                    vec![status_member("c", "大阪-01", "online", 21_003)],
+                ),
+            ],
+        );
+        let aggregate = aggregate(
+            &[chain],
+            &healthy_samples("c1"),
+            &no_probes(),
+            NOW,
+            1,
+            BUCKET,
+        );
+        let view = &aggregate.chains[0];
+        assert_eq!(view.status.kind, "degraded");
+        assert_eq!(view.status.cause, Some("node_unhealthy"));
+        assert_eq!(view.status.node, None, "只有 node_offline 才点名叫节点");
+    }
+
+    /// 掉线节点 → `blocked` / `node_offline`，点名 seq 最小的那台离线节点；
+    /// 即使同时缺样本（缺样本本身会判 no_samples），也必须先判节点离线。
+    #[test]
+    fn an_offline_hop_blocks_the_chain_and_names_the_first_offline_node() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![status_member("b", "东京-01", "offline", 21_002)],
+                ),
+                (
+                    2,
+                    None,
+                    vec![status_member("c", "大阪-01", "offline", 21_003)],
+                ),
+            ],
+        );
+        // 完全没样本：缺样本不能抢在节点离线前面。
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.missing_hops, vec![3], "最后一跳确实没有样本");
+        assert_eq!(view.status.kind, "blocked");
+        assert_eq!(view.status.cause, Some("node_offline"));
+        assert_eq!(
+            view.status.node,
+            Some(StatusNode {
+                seq: 1,
+                name: "东京-01".into(),
+            }),
+            "两台都离线时取 seq 最小的第一台"
+        );
+    }
+
+    /// 节点在线、但当前窗口没有任何完整整体样本，且有断点 → `degraded` / `no_samples`。
+    #[test]
+    fn missing_samples_degrade_the_chain_with_cause_no_samples() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![status_member("b", "东京-01", "online", 21_002)],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.missing_hops, vec![2]);
+        assert_eq!(view.status.kind, "degraded");
+        assert_eq!(view.status.cause, Some("no_samples"));
+        assert_eq!(view.status.node, None);
+    }
+
+    /// 所有节点在线、整体较基线变慢 → `degraded` / `slow`。
+    #[test]
+    fn a_slow_chain_degrades_with_cause_slow() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![status_member("b", "东京-01", "online", 21_002)],
+                ),
+                (
+                    2,
+                    None,
+                    vec![status_member("c", "大阪-01", "online", 21_003)],
+                ),
+            ],
+        );
+        let samples = slowed_samples("c1");
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.status.kind, "degraded");
+        assert_eq!(view.status.cause, Some("slow"));
+        assert_eq!(view.status.node, None);
+        assert_eq!(
+            aggregate.summary.slow_chains, 1,
+            "逐链 slow 与 summary.slow_chains 必须同一口径"
+        );
+    }
+
+    /// 节点离线优先于变慢：同一份「确实变慢」的数据，只要有一台离线就是 blocked。
+    #[test]
+    fn an_offline_node_outranks_a_slowdown() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![status_member("b", "东京-01", "online", 21_002)],
+                ),
+                (
+                    2,
+                    None,
+                    vec![status_member("c", "大阪-01", "offline", 21_003)],
+                ),
+            ],
+        );
+        let samples = slowed_samples("c1");
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(aggregate.summary.slow_chains, 1, "数据本身确实满足变慢口径");
+        assert_eq!(view.status.kind, "blocked");
+        assert_eq!(view.status.cause, Some("node_offline"));
+        assert_eq!(
+            view.status.node,
+            Some(StatusNode {
+                seq: 2,
+                name: "大阪-01".into(),
+            })
+        );
     }
 
     #[test]

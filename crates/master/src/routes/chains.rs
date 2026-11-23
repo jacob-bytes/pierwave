@@ -29,8 +29,8 @@ use serde_json::{json, Value};
 
 use pierwave_domain::chains::GroupStrategy;
 use pierwave_domain::models::{
-    Chain, ChainGroupMember, ChainGroupWithMembers, ChainTemplate, ChainWithGroups,
-    ForwardStatusRow, Server,
+    Chain, ChainGroupMember, ChainGroupWithMembers, ChainTemplate, ChainTemplateGroup,
+    ChainWithGroups, ForwardStatusRow, Server,
 };
 use pierwave_domain::port_policy::PortPolicy;
 use pierwave_domain::tunnel_security as tunnel_mode;
@@ -384,6 +384,19 @@ pub struct CreateChain {
     pub hops: Vec<CreateChainHop>,
     #[serde(default)]
     pub groups: Vec<CreateChainGroup>,
+    /// 从模板创建（与 `groups` / `hops` / `engine` / `protocol` / `transport` /
+    /// `tunnel_security` 互斥）：模板展开成组，引擎与加密方式直接沿用模板。
+    ///
+    /// 互斥冲突返回 400 `chain.template_conflict`；模板不存在 404
+    /// `chain_template.not_found`，已停用 400 `chain_template.disabled`。
+    #[serde(default)]
+    pub template_id: Option<String>,
+    /// 模板链的入口端口（可选）：只覆盖**第一组第一台成员**的对外监听端口，
+    /// 其余入口成员与所有中间跳仍自动分配。省略 / null = 全部自动分配。
+    ///
+    /// 只能和 `template_id` 一起使用；手工 `groups` 请把端口写在成员上。
+    #[serde(default)]
+    pub entry_port: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -2306,6 +2319,252 @@ pub async fn availability(
     })))
 }
 
+// ---------------------------------------------------------------------------
+// 从模板展开（用户自助建链与管理员「从模板创建」共用）
+//
+// 模板只描述形态（引擎 / 协议 / 安全模式 / 组与服务器），端口一个都不存：
+// 每次建链都按当时的端口策略重新分配。显式 `entry_port` 只覆盖**第一组第一台
+// 成员**的对外监听端口（也就是 `entry_address` 展示的那台），其它入口成员与
+// 所有中间跳仍自动分配 —— 多成员入口组的候选成员本来就不应该共用一个端口。
+// ---------------------------------------------------------------------------
+
+/// 管理员「从模板创建」解析出的固定配置：引擎 / 协议 / 安全模式直接沿用模板。
+struct ChainTemplatePlan {
+    id: String,
+    name: String,
+    engine: String,
+    protocol: String,
+    transport: String,
+    security: String,
+    groups: Vec<ChainTemplateGroup>,
+}
+
+/// 读模板并校验其形态。
+///
+/// * 模板不存在 → 404 `chain_template.not_found`（按 id 定位的资源，与模板
+///   CRUD 一致；不存在的资源用 404 让客户端能区分「没有」和「参数错了」）；
+/// * 模板已停用 → 400 `chain_template.disabled`（模板确实存在，只是不能用；
+///   用 400 而不是 404，管理员能看到真正原因，也不会误以为被删了）；
+/// * 配置损坏 / 组合非法 → 复用模板层的既有错误码。
+async fn load_chain_template_plan(
+    state: &AppState,
+    template_id: &str,
+    raw_name: &str,
+    target_host: &str,
+    target_port: i64,
+) -> AppResult<ChainTemplatePlan> {
+    let template = repo::chain_templates::find_by_id(&state.db.pool, template_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::not_found(
+                "chain_template.not_found",
+                Some(json!({ "template_id": template_id })),
+                "链模板不存在 / chain template not found",
+            )
+        })?;
+    if !template.enabled {
+        return Err(AppError::coded(
+            "chain_template.disabled",
+            Some(json!({
+                "template_id": &template.id,
+                "template_name": &template.name,
+            })),
+            format!(
+                "链模板「{}」已停用，不能用于建链 / chain template \"{}\" is disabled and cannot be used to create a chain",
+                template.name, template.name
+            ),
+        ));
+    }
+    let groups = chain_templates::parse_groups(&template.groups_json)?;
+    // 模板写路径已经校验过组合；这里再跑一遍，防止模板被手工改库后绕过。
+    let config = chain_templates::validate_config(
+        &template.engine,
+        &template.security,
+        &template.transport,
+        &template.protocol,
+        &groups,
+    )?;
+    let name = match raw_name.trim() {
+        "" => template_chain_name(&template.name, target_host, target_port),
+        raw => chains::normalize_name(raw)?,
+    };
+    Ok(ChainTemplatePlan {
+        id: template.id,
+        name,
+        engine: config.engine,
+        protocol: config.protocol,
+        transport: config.transport,
+        security: config.security,
+        groups,
+    })
+}
+
+/// 显式入口端口与同服务器上已有监听端口的冲突检查。
+///
+/// 与自动分配 / 手工 groups 的既有错误码分开：这两种场景前端已经能处理
+/// `chain.port_conflict_hop` / `forward.port_conflict_*`，而「用户填的入口端口
+/// 被占」需要一个稳定的 409 让前端提示换端口且**不降级模板能力**。
+async fn ensure_entry_port_available(
+    state: &AppState,
+    server: &Server,
+    port: i64,
+    exclude_chain_id: Option<&str>,
+) -> AppResult<()> {
+    if let Some(node) = repo::nodes::find_by_port(&state.db.pool, &server.id, port).await? {
+        return Err(AppError::conflict(
+            "chain.entry_port_taken",
+            Some(json!({
+                "port": port,
+                "server_id": server.id,
+                "server_name": server.name,
+                "holder": "node",
+                "holder_id": &node.id,
+                "holder_name": &node.name,
+            })),
+            format!(
+                "入口端口 {} 已被服务器「{}」上的节点「{}」占用，请换一个端口 / entry port {} is already used by node \"{}\" on server \"{}\"; choose another port",
+                port, server.name, node.name, port, node.name, server.name
+            ),
+        ));
+    }
+    if let Some(forward) =
+        repo::forwards::find_by_listen_port(&state.db.pool, &server.id, port, None).await?
+    {
+        return Err(AppError::conflict(
+            "chain.entry_port_taken",
+            Some(json!({
+                "port": port,
+                "server_id": server.id,
+                "server_name": server.name,
+                "holder": "forward",
+                "holder_id": &forward.id,
+                "holder_name": &forward.name,
+            })),
+            format!(
+                "入口端口 {} 已被服务器「{}」上的转发规则「{}」占用，请换一个端口 / entry port {} is already used by forward rule \"{}\" on server \"{}\"; choose another port",
+                port, server.name, forward.name, port, forward.name, server.name
+            ),
+        ));
+    }
+    if let Some(conflict) =
+        repo::chains::find_member_port_conflict(&state.db.pool, &server.id, port, exclude_chain_id)
+            .await?
+    {
+        return Err(AppError::conflict(
+            "chain.entry_port_taken",
+            Some(json!({
+                "port": port,
+                "server_id": server.id,
+                "server_name": server.name,
+                "holder": "chain",
+                "holder_id": &conflict.chain_id,
+                "holder_name": &conflict.chain_name,
+                "seq": conflict.seq + 1,
+            })),
+            format!(
+                "入口端口 {} 已被服务器「{}」上的链「{}」第 {} 组占用，请换一个端口 / entry port {} is already used by chain \"{}\" (group {}) on server \"{}\"; choose another port",
+                port,
+                server.name,
+                conflict.chain_name,
+                conflict.seq + 1,
+                port,
+                conflict.chain_name,
+                conflict.seq + 1,
+                server.name
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// 显式入口端口的完整校验：范围 → 保留端口 → 服务器允许集合 → 冲突。
+///
+/// 之后 `resolve_groups` 还会再跑一遍它自己的端口校验（含服务器默认策略），
+/// 所以这里只补它没有的「入口端口专属错误码」与提前失败，不会放宽任何规则。
+async fn validate_explicit_entry_port(
+    state: &AppState,
+    server: &Server,
+    port: i64,
+    exclude_chain_id: Option<&str>,
+) -> AppResult<()> {
+    chains::validate_entry_port(port)?;
+    forwards::ensure_port_not_reserved(port)?;
+    let policy = PortPolicy::from_server(server);
+    policy.ensure_allowed("chain.port_not_allowed", port, &server.name)?;
+    ensure_entry_port_available(state, server, port, exclude_chain_id).await
+}
+
+/// 模板 → 链的组输入。
+///
+/// * 入口组（seq = 0）第一台成员：显式 `entry_port` 优先，缺省按端口策略自动分配；
+/// * 入口组其余成员：照常自动分配（多成员入口组是候选池，不能共用一个端口）；
+/// * 中间组：`listen_port` 留空，交给 `resolve_groups` 走链既有自动分配。
+async fn template_chain_inputs(
+    state: &AppState,
+    template_groups: &[ChainTemplateGroup],
+    target_host: &str,
+    target_port: i64,
+    entry_port: Option<i64>,
+    exclude_chain_id: Option<&str>,
+) -> AppResult<Vec<CreateChainGroup>> {
+    let mut inputs = Vec::with_capacity(template_groups.len());
+    for group in template_groups {
+        let mut members = Vec::with_capacity(group.server_ids.len());
+        for (index, server_id) in group.server_ids.iter().enumerate() {
+            let server = load_server_for_hop(state, server_id).await?;
+            let listen_port = if group.seq != 0 {
+                None
+            } else if index == 0 {
+                match entry_port {
+                    Some(port) => {
+                        validate_explicit_entry_port(state, &server, port, exclude_chain_id)
+                            .await?;
+                        Some(port)
+                    }
+                    None => Some(
+                        super::forwards::allocate_user_port_excluding(
+                            state,
+                            &server,
+                            target_host,
+                            target_port,
+                            exclude_chain_id,
+                        )
+                        .await?,
+                    ),
+                }
+            } else {
+                Some(
+                    super::forwards::allocate_user_port_excluding(
+                        state,
+                        &server,
+                        target_host,
+                        target_port,
+                        exclude_chain_id,
+                    )
+                    .await?,
+                )
+            };
+            members.push(CreateChainMember {
+                server_id: server.id,
+                listen_port,
+                priority: index as i64,
+                weight: 1,
+            });
+        }
+        inputs.push(CreateChainGroup {
+            name: None,
+            strategy: Some(group.strategy.clone()),
+            cert_id: None,
+            public_port: None,
+            use_internal_address: false,
+            listen_port: None,
+            server_ids: Vec::new(),
+            members,
+        });
+    }
+    Ok(inputs)
+}
+
 pub async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2327,29 +2586,111 @@ pub async fn create(
         tunnel_security: raw_tunnel_security,
         hops,
         groups,
+        template_id: raw_template_id,
+        entry_port,
     } = req;
 
-    let name = chains::normalize_name(&raw_name)?;
     let target_host = forwards::normalize_target_host(&raw_target_host)?;
     forwards::validate_target_port(target_port)?;
-    let engine = match raw_engine.as_deref() {
-        Some(raw) => engine::normalize(raw)?,
-        None => engine::DEFAULT.to_string(),
+
+    let template_id = raw_template_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+
+    // 两套入参互斥：模板已经固定了 groups / 引擎 / 加密方式，手工字段同时出现
+    // 时「以哪个为准」不可预测；`entry_port` 只对模板展开有意义。
+    let template_conflicts: Vec<&str> = match template_id.as_deref() {
+        Some(_) => {
+            let mut conflicts = Vec::new();
+            if !groups.is_empty() {
+                conflicts.push("groups");
+            }
+            if !hops.is_empty() {
+                conflicts.push("hops");
+            }
+            if raw_engine.is_some() {
+                conflicts.push("engine");
+            }
+            if raw_protocol.is_some() {
+                conflicts.push("protocol");
+            }
+            if raw_transport.is_some() {
+                conflicts.push("transport");
+            }
+            if raw_tunnel_security.is_some() {
+                conflicts.push("tunnel_security");
+            }
+            conflicts
+        }
+        None if entry_port.is_some() => vec!["entry_port"],
+        None => Vec::new(),
     };
-    let protocol = match raw_protocol.as_deref() {
-        Some(raw) => protocol::normalize_chain(raw)?,
-        None => protocol::from_legacy_udp(udp).to_string(),
+    if !template_conflicts.is_empty() {
+        let message = if template_id.is_none() {
+            "entry_port 只能和 template_id 一起使用；手工建链请把端口写在入口成员上 / entry_port is only valid together with template_id; for manual chains set listen_port on the entry member".to_string()
+        } else {
+            format!(
+                "从模板创建时不能再提供 {}：groups / hops 与 template_id 互斥，engine / protocol / transport / tunnel_security 直接沿用模板 / creating from a template does not accept {}: groups/hops are mutually exclusive with template_id, and engine/protocol/transport/tunnel_security come from the template",
+                template_conflicts.join(" / "),
+                template_conflicts.join(", ")
+            )
+        };
+        return Err(AppError::coded(
+            "chain.template_conflict",
+            Some(json!({
+                "template_id": template_id,
+                "conflicts": &template_conflicts,
+            })),
+            message,
+        ));
+    }
+
+    // 模板路径：模板的引擎 / 协议 / 安全模式直接沿用，名称缺省用模板名 + 目标。
+    let template_plan = match template_id.as_deref() {
+        Some(template_id) => Some(
+            load_chain_template_plan(&state, template_id, &raw_name, &target_host, target_port)
+                .await?,
+        ),
+        None => None,
     };
-    let transport =
-        hop_transport::normalize(raw_transport.as_deref().unwrap_or(hop_transport::DEFAULT))?;
-    let tunnel_security = tunnel_mode::normalize(
-        raw_tunnel_security
-            .as_deref()
-            .unwrap_or(tunnel_mode::DEFAULT),
-    )?;
+
+    let name = match &template_plan {
+        Some(plan) => plan.name.clone(),
+        None => chains::normalize_name(&raw_name)?,
+    };
+    let engine = match &template_plan {
+        Some(plan) => plan.engine.clone(),
+        None => match raw_engine.as_deref() {
+            Some(raw) => engine::normalize(raw)?,
+            None => engine::DEFAULT.to_string(),
+        },
+    };
+    let protocol = match &template_plan {
+        Some(plan) => plan.protocol.clone(),
+        None => match raw_protocol.as_deref() {
+            Some(raw) => protocol::normalize_chain(raw)?,
+            None => protocol::from_legacy_udp(udp).to_string(),
+        },
+    };
+    let transport = match &template_plan {
+        Some(plan) => plan.transport.clone(),
+        None => {
+            hop_transport::normalize(raw_transport.as_deref().unwrap_or(hop_transport::DEFAULT))?
+        }
+    };
+    let tunnel_security = match &template_plan {
+        Some(plan) => plan.security.clone(),
+        None => tunnel_mode::normalize(
+            raw_tunnel_security
+                .as_deref()
+                .unwrap_or(tunnel_mode::DEFAULT),
+        )?,
+    };
 
     // 新字段优先；没传 groups 时把旧 hops 转成「每组一台」。
-    let inputs = if groups.is_empty() {
+    let manual_inputs = if groups.is_empty() {
         groups_from_hops(hops)
     } else {
         groups
@@ -2357,6 +2698,20 @@ pub async fn create(
     // 端口分配与插入必须在同一个 BEGIN IMMEDIATE 事务里：先拿写锁，再做
     // 冲突查询/自动分配，最后用同一个连接插入；并发保存会排队而不是撞唯一索引。
     let mut write = repo::WriteTx::begin(&state.db.pool).await?;
+    let inputs = match &template_plan {
+        Some(plan) => {
+            template_chain_inputs(
+                &state,
+                &plan.groups,
+                &target_host,
+                target_port,
+                entry_port,
+                None,
+            )
+            .await?
+        }
+        None => manual_inputs,
+    };
     let groups = resolve_groups(&state, &inputs, None, None).await?;
     validate_internal_addresses(&groups)?;
     ensure_targets_safe(&groups, &target_host, target_port)?;
@@ -2396,7 +2751,7 @@ pub async fn create(
             tunnel_security,
             groups: new_groups(&groups),
         },
-        None,
+        template_plan.as_ref().map(|plan| plan.id.as_str()),
         None,
         None,
     )
@@ -2422,6 +2777,14 @@ pub async fn create(
             "proxy_protocol": chain.chain.proxy_protocol,
             "transport": &chain.chain.transport,
             "tunnel_security": &chain.chain.tunnel_security,
+            // 从模板创建时记录模板 id；手工建链为 null。
+            "template_id": &chain.chain.template_id,
+            // 入口端口只在模板链里由 request 指定，记下来便于审计追溯。
+            "entry_port": chain
+                .groups
+                .first()
+                .and_then(|group| ordered_members(group).first().copied())
+                .map(|member| member.listen_port),
             "hops": chain.groups.iter().map(|group| json!({
                 "seq": group.group.seq,
                 "server_id": group.members.first().map(|member| &member.server_id),
@@ -2860,8 +3223,10 @@ async fn load_owned_chain(
     }
 }
 
-/// 自动生成用户链名称：模板名 + 目标，超出 64 字符时回落到纯目标。
-fn user_chain_name(template_name: &str, target_host: &str, target_port: i64) -> String {
+/// 从模板建链的默认名称：模板名 + 目标，超出 64 字符时回落到纯目标。
+///
+/// 用户自助链与管理端「从模板创建」共用：两边都不传名称时给出同样可读的名字。
+fn template_chain_name(template_name: &str, target_host: &str, target_port: i64) -> String {
     let target = format!("{target_host}:{target_port}");
     let budget = chains::NAME_MAX_CHARS.saturating_sub(target.chars().count() + 3);
     let prefix: String = template_name.trim().chars().take(budget).collect();
@@ -2965,6 +3330,12 @@ pub async fn me_list(State(state): State<AppState>, user: CurrentUser) -> AppRes
 pub struct CreateUserChain {
     #[serde(default)]
     pub template_id: String,
+    /// 入口端口（可选）：只覆盖第一跳的对外监听端口；省略 / null = 自动分配。
+    ///
+    /// 必须是 1–65535 且在该服务器的允许端口范围内；与已有链 / 节点 / 转发
+    /// 冲突时 409 `chain.entry_port_taken`，此时链不会创建（事务回滚）。
+    #[serde(default)]
+    pub entry_port: Option<i64>,
     #[serde(default)]
     pub target_host: String,
     pub target_port: i64,
@@ -2977,8 +3348,9 @@ pub struct CreateUserChain {
 /// 2. 模板不在套餐白名单 / 已停用 → 403 `me.chain_template_not_allowed`；
 /// 3. 白名单通过但已满 → 400。
 ///
-/// 入口组每个成员各自从所在服务器的端口策略里分配端口；中间组省略端口，
-/// 由 `resolve_groups` 走链既有的自动分配（同样受端口策略约束）。
+/// 入口组第一台成员：显式 `entry_port` 优先，缺省按所在服务器的端口策略分配；
+/// 其它入口成员各自自动分配；中间组省略端口，由 `resolve_groups` 走链既有的
+/// 自动分配（同样受端口策略约束）。
 pub async fn me_create(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -3019,44 +3391,17 @@ pub async fn me_create(
     // 否则并发自助建链会抢到同一个端口。配额也在 create_in 里复核一次。
     let mut write = repo::WriteTx::begin(&state.db.pool).await?;
 
-    // 模板 → 链的组输入：入口组（seq 0）先按服务器端口策略分配，
-    // 中间组留空由 resolve_groups 自动分配。
-    let mut inputs: Vec<CreateChainGroup> = Vec::with_capacity(template_groups.len());
-    for group in &template_groups {
-        let mut members = Vec::with_capacity(group.server_ids.len());
-        for (index, server_id) in group.server_ids.iter().enumerate() {
-            let server = load_server_for_hop(&state, server_id).await?;
-            let listen_port = if group.seq == 0 {
-                Some(
-                    super::forwards::allocate_user_port(
-                        &state,
-                        &server,
-                        &target_host,
-                        req.target_port,
-                    )
-                    .await?,
-                )
-            } else {
-                None
-            };
-            members.push(CreateChainMember {
-                server_id: server.id,
-                listen_port,
-                priority: index as i64,
-                weight: 1,
-            });
-        }
-        inputs.push(CreateChainGroup {
-            name: None,
-            strategy: Some(group.strategy.clone()),
-            cert_id: None,
-            public_port: None,
-            use_internal_address: false,
-            listen_port: None,
-            server_ids: Vec::new(),
-            members,
-        });
-    }
+    // 模板 → 链的组输入：入口组第一台成员用显式 `entry_port`（缺省按服务器
+    // 端口策略自动分配），其它入口成员与中间跳仍自动分配。
+    let inputs = template_chain_inputs(
+        &state,
+        &template_groups,
+        &target_host,
+        req.target_port,
+        req.entry_port,
+        None,
+    )
+    .await?;
 
     let groups = resolve_groups(&state, &inputs, None, None).await?;
     validate_internal_addresses(&groups)?;
@@ -3092,7 +3437,7 @@ pub async fn me_create(
     // 模板可以选加权 / 最少连接：创建时同样要求整条链的 Agent >= 27。
     validate_strategy_agents(&groups)?;
 
-    let name = user_chain_name(&template.name, &target_host, req.target_port);
+    let name = template_chain_name(&template.name, &target_host, req.target_port);
     let id = repo::chains::create_in(
         &mut write,
         repo::chains::NewChain {

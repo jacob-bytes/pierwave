@@ -1,0 +1,82 @@
+{
+  "generatedAt": "2026-11-23T18:37:39.309Z",
+  "base": "http://localhost:5173",
+  "width": [
+    1440,
+    390
+  ],
+  "theme": "dark",
+  "results": [
+    {
+      "name": "user [1440] warns when entry_port is ignored",
+      "ok": true,
+      "detail": {
+        "toast": "端口 24321 未被采用，实际为 24000（保存后可在链路详情看到）",
+        "request": {
+          "template_id": "tpl-hk-tokyo",
+          "entry_port": 24321,
+          "target_host": "1.2.3.4",
+          "target_port": 443
+        }
+      }
+    },
+    {
+      "name": "admin [1440] warns when entry_port is ignored",
+      "ok": true,
+      "detail": {
+        "toast": "端口 24321 未被采用，实际为 24000（保存后可在链路详情看到）",
+        "request": {
+          "name": "香港 → 东京 · 双跳 · 1.2.3.4:443",
+          "template_id": "tpl-hk-tokyo",
+          "entry_port": 24321,
+          "target_host": "1.2.3.4",
+          "target_port": 443
+        }
+      }
+    },
+    {
+      "name": "detail [1440] shows 降级 · 无样本",
+      "ok": true,
+      "detail": {
+        "text": "降级 · 无样本",
+        "state": "degraded"
+      }
+    },
+    {
+      "name": "user [390] warns when entry_port is ignored",
+      "ok": true,
+      "detail": {
+        "toast": "端口 24321 未被采用，实际为 24000（保存后可在链路详情看到）",
+        "request": {
+          "template_id": "tpl-hk-tokyo",
+          "entry_port": 24321,
+          "target_host": "1.2.3.4",
+          "target_port": 443
+        }
+      }
+    },
+    {
+      "name": "admin [390] warns when entry_port is ignored",
+      "ok": true,
+      "detail": {
+        "toast": "端口 24321 未被采用，实际为 24000（保存后可在链路详情看到）",
+        "request": {
+          "name": "香港 → 东京 · 双跳 · 1.2.3.4:443",
+          "template_id": "tpl-hk-tokyo",
+          "entry_port": 24321,
+          "target_host": "1.2.3.4",
+          "target_port": 443
+        }
+      }
+    },
+    {
+      "name": "detail [390] shows 降级 · 无样本",
+      "ok": true,
+      "detail": {
+        "text": "降级 · 无样本",
+        "state": "degraded"
+      }
+    }
+  ],
+  "failures": []
+}

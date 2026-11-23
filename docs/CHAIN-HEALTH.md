@@ -17,58 +17,68 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 
 ```jsonc
 {
-  "generated_at": 1795321276, "hours": 24, "bucket": 900,
+  "generated_at": 1795450991, "hours": 24, "bucket": 900,
   "summary": {
-    "hop_p50_ms": 96, "delta_ms": 25, "slow_chains": 1, "total_chains": 3,
-    "worst_hop": { "chain_id": "…", "chain_name": "港日中转链", "seq": 3, "p50_ms": 58 },
-    "loss_pct": 0.8333,
-    "worst_loss": { "chain_id": "…", "chain_name": "港日中转链", "loss_pct": 0.8333 }
+    "hop_p50_ms": 44, "delta_ms": 0, "slow_chains": 0, "total_chains": 3,
+    "worst_hop": { "chain_id": "…", "chain_name": "港新直达链", "seq": 1, "p50_ms": 37 },
+    "loss_pct": 3.0638,
+    "worst_loss": { "chain_id": "…", "chain_name": "港日中转链", "loss_pct": 3.0638 }
   },
   "chains": [{
     "id": "…", "name": "港日中转链", "hops": 4,
     "entry": { "server_id": "…", "server_name": "香港-01",
-               "address": "203.0.113.11:443", "ip": "203.0.113.11", "port": 443 },
+               "address": "203.0.113.11:21001", "ip": "203.0.113.11", "port": 21001 },
     "exit":  { "server_id": "…", "server_name": "大阪-01",
-               "address": "198.51.100.21:21004", "ip": "198.51.100.21", "port": 21004 },
+               "address": "198.51.100.23:21004", "ip": "198.51.100.23", "port": 21004 },
     "nodes": [
       { "seq": 0, "server_id": "…", "name": "香港-01", "role": "source", "status": "online" },
       { "seq": 1, "server_id": "…", "name": "东京-01", "role": "hop", "status": "online" },
-      { "seq": 2, "server_id": "…", "name": "新加坡-01", "role": "hop", "status": "offline" },
-      { "seq": 3, "server_id": "…", "name": "大阪-01", "role": "hop", "status": "online" },
+      { "seq": 2, "server_id": "…", "name": "新加坡-01", "role": "hop", "status": "online" },
+      { "seq": 3, "server_id": "…", "name": "大阪-01", "role": "hop", "status": "offline" },
       { "seq": 4, "server_id": null, "name": "链目标", "role": "target", "status": null }
     ],
     "estimated": false,
     "missing_hops": [],
-    "series": [ { "ts": 1795312800, "p50": 79, "p10": 77, "p90": 82, "samples": 12, "loss_pct": 0.8 }, null ],
+    "status": { "kind": "blocked", "cause": "node_offline",
+                "node": { "seq": 3, "name": "大阪-01" } },
+    "series": [ null, "…", { "ts": 1795443300, "p50": 81.0, "p10": 74.6, "p90": 84.2,
+                             "samples": 10, "loss_pct": 3.8577 }, "…", null ],
     "segments": [
       { "seq": 1, "from": "香港-01", "to": "东京-01",
-        "series": [ { "ts": 1795312800, "p50": 16.0, "loss_pct": 0.8333 }, null, "…" ],
-        "p50": 16.0, "delta_ms": 0.0, "contribution_pct": 0,
-        "attempts": 240, "failures": 2, "loss_pct": 0.8333 },
+        "series": [ null, "…", { "ts": 1795450500, "p50": 14.5, "loss_pct": 0.4167 }, "…" ],
+        "p50": 15.5, "delta_ms": 0.0, "contribution_pct": 0,
+        "attempts": 5280, "failures": 8, "loss_pct": 0.1515 },
+      { "seq": 2, "from": "东京-01", "to": "新加坡-01",
+        "series": [ null, "…", { "ts": 1795450500, "p50": 20.5, "loss_pct": 2.9167 }, "…" ],
+        "p50": 21.5, "delta_ms": 0.0, "contribution_pct": 0,
+        "attempts": 5280, "failures": 154, "loss_pct": 2.9167 },
       { "seq": 3, "from": "新加坡-01", "to": "大阪-01",
-        "series": [ { "ts": 1795312800, "p50": 58.0, "loss_pct": 0.0 }, null, "…" ],
-        "p50": 58.0, "delta_ms": 25.0, "contribution_pct": 100,
-        "attempts": 240, "failures": 0, "loss_pct": 0.0 },
+        "series": [ null, "…", { "ts": 1795443300, "p50": 33.0, "loss_pct": 0.4167 }, "…", null ],
+        "p50": null, "delta_ms": null, "contribution_pct": 0,
+        "attempts": 0, "failures": 0, "loss_pct": null },
       { "seq": 4, "from": "大阪-01", "to": "链目标",
-        "series": [ { "ts": 1795312800, "p50": 5.0, "loss_pct": 0.0 }, null, "…" ],
-        "p50": 5.0, "delta_ms": 0.0, "contribution_pct": 0,
-        "attempts": 240, "failures": 0, "loss_pct": 0.0 }
+        "series": [ null, "…", { "ts": 1795443300, "p50": 8.0, "loss_pct": 0.4167 }, "…", null ],
+        "p50": null, "delta_ms": null, "contribution_pct": 0,
+        "attempts": 0, "failures": 0, "loss_pct": null }
     ],
-    "loss_pct": 0.8333,
-    "loss_samples": { "attempts": 720, "failures": 2 },
-    "loss_partial": false,
-    "diagnosis": { "kind": "single_hop", "seq": 3 }
+    "loss_pct": 3.0638,
+    "loss_samples": { "attempts": 10560, "failures": 162 },
+    "loss_partial": true,
+    "diagnosis": { "kind": "unknown" }
   }],
   "scope": { "server_ids": [], "servers_matched": 0, "filtered": false },
   "warnings": { "unknown_ids": [], "unmapped_forwards": 0 }
 }
 ```
 
+（片段取自预览库：大阪-01 已离线，所以第 3 / 最后一跳与最近 2h 的链级
+桶都是 `null`，链状态是 `blocked`。）
+
 `entry` / `exit` 是链的展示起点/终点（口径见 §1.1），保留不删；`nodes` 是
-完整的拓扑节点（口径见 §1.2）。链没有任何组或组内没有成员时 `entry` / `exit`
-是 `null`。`series` 固定长度 = `hours*3600/bucket`，从旧到新；没有样本的桶是
-`null`，不是 0。`segments[].p50` / `delta_ms` / `segments[].series[]` 无数据时
-同样是 `null`。
+完整的拓扑节点（口径见 §1.2）；`status` 是链级可用性状态（口径见 §1.3）。
+链没有任何组或组内没有成员时 `entry` / `exit` 是 `null`。`series` 固定长度
+= `hours*3600/bucket`，从旧到新；没有样本的桶是 `null`，不是 0。
+`segments[].p50` / `delta_ms` / `segments[].series[]` 无数据时同样是 `null`。
 
 ## 1.1 起点与终点
 
@@ -120,6 +130,44 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
   `missing_hops` 里最后一跳的编号一致；
 - 链目标节点的 `name` 固定为 `链目标`；
 - 没有任何组的脏数据返回空数组。
+
+## 1.3 链级可用性状态（`status`）
+
+```jsonc
+"status": { "kind": "ok" | "degraded" | "blocked",
+            "cause": "node_offline" | "node_unhealthy" | "no_samples" | "slow" | null,
+            "node": { "seq": 3, "name": "大阪-01" } | null }
+```
+
+`status` 把节点状态与链路数据合成一个用户能直接看的状态。判定**按以下优先级**
+（高 → 低，命中即停）：
+
+| 优先级 | 条件 | `kind` | `cause` | `node` |
+|---|---|---|---|---|
+| 1 | 任一 `role ∈ {source, hop}` 节点的 `status == "offline"` | `blocked` | `node_offline` | 第一台离线节点（`seq` 最小） |
+| 2 | 任一 `role ∈ {source, hop}` 节点的 `status != "online"`（`abnormal` / `no_data` / 空组的 `null` 等） | `degraded` | `node_unhealthy` | `null` |
+| 3 | 当前 2h 窗口没有「所有段齐全」的整体样本，**或** `missing_hops` 非空 | `degraded` | `no_samples` | `null` |
+| 4 | 整体较基线变慢（与 `summary.slow_chains` 同一个 `SLOW_DELTA_MS` = 8ms 阈值） | `degraded` | `slow` | `null` |
+| 5 | 其余 | `ok` | `null` | `null` |
+
+- **`target` 不参与判定**：链目标节点没有服务器行，`status` 恒为 `null`；
+  这个 `null` 不能把链判成 `node_unhealthy`；
+- **节点优先于数据质量**：节点离线必然让相关段在当前窗口缺样本，但结果必须是
+  `blocked` / `node_offline`，**不是** `no_samples`。`missing_hops` 仍按 §2 的
+  原口径（窗口内完全没有样本）计算，两者回答不同问题：`missing_hops` 说
+  「哪一跳没有数据」，`status` 说「这条链现在能不能用」，因此可以自洽共存；
+- **`cause = "slow"` 与 `summary.slow_chains` 同口径**：都用
+  `当前整体 p50 - 24h 基线整体 p50 ≥ 8ms`，不会出现「summary 说 1 条慢链、
+  链上却没有 slow」；
+- **`node` 只在 `node_offline` 时出现**，且只带展示用的 `seq` / `name`；
+  多台离线时取 `seq` 最小（即拓扑上最先遇到）的那台；
+- **既有字段不变**：`segments` / `series` / `loss_pct` / `loss_partial` /
+  `diagnosis` / `summary.slow_chains` 等口径都与之前完全一致，`status` 只是
+  新增的合成视图，不改变任何数值。
+
+`node_unhealthy` 的 `status` 直取 `servers.status`，所以 `abnormal` /
+`no_data` 这类「服务器行存在但不是 online」的值都会命中；预览库里没有造
+这类值，由领域层单测覆盖。
 
 ## 2. 跳的映射
 
@@ -321,22 +369,32 @@ USE TEMP B-TREE FOR ORDER BY
   - 港新直达链：香港-02 → 新加坡-02（2 组 / 2 段，含最后一跳）；
   - 港日多路径：香港-01 →（东京-01 / 东京-02）→ 大阪-01（中间组两台，
     `estimated: true`）；
-- 最近 24h、每 5 分钟一条的 `forward_latency_samples`（**3179 条**，11 个
-  forward/target 组合 × 289 个桶）：
-  - 港日中转链第 3 段最近 2h +25ms，其余段持平 → `single_hop`、贡献 100%；
+- **大阪-01 在 2 小时前掉线**（`servers.status = offline`，`last_seen_at` 同步
+  回拨 2h）。为了避免「已离线却仍有最新样本」的自相矛盾，凡是由它发起、或以
+  它为目标的数据都只写到掉线之前：
+  - 港日中转链的第 3 段（新加坡-01 → 大阪-01）和最后一跳（大阪-01 → 链目标）
+    最近 2h 没有时延样本、也没有探测桶；
+  - 港日多路径进入大阪-01 的第 2 段与它的最后一跳同样停在掉线前；
+  - 上游段照常上报，所以这两条链的 `status` 是 `blocked` / `node_offline`
+    （`node` 分别指向 `seq 3` / `seq 2` 的大阪-01），**不是** `no_samples`：
+    这就是「节点离线优先于数据质量」在预览库里的可见证据；
+  - 港新直达链的两台机器都在线，数据完整，`status` 是 `ok`；
+- 最近 24h、每 5 分钟一条的 `forward_latency_samples`（**3059 条**；11 个
+  forward/target 组合 × 289 个桶，其中 5 个与大阪-01 相关的流各少 24 条）：
   - 每条链最后一跳到目标的样本也写入（`target_server_id` 为空），用来验证
     它归到最后一跳段、`missing_hops` 不再包含这一跳、且不计入
     `unmapped_forwards`；
   - 多路径链的入口组上报两个真实 `target_server_id`，中转组两台各自上报；
-- 最近 24h、每 5 分钟一桶的 `forward_probe_samples`（10 个 forward ×
-  289 个桶 = 2890 条）：
+- 最近 24h、每 5 分钟一桶的 `forward_probe_samples`（**2770 条**；10 个
+  forward × 289 个桶，其中 5 个与大阪-01 相关的流各少 24 条）：
   - 港日中转链第 2 段（东京-01 → 新加坡-01）最近 2h 每桶 `7/240 ≈ 2.92%`；
-  - 其余段 `<0.2%`（每 3 个桶 1 次失败，`1/240 ≈ 0.14%`）；
-  - 整链连乘约 `3.2%`，用于对照「单段丢包 vs 整链」；
+  - 其余在线段 `<0.2%`（每 3 个桶 1 次失败，`1/240 ≈ 0.14%`）；
+  - 整链连乘约 `3.06%`，用于对照「单段丢包 vs 整链」；
   - 最后一跳到链目标的探测也写入，聚合时归到最后一跳段（不再被丢弃）。
 
-> 造数里的最后一跳样本覆盖 24h 的每一个桶，因此预览页上最后一跳的 `p50`
-> 与 `loss_pct` 立刻可见，链级 `series` 也每个桶都齐全。
+> 预览页上港日中转链的最近 2h 是空的（第 3 / 最后一跳没有数据），它的
+> `diagnosis` 因此是 `unknown`；这不是缺陷，而是 `blocked` 链的真实形态。
+> 「单段变慢 → single_hop」由领域层/路由层单测覆盖，不依赖预览库。
 
 重复执行幂等：固定 id + 先删后插；只写 `data/preview.db`，不碰
 `data/pierwave.db`。
@@ -354,14 +412,19 @@ USE TEMP B-TREE FOR ORDER BY
   多路径先加计数再算比值、最后一跳探测只进最后一跳段、`summary` 取最差链；
   `series[].loss_pct` 两个桶不同失败率 → 不同值、无探测桶 → null；
   `nodes` 的 role / status / 链目标 `server_id: null`、多成员组取
-  `(priority, server_id)` 最小成员；起点/终点覆盖单成员、多成员按
+  `(priority, server_id)` 最小成员；链级 `status` 的三种 kind：全在线 + 当前
+  数据完整 → `ok`、`abnormal` / `no_data` → `degraded` / `node_unhealthy`、
+  无样本 → `degraded` / `no_samples`、变慢 → `degraded` / `slow`、离线 →
+  `blocked` / `node_offline` 并点名 `seq` 最小的离线节点、离线优先于 slow、
+  链目标 `status: null` 不参与判定；起点/终点覆盖单成员、多成员按
   `(priority, server_id)` 选第一台、`public_port` 为空回退 `listen_port`、
   内网地址兜底 + `address_source`、IPv6 方括号、缺端口保留 `ip`、空组 →
   `null`；逐段序列与链级同长、缺桶 null、`attempts=0` → loss null、有时延
   无探测 → loss null、有探测无时延 → 整桶 null、多成员同桶合并；
 - 路由层（`crates/master/src/routes/chain_health.rs`）：单跳/多跳映射、
   最后一跳的 p50 / loss / `missing_hops`、整体 p50 含最后一跳、`nodes` 的
-  role / status / 链目标 null 与 `entry`/`exit` 保留、段/整链丢包与时延
+  role / status / 链目标 null 与 `entry`/`exit` 保留、`status` 的
+  blocked / degraded(no_samples) / ok 与节点点名、段/整链丢包与时延
   回归、`series[]` 逐桶丢包、`entry` / `exit` 的 `public_port` 与
   `listen_port` 口径、多成员优先级、`server_ids` 筛选后 entry/exit 仍取
   原链首尾、筛选后只汇总保留的链、筛选（命中/未知/空数组/非法/201 个 id）、
@@ -374,7 +437,8 @@ USE TEMP B-TREE FOR ORDER BY
 ## 9. 未做
 
 - 不新增表/迁移：现有 `forward_latency_samples` / `forward_probe_samples` +
-  链组映射足够；`nodes` 的 `status` 直接读 `servers.status`，不新增列；
+  链组映射足够；`nodes` 的 `status` 直接读 `servers.status`，`chains[].status`
+  是节点状态 + 已有样本的纯内存合成，不新增列；
 - 不改 `crates/proto`、`crates/agent`：Agent 一直会探测最后一组到链目标的
   TCP 握手（`derive_forwards` 对最后一组下发 `target_host/target_port`，
   Agent 的 `target_health_loop` 探测它并按空 `server_id` 上报），本轮只是把
@@ -453,6 +517,33 @@ also emitted with `server_id: null` / `status: null` and its name falls back to
 the group name (or `第 N 跳`). The target node's name is `链目标` and its `seq`
 is the last group's `seq + 1`, matching the final-hop `seq` used by
 `missing_hops`. A chain with no groups returns an empty `nodes` array.
+
+`chains[].status` is the chain-level availability verdict combining node state
+with data quality: `kind` is `ok` / `degraded` / `blocked`, `cause` is
+`node_offline` / `node_unhealthy` / `no_samples` / `slow` (`null` for `ok`), and
+`node` is `{ seq, name }` for the first offline node, otherwise `null`. Rules are
+applied in order, first match wins:
+
+1. any `source` / `hop` node with `status == "offline"` → `blocked` /
+   `node_offline`, `node` = the first offline node (smallest `seq`);
+2. any `source` / `hop` node with `status != "online"` (`abnormal` / `no_data`,
+   or a `null` from an empty group) → `degraded` / `node_unhealthy`;
+3. no "all segments present" overall sample in the current 2-hour window, or a
+   non-empty `missing_hops` → `degraded` / `no_samples`;
+4. the overall delta is at least 8ms (`SLOW_DELTA_MS`, the same predicate used by
+   `summary.slow_chains`) → `degraded` / `slow`;
+5. otherwise → `ok`.
+
+The `target` node never participates: it has no server row, its `status` is
+always `null`, and that `null` must not degrade the chain. Node state outranks
+data quality: an offline node necessarily removes recent samples, but the verdict
+must be `blocked` / `node_offline`, never `no_samples`. `missing_hops` keeps its
+original meaning (no sample at all in the window) and is not rewritten by
+`status`; the two answer different questions ("which hop has no data" vs "can
+this chain be used right now"). `node` is only set for `node_offline`, and with
+several offline nodes it names the one with the smallest `seq`. Every
+pre-existing field keeps its exact semantics; `status` is an additive composite
+view.
 
 Time windows: `series` covers the last `hours`; the current value uses the last
 2 hours of bucket medians and the baseline uses the 24 hours before that. The
@@ -541,16 +632,27 @@ by `(hours, bucket, normalized request server_ids)` (unknown ids included
 because `scope` / `warnings` are cached with the body), with
 `X-Chain-Health-Cache: hit|miss`.
 
-`scripts/seed-preview.sh` adds 3 chains / 9 groups / 10 members, 24 hours of
-5-minute latency samples (3179 rows: 11 forward/target streams × 289 buckets), and 24 hours of
-per-hop probe samples (2890 rows: 10 forwards × 289 buckets). The third segment
-of 港日中转链 is +25ms for the last 2 hours; the second segment's probe failure
-rate is about 2.92% for the last 2 hours (7/240 per bucket) while the other
-segments stay below 0.2% (1/240 every third bucket), so the compounded chain
-loss is about 3.2%. Final-hop latency samples are written for every bucket with
-an empty `target_server_id`: the preview therefore shows the final segment's
-p50 and loss, and the chain `series` is complete in every bucket. The script is
-idempotent and only writes `data/preview.db`.
+`scripts/seed-preview.sh` adds 3 chains / 9 groups / 10 members and keeps
+大阪-01 offline. It went offline 2 hours ago (`servers.status = offline`, with
+`last_seen_at` moved back 2 hours), and **no sample is written for it after that
+point**: the third segment of 港日中转链 (新加坡-01 → 大阪-01) and its final hop
+(大阪-01 → 链目标) have neither latency samples nor probe buckets in the last
+2 hours, and the same holds for the multi-path chain's inbound segment and final
+hop. Upstream segments keep reporting, so both chains are
+`blocked` / `node_offline` (with `node` pointing at seq 3 and seq 2 respectively)
+rather than `no_samples`, which is the visible proof that node state outranks
+data quality. 港新直达链 has both nodes online and complete data, so it is `ok`.
+The seed writes 24 hours of 5-minute latency samples (**3059 rows**: 11
+forward/target streams × 289 buckets, minus 24 rows for each of the 5 streams
+touching 大阪-01) and per-hop probes (**2770 rows**: 10 forwards × 289 buckets,
+minus the same 5 × 24). The second segment's probe failure rate is about 2.92%
+for the last 2 hours (7/240 per bucket) while the remaining online segments stay
+below 0.2% (1/240 every third bucket), so the compounded chain loss is about
+3.06%. Final-hop latency samples are written with an empty `target_server_id`
+for every stream that is still online. Because the blocked chain has no current
+data, its `diagnosis` is `unknown`; the "single-segment slowdown → `single_hop`"
+rule is covered by unit and route tests rather than by the preview database. The
+script is idempotent and only writes `data/preview.db`.
 
 Tests cover single-hop, multi-hop, multi-path estimation, the final-hop rule
 (an empty-target sample removes it from `missing_hops` and produces the segment
@@ -566,7 +668,12 @@ buckets, single-segment and uniform slowdowns, loss edge cases (`attempts = 0` �
 per-bucket `series[].loss_pct` differing between buckets and `null` for a bucket
 without probes, final-hop probes attributed only to the final segment,
 multi-member counts summed), `nodes` roles/status/target null and multi-member
-representative selection, entry/exit (single member, multi-member priority,
+representative selection, chain `status` (all three kinds: `ok` with complete
+current data, `degraded` / `node_unhealthy` for `abnormal` / `no_data`,
+`degraded` / `no_samples`, `degraded` / `slow`, `blocked` / `node_offline` naming
+the smallest-`seq` offline node, offline outranking a slowdown, and the target's
+`null` status not affecting the verdict), entry/exit (single member, multi-member
+priority,
 `public_port` → `listen_port` fallback, internal-address fallback with
 `address_source`, IPv6 bracketing, missing port keeping `ip`, empty groups →
 `null`), per-segment series (same length as the chain series, missing buckets

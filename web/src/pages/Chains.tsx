@@ -1,9 +1,10 @@
-import { Fragment, useState } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ArrowDownIcon,
   ArrowRightIcon,
+  BracesIcon,
   MaximizeIcon,
   MinimizeIcon,
   WaypointsIcon,
@@ -37,6 +38,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ChainFormDialog } from "@/components/chains/ChainFormDialog";
+import { ChainFromTemplateDialog } from "@/components/chains/ChainFromTemplateDialog";
 import { ChainLatencyTrend } from "@/components/chains/ChainLatencyTrend";
 import { ChainProbeHealth } from "@/components/chains/ChainProbeHealth";
 import { DeleteChainDialog } from "@/components/chains/DeleteChainDialog";
@@ -58,6 +60,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -119,7 +127,12 @@ import { errorText } from "@/lib/errors";
 import { formatForwardTarget } from "@/lib/forwards";
 import { portPairLabel } from "@/lib/publicPort";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
-import { useChains, useServers, useUpdateChain } from "@/lib/queries";
+import {
+  useChainTemplates,
+  useChains,
+  useServers,
+  useUpdateChain,
+} from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/i18n";
 import { useIsDesktop } from "@/lib/useIsDesktop";
@@ -937,13 +950,11 @@ function ChainEnabledSwitch({ chain }: { chain: Chain }) {
 function EmptyRow({
   title,
   description,
-  actionLabel,
-  onAction,
+  actions,
 }: {
   title: string;
   description: string;
-  actionLabel: string;
-  onAction: () => void;
+  actions: ReactNode;
 }) {
   return (
     <TableRow className="hover:bg-transparent">
@@ -953,15 +964,59 @@ function EmptyRow({
           icon={WorkflowIcon}
           title={title}
           description={description}
-          action={
-            <Button size="sm" onClick={onAction}>
-              <PlusIcon className="size-3.5" />
-              {actionLabel}
-            </Button>
-          }
+          action={actions}
         />
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * 「从模板创建」入口。旧主控不支持时按钮禁用，并解释原因。
+ *
+ * 禁用按钮本身收不到 hover，所以把 Tooltip 触发层包在 span 上
+ * （与服务器页批量勾选同一种做法）。
+ */
+function FromTemplateButton({
+  disabled,
+  onOpen,
+  size = "sm",
+}: {
+  disabled: boolean;
+  onOpen: () => void;
+  size?: "sm" | "default";
+}) {
+  const { t } = useI18n();
+  const label = t("chains.templateCreate.fromTemplate");
+  if (!disabled) {
+    return (
+      <Button variant="outline" size={size} onClick={onOpen}>
+        <BracesIcon className="size-3.5" />
+        {label}
+      </Button>
+    );
+  }
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex">
+            <Button
+              variant="outline"
+              size={size}
+              disabled
+              className="pointer-events-none"
+            >
+              <BracesIcon className="size-3.5" />
+              {label}
+            </Button>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          {t("chains.templateCreate.requiresNewMaster")}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -970,11 +1025,14 @@ export default function ChainsPage() {
   const isDesktop = useIsDesktop();
   const chains = useChains();
   const servers = useServers();
+  const templates = useChainTemplates();
 
   const [form, setForm] = useState<{
     mode: "create" | "edit";
     chain?: Chain;
   } | null>(null);
+  const [templateFormOpen, setTemplateFormOpen] = useState(false);
+  const [templateUnsupported, setTemplateUnsupported] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Chain | null>(null);
   const [topologyChain, setTopologyChain] = useState<Chain | null>(null);
   const [topologyFullscreen, setTopologyFullscreen] = useState(false);
@@ -983,6 +1041,9 @@ export default function ChainsPage() {
   const showError = chains.isError && !chains.data;
   const isEmpty = chains.data !== undefined && !chains.isError && items.length === 0;
   const loadError = errorText(chains.error, t("chains.loadError"));
+  const templatesError = templates.isError
+    ? errorText(templates.error, t("chains.templateCreate.templateLoadError"))
+    : null;
 
   function renderChainName(chain: Chain, compact = false) {
     const blockedReason = chain.blocked_reason?.trim();
@@ -1330,15 +1391,21 @@ export default function ChainsPage() {
                 {t("common.refresh")}
               </Button>
               {isEmpty ? null : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setForm({ mode: "create" })}
-                  disabled={servers.isPending}
-                >
-                  <PlusIcon className="size-3.5" />
-                  {t("chains.list.add")}
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setForm({ mode: "create" })}
+                    disabled={servers.isPending}
+                  >
+                    <PlusIcon className="size-3.5" />
+                    {t("chains.list.add")}
+                  </Button>
+                  <FromTemplateButton
+                    disabled={templateUnsupported}
+                    onOpen={() => setTemplateFormOpen(true)}
+                  />
+                </>
               )}
             </div>
           </div>
@@ -1413,8 +1480,21 @@ export default function ChainsPage() {
                 <EmptyRow
                   title={t("chains.list.emptyTitle")}
                   description={t("chains.list.emptyDesc")}
-                  actionLabel={t("chains.list.emptyAction")}
-                  onAction={() => setForm({ mode: "create" })}
+                  actions={
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => setForm({ mode: "create" })}
+                      >
+                        <PlusIcon className="size-3.5" />
+                        {t("chains.list.emptyAction")}
+                      </Button>
+                      <FromTemplateButton
+                        disabled={templateUnsupported}
+                        onOpen={() => setTemplateFormOpen(true)}
+                      />
+                    </div>
+                  }
                 />
               ) : (
                 items.map(renderRow)
@@ -1442,10 +1522,19 @@ export default function ChainsPage() {
                   title={t("chains.list.emptyTitle")}
                   description={t("chains.list.emptyDesc")}
                   action={
-                    <Button size="sm" onClick={() => setForm({ mode: "create" })}>
-                      <PlusIcon className="size-3.5" />
-                      {t("chains.list.emptyAction")}
-                    </Button>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() => setForm({ mode: "create" })}
+                      >
+                        <PlusIcon className="size-3.5" />
+                        {t("chains.list.emptyAction")}
+                      </Button>
+                      <FromTemplateButton
+                        disabled={templateUnsupported}
+                        onOpen={() => setTemplateFormOpen(true)}
+                      />
+                    </div>
                   }
                 />
               ) : (
@@ -1542,6 +1631,19 @@ export default function ChainsPage() {
           loadingServers={servers.isPending}
           onOpenChange={(open) => {
             if (!open) setForm(null);
+          }}
+        />
+      ) : null}
+
+      {templateFormOpen ? (
+        <ChainFromTemplateDialog
+          open
+          templates={templates.data ?? []}
+          loadingTemplates={templates.isPending}
+          templatesError={templatesError}
+          onUnsupported={() => setTemplateUnsupported(true)}
+          onOpenChange={(open) => {
+            if (!open) setTemplateFormOpen(false);
           }}
         />
       ) : null}

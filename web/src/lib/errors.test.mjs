@@ -390,3 +390,86 @@ test("server-health 参数错误在中英里都带边界", () => {
     );
   });
 });
+
+test("入口端口范围 / 模板冲突 / 停用模板三个错误码中英都有译文", () => {
+  const codes = [
+    "chain.entry_port_out_of_range",
+    "chain.template_conflict",
+    "chain_template.disabled",
+  ];
+  for (const locale of ["zh-CN", "en"]) {
+    withLocale(locale, () => {
+      for (const code of codes) {
+        assert.equal(hasErrorCode(code), true, `${locale} ${code}`);
+      }
+    });
+  }
+
+  withLocale("zh-CN", () => {
+    assert.equal(
+      errorText(
+        new ApiError("入口端口越界", 400, "chain.entry_port_out_of_range", {
+          port: 70000,
+          min: 1,
+          max: 65535,
+        }),
+        "fallback",
+      ),
+      "入口端口必须在 1-65535 之间（当前 70000）",
+    );
+    assert.equal(
+      errorText(
+        new ApiError("模板冲突", 400, "chain.template_conflict", {
+          template_id: "tpl-1",
+          conflicts: "groups / engine",
+        }),
+        "fallback",
+      ),
+      "从模板创建时不能再提供 groups / engine：groups / hops 与 template_id 互斥，engine / protocol / transport / tunnel_security 直接沿用模板",
+    );
+    assert.equal(
+      errorText(
+        new ApiError("模板已停用", 400, "chain_template.disabled", {
+          template_id: "tpl-1",
+          template_name: "港日",
+        }),
+        "fallback",
+      ),
+      "链模板「港日」已停用，不能用于建链",
+    );
+  });
+
+  withLocale("en", () => {
+    assert.equal(
+      errorText(
+        new ApiError("entry port out of range", 400, "chain.entry_port_out_of_range", {
+          port: 70000,
+          min: 1,
+          max: 65535,
+        }),
+        "fallback",
+      ),
+      "The entry port must be between 1 and 65535 (got 70000)",
+    );
+    assert.equal(
+      errorText(
+        new ApiError("template conflict", 400, "chain.template_conflict", {
+          template_id: "tpl-1",
+          conflicts: "groups / engine",
+        }),
+        "fallback",
+      ),
+      "Creating from a template cannot also pass groups / engine: groups/hops are mutually exclusive with template_id, and engine/protocol/transport/tunnel_security come from the template",
+    );
+    assert.equal(
+      errorText(
+        new ApiError("template disabled", 400, "chain_template.disabled", {
+          template_id: "tpl-1",
+          template_name: "港日",
+        }),
+        "fallback",
+      ),
+      'Chain template "港日" is disabled and cannot be used to create a chain',
+    );
+  });
+});

@@ -7,7 +7,7 @@
 # 数据形态（10 台主机，故意混合状态，让探针页与后台都像真实使用）：
 #   4 台在线（Agent + Xray 都正常）
 #   2 台异常（Agent 在线、Xray 未运行）
-#   3 台离线（其中 1 台 3 小时前掉线、1 台 26 小时前掉线、1 台已离线两天）
+#   3 台离线（其中 1 台 2 小时前掉线、1 台 3 小时前掉线、1 台已离线两天）
 #   1 台从未上报（无采集数据，探针卡片显示「从未上报 / 暂无采样」）
 # 每台 1–3 个节点，另有用户、套餐实例、订阅、转发与 7 天流量/可用率采样。
 #
@@ -152,8 +152,8 @@ WITH seed(
    1728000, 49, 'Debian GNU/Linux', '12', 'kvm', 'x86_64', 'JP', '日本',
    0.0, 0.0, 198765432109, 45678901234, 'failed', 'xray.service 启动失败：exit status 1', 1, 1, 1,
    'eth0', '10.0.0.22', '[{"name":"eth0","addresses":["198.51.100.22"]}]'),
-  -- 大阪 01：26 小时前掉线
-  ('c0ffee00-0000-4000-8000-000000000006', '大阪-01', '198.51.100.23', 'preview-token-jp-03', 'offline', 93600, 4, 40,
+  -- 大阪 01：2 小时前掉线（链详情里用它演示「节点掉线 → 链 blocked」）
+  ('c0ffee00-0000-4000-8000-000000000006', '大阪-01', '198.51.100.23', 'preview-token-jp-03', 'offline', 7200, 4, 40,
    '0.9.1', 0, 1, 0.0, 3221225472, 8589934592, 59055800320, 171798691840,
    172800, NULL, 'Debian GNU/Linux', '11', 'kvm', 'x86_64', 'JP', '日本',
    NULL, NULL, 54321098765, 12345678901, 'partial', NULL, 0, 1, 0,
@@ -465,8 +465,17 @@ WHERE id LIKE 'c0ffee00-0005-%';
 --   港日中转链   4 组 / 4 段：香港-01 → 东京-01 → 新加坡-01 → 大阪-01 → 链目标
 --   港新直达链   2 组 / 2 段：香港-02 → 新加坡-02 → 链目标
 --   港日多路径   3 组 / 3 段：香港-01 → (东京-01 / 东京-02) → 大阪-01 → 链目标
--- 港日中转链的第 3 段（新加坡-01 → 大阪-01）最近 2 小时 +25ms，其余段持平，
--- 用于验证「整体变慢 vs 单段变慢」的诊断。
+--
+-- 大阪-01 在 2 小时前掉线（servers.status = offline），所以「离线后不再有
+-- 数据」必须是真的：只为它写掉线之前的时延 / 探测样本，掉线之后一行都不写。
+-- 具体到港日中转链：
+--   * 第 3 段（新加坡-01 → 大阪-01，源是新加坡-01）与最后一跳
+--     （大阪-01 → 链目标，源是大阪-01）都只写到 ~2h 前，最近 2 小时的当前
+--     窗口内确实没有样本；
+--   * 港日多路径里进入大阪-01 的第 2 段与它的最后一跳同样只写到掉线前；
+--   * 上游两段仍持续上报。节点离线优先于「样本不足」，所以这两条链必须判
+--     blocked / node_offline，而不是 degraded / no_samples。
+-- 其余段保持 24h 采样，用于时延曲线与链路丢包展示。
 --
 -- 端口按 (server_id, listen_port) 全局唯一分配，避免撞迁移 0047 的索引。
 INSERT INTO chains (id, name, target_host, target_port, enabled, created_at, updated_at)
@@ -526,11 +535,14 @@ SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS IN
        20 + (slots.n % 5)
 FROM slots
 UNION ALL
--- 第 3 段（新加坡 → 大阪）：基线 ~31ms，最近 2h（n < 24）+25ms
+-- 第 3 段（新加坡 → 大阪）：大阪-01 在 2h 前掉线，只写掉线之前的 ~31ms 样本。
+-- n < 24 落在最近 2h 的当前窗口内（即使源头新加坡-01 还在线），必须跳过，
+-- 否则会出现「目标已离线、却仍有最新时延」的自相矛盾数据。
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000007',
        'chain-c0ffee00-0006-4000-8000-000000000601-2', '',
-       31 + (slots.n % 5) + CASE WHEN slots.n < 24 THEN 25 ELSE 0 END
+       31 + (slots.n % 5)
 FROM slots
+WHERE slots.n >= 24
 UNION ALL
 -- 港新直达链：1 段，~35ms
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000002',
@@ -551,25 +563,30 @@ SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS IN
        15 + (slots.n % 4)
 FROM slots
 UNION ALL
--- 多路径第 2 段：东京两台各自上报，target 是单成员大阪 → 空目标
+-- 多路径第 2 段：东京两台各自上报，target 是单成员大阪 → 空目标。
+-- 大阪-01 已离线，所以只写到掉线之前（n >= 24），不再探测一台离线的机器。
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000004',
        'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000004', '',
        22 + (slots.n % 4)
 FROM slots
+WHERE slots.n >= 24
 UNION ALL
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000005',
        'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000005', '',
        24 + (slots.n % 4)
 FROM slots
+WHERE slots.n >= 24
 UNION ALL
 -- 最后一跳到链目标：Agent 对最后一组的 forward 目标就是 chains.target_host，
 -- 没有下一台服务器，所以 target_server_id 留空。聚合时它归属「最后一跳」段
--- （seq = 最后一组 seq + 1），不再被丢弃，也不计入 unmapped。每条链都造满
--- 24h，预览页上最后一跳的 p50 与链级整体 series 才完整可见。
+-- （seq = 最后一组 seq + 1），不再被丢弃，也不计入 unmapped。港新直达链的
+-- 最后一跳源头新加坡-02 在线，造满 24h；港日中转链 / 港日多路径的最后一跳
+-- 源头是大阪-01（2h 前掉线），只写到掉线之前。
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000006',
        'chain-c0ffee00-0006-4000-8000-000000000601-3', '',
        8
 FROM slots
+WHERE slots.n >= 24
 UNION ALL
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000008',
        'chain-c0ffee00-0006-4000-8000-000000000602-1', '',
@@ -579,7 +596,8 @@ UNION ALL
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000006',
        'chain-c0ffee00-0006-4000-8000-000000000603-2', '',
        6
-FROM slots;
+FROM slots
+WHERE slots.n >= 24;
 
 -- ------------------------------------------------------------
 -- 每跳探测计数（丢包）：最近 24h、5 分钟一桶的增量
@@ -589,23 +607,29 @@ FROM slots;
 -- （东京-01 → 新加坡-01，forward ...-1）最近 2h 失败率约 3%，其余段 <0.2%，
 -- 用于验证「单段丢包 vs 整链连乘」。最后一组的 forward 探测的是链目标，
 -- 同样写入；聚合时归到最后一跳段（不再被丢弃），并参与整链连乘。
+--
+-- 大阪-01 在 2h 前掉线：凡是「由大阪-01 发起」或「目标是大阪-01」的 forward
+-- 都只写掉线之前（`from_n = 24`）的探测桶，掉线后一行都不写；否则会出现
+-- 「节点已离线、却仍有最新探测计数」的自相矛盾数据。其余 forward 仍造满 24h。
 WITH RECURSIVE slots(n) AS (
   SELECT 0 UNION ALL SELECT n + 1 FROM slots WHERE n < 288
 ),
-probe_seed(server_id, forward_id, hot) AS (VALUES
+probe_seed(server_id, forward_id, hot, from_n) AS (VALUES
   -- 港日中转链：4 跳
-  ('c0ffee00-0000-4000-8000-000000000001', 'chain-c0ffee00-0006-4000-8000-000000000601-0', 0),
-  ('c0ffee00-0000-4000-8000-000000000004', 'chain-c0ffee00-0006-4000-8000-000000000601-1', 1),
-  ('c0ffee00-0000-4000-8000-000000000007', 'chain-c0ffee00-0006-4000-8000-000000000601-2', 0),
-  ('c0ffee00-0000-4000-8000-000000000006', 'chain-c0ffee00-0006-4000-8000-000000000601-3', 0),
+  ('c0ffee00-0000-4000-8000-000000000001', 'chain-c0ffee00-0006-4000-8000-000000000601-0', 0, 0),
+  ('c0ffee00-0000-4000-8000-000000000004', 'chain-c0ffee00-0006-4000-8000-000000000601-1', 1, 0),
+  -- 目标是已离线的大阪-01；掉线后（最近 2h）不再探测。
+  ('c0ffee00-0000-4000-8000-000000000007', 'chain-c0ffee00-0006-4000-8000-000000000601-2', 0, 24),
+  -- 由大阪-01 发起；掉线后不可能再上报。
+  ('c0ffee00-0000-4000-8000-000000000006', 'chain-c0ffee00-0006-4000-8000-000000000601-3', 0, 24),
   -- 港新直达链：2 跳
-  ('c0ffee00-0000-4000-8000-000000000002', 'chain-c0ffee00-0006-4000-8000-000000000602-0', 0),
-  ('c0ffee00-0000-4000-8000-000000000008', 'chain-c0ffee00-0006-4000-8000-000000000602-1', 0),
+  ('c0ffee00-0000-4000-8000-000000000002', 'chain-c0ffee00-0006-4000-8000-000000000602-0', 0, 0),
+  ('c0ffee00-0000-4000-8000-000000000008', 'chain-c0ffee00-0006-4000-8000-000000000602-1', 0, 0),
   -- 港日多路径：入口 + 两个中转成员 + 最后一跳
-  ('c0ffee00-0000-4000-8000-000000000001', 'chain-c0ffee00-0006-4000-8000-000000000603-0', 0),
-  ('c0ffee00-0000-4000-8000-000000000004', 'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000004', 0),
-  ('c0ffee00-0000-4000-8000-000000000005', 'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000005', 0),
-  ('c0ffee00-0000-4000-8000-000000000006', 'chain-c0ffee00-0006-4000-8000-000000000603-2', 0)
+  ('c0ffee00-0000-4000-8000-000000000001', 'chain-c0ffee00-0006-4000-8000-000000000603-0', 0, 0),
+  ('c0ffee00-0000-4000-8000-000000000004', 'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000004', 0, 24),
+  ('c0ffee00-0000-4000-8000-000000000005', 'chain-c0ffee00-0006-4000-8000-000000000603-1-c0ffee00-0000-4000-8000-000000000005', 0, 24),
+  ('c0ffee00-0000-4000-8000-000000000006', 'chain-c0ffee00-0006-4000-8000-000000000603-2', 0, 24)
 )
 INSERT INTO forward_probe_samples (ts, server_id, forward_id, attempts, failures)
 SELECT
@@ -624,7 +648,8 @@ SELECT
     ELSE 0
   END
 FROM probe_seed
-CROSS JOIN slots;
+CROSS JOIN slots
+WHERE slots.n >= probe_seed.from_n;
 
 -- ------------------------------------------------------------
 -- 7 天计费流量：9 台有数据的主机（无数据的探针不产生流量）
@@ -712,7 +737,7 @@ SELECT
     WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000003'
       THEN CASE WHEN slots.n < 12 THEN 0 ELSE 1 END
     WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000006'
-      THEN CASE WHEN slots.n < 104 THEN 0 ELSE 1 END
+      THEN CASE WHEN slots.n < 8 THEN 0 ELSE 1 END
     WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000008'
       THEN CASE WHEN slots.n BETWEEN 300 AND 306 THEN 0 ELSE 1 END
     WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000009'
@@ -726,7 +751,7 @@ SELECT
       WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000003'
         THEN CASE WHEN slots.n < 12 THEN 0 ELSE 1 END
       WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000006'
-        THEN CASE WHEN slots.n < 104 THEN 0 ELSE 1 END
+        THEN CASE WHEN slots.n < 8 THEN 0 ELSE 1 END
       WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000008'
         THEN CASE WHEN slots.n BETWEEN 300 AND 306 THEN 0 ELSE 1 END
       WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000009'

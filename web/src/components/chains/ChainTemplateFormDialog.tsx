@@ -34,6 +34,7 @@ import {
   type ChainStrategy,
 } from "@/lib/chains";
 import { errorText } from "@/lib/errors";
+import { CHAIN_NAME_MAX_CHARS } from "@/lib/myChains";
 import {
   useCreateChainTemplate,
   useUpdateChainTemplate,
@@ -199,6 +200,7 @@ export function ChainTemplateFormDialog({
               id="chain-template-name"
               value={name}
               autoComplete="off"
+              maxLength={CHAIN_NAME_MAX_CHARS}
               disabled={pending}
               placeholder={t("chainTemplates.form.namePlaceholder")}
               onChange={(event) => setName(event.target.value)}

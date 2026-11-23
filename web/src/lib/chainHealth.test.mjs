@@ -25,6 +25,8 @@ import {
   buildChainTrendData,
   chainDeltaTone,
   chainHasTrend,
+  chainHealthState,
+  chainNodeIssue,
   chainStatus,
   chainTimeTicks,
   chainTopology,
@@ -485,6 +487,155 @@ test("list status is normal / slow / insufficient", () => {
   );
   assert.equal(chainStatus({ ...base, deltaMs: null }), "insufficient");
   assert.equal(chainStatus({ ...base, slow: true, deltaMs: 8 }), "slow");
+});
+
+test("contract status wins: an offline node blocks a chain with healthy samples", () => {
+  const parsed = normalizeChainHealth(
+    payload([
+      chain({
+        status: {
+          kind: "blocked",
+          cause: "node_offline",
+          node: { seq: 2, name: "大阪-01" },
+        },
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.equal(parsed.hasSamples, true, "samples are healthy in this case");
+  assert.equal(parsed.slow, false);
+  assert.deepEqual(parsed.status, {
+    kind: "blocked",
+    cause: "node_offline",
+    node: { seq: 2, name: "大阪-01" },
+  });
+  assert.equal(chainStatus(parsed), "blocked");
+  assert.equal(
+    chainHealthState(parsed, {
+      enabled: true,
+      degraded: false,
+      blocked_reason: null,
+    }),
+    "blocked",
+  );
+  assert.deepEqual(chainNodeIssue(parsed), {
+    kind: "offline",
+    node: { seq: 2, name: "大阪-01" },
+  });
+});
+
+test("contract status degrades on an unhealthy node and keeps the node name", () => {
+  const parsed = normalizeChainHealth(
+    payload([
+      chain({
+        status: {
+          kind: "degraded",
+          cause: "node_unhealthy",
+          node: { seq: 3, name: "东京-02" },
+        },
+      }),
+    ]),
+  ).snapshot.chains[0];
+  assert.equal(chainStatus(parsed), "degraded");
+  assert.equal(
+    chainHealthState(parsed, {
+      enabled: true,
+      degraded: false,
+      blocked_reason: null,
+    }),
+    "degraded",
+  );
+  assert.deepEqual(chainNodeIssue(parsed), {
+    kind: "unhealthy",
+    node: { seq: 3, name: "东京-02" },
+  });
+});
+
+test("missing or malformed status falls back to the slow / sample logic", () => {
+  const base = normalizeChainHealth(payload([chain()])).snapshot.chains[0];
+  assert.equal(base.status, null);
+
+  // 旧主控：没有 status → 现有判定不变。
+  assert.equal(chainStatus(base), "normal");
+  assert.equal(chainStatus({ ...base, slow: true, deltaMs: 8 }), "slow");
+  assert.equal(
+    chainStatus({ ...base, hasSamples: false, deltaMs: null }),
+    "insufficient",
+  );
+
+  // 字段在但 kind 不认识 / 不是对象 → 整体按缺失处理，不猜状态。
+  for (const status of [
+    { kind: "unknown", cause: "node_offline", node: { seq: 1, name: "x" } },
+    { kind: "", cause: null, node: null },
+    "blocked",
+    null,
+    42,
+  ]) {
+    const parsed = normalizeChainHealth(payload([chain({ status })]))
+      .snapshot.chains[0];
+    assert.equal(parsed.status, null, JSON.stringify(status));
+    assert.equal(chainStatus(parsed), "normal");
+  }
+
+  // cause / node 不合法只丢原因，不丢 kind。
+  const parsed = normalizeChainHealth(
+    payload([
+      chain({
+        status: { kind: "ok", cause: "nope", node: { seq: 1, name: " " } },
+      }),
+    ]),
+  ).snapshot.chains[0];
+  assert.deepEqual(parsed.status, { kind: "ok", cause: null, node: null });
+  assert.equal(chainNodeIssue(parsed), null);
+});
+
+test("kind=ok keeps slow and sample fallback; config only fills a missing status", () => {
+  const base = normalizeChainHealth(payload([chain()])).snapshot.chains[0];
+  const ok = { ...base, status: { kind: "ok", cause: "slow", node: null } };
+  assert.equal(chainStatus(ok), "normal");
+  assert.equal(
+    chainStatus({ ...ok, slow: true, deltaMs: 8 }),
+    "slow",
+    "kind=ok + slow still shows the slow badge",
+  );
+  assert.equal(
+    chainStatus({ ...ok, hasSamples: false, deltaMs: null }),
+    "insufficient",
+    "kind=ok with no samples is still insufficient",
+  );
+
+  const blockedConfig = {
+    enabled: true,
+    degraded: false,
+    blocked_reason: "证书过期",
+  };
+  assert.equal(
+    chainHealthState(ok, blockedConfig),
+    "ok",
+    "an explicit status overrides the old config flags",
+  );
+  assert.equal(
+    chainHealthState(base, blockedConfig),
+    "blocked",
+    "missing status falls back to the old blocked_reason",
+  );
+  assert.equal(
+    chainHealthState(base, {
+      enabled: true,
+      degraded: true,
+      blocked_reason: null,
+    }),
+    "degraded",
+  );
+  assert.equal(
+    chainHealthState(ok, {
+      enabled: false,
+      degraded: false,
+      blocked_reason: "证书过期",
+    }),
+    "disabled",
+    "a disabled chain stays disabled",
+  );
 });
 
 test("delta tone warns only for chains marked slow, not for any positive delta", () => {

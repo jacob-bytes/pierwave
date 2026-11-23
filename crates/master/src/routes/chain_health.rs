@@ -18,7 +18,8 @@
 //! 目标就是链目标，探测样本的 `target_server_id` 为空；主控按「源成员 ∈ 最后
 //! 一组」把它归到 `seq = 最后一组 seq + 1` 的段，`missing_hops` 只在确实没有
 //! 样本时才列这一跳。`chains[].nodes` 额外给出拓扑节点（组 → 成员 +
-//! 链目标），`entry` / `exit` 保留。
+//! 链目标），`entry` / `exit` 保留；`chains[].status` 把节点状态与数据质量
+//! 合成为 `ok` / `degraded` / `blocked`（优先级见领域层 `ChainStatus`）。
 //!
 //! `server_ids` 与 `/api/v1/overview`、`/overview/server-health` **完全同语义**：
 //! 不传 = 全部；空数组 = 空结果；未知 id 忽略并进 `warnings.unknown_ids`；
@@ -549,6 +550,69 @@ mod tests {
         assert_eq!(body["chains"][0]["entry"]["server_id"], a);
         assert_eq!(body["chains"][0]["exit"]["server_id"], b);
         assert_eq!(headers["x-chain-health-cache"], "miss");
+    }
+
+    /// 链级可用性：节点离线 → blocked 并点名；无样本 → degraded/no_samples；
+    /// 节点在线、当前数据完整 → ok。链目标节点（status 为 null）不参与判定。
+    #[tokio::test]
+    async fn chain_health_reports_the_chain_availability_status() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        let c = server(pool, "大阪-01", "10.0.0.3").await;
+        let d = server(pool, "新加坡-01", "10.0.0.4").await;
+        servers::mark_online(pool, &a).await.unwrap();
+        servers::mark_online(pool, &c).await.unwrap();
+        servers::mark_online(pool, &d).await.unwrap();
+        // b 不标记在线：默认就是 offline。
+        chain(pool, "港日链", vec![vec![&a], vec![&b]]).await;
+        chain(pool, "港新链", vec![vec![&c], vec![&d]]).await;
+        let ok = chain(pool, "港新直达", vec![vec![&a], vec![&c]]).await;
+        let ts = end_at(repo::now(), 900) - 60;
+        latency::record_sample(pool, ts, &a, &forward_id(&ok, 0, &a, 1), "", 12)
+            .await
+            .unwrap();
+        latency::record_sample(pool, ts, &c, &forward_id(&ok, 1, &c, 1), "", 8)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let chains = body["chains"].as_array().unwrap();
+        let find = |name: &str| {
+            chains
+                .iter()
+                .find(|chain| chain["name"] == name)
+                .unwrap_or_else(|| panic!("缺少链 {name}：{body}"))
+        };
+
+        let blocked = find("港日链");
+        assert_eq!(blocked["status"]["kind"], "blocked");
+        assert_eq!(blocked["status"]["cause"], "node_offline");
+        assert_eq!(blocked["status"]["node"]["seq"], 1);
+        assert_eq!(blocked["status"]["node"]["name"], "东京-01");
+
+        let degraded = find("港新链");
+        assert_eq!(degraded["status"]["kind"], "degraded");
+        assert_eq!(degraded["status"]["cause"], "no_samples");
+        assert_eq!(degraded["status"]["node"], Value::Null);
+
+        let healthy = find("港新直达");
+        assert_eq!(healthy["status"]["kind"], "ok");
+        assert_eq!(healthy["status"]["cause"], Value::Null);
+        assert_eq!(healthy["status"]["node"], Value::Null);
+        // target 节点 status 恒为 null，不能把链判成 degraded。
+        let nodes = healthy["nodes"].as_array().unwrap();
+        assert_eq!(nodes.last().unwrap()["role"], "target");
+        assert_eq!(nodes.last().unwrap()["status"], Value::Null);
+        // 既有字段回归：blocked 链没有样本，missing_hops 仍按原口径给出最后一跳。
+        assert_eq!(blocked["missing_hops"], json!([2]));
     }
 
     /// 起点/终点：入口端口用 `public_port`，终点用成员 `listen_port`；

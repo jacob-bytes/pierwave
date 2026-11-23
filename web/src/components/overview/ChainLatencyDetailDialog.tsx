@@ -8,6 +8,7 @@ import {
 import { ChainLatencyDetail } from "@/components/overview/ChainLatencyDetail";
 import type {
   ChainHealthChain,
+  ChainHealthConfig,
   ChainHealthPoint,
   ChainHealthSnapshot,
   ChainLatencyRange,
@@ -22,6 +23,7 @@ import { t, useI18n } from "@/i18n";
  */
 export function ChainLatencyDetailDialog({
   chain,
+  config,
   snapshot,
   range,
   onRangeChange,
@@ -30,6 +32,8 @@ export function ChainLatencyDetailDialog({
   onClose,
 }: {
   chain: ChainHealthChain | null;
+  /** 链列表里的同一条链；没有时状态只能来自 chain-health 契约。 */
+  config: ChainHealthConfig | null;
   snapshot: ChainHealthSnapshot;
   range: ChainLatencyRange;
   onRangeChange: (range: ChainLatencyRange) => void;
@@ -68,6 +72,7 @@ export function ChainLatencyDetailDialog({
             >
               <ChainLatencyDetail
                 chain={chain}
+                config={config}
                 snapshot={snapshot}
                 range={range}
                 onRangeChange={onRangeChange}

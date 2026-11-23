@@ -21,12 +21,26 @@ import {
 } from "@/components/ui/select";
 import type { ChainTemplate } from "@/lib/api";
 import { errorText } from "@/lib/errors";
-import { templatePath } from "@/lib/myChains";
+import {
+  chainActualEntryPort,
+  entryPortInputError,
+  entryPortNotAdopted,
+  entryPortNotAdoptedText,
+  entryPortPayload,
+  entryPortRangeLabel,
+  hopCountLabel,
+  templateEntryPortRange,
+  templateHopCount,
+  templatePath,
+} from "@/lib/myChains";
 import { useCreateMyChain } from "@/lib/queries";
 import { t, useI18n } from "@/i18n";
 
 /**
- * 用户自助建链：只选模板 + 填目标，端口由后端按服务器端口策略分配。
+ * 用户自助建链：选模板 + 可选入口端口 + 填目标。
+ *
+ * 入口端口留空 = 由后端按服务器端口策略分配（保持旧行为）；填了则随请求
+ * 带上 `entry_port`，冲突由后端返回 409 `chain.entry_port_taken`。
  * 模板已经决定跳数 / 引擎 / 加密方式，这里不暴露任何链级配置。
  */
 export function MyChainFormDialog({
@@ -41,6 +55,7 @@ export function MyChainFormDialog({
   useI18n();
   const create = useCreateMyChain();
   const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
+  const [entryPort, setEntryPort] = useState("");
   const [targetHost, setTargetHost] = useState("");
   const [targetPort, setTargetPort] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -52,10 +67,18 @@ export function MyChainFormDialog({
       .sort((a, b) => a.seq - b.seq)
       .at(0)
       ?.servers.at(0)?.name ?? "—";
+  const hops = templateHopCount(template);
+  const portRange = templateEntryPortRange(template);
+  const portHint = entryPortRangeLabel(portRange);
 
   function submit() {
     if (!template) {
       setError(t("me.chains.form.templateRequired"));
+      return;
+    }
+    const portError = entryPortInputError(entryPort);
+    if (portError) {
+      setError(portError);
       return;
     }
     const host = targetHost.trim();
@@ -69,15 +92,30 @@ export function MyChainFormDialog({
       return;
     }
     setError(null);
+    const requestedPort = entryPortPayload(entryPort);
     create.mutate(
-      { template_id: template.id, target_host: host, target_port: port },
+      {
+        template_id: template.id,
+        ...(requestedPort !== undefined ? { entry_port: requestedPort } : {}),
+        target_host: host,
+        target_port: port,
+      },
       {
         onSuccess: (chain) => {
-          toast.success(
-            t("me.chains.created", {
-              address: chain.entry_address ?? "—",
-            }),
+          // 旧主控会忽略 `entry_port` 并自行分配；对不上时必须说清实际端口。
+          const notAdopted = entryPortNotAdopted(
+            requestedPort,
+            chainActualEntryPort(chain),
           );
+          if (notAdopted !== null) {
+            toast.warning(entryPortNotAdoptedText(notAdopted));
+          } else {
+            toast.success(
+              t("me.chains.created", {
+                address: chain.entry_address ?? "—",
+              }),
+            );
+          }
           onOpenChange(false);
         },
         onError: (submitError) => {
@@ -141,9 +179,30 @@ export function MyChainFormDialog({
                 <p className="truncate font-mono" title={templatePath(template)}>
                   {templatePath(template)}
                 </p>
-                <p>{t("me.chains.form.entryServer", { server: entryServer })}</p>
+                <p>
+                  {t("me.chains.form.entryServer", { server: entryServer })}
+                  {" · "}
+                  {hopCountLabel(hops)}
+                </p>
               </div>
             ) : null}
+          </FormField>
+
+          <FormField
+            label={t("me.chains.form.entryPort")}
+            htmlFor="my-chain-entry-port"
+            hint={portHint ?? undefined}
+          >
+            <Input
+              id="my-chain-entry-port"
+              className="sm:max-w-40"
+              value={entryPort}
+              inputMode="numeric"
+              autoComplete="off"
+              disabled={create.isPending}
+              placeholder={t("me.chains.form.entryPortPlaceholder")}
+              onChange={(event) => setEntryPort(event.target.value)}
+            />
           </FormField>
 
           <div className="grid gap-4 sm:grid-cols-[1fr_7rem]">

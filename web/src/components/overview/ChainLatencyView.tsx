@@ -81,6 +81,10 @@ export default function ChainLatencyView({
     chainParam && snapshot
       ? (snapshot.chains.find((chain) => chain.id === chainParam) ?? null)
       : null;
+  // 详情徽章要和列表状态列说同一句话：把配置里的停用 / 旧 blocked 一并带进去。
+  const detailConfig = detailChain
+    ? (chains.data?.find((chain) => chain.id === detailChain.id) ?? null)
+    : null;
 
   const latency = useChainLatency(
     detailChain?.id ?? "",
@@ -199,6 +203,7 @@ export default function ChainLatencyView({
       />
       <ChainLatencyDetailDialog
         chain={detailChain}
+        config={detailConfig}
         snapshot={parsed.snapshot}
         range={range}
         onRangeChange={setRange}

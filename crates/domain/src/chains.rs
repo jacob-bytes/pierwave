@@ -556,6 +556,34 @@ pub fn ensure_entry_port(seq: i64, listen_port: Option<i64>) -> Result<(), Domai
     Ok(())
 }
 
+/// 调用方显式指定入口端口时的合法范围（与监听端口一致）。
+pub const ENTRY_PORT_MIN: i64 = 1;
+pub const ENTRY_PORT_MAX: i64 = 65_535;
+
+/// 校验调用方显式指定的入口端口是否在 1–65535 之内。
+///
+/// 与 [`ensure_entry_port`] 的分工：那个管「入口组必须有端口」，这个管
+/// 「用户给的那个端口是不是合法数字」。范围之外用专属错误码
+/// `chain.entry_port_out_of_range`（400），前端可以据此只提示改端口；
+/// 端口合法后还要继续走保留端口 / 服务器端口策略 / 冲突检查，错误码分别是
+/// `forward.port_reserved` / `chain.port_not_allowed` / `chain.entry_port_taken`。
+pub fn validate_entry_port(port: i64) -> Result<(), DomainError> {
+    if (ENTRY_PORT_MIN..=ENTRY_PORT_MAX).contains(&port) {
+        return Ok(());
+    }
+    Err(DomainError::with_params(
+        "chain.entry_port_out_of_range",
+        json!({
+            "port": port,
+            "min": ENTRY_PORT_MIN,
+            "max": ENTRY_PORT_MAX,
+        }),
+        format!(
+            "入口端口必须在 {ENTRY_PORT_MIN}-{ENTRY_PORT_MAX} 之间（当前 {port}）/ the entry port must be between {ENTRY_PORT_MIN} and {ENTRY_PORT_MAX} (got {port})"
+        ),
+    ))
+}
+
 /// 同一台服务器不能在同一个组里出现两次。
 pub fn ensure_group_member_servers_unique(
     server_ids: &[String],
@@ -1662,6 +1690,27 @@ mod tests {
             "中间组允许省略端口，由主控分配"
         );
         assert!(ensure_entry_port(5, Some(20001)).is_ok());
+    }
+
+    #[test]
+    fn explicit_entry_ports_are_bounded_and_coded() {
+        assert!(validate_entry_port(ENTRY_PORT_MIN).is_ok());
+        assert!(validate_entry_port(24321).is_ok());
+        assert!(validate_entry_port(ENTRY_PORT_MAX).is_ok());
+
+        for port in [0, -1, ENTRY_PORT_MAX + 1] {
+            let error = validate_entry_port(port).unwrap_err();
+            assert_eq!(error.code, "chain.entry_port_out_of_range", "port={port}");
+            assert_eq!(
+                error.params,
+                json!({ "port": port, "min": ENTRY_PORT_MIN, "max": ENTRY_PORT_MAX })
+            );
+            assert!(
+                error.message.contains("1-65535") && error.message.contains("entry port"),
+                "{}",
+                error.message
+            );
+        }
     }
 
     #[test]

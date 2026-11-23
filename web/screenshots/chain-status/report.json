@@ -1,0 +1,541 @@
+{
+  "generatedAt": "2026-11-23T16:16:38.528Z",
+  "base": "http://127.0.0.1:5173",
+  "chains": {
+    "blocked": {
+      "id": "c0ffee00-0006-4000-8000-000000000601",
+      "name": "港日中转链"
+    },
+    "normal": {
+      "id": "c0ffee00-0006-4000-8000-000000000602",
+      "name": "港新直达链"
+    },
+    "degraded": {
+      "id": "c0ffee00-0006-4000-8000-000000000603",
+      "name": "港日多路径"
+    }
+  },
+  "total": 33,
+  "passed": 33,
+  "results": [
+    {
+      "name": "1440 dark: list shows 阻断 / 正常 / 降级",
+      "ok": true,
+      "detail": [
+        "阻断:blocked",
+        "正常:ok",
+        "降级:degraded"
+      ]
+    },
+    {
+      "name": "1440 dark: list status dot is 8px with semantic colours",
+      "ok": true,
+      "detail": [
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.62 0.2 25)"
+        },
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.662 0.179 264.6)"
+        },
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.82 0.16 80)"
+        }
+      ]
+    },
+    {
+      "name": "1440 dark: offline node adds an inline reason and a title",
+      "ok": true,
+      "detail": {
+        "blocked": "节点 大阪-01 离线",
+        "degraded": "节点 东京-01 异常"
+      }
+    },
+    {
+      "name": "1440 dark: slow badge only on an ok chain",
+      "ok": true,
+      "detail": {
+        "blocked": null,
+        "degraded": null,
+        "ok": "变慢"
+      }
+    },
+    {
+      "name": "1440 dark: list rows and page do not overflow",
+      "ok": true,
+      "detail": {
+        "docOverflow": 0
+      }
+    },
+    {
+      "name": "1440 dark: detail badge is 阻断 · 大阪-01 离线",
+      "ok": true,
+      "detail": {
+        "state": "blocked",
+        "text": "阻断 · 大阪-01 离线",
+        "title": "阻断 · 大阪-01 离线"
+      }
+    },
+    {
+      "name": "1440 dark: topology dot is 7px and the offline node is red",
+      "ok": true,
+      "detail": [
+        {
+          "name": "香港-01",
+          "role": "source",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "东京-01",
+          "role": "hop",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "新加坡-01",
+          "role": "hop",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "大阪-01",
+          "role": "hop",
+          "status": "offline",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.62 0.2 25)",
+            "animation": "none"
+          }
+        },
+        {
+          "name": "链目标",
+          "role": "target",
+          "status": "none",
+          "dot": null
+        }
+      ]
+    },
+    {
+      "name": "1440 dark: detail badge is 降级 · 东京-01 异常",
+      "ok": true,
+      "detail": {
+        "state": "degraded",
+        "text": "降级 · 东京-01 异常",
+        "title": "降级 · 东京-01 异常"
+      }
+    },
+    {
+      "name": "1440 light: list shows 阻断 / 正常 / 降级",
+      "ok": true,
+      "detail": [
+        "阻断:blocked",
+        "正常:ok",
+        "降级:degraded"
+      ]
+    },
+    {
+      "name": "1440 light: list status dot is 8px with semantic colours",
+      "ok": true,
+      "detail": [
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.57 0.208 25.3)"
+        },
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.424 0.199 265.638)"
+        },
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.53 0.146 49)"
+        }
+      ]
+    },
+    {
+      "name": "1440 light: offline node adds an inline reason and a title",
+      "ok": true,
+      "detail": {
+        "blocked": "节点 大阪-01 离线",
+        "degraded": "节点 东京-01 异常"
+      }
+    },
+    {
+      "name": "1440 light: slow badge only on an ok chain",
+      "ok": true,
+      "detail": {
+        "blocked": null,
+        "degraded": null,
+        "ok": "变慢"
+      }
+    },
+    {
+      "name": "1440 light: list rows and page do not overflow",
+      "ok": true,
+      "detail": {
+        "docOverflow": 0
+      }
+    },
+    {
+      "name": "1440 light: detail badge is 阻断 · 大阪-01 离线",
+      "ok": true,
+      "detail": {
+        "state": "blocked",
+        "text": "阻断 · 大阪-01 离线",
+        "title": "阻断 · 大阪-01 离线"
+      }
+    },
+    {
+      "name": "1440 light: topology dot is 7px and the offline node is red",
+      "ok": true,
+      "detail": [
+        {
+          "name": "香港-01",
+          "role": "source",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "东京-01",
+          "role": "hop",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "新加坡-01",
+          "role": "hop",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "大阪-01",
+          "role": "hop",
+          "status": "offline",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.57 0.208 25.3)",
+            "animation": "none"
+          }
+        },
+        {
+          "name": "链目标",
+          "role": "target",
+          "status": "none",
+          "dot": null
+        }
+      ]
+    },
+    {
+      "name": "1440 light: detail badge is 降级 · 东京-01 异常",
+      "ok": true,
+      "detail": {
+        "state": "degraded",
+        "text": "降级 · 东京-01 异常",
+        "title": "降级 · 东京-01 异常"
+      }
+    },
+    {
+      "name": "390 dark: list shows 阻断 / 正常 / 降级",
+      "ok": true,
+      "detail": [
+        "阻断:blocked",
+        "正常:ok",
+        "降级:degraded"
+      ]
+    },
+    {
+      "name": "390 dark: list status dot is 8px with semantic colours",
+      "ok": true,
+      "detail": [
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.62 0.2 25)"
+        },
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.662 0.179 264.6)"
+        },
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.82 0.16 80)"
+        }
+      ]
+    },
+    {
+      "name": "390 dark: offline node adds an inline reason and a title",
+      "ok": true,
+      "detail": {
+        "blocked": "节点 大阪-01 离线",
+        "degraded": "节点 东京-01 异常"
+      }
+    },
+    {
+      "name": "390 dark: slow badge only on an ok chain",
+      "ok": true,
+      "detail": {
+        "blocked": null,
+        "degraded": null,
+        "ok": "变慢"
+      }
+    },
+    {
+      "name": "390 dark: list rows and page do not overflow",
+      "ok": true,
+      "detail": {
+        "docOverflow": 0
+      }
+    },
+    {
+      "name": "390 dark: detail badge is 阻断 · 大阪-01 离线",
+      "ok": true,
+      "detail": {
+        "state": "blocked",
+        "text": "阻断 · 大阪-01 离线",
+        "title": "阻断 · 大阪-01 离线"
+      }
+    },
+    {
+      "name": "390 dark: topology dot is 7px and the offline node is red",
+      "ok": true,
+      "detail": [
+        {
+          "name": "香港-01",
+          "role": "source",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "东京-01",
+          "role": "hop",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "新加坡-01",
+          "role": "hop",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.73 0.16 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "大阪-01",
+          "role": "hop",
+          "status": "offline",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.62 0.2 25)",
+            "animation": "none"
+          }
+        },
+        {
+          "name": "链目标",
+          "role": "target",
+          "status": "none",
+          "dot": null
+        }
+      ]
+    },
+    {
+      "name": "390 dark: detail badge is 降级 · 东京-01 异常",
+      "ok": true,
+      "detail": {
+        "state": "degraded",
+        "text": "降级 · 东京-01 异常",
+        "title": "降级 · 东京-01 异常"
+      }
+    },
+    {
+      "name": "390 light: list shows 阻断 / 正常 / 降级",
+      "ok": true,
+      "detail": [
+        "阻断:blocked",
+        "正常:ok",
+        "降级:degraded"
+      ]
+    },
+    {
+      "name": "390 light: list status dot is 8px with semantic colours",
+      "ok": true,
+      "detail": [
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.57 0.208 25.3)"
+        },
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.424 0.199 265.638)"
+        },
+        {
+          "width": 8,
+          "height": 8,
+          "background": "oklch(0.53 0.146 49)"
+        }
+      ]
+    },
+    {
+      "name": "390 light: offline node adds an inline reason and a title",
+      "ok": true,
+      "detail": {
+        "blocked": "节点 大阪-01 离线",
+        "degraded": "节点 东京-01 异常"
+      }
+    },
+    {
+      "name": "390 light: slow badge only on an ok chain",
+      "ok": true,
+      "detail": {
+        "blocked": null,
+        "degraded": null,
+        "ok": "变慢"
+      }
+    },
+    {
+      "name": "390 light: list rows and page do not overflow",
+      "ok": true,
+      "detail": {
+        "docOverflow": 0
+      }
+    },
+    {
+      "name": "390 light: detail badge is 阻断 · 大阪-01 离线",
+      "ok": true,
+      "detail": {
+        "state": "blocked",
+        "text": "阻断 · 大阪-01 离线",
+        "title": "阻断 · 大阪-01 离线"
+      }
+    },
+    {
+      "name": "390 light: topology dot is 7px and the offline node is red",
+      "ok": true,
+      "detail": [
+        {
+          "name": "香港-01",
+          "role": "source",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "东京-01",
+          "role": "hop",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "新加坡-01",
+          "role": "hop",
+          "status": "online",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.52 0.14 152)",
+            "animation": "status-breathe"
+          }
+        },
+        {
+          "name": "大阪-01",
+          "role": "hop",
+          "status": "offline",
+          "dot": {
+            "width": 7,
+            "height": 7,
+            "background": "oklch(0.57 0.208 25.3)",
+            "animation": "none"
+          }
+        },
+        {
+          "name": "链目标",
+          "role": "target",
+          "status": "none",
+          "dot": null
+        }
+      ]
+    },
+    {
+      "name": "390 light: detail badge is 降级 · 东京-01 异常",
+      "ok": true,
+      "detail": {
+        "state": "degraded",
+        "text": "降级 · 东京-01 异常",
+        "title": "降级 · 东京-01 异常"
+      }
+    },
+    {
+      "name": "reduced motion stops the breathing dot",
+      "ok": true,
+      "detail": {
+        "online": "香港-01"
+      }
+    }
+  ]
+}

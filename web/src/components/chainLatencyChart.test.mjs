@@ -114,7 +114,6 @@ test("dead chainLatency i18n keys are gone from both dictionaries", async () => 
   const dead = [
     "title",
     "statusNormal",
-    "statusInsufficient",
     "currentP50",
     "notFoundTitle",
     "notFoundDesc",

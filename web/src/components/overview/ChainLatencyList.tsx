@@ -6,6 +6,10 @@ import {
   ChainLatencyRangeTabs,
   ChainLatencyUpdatedBadge,
 } from "@/components/overview/ChainLatencyControls";
+import {
+  CHAIN_HEALTH_STATE_META,
+  chainNodeIssueText,
+} from "@/components/overview/ChainStatusBadge";
 import { ChainLatencyTrendChart } from "@/components/overview/ChainLatencyTrendChart";
 import { ChainLossValue } from "@/components/overview/ChainLossValue";
 import type { Chain } from "@/lib/api";
@@ -14,7 +18,9 @@ import {
   chainEndpointAddressIssue,
   chainEndpointNameIssue,
   chainEndpointServerName,
+  chainHealthState,
   chainLatestSampleTs,
+  chainNodeIssue,
   chainRoutePreview,
   chainStatus,
   formatLossPct,
@@ -24,12 +30,12 @@ import {
   worstHopTone,
   type ChainEndpoint,
   type ChainHealthChain,
+  type ChainHealthState,
   type ChainHealthSnapshot,
   type ChainHealthSummary,
   type ChainLatencyRange,
 } from "@/lib/chainHealth";
 import { degradedGroups } from "@/lib/chains";
-import { chainHealthStatus, type ChainHealthStatus } from "@/lib/overview";
 import { formatRelativeTime } from "@/lib/time";
 import { t, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -69,35 +75,6 @@ function endpointTitle(
     ? chainEndpointAddress(endpoint)
     : chainEndpointServerName(endpoint);
 }
-
-const HEALTH_META: Record<
-  ChainHealthStatus,
-  { labelKey: string; titleKey?: string; dot: string; text: string }
-> = {
-  ok: {
-    labelKey: "overview.chainLatency.healthHealthy",
-    titleKey: "chains.status.okTitle",
-    dot: "bg-primary",
-    text: "text-primary",
-  },
-  degraded: {
-    labelKey: "chains.status.degraded",
-    titleKey: "chains.status.degradedTitle",
-    dot: "bg-warning",
-    text: "text-warning",
-  },
-  blocked: {
-    labelKey: "overview.chainBlocked",
-    dot: "bg-destructive",
-    text: "text-destructive",
-  },
-  disabled: {
-    labelKey: "chains.status.disabled",
-    titleKey: "chains.status.disabledTitle",
-    dot: "bg-muted-foreground/40",
-    text: "text-muted-foreground",
-  },
-};
 
 function KpiCell({
   label,
@@ -213,13 +190,16 @@ function NoSamplesBanner() {
 }
 
 function ChainHealthStatusCell({
-  chain,
+  state,
+  title,
   className,
 }: {
-  chain: Chain | null;
+  /** null = 契约里没有这条链的配置，也拿不到状态。 */
+  state: ChainHealthState | null;
+  title?: string;
   className?: string;
 }) {
-  if (!chain) {
+  if (state === null) {
     return (
       <span
         data-chain-status="unknown"
@@ -229,36 +209,22 @@ function ChainHealthStatusCell({
       </span>
     );
   }
-  const status = chainHealthStatus(chain);
-  const meta = HEALTH_META[status];
-  const reason = (chain.blocked_reason ?? "").trim();
-  // 降级原因可能有多跳：首跳之外的也进 title，不另起一张卡。
-  const degradedTitle =
-    status === "degraded"
-      ? degradedGroups(chain.groups)
-          .map((group) =>
-            t("chains.list.degradedGroup", {
-              seq: group.seq + 1,
-              name: group.name?.trim() || t("chains.detail.unnamedGroup"),
-            }),
-          )
-          .join(" · ")
-      : "";
-  const title =
-    status === "blocked" && reason
-      ? reason
-      : degradedTitle || t(meta.titleKey ?? meta.labelKey);
+  const meta = CHAIN_HEALTH_STATE_META[state];
   return (
     <span
-      data-chain-status={status}
-      title={title}
+      data-chain-status={state}
+      title={title ?? t(meta.titleKey ?? meta.labelKey)}
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 text-[15px] font-medium tabular-nums whitespace-nowrap",
         meta.text,
         className,
       )}
     >
-      <span aria-hidden="true" className={cn("size-1.5 rounded-full", meta.dot)} />
+      <span
+        aria-hidden="true"
+        data-chain-status-dot
+        className={cn("size-2 rounded-full", meta.dot)}
+      />
       {t(meta.labelKey)}
     </span>
   );
@@ -273,9 +239,47 @@ function ChainListRow({
   source: Chain | null;
   onOpen: () => void;
 }) {
-  // `chainStatus` 是列表状态的唯一来源：normal / slow / insufficient。
-  // 只有 slow 才在行上挂徽章，避免把「暂无样本」也标成异常。
+  // 状态优先取新契约的 `status.kind`（节点离线 → 阻断、异常 → 降级），
+  // 缺失时回退到链配置 / 旧的 slow / 样本判定。
   const latencyStatus = chainStatus(chain);
+  const state = chainHealthState(chain, source);
+  const issue = chainNodeIssue(chain);
+  const issueText = chainNodeIssueText(issue);
+  const stateMeta = CHAIN_HEALTH_STATE_META[state];
+  const statusLabel = t(stateMeta.labelKey);
+  const blockedReason = (source?.blocked_reason ?? "").trim();
+  // 降级原因可能有多跳：首跳之外的也进 title，不另起一张卡。
+  const degradedTitle =
+    state === "degraded" && source
+      ? degradedGroups(source.groups)
+          .map((group) =>
+            t("chains.list.degradedGroup", {
+              seq: group.seq + 1,
+              name: group.name?.trim() || t("chains.detail.unnamedGroup"),
+            }),
+          )
+          .join(" · ")
+      : "";
+  const statusTitle = issueText
+    ? t("overview.chainLatency.statusWithReason", {
+        status: statusLabel,
+        reason: issueText,
+      })
+    : chain.status !== null
+      ? chain.status.cause === "node_offline"
+        ? t("overview.chainLatency.nodeOfflineTitle")
+        : chain.status.cause === "node_unhealthy"
+          ? t("overview.chainLatency.nodeUnhealthyTitle")
+          : chain.status.cause === "no_samples"
+            ? t("overview.chainLatency.statusInsufficientTitle")
+            : chain.status.cause === "slow"
+              ? t("overview.chainLatency.slowTitle")
+              : t(stateMeta.titleKey ?? stateMeta.labelKey)
+      : state === "blocked" && blockedReason
+        ? blockedReason
+        : degradedTitle || t(stateMeta.titleKey ?? stateMeta.labelKey);
+  // 阻断 / 降级 / 停用时不和「变慢」并排，避免两个徽章说不同的话。
+  const showSlowBadge = latencyStatus === "slow" && state === "ok";
   const entrySide = t("overview.chainLatency.entry");
   const exitSide = t("overview.chainLatency.exit");
   const addressTitle = `${endpointTitle(chain.entry, entrySide, "address")} → ${endpointTitle(chain.exit, exitSide, "address")}`;
@@ -299,9 +303,6 @@ function ChainListRow({
             failures: lossSamples.failures,
           })
         : t("overview.chainLatency.windowLoss");
-  const statusLabel = source
-    ? t(HEALTH_META[chainHealthStatus(source)].labelKey)
-    : "—";
   const label = t("overview.chainLatency.openChainAria", {
     name: chain.name,
     status: statusLabel,
@@ -342,7 +343,7 @@ function ChainListRow({
             >
               {chain.name}
             </span>
-            {latencyStatus === "slow" ? (
+            {showSlowBadge ? (
               <Badge
                 variant="outline"
                 data-chain-slow-badge
@@ -352,6 +353,18 @@ function ChainListRow({
               </Badge>
             ) : null}
           </span>
+          {issueText ? (
+            <span
+              data-chain-status-reason
+              className={cn(
+                "truncate text-[11px] leading-4",
+                issue?.kind === "offline" ? "text-destructive" : "text-warning",
+              )}
+              title={issueText}
+            >
+              {issueText}
+            </span>
+          ) : null}
           <span
             data-chain-sample
             className="truncate text-xs leading-5 text-muted-foreground"
@@ -447,7 +460,8 @@ function ChainListRow({
             <ChainLossValue value={chain.lossPct} className="text-sm" />
           </span>
           <ChainHealthStatusCell
-            chain={source}
+            state={source === null && chain.status === null ? null : state}
+            title={statusTitle}
             className="lg:col-start-7 lg:row-start-1"
           />
           <ChevronRightIcon
@@ -464,9 +478,9 @@ function ChainListRow({
 /**
  * 链路时延列表：KPI / 整体趋势 / 链路表格。
  *
- * 表格列：链路 / 起点·终点 / 跳数 / P50 / 窗口丢包 / 状态。健康状态来自转发链配置
- * （`chainHealthStatus`），不再单起一张「转发链健康」卡；逐段信息只在
- * 点击行打开的详情弹窗里出现。
+ * 表格列：链路 / 起点·终点 / 跳数 / P50 / 窗口丢包 / 状态。状态优先取
+ * `chains[].status` 的节点健康结论，旧主控缺失时回退到链配置与样本判定；
+ * 不再单起一张「转发链健康」卡，逐段信息只在点击行打开的详情弹窗里出现。
  */
 export function ChainLatencyList({
   snapshot,

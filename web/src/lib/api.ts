@@ -6,7 +6,7 @@ import type {
   AgentUpgradeBatchItemStatus,
   AgentUpgradeBatchStatus,
 } from "@/lib/agentUpgradeBatch";
-import { ApiError, parseJsonBody } from "@/lib/apiError";
+import { ApiError, parseErrorEnvelope, parseJsonBody } from "@/lib/apiError";
 import { restorePath } from "@/lib/backup";
 import type { ChainStrategy } from "@/lib/chains";
 import type { UpdatesResponse } from "@/lib/updates";
@@ -20,26 +20,18 @@ interface ErrorBody {
   params?: Record<string, unknown>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 /**
  * 从响应体构造 ApiError：保留旧的 `error` 文案，同时带上 `code` 与
  * `params`，供 `errors.ts` 按当前语言翻译。字段类型不对时忽略。
  */
 function toApiError(body: unknown, status: number): ApiError {
-  const record = isRecord(body) ? body : {};
-  const message =
-    typeof record.error === "string" && record.error.trim()
-      ? record.error
-      : t("common.requestFailed", { status });
-  const code =
-    typeof record.code === "string" && record.code.trim()
-      ? record.code
-      : undefined;
-  const params = isRecord(record.params) ? record.params : undefined;
-  return new ApiError(message, status, code, params);
+  const envelope = parseErrorEnvelope(body);
+  return new ApiError(
+    envelope.message ?? t("common.requestFailed", { status }),
+    status,
+    envelope.code,
+    envelope.params,
+  );
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -1410,6 +1402,11 @@ export interface Chain {
   template_id?: string | null;
   /** 用户自助建链的创建者；管理员手建为 null。 */
   owner_user_id?: string | null;
+  /**
+   * 入口地址 `host:port`。旧主控的管理端链视图不返回该字段；展示层会从
+   * 入口组第一台成员的 `listen_port` 推导，用于校验 `entry_port` 是否被采用。
+   */
+  entry_address?: string | null;
   /** 任一组 / 成员 degraded 即为 true。 */
   degraded: boolean;
   /**
@@ -1544,6 +1541,25 @@ export interface CreateChainInput {
 export type UpdateChainInput = Partial<CreateChainInput>;
 
 /**
+ * 管理员「从模板创建」：拓扑由模板展开，管理员只提供名称、入口端口与目标。
+ *
+ * 与 [`CreateChainInput`] 二选一：这个形状不携带 `groups`，入口端口留空时
+ * 由后端按端口策略分配（与用户自助建链一致）。
+ */
+export interface CreateChainFromTemplateInput {
+  name: string;
+  template_id: string;
+  /** 入口组监听端口；省略 = 由后端自动分配。 */
+  entry_port?: number;
+  target_host: string;
+  target_port: number;
+}
+
+export type CreateChainPayload =
+  | CreateChainInput
+  | CreateChainFromTemplateInput;
+
+/**
  * 链模板：管理员预先定义一条链的形态，用户只选模板 + 填目标。
  *
  * `servers` 是后端按 `server_ids` 带出的名字快照（免去前端再查一次
@@ -1553,7 +1569,16 @@ export interface ChainTemplateGroup {
   seq: number;
   strategy: ChainStrategy;
   server_ids: string[];
-  servers: { id: string; name: string }[];
+  /**
+   * 服务器名快照。`port_start` / `port_end` 是后端可能带出的端口策略，
+   * 旧主控不返回；它与模板的入口端口范围是两套语义，不拿来拼端口提示。
+   */
+  servers: {
+    id: string;
+    name: string;
+    port_start?: number | null;
+    port_end?: number | null;
+  }[];
 }
 
 export interface ChainTemplate {
@@ -1566,6 +1591,12 @@ export interface ChainTemplate {
   transport: "none" | "tls";
   protocol: ForwardProtocol;
   enabled: boolean;
+  /**
+   * 模板显式声明的入口端口范围（新后端可选字段；旧后端缺失）。
+   * 缺任意一边就不显示提示，前端不编造默认范围；真正的校验仍以后端为准。
+   */
+  entry_port_start?: number | null;
+  entry_port_end?: number | null;
   created_at: number;
   groups: ChainTemplateGroup[];
 }
@@ -1640,6 +1671,8 @@ export interface MeChainTemplatesResponse {
 
 export interface CreateMeChainInput {
   template_id: string;
+  /** 入口端口；省略 = 由系统按端口策略自动分配（保持旧行为）。 */
+  entry_port?: number;
   target_host: string;
   target_port: number;
 }
@@ -3339,7 +3372,7 @@ export const api = {
    */
   chains: {
     list: () => request<{ items: Chain[] }>("/api/v1/chains"),
-    create: (input: CreateChainInput) =>
+    create: (input: CreateChainPayload) =>
       request<{ chain: Chain }>("/api/v1/chains", {
         method: "POST",
         body: JSON.stringify(input),

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ApiError, parseJsonBody } from "./apiError.ts";
+import { ApiError, parseErrorEnvelope, parseJsonBody } from "./apiError.ts";
 import { isChainHealthUnsupported } from "./chainHealth.ts";
 import { isServerHealthUnsupported } from "./serverHealth.ts";
 
@@ -55,4 +55,32 @@ test("request uses the shared parser and a 15s timeout signal", () => {
   assert.match(body, /AbortSignal\.timeout\(15_000\)/);
   assert.match(body, /parseJsonBody\(/);
   assert.doesNotMatch(body, /JSON\.parse\(text\)/);
+});
+
+test("error envelopes support both top-level and nested shapes", () => {
+  assert.deepEqual(
+    parseErrorEnvelope({
+      code: "chain.entry_port_taken",
+      error: "入口端口已被占用",
+      params: { port: 24321 },
+    }),
+    {
+      message: "入口端口已被占用",
+      code: "chain.entry_port_taken",
+      params: { port: 24321 },
+    },
+  );
+  // 契约里的 409：{ "error": { "code": "chain.entry_port_taken" } }
+  assert.deepEqual(
+    parseErrorEnvelope({ error: { code: "chain.entry_port_taken" } }),
+    { code: "chain.entry_port_taken" },
+  );
+  assert.deepEqual(
+    parseErrorEnvelope({ error: { code: "chain.entry_port_taken", message: "端口冲突" } }),
+    { message: "端口冲突", code: "chain.entry_port_taken" },
+  );
+  // 非字符串 / HTML 体不制造假字段。
+  assert.deepEqual(parseErrorEnvelope(null), {});
+  assert.deepEqual(parseErrorEnvelope("<html>"), {});
+  assert.deepEqual(parseErrorEnvelope({ error: { code: 42 } }), {});
 });

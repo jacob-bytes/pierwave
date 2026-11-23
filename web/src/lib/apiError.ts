@@ -42,3 +42,55 @@ export function parseJsonBody(
     throw new ApiError(fallbackMessage, status);
   }
 }
+
+/**
+ * 错误响应体的统一解包：兼容两种形态。
+ *
+ * - 现有主控：`{ code, error, params }`（顶层）；
+ * - 部分新接口 / 网关：`{ error: { code, message, params } }`（嵌套，
+ *   例如入口端口冲突契约 `{ "error": { "code": "chain.entry_port_taken" } }`）。
+ *
+ * 只读取字符串字段；类型不对时忽略，绝不把对象塞进 `message`。
+ */
+export interface ErrorEnvelope {
+  message?: string;
+  code?: string;
+  params?: Record<string, unknown>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringField(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function recordField(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+): Record<string, unknown> | null {
+  const value = record?.[key];
+  return isRecord(value) ? value : null;
+}
+
+export function parseErrorEnvelope(body: unknown): ErrorEnvelope {
+  const record = isRecord(body) ? body : null;
+  const nested = recordField(record, "error");
+  const nestedMessage = stringField(nested, "message");
+  const topMessage = typeof record?.error === "string" ? record.error.trim() : "";
+  const params = recordField(record, "params") ?? recordField(nested, "params");
+  return {
+    ...(topMessage || nestedMessage
+      ? { message: topMessage || nestedMessage }
+      : {}),
+    ...(stringField(record, "code") ?? stringField(nested, "code")
+      ? { code: stringField(record, "code") ?? stringField(nested, "code") }
+      : {}),
+    ...(params ? { params } : {}),
+  };
+}

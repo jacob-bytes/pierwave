@@ -110,6 +110,203 @@ export function templateServerCount(
   }, 0);
 }
 
+/** 模板的跳数 = 组数；`—` 形态（无组）返回 0。 */
+export function templateHopCount(
+  template: { groups?: readonly { seq?: number | null }[] | null } | null | undefined,
+): number {
+  return template?.groups?.length ?? 0;
+}
+
+/** 跳数文案：英文 1 hop / N hops 分开，中文共用「N 跳」。 */
+export function hopCountLabel(count: number, t: TFunction = translate): string {
+  return count === 1
+    ? t("me.chains.form.hopCountOne")
+    : t("me.chains.form.hopCount", { count });
+}
+
+export interface EntryPortRange {
+  start: number;
+  end: number;
+}
+
+interface PortHintTemplate {
+  entry_port_start?: number | null;
+  entry_port_end?: number | null;
+}
+
+function portHintValue(value: unknown): number | null {
+  const port =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && /^\d+$/.test(value.trim())
+        ? Number(value.trim())
+        : NaN;
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? port : null;
+}
+
+/**
+ * 模板自带的入口端口范围提示（可选）。
+ *
+ * 只认模板级 `entry_port_start` / `entry_port_end`（新后端可选字段）。
+ * 旧后端还没有这两个字段，或者只返回单边、越界、start > end 时一律返回
+ * null——不在前端拼一个「1–65535」之类的默认范围，避免把不存在的约束
+ * 显示给用户。入口服务器的 `port_start` / `port_end` 是另一套语义，不拿来
+ * 冒充满链的入口端口范围。
+ */
+export function templateEntryPortRange(
+  template: PortHintTemplate | null | undefined,
+): EntryPortRange | null {
+  const start = portHintValue(template?.entry_port_start);
+  const end = portHintValue(template?.entry_port_end);
+  if (start === null || end === null) return null;
+  return start > end ? null : { start, end };
+}
+
+/** 端口范围提示文案；无范围时返回 null，调用方不渲染。 */
+export function entryPortRangeLabel(
+  range: EntryPortRange | null,
+  t: TFunction = translate,
+): string | null {
+  if (!range) return null;
+  return range.start === range.end
+    ? t("common.portAllowedOne", { port: range.start })
+    : t("common.portAllowed", { start: range.start, end: range.end });
+}
+
+/**
+ * 入口端口输入校验：留空合法（= 自动分配），否则必须是 1–65535 的整数。
+ * 错误的整数字面量（`1.5` / `-1` / 空白的 `1 2`）都拒绝，避免静默取整。
+ */
+export function entryPortInputError(
+  text: string,
+  t: TFunction = translate,
+): string | null {
+  const raw = text.trim();
+  if (raw === "") return null;
+  if (!/^\d+$/.test(raw)) return t("me.chains.form.entryPortRange");
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    return t("me.chains.form.entryPortRange");
+  }
+  return null;
+}
+
+/** 表单文本 → 请求里的 `entry_port`；留空/非法返回 undefined（不提交字段）。 */
+export function entryPortPayload(text: string): number | undefined {
+  const raw = text.trim();
+  if (!/^\d+$/.test(raw)) return undefined;
+  const port = Number(raw);
+  return Number.isInteger(port) && port >= 1 && port <= 65535
+    ? port
+    : undefined;
+}
+
+/** 与后端 `chains::NAME_MAX_CHARS` / `chain_templates::NAME_MAX_CHARS` 对齐。 */
+export const CHAIN_NAME_MAX_CHARS = 64;
+
+/**
+ * 从模板建链的默认名称：`模板名 · host:port`。
+ *
+ * 后端名称上限 64 字符。预算优先给 `host:port` 后缀（目标比模板名更容易
+ * 辨认），只截断模板名前缀；模板名为空时用 `chain` 兜底。目标本身长到
+ * 放不下时保留 `host:port` 的尾部，端口始终可见，总长度仍不超过 64。
+ */
+export function templateChainName(
+  templateName: string,
+  host: string,
+  port: number | string,
+): string {
+  const target = `${host.trim()}:${port}`;
+  const suffix = ` · ${target}`;
+  const budget = CHAIN_NAME_MAX_CHARS - [...suffix].length;
+  if (budget > 0) {
+    const trimmed = templateName.trim();
+    const fallback = "chain";
+    const prefix = [...(trimmed || fallback)]
+      .slice(0, budget)
+      .join("")
+      .trim();
+    return `${prefix}${suffix}`;
+  }
+  // 连 ` · host:port` 都放不下：留出「… 」两个字符，保留目标尾部。
+  const keep = CHAIN_NAME_MAX_CHARS - 2;
+  return `… ${[...target].slice(-keep).join("")}`;
+}
+
+/* ------------------------------------------------------------------------- *
+ * 入口端口是否被采用
+ * ------------------------------------------------------------------------- */
+
+/** 从 `host:port` / `[ipv6]:port` 里取端口；没有端口或越界返回 null。 */
+export function entryAddressPort(
+  address: string | null | undefined,
+): number | null {
+  const text = (address ?? "").trim();
+  const colon = text.lastIndexOf(":");
+  if (colon < 0) return null;
+  // 未加方括号且没有端口的 IPv6（最后一节也是数字）不冒充端口。
+  const before = text.slice(0, colon);
+  if (before.includes(":") && !before.endsWith("]")) return null;
+  const digits = text.slice(colon + 1);
+  if (!/^\d+$/.test(digits)) return null;
+  return portHintValue(digits);
+}
+
+interface EntryPortChainLike {
+  /** 新后端可能直接给 `host:port`。 */
+  entry_address?: string | null;
+  /** 管理端链视图没有 `entry_address` 时，从入口组第一台成员推导。 */
+  groups?: readonly {
+    seq?: number | null;
+    members?: readonly { listen_port?: number | null }[] | null;
+    servers?: readonly { listen_port?: number | null }[] | null;
+  }[] | null;
+}
+
+/** 链实际采用的入口端口；`entry_address` 优先，缺失时看入口组第一台成员。 */
+export function chainActualEntryPort(
+  chain: EntryPortChainLike | null | undefined,
+): number | null {
+  const fromAddress = entryAddressPort(chain?.entry_address);
+  if (fromAddress !== null) return fromAddress;
+  const entryGroup = ordered(chain?.groups ?? []).at(0);
+  const listenPort =
+    entryGroup?.members?.[0]?.listen_port ??
+    entryGroup?.servers?.[0]?.listen_port;
+  return portHintValue(listenPort);
+}
+
+export interface EntryPortNotAdopted {
+  requested: number;
+  actual: number;
+}
+
+/**
+ * 旧主控忽略 `entry_port` 时，响应里的实际端口与用户输入不同。
+ *
+ * 只有用户确实填了端口、并且能从响应里读出一个合法实际端口时才判定；
+ * 读不到实际端口就不猜，继续走普通成功提示。
+ */
+export function entryPortNotAdopted(
+  requested: number | null | undefined,
+  actual: number | null,
+): EntryPortNotAdopted | null {
+  if (requested === null || requested === undefined) return null;
+  if (actual === null) return null;
+  return requested === actual ? null : { requested, actual };
+}
+
+/** 端口未被采用时的 warning toast 文案。 */
+export function entryPortNotAdoptedText(
+  notice: EntryPortNotAdopted,
+  t: TFunction = translate,
+): string {
+  return t("common.entryPortNotAdopted", {
+    requested: notice.requested,
+    actual: notice.actual,
+  });
+}
+
 /**
  * 编辑自己的链：只允许 name / target_host / target_port / enabled。
  *

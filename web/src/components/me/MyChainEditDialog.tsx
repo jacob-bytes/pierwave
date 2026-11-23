@@ -28,6 +28,7 @@ import { Switch } from "@/components/ui/switch";
 import type { MeChain } from "@/lib/api";
 import { errorText } from "@/lib/errors";
 import {
+  CHAIN_NAME_MAX_CHARS,
   chainDisableConfirm,
   chainEditError,
   chainEditSuccess,
@@ -124,6 +125,7 @@ export function MyChainEditDialog({
               id="my-chain-edit-name"
               value={fields.name}
               autoComplete="off"
+              maxLength={CHAIN_NAME_MAX_CHARS}
               disabled={update.isPending}
               onChange={(event) =>
                 setFields((current) => ({ ...current, name: event.target.value }))

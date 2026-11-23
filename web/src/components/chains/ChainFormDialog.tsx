@@ -44,6 +44,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { portFieldVisible, stripAutoPorts } from "@/lib/chainPorts";
 import { matchTargetNode, nodeTargetValue } from "@/lib/chainTarget";
+import { CHAIN_NAME_MAX_CHARS } from "@/lib/myChains";
 import {
   needsCert,
   normalizeTransport,
@@ -1458,6 +1459,7 @@ export function ChainFormDialog({
               onBlur={() => void form.trigger("name")}
               placeholder={t("chains.form.namePlaceholder")}
               autoComplete="off"
+              maxLength={CHAIN_NAME_MAX_CHARS}
               disabled={pending}
               aria-invalid={Boolean(form.formState.errors.name)}
             />

@@ -9,6 +9,7 @@ import {
 } from "@/components/overview/ChainLatencyControls";
 import { ChainLossValue } from "@/components/overview/ChainLossValue";
 import { ChainSegmentTrendChart } from "@/components/overview/ChainSegmentTrendChart";
+import { ChainStatusBadge } from "@/components/overview/ChainStatusBadge";
 import {
   SLOW_CHAIN_DELTA_MS,
   chainDiagnosis,
@@ -28,6 +29,7 @@ import {
   type ChainDiagnosisReason,
   type ChainDiagnosisView,
   type ChainHealthChain,
+  type ChainHealthConfig,
   type ChainHealthPoint,
   type ChainHealthSegment,
   type ChainHealthSnapshot,
@@ -139,7 +141,7 @@ function TopologyNode({
             data-tone={tone}
             aria-hidden="true"
             className={cn(
-              "size-1.5 shrink-0 rounded-full",
+              "size-[7px] shrink-0 rounded-full",
               tone === "online"
                 ? "bg-success status-breathe"
                 : "bg-destructive",
@@ -692,6 +694,7 @@ function SegmentsCard({
  */
 export function ChainLatencyDetail({
   chain,
+  config,
   snapshot,
   range,
   onRangeChange,
@@ -699,6 +702,8 @@ export function ChainLatencyDetail({
   trendPending,
 }: {
   chain: ChainHealthChain;
+  /** 链列表里的配置；用于保留「停用」与旧契约的配置级阻断 / 降级。 */
+  config: ChainHealthConfig | null;
   snapshot: ChainHealthSnapshot;
   range: ChainLatencyRange;
   onRangeChange: (range: ChainLatencyRange) => void;
@@ -708,6 +713,9 @@ export function ChainLatencyDetail({
   useI18n();
   return (
     <div className="space-y-4" data-chain-detail>
+      <div data-chain-detail-status className="flex min-w-0 items-center">
+        <ChainStatusBadge chain={chain} config={config} />
+      </div>
       <ChainTopologyCard chain={chain} />
       <OverallChartCard
         chain={chain}

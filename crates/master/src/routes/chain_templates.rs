@@ -1901,4 +1901,682 @@ mod tests {
         assert!(chain.groups.is_empty());
         assert!(desired_forwards(&state, &a).await.is_empty());
     }
+    // ------------------------------------------------------------------
+    // 入口端口：用户自助 / 管理员从模板创建（两种路径共用同一套展开逻辑）
+    // ------------------------------------------------------------------
+
+    /// 带可选入口端口请求体的用户建链（省略 = 自动分配）。
+    fn user_chain_body(template_id: &str, host: &str, port: i64, entry_port: Option<i64>) -> Value {
+        let mut body = chain_body(template_id, host, port);
+        if let Some(entry_port) = entry_port {
+            body["entry_port"] = json!(entry_port);
+        }
+        body
+    }
+
+    async fn add_node(state: &AppState, server_id: &str, port: i64) {
+        repo::nodes::create(
+            &state.db.pool,
+            server_id,
+            repo::nodes::NewNode {
+                tag: None,
+                name: "已有节点".into(),
+                protocol: "vless".into(),
+                transport: "tcp".into(),
+                security: "none".into(),
+                port,
+                public_port: None,
+                config_json: "{}".into(),
+                enabled: true,
+                cert_id: None,
+                bandwidth_kbps: None,
+                tags: Vec::new(),
+                region: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn add_forward(state: &AppState, server_id: &str, listen_port: i64) {
+        repo::forwards::create(
+            &state.db.pool,
+            server_id,
+            repo::forwards::NewForward {
+                name: format!("已有转发 {listen_port}"),
+                listen_port,
+                target_host: "10.9.9.1".into(),
+                target_port: 80,
+                enabled: true,
+                count_traffic: false,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+                proxy_protocol: false,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    /// 用户自助：不传端口保持自动分配；传了就只覆盖第一跳的对外监听端口，
+    /// 中间跳仍自动分配，且 `entry_address` 反映用户选的端口。
+    #[tokio::test]
+    async fn user_chain_entry_port_overrides_only_the_first_hop() {
+        let Fixture {
+            app, state, a, b, ..
+        } = setup().await;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_package(
+            &state,
+            "双链套餐",
+            2,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        // 不传 / null：保持旧行为，入口从端口池自动分配。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.9", 443, None)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:20000");
+        assert_eq!(
+            body["chain"]["groups"][1]["servers"][0]["listen_port"],
+            20000
+        );
+
+        // 指定一个池外但合法的端口：入口用它，中间跳仍是自动分配的 20000。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.10", 8443, Some(24_321))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:24321");
+        assert_eq!(
+            body["chain"]["groups"][0]["servers"][0]["listen_port"],
+            24_321
+        );
+        // b 上的 20000 已被第一条链的中间跳占用，自动分配顺延到 20001。
+        assert_eq!(
+            body["chain"]["groups"][1]["servers"][0]["listen_port"],
+            20_001
+        );
+        assert_eq!(body["quota"], json!({ "limit": 2, "used": 2 }));
+
+        // 落库与下发都必须用用户选的端口。
+        let chain_id = body["chain"]["id"].as_str().unwrap();
+        let stored = repo::chains::find_by_id(&state.db.pool, chain_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.groups[0].members[0].listen_port, 24_321);
+        assert_eq!(stored.groups[1].members[0].listen_port, 20_001);
+        let entry = desired_forwards(&state, &a).await;
+        assert!(
+            entry.iter().any(|forward| forward.listen_port == 24_321),
+            "入口服务器必须监听用户指定的端口：{entry:?}"
+        );
+    }
+
+    /// 入口端口与链 / 节点 / 转发冲突 → 409 `chain.entry_port_taken`；
+    /// 失败发生在 COMMIT 之前，链不会被创建、配额不会被消耗。
+    #[tokio::test]
+    async fn user_chain_entry_port_conflict_is_409_and_leaves_no_chain() {
+        let Fixture {
+            app, state, a, b, ..
+        } = setup().await;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_package(
+            &state,
+            "多链套餐",
+            4,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        // 第一条链占住 24331。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.9", 443, Some(24_331))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:24331");
+
+        // 同端口再建一条：409，并带上是谁占用的。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.10", 8443, Some(24_331))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "unexpected: {body}");
+        assert_eq!(body["code"], "chain.entry_port_taken", "{body}");
+        assert_eq!(body["params"]["port"], 24_331);
+        assert_eq!(body["params"]["holder"], "chain");
+        assert_eq!(body["params"]["server_id"], a.as_str());
+        assert_eq!(body["params"]["server_name"], "hk-a");
+
+        // 节点占用同一端口 → 同一个 409。
+        add_node(&state, &a, 24_332).await;
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.10", 8443, Some(24_332))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "unexpected: {body}");
+        assert_eq!(body["code"], "chain.entry_port_taken", "{body}");
+        assert_eq!(body["params"]["holder"], "node");
+
+        // 独立转发占用同一端口 → 同一个 409。
+        add_forward(&state, &a, 24_333).await;
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.10", 8443, Some(24_333))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT, "unexpected: {body}");
+        assert_eq!(body["code"], "chain.entry_port_taken", "{body}");
+        assert_eq!(body["params"]["holder"], "forward");
+
+        // 只有第一条链存在：冲突请求都在写事务里回滚，没有留下残缺数据。
+        assert_eq!(
+            repo::chains::count_by_owner(&state.db.pool, &alice_id)
+                .await
+                .unwrap(),
+            1
+        );
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::GET,
+            "/api/v1/me/chains",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["items"].as_array().unwrap().len(), 1);
+        assert_eq!(body["quota"], json!({ "limit": 4, "used": 1 }));
+        let members: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM chain_group_members WHERE server_id = ?")
+                .bind(&a)
+                .fetch_one(&state.db.pool)
+                .await
+                .unwrap();
+        assert_eq!(members, 1, "失败的请求不能留下任何链成员");
+    }
+
+    /// 入口端口范围 / 保留端口 / 服务器允许集合：沿用链端口的既有规则。
+    #[tokio::test]
+    async fn user_chain_entry_port_is_range_checked_and_policy_bounded() {
+        let Fixture {
+            app, state, a, b, ..
+        } = setup().await;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_package(
+            &state,
+            "多链套餐",
+            5,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        for port in [0_i64, -1, 70_000] {
+            let (status, body) = request(
+                &app,
+                Some(&alice_cookie),
+                Method::POST,
+                "/api/v1/me/chains",
+                Some(user_chain_body(&template, "10.9.9.9", 443, Some(port))),
+            )
+            .await;
+            assert_eq!(status, StatusCode::BAD_REQUEST, "port={port}: {body}");
+            assert_eq!(body["code"], "chain.entry_port_out_of_range", "{body}");
+            assert_eq!(body["params"]["port"], port);
+            assert_eq!(body["params"]["min"], 1);
+            assert_eq!(body["params"]["max"], 65_535);
+        }
+
+        // 保留端口复用既有错误码。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.9", 443, Some(22))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "forward.port_reserved");
+
+        // 服务器端口策略：只允许 22000-22010。
+        repo::servers::set_port_policy(&state.db.pool, &a, Some(22_000), Some(22_010), "[]")
+            .await
+            .unwrap();
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.9", 443, Some(23_000))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "chain.port_not_allowed");
+        assert_eq!(body["params"]["port"], 23_000);
+
+        // 范围内的端口成功。端口策略**为空**时不限制（上面第一条用例的
+        // 24321 在固定池之外也一样成功），这里只验证受限时能选范围内端口。
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.9", 443, Some(22_005))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:22005");
+    }
+
+    /// 多成员入口组：显式端口只落在被选中的（priority 最小的）入口成员上，
+    /// 其它入口成员仍各自自动分配。
+    #[tokio::test]
+    async fn user_chain_entry_port_applies_to_the_selected_entry_member_only() {
+        let Fixture {
+            app, state, a, b, ..
+        } = setup().await;
+        let (c, _) = repo::servers::create(&state.db.pool, "us-c", "10.0.0.3", "external")
+            .await
+            .unwrap();
+        let c = c.id;
+        let template = create_template(
+            &state,
+            "港美多入口",
+            "native",
+            "tls",
+            "tcp",
+            &[&[&a, &b], &[&c]],
+        )
+        .await;
+        let (alice_id, alice_cookie) = make_user(&state, "alice").await;
+        bind_package(
+            &state,
+            "单链套餐",
+            1,
+            std::slice::from_ref(&template),
+            &alice_id,
+        )
+        .await;
+
+        let (status, body) = request(
+            &app,
+            Some(&alice_cookie),
+            Method::POST,
+            "/api/v1/me/chains",
+            Some(user_chain_body(&template, "10.9.9.9", 443, Some(24_341))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let entry_members = body["chain"]["groups"][0]["servers"].as_array().unwrap();
+        assert_eq!(entry_members.len(), 2);
+        assert_eq!(entry_members[0]["server_id"], a.as_str());
+        assert_eq!(entry_members[0]["listen_port"], 24_341);
+        assert_eq!(entry_members[1]["server_id"], b.as_str());
+        assert_eq!(
+            entry_members[1]["listen_port"], 20_000,
+            "非选中的入口成员仍自动分配"
+        );
+        assert_eq!(body["chain"]["entry_server_id"], a.as_str());
+        assert_eq!(body["chain"]["entry_address"], "10.0.0.1:24341");
+    }
+
+    /// 管理员从模板创建：groups 由模板展开、引擎/协议沿用模板，
+    /// 与手建同样形态的链等价；入口端口可选。
+    #[tokio::test]
+    async fn admin_can_create_a_chain_from_a_template() {
+        let Fixture {
+            app,
+            state,
+            admin_cookie,
+            a,
+            b,
+            ..
+        } = setup().await;
+        let template =
+            create_template(&state, "港日", "realm", "tls", "tcp", &[&[&a], &[&b]]).await;
+
+        let (status, body) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(json!({
+                "name": "港日专线",
+                "template_id": &template,
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        let chain = &body["chain"];
+        assert_eq!(chain["template_id"], template.as_str());
+        assert_eq!(chain["owner_user_id"], Value::Null, "管理员链不归属用户");
+        assert_eq!(chain["source"], "admin");
+        assert_eq!(chain["engine"], "realm", "引擎直接沿用模板");
+        assert_eq!(chain["protocol"], "tcp");
+        assert_eq!(chain["name"], "港日专线");
+        assert_eq!(chain["groups"].as_array().unwrap().len(), 2);
+        assert_eq!(chain["groups"][0]["members"][0]["server_id"], a.as_str());
+        assert_eq!(
+            chain["groups"][0]["members"][0]["listen_port"], 20_000,
+            "未给入口端口时按端口策略自动分配"
+        );
+        assert_eq!(chain["groups"][1]["members"][0]["server_id"], b.as_str());
+        assert_eq!(chain["groups"][1]["members"][0]["listen_port"], 20_000);
+
+        // 与手建同样形态的链对比：组序号 / 策略 / 服务器完全一致。
+        let (status, manual) = request(
+            &app,
+            Some(&admin_cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(json!({
+                "name": "港日手建",
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+                "engine": "realm",
+                "protocol": "tcp",
+                "groups": [
+                    {"members": [{"server_id": &a, "listen_port": 20_001}]},
+                    {"members": [{"server_id": &b}]},
+                ],
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {manual}");
+        for index in [0, 1] {
+            assert_eq!(
+                chain["groups"][index]["seq"],
+                manual["chain"]["groups"][index]["seq"]
+            );
+            assert_eq!(
+                chain["groups"][index]["strategy"],
+                manual["chain"]["groups"][index]["strategy"]
+            );
+            assert_eq!(
+                chain["groups"][index]["members"][0]["server_id"],
+                manual["chain"]["groups"][index]["members"][0]["server_id"]
+            );
+        }
+        assert_eq!(manual["chain"]["template_id"], Value::Null);
+        assert_eq!(manual["chain"]["engine"], chain["engine"]);
+        assert_eq!(manual["chain"]["protocol"], chain["protocol"]);
+
+        // 两台服务器都真正拿到了下发。
+        let entry = desired_forwards(&state, &a).await;
+        assert_eq!(entry.len(), 2);
+        assert!(entry
+            .iter()
+            .any(|forward| forward.engine == pierwave_proto::ForwardEngine::Realm));
+    }
+
+    /// 管理员从模板创建的入口端口：显式值生效，且并发抢同一端口只会成功一条。
+    #[tokio::test]
+    async fn admin_template_entry_port_is_exclusive() {
+        let Fixture {
+            app,
+            state,
+            admin_cookie,
+            a,
+            b,
+            ..
+        } = setup().await;
+        let cookie = admin_cookie;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(json!({
+                "name": "指定入口",
+                "template_id": &template,
+                "entry_port": 24_351,
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "unexpected: {body}");
+        assert_eq!(
+            body["chain"]["groups"][0]["members"][0]["listen_port"],
+            24_351
+        );
+        assert_eq!(
+            body["chain"]["groups"][1]["members"][0]["listen_port"],
+            20_000
+        );
+
+        // 并发：同一入口端口只允许一条链成功，另一条拿到 409。
+        let template2 =
+            create_template(&state, "港日2", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+        let payload = |name: &str| {
+            json!({
+                "name": name,
+                "template_id": &template2,
+                "entry_port": 24_352,
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+            })
+        };
+        let (first, second) = tokio::join!(
+            request(
+                &app,
+                Some(&cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(payload("并发 A")),
+            ),
+            request(
+                &app,
+                Some(&cookie),
+                Method::POST,
+                "/api/v1/chains",
+                Some(payload("并发 B")),
+            ),
+        );
+        let statuses = [first.0, second.0];
+        assert_eq!(
+            statuses
+                .iter()
+                .filter(|status| **status == StatusCode::OK)
+                .count(),
+            1,
+            "并发抢同一入口端口只能成功一条：{:?} / {:?}",
+            first,
+            second
+        );
+        let loser = if first.0 == StatusCode::OK {
+            &second
+        } else {
+            &first
+        };
+        assert_eq!(loser.0, StatusCode::CONFLICT, "unexpected: {}", loser.1);
+        assert_eq!(loser.1["code"], "chain.entry_port_taken");
+
+        // 唯一索引 / 事务检查的最终事实：同一 (server, port) 只有一行。
+        let holders: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM chain_group_members WHERE server_id = ? AND listen_port = ?",
+        )
+        .bind(&a)
+        .bind(24_352_i64)
+        .fetch_one(&state.db.pool)
+        .await
+        .unwrap();
+        assert_eq!(holders, 1);
+        let duplicates: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM (
+                SELECT server_id, listen_port FROM chain_group_members
+                 GROUP BY server_id, listen_port HAVING COUNT(*) > 1
+             )",
+        )
+        .fetch_one(&state.db.pool)
+        .await
+        .unwrap();
+        assert_eq!(duplicates, 0);
+    }
+
+    /// 模板不存在 / 已停用 / 与手建入参同时出现：明确的状态码与错误码，
+    /// 且不会留下半条链。
+    #[tokio::test]
+    async fn admin_template_creation_rejects_missing_disabled_and_conflicting_input() {
+        let Fixture {
+            app,
+            state,
+            admin_cookie,
+            a,
+            b,
+            ..
+        } = setup().await;
+        let cookie = admin_cookie;
+        let template =
+            create_template(&state, "港日", "native", "tls", "tcp", &[&[&a], &[&b]]).await;
+
+        // 不存在 → 404（按 id 定位的资源，与模板 CRUD 一致）。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(json!({
+                "template_id": "00000000-0000-0000-0000-000000000000",
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "unexpected: {body}");
+        assert_eq!(body["code"], "chain_template.not_found");
+
+        // 停用 → 400（模板存在但不能用；用 404 会让管理员误以为被删了）。
+        repo::chain_templates::update(
+            &state.db.pool,
+            &template,
+            repo::chain_templates::UpdateChainTemplate {
+                enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(json!({
+                "template_id": &template,
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "chain_template.disabled");
+
+        // groups + template_id 互斥。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(json!({
+                "name": "冲突",
+                "template_id": &template,
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+                "groups": [{"members": [{"server_id": &a, "listen_port": 20_010}]}],
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "chain.template_conflict");
+        assert_eq!(body["params"]["conflicts"], json!(["groups"]));
+
+        // engine 与 template_id 同时给：以模板为准会导致静默忽略，直接拒绝。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(json!({
+                "name": "冲突",
+                "template_id": &template,
+                "engine": "nftables",
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "chain.template_conflict");
+        assert_eq!(body["params"]["conflicts"], json!(["engine"]));
+
+        // entry_port 只能和 template_id 一起出现（手建请写成员端口）。
+        let (status, body) = request(
+            &app,
+            Some(&cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(json!({
+                "name": "手建",
+                "entry_port": 20_011,
+                "target_host": "1.1.1.1",
+                "target_port": 443,
+                "groups": [{"members": [{"server_id": &a, "listen_port": 20_012}]}],
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
+        assert_eq!(body["code"], "chain.template_conflict");
+        assert_eq!(body["params"]["conflicts"], json!(["entry_port"]));
+
+        assert!(
+            repo::chains::list(&state.db.pool).await.unwrap().is_empty(),
+            "所有失败请求都不能留下链"
+        );
+    }
 }

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CHAIN_NAME_MAX_CHARS,
   canCreateChain,
+  chainActualEntryPort,
   chainDisableConfirm,
   chainEditError,
   chainEditSuccess,
@@ -10,7 +12,17 @@ import {
   chainPath,
   chainQuotaState,
   editableChainFields,
+  entryAddressPort,
+  entryPortInputError,
+  entryPortNotAdopted,
+  entryPortNotAdoptedText,
+  entryPortPayload,
+  entryPortRangeLabel,
+  hopCountLabel,
   planChainEdit,
+  templateChainName,
+  templateEntryPortRange,
+  templateHopCount,
   templatePath,
   templateServerCount,
 } from "./myChains.ts";
@@ -221,4 +233,169 @@ test("success toasts carry the new target or the new entry address", () => {
     enabled: false,
   });
   assert.match(chainEditSuccess(disablePlan, liveChain), /端口已释放/);
+});
+
+// ---------------------------------------------------------------------------
+// 入口端口（可空 = 自动分配）/ 跳数 / 模板端口提示
+// ---------------------------------------------------------------------------
+test("entry port is optional and only accepts 1-65535 integers", () => {
+  setCurrentLocale("zh-CN");
+  assert.equal(entryPortInputError(""), null, "留空 = 自动分配");
+  assert.equal(entryPortInputError("   "), null);
+  assert.equal(entryPortInputError("24321"), null);
+  assert.equal(entryPortInputError("1"), null);
+  assert.equal(entryPortInputError("65535"), null);
+  for (const invalid of ["0", "65536", "-1", "1.5", "12a", "1 2"]) {
+    assert.equal(
+      entryPortInputError(invalid),
+      "入口端口需为 1–65535 的整数，或留空",
+      invalid,
+    );
+  }
+  assert.equal(entryPortPayload(""), undefined);
+  assert.equal(entryPortPayload("024321"), 24321);
+  assert.equal(entryPortPayload("70000"), undefined);
+
+  setCurrentLocale("en");
+  assert.equal(
+    entryPortInputError("70000"),
+    "Entry port must be an integer between 1 and 65535, or empty",
+  );
+});
+
+test("hop count label handles English singular and plural", () => {
+  setCurrentLocale("zh-CN");
+  assert.equal(hopCountLabel(1), "1 跳");
+  assert.equal(hopCountLabel(3), "3 跳");
+  setCurrentLocale("en");
+  assert.equal(hopCountLabel(1), "1 hop");
+  assert.equal(hopCountLabel(3), "3 hops");
+});
+
+test("template entry port range only trusts the explicit template fields", () => {
+  assert.equal(templateEntryPortRange(null), null);
+  assert.equal(templateEntryPortRange({}), null);
+  assert.deepEqual(
+    templateEntryPortRange({ entry_port_start: 20000, entry_port_end: 29999 }),
+    { start: 20000, end: 29999 },
+  );
+  // 后端还没返回模板级字段时，不拿入口服务器的端口策略伪造范围。
+  assert.equal(
+    templateEntryPortRange({
+      groups: [
+        { seq: 0, servers: [{ port_start: 30000, port_end: 30010 }] },
+      ],
+    }),
+    null,
+  );
+  // 单边 / 越界 / 脏数据同样不显示。
+  assert.equal(templateEntryPortRange({ entry_port_start: 25000 }), null);
+  assert.equal(templateEntryPortRange({ entry_port_end: 25000 }), null);
+  assert.equal(
+    templateEntryPortRange({ entry_port_start: 30000, entry_port_end: 20000 }),
+    null,
+  );
+  assert.equal(
+    templateEntryPortRange({ entry_port_start: 70000, entry_port_end: 80000 }),
+    null,
+  );
+
+  setCurrentLocale("zh-CN");
+  assert.equal(
+    entryPortRangeLabel({ start: 20000, end: 29999 }),
+    "允许端口 20000-29999",
+  );
+  assert.equal(entryPortRangeLabel({ start: 24321, end: 24321 }), "允许端口 24321");
+  assert.equal(entryPortRangeLabel(null), null);
+});
+
+test("template hop count follows the group list", () => {
+  assert.equal(templateHopCount(null), 0);
+  assert.equal(templateHopCount({ groups: [{ seq: 0 }, { seq: 1 }] }), 2);
+});
+
+test("generated chain names keep the target suffix within the 64-char limit", () => {
+  assert.equal(CHAIN_NAME_MAX_CHARS, 64, "必须与后端 NAME_MAX_CHARS 一致");
+  assert.equal(
+    templateChainName("香港 → 日本", "10.0.0.8", 443),
+    "香港 → 日本 · 10.0.0.8:443",
+  );
+  const long = templateChainName("很".repeat(200), "example.com", 8443);
+  assert.equal([...long].length, 64, `${[...long].length} chars`);
+  assert.ok(long.endsWith(" · example.com:8443"));
+  assert.ok(long.startsWith("很"));
+  assert.equal(templateChainName("   ", "h", 1), "chain · h:1");
+  // 目标本身超过上限时仍不超过 64，且端口留在末尾可辨认。
+  const longTarget = templateChainName("模板", "a".repeat(120) + ".example", 8443);
+  assert.equal([...longTarget].length, 64);
+  assert.ok(longTarget.endsWith(":8443"));
+});
+
+test("entry address port parsing handles IPv4 and bracketed IPv6", () => {
+  assert.equal(entryAddressPort("203.0.113.7:24321"), 24321);
+  assert.equal(entryAddressPort("[2001:db8::1]:24000"), 24000);
+  assert.equal(entryAddressPort("  example.com:443  "), 443);
+  for (const invalid of [
+    null,
+    "",
+    "example.com",
+    "host:",
+    "host:0",
+    "host:70000",
+    "host:abc",
+    "2001:db8::1",
+    "[2001:db8::1]",
+  ]) {
+    assert.equal(entryAddressPort(invalid), null, String(invalid));
+  }
+});
+
+test("actual entry port prefers entry_address and falls back to the entry group", () => {
+  assert.equal(
+    chainActualEntryPort({
+      entry_address: "203.0.113.7:24000",
+      groups: [{ seq: 0, members: [{ listen_port: 25000 }] }],
+    }),
+    24000,
+  );
+  // 管理端链视图没有 entry_address：从入口组（按 seq 排序）第一台推导。
+  assert.equal(
+    chainActualEntryPort({
+      groups: [
+        { seq: 1, members: [{ listen_port: 26000 }] },
+        { seq: 0, members: [{ listen_port: 24321 }] },
+      ],
+    }),
+    24321,
+  );
+  // 用户链视图的 groups[].servers。
+  assert.equal(
+    chainActualEntryPort({ groups: [{ seq: 0, servers: [{ listen_port: 27000 }] }] }),
+    27000,
+  );
+  assert.equal(chainActualEntryPort(null), null);
+  assert.equal(chainActualEntryPort({ entry_address: null, groups: [] }), null);
+});
+
+test("an ignored entry_port is detected and worded as a warning", () => {
+  assert.deepEqual(entryPortNotAdopted(24321, 24000), {
+    requested: 24321,
+    actual: 24000,
+  });
+  assert.equal(entryPortNotAdopted(24321, 24321), null);
+  assert.equal(entryPortNotAdopted(undefined, 24000), null, "留空 = 自动分配");
+  assert.equal(entryPortNotAdopted(null, 24000), null);
+  assert.equal(entryPortNotAdopted(24321, null), null, "读不到实际端口就不猜");
+
+  setCurrentLocale("zh-CN");
+  assert.equal(
+    entryPortNotAdoptedText({ requested: 24321, actual: 24000 }),
+    "端口 24321 未被采用，实际为 24000（保存后可在链路详情看到）",
+  );
+  setCurrentLocale("en");
+  assert.equal(
+    entryPortNotAdoptedText({ requested: 24321, actual: 24000 }),
+    "Port 24321 was not used; the actual port is 24000 (you can see it in the chain details after saving)",
+  );
+  setCurrentLocale("en");
 });

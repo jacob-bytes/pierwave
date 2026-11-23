@@ -320,6 +320,47 @@ the allowed set and exhausts with a hard 400. Occupied = `forwards.listen_port`,
 The pool bounds live in `crates/domain/src/chains.rs`; allocation is "lowest free"
 per server, and exhaustion is a hard 400 — never a silent range switch or random pick.
 
+## 显式入口端口与从模板建链（中英对照）/ Explicit entry ports and template-created chains
+
+`POST /api/v1/me/chains` 与 `POST /api/v1/chains`（`template_id` 形态）都接受可选
+`entry_port`：它只覆盖**第一跳**的对外监听端口，中间跳仍自动分配；多成员入口组里
+只作用于被选中的入口成员。端口必须是 1–65535，且受入口服务器的端口策略约束
+（策略为空 = 不限制）；与同服务器上已有链 / 节点 / 转发冲突时 **409**，链不会创建
+（写事务回滚，不会悄悄换端口）。`POST /api/v1/chains` 的 `groups` / `hops` 与
+`template_id` 互斥；模板不存在是 **404** `chain_template.not_found`，已停用是
+**400** `chain_template.disabled`。除 `chain.entry_port_taken`（409）外其余都是 400。
+
+Both endpoints accept an optional `entry_port` that overrides the first hop's public
+listen port only; middle hops are still allocated automatically, and in a multi-member
+entry group it applies to the selected entry member only. It must be `1..=65535` and
+inside the entry server's port policy (an empty policy means unrestricted); a conflict
+with an existing chain, node or forward on the same server is **409** and the chain is
+not created (the write transaction rolls back — the port is never silently changed).
+`groups`/`hops` and `template_id` are mutually exclusive on `POST /api/v1/chains`; a
+missing template is **404** `chain_template.not_found` and a disabled one is **400**
+`chain_template.disabled`. Everything except `chain.entry_port_taken` (409) is a 400.
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `chain.entry_port_taken` | 入口端口 {port} 已被服务器「{server_name}」上的链 / 节点 / 转发占用，请换一个端口 | Entry port {port} is already used by a chain / node / forward on server "{server_name}"; choose another port | holder, holder_id, holder_name, port, seq, server_id, server_name |
+| `chain.entry_port_out_of_range` | 入口端口必须在 {min}-{max} 之间（当前 {port}） | The entry port must be between {min} and {max} (got {port}) | max, min, port |
+| `chain.template_conflict` | 从模板创建时不能再提供 {conflicts}：groups / hops 与 template_id 互斥，engine / protocol / transport / tunnel_security 直接沿用模板 | Creating from a template cannot also pass {conflicts}: groups/hops are mutually exclusive with template_id, and engine/protocol/transport/tunnel_security come from the template | conflicts, template_id |
+| `chain_template.disabled` | 链模板「{template_name}」已停用，不能用于建链 | Chain template "{template_name}" is disabled and cannot be used to create a chain | template_id, template_name |
+
+`chain.entry_port_taken` 的 `holder` 取值 `chain` / `node` / `forward`，配合
+`holder_id` / `holder_name` 说明是谁占用；`chain_template.disabled` 用于管理端
+`POST /api/v1/chains`（用户端停用模板仍是 403 `me.chain_template_not_allowed`，
+避免暴露别人的模板是否存在）。没有新增 `chain.template_unsupported`：`template_id`
+是新字段，旧客户端不会发；旧主控忽略它后返回既有的 `chain.hop_count_invalid`，
+前端已能据此降级。
+
+The `holder` value is `chain` / `node` / `forward` (with `holder_id` / `holder_name`
+saying which one). `chain_template.disabled` is for the admin
+`POST /api/v1/chains`; on the user endpoint a disabled template stays 403
+`me.chain_template_not_allowed`. No `chain.template_unsupported` code was added:
+`template_id` is a new field that old clients never send, and an old master that
+ignores it already returns `chain.hop_count_invalid`, which the UI uses to fall back.
+
 ## Shadowsocks 节点校验（中英对照）
 
 新增的三个 SS 错误码需要同时提供英文文案。`web/src/i18n/{zh-CN,en}.ts` 的 `errors.*`
@@ -1082,14 +1123,16 @@ is ignored. Port-pool exhaustion reuses the chain allocation codes:
 ## 链模板与用户自助建链（迁移 0046）/ Chain templates and user self-service chains
 
 管理员先定义链模板（跳 / 引擎 / 加密方式），用户在套餐授权范围内选模板并填写
-`target_host` / `target_port`；入口端口由服务器端口策略自动分配，用户不能指定。
+`target_host` / `target_port`；入口端口默认由服务器端口策略自动分配，也可以在创建时
+指定 `entry_port`（只覆盖第一跳，见下节）。
 模板组里的服务器必须真实存在；模板**不携带证书**，因此 `transport = tls` 在模板层
 直接拒绝（realm 的跳间 TLS 每跳都需要证书，模板无法展开成合法链）。
 
 Administrators define chain templates (hops / engine / security) first; users pick an
-authorized template and supply `target_host` / `target_port`. The entry port is
-allocated by the server port policy and cannot be supplied by the client. Every server
-referenced by the template must exist. Templates carry **no certificates**, so
+authorized template and supply `target_host` / `target_port` (optionally `entry_port`).
+By default the entry port is allocated by the server port policy; when supplied it
+must be `1..=65535` and inside that policy, and it only overrides the first hop. Every
+server referenced by the template must exist. Templates carry **no certificates**, so
 `transport = tls` is rejected at the template level (realm hop TLS needs a certificate
 on every hop and could never be expanded from a template).
 
@@ -1126,8 +1169,11 @@ Port exhaustion reuses `chain.port_pool_exhausted` / `chain.port_allowed_exhaust
 - 用户：`GET /api/v1/me/chain-templates`（启用中 + 生效套餐白名单，带服务器名与
   `quota{limit,used}`）、`GET/POST /api/v1/me/chains`、`DELETE /api/v1/me/chains/{id}`。
 - 套餐创建/更新接受 `chain_limit` 与 `chain_template_ids: string[]`（全量替换）。
-- `POST /api/v1/me/chains` body `{ template_id, target_host, target_port }`，
+- `POST /api/v1/me/chains` body `{ template_id, entry_port?, target_host, target_port }`，
   返回 `{ chain, quota }`；越权访问别人的链一律 **404 `me.chain_not_found`**。
+- 管理员 `POST /api/v1/chains` 另接受 `{ template_id, entry_port?, name?,
+  target_host, target_port }`（与 `groups` / `hops` 互斥），模板的引擎 / 协议 /
+  安全模式直接沿用。
 - 审计 `user_chain.create` / `user_chain.delete`，detail 只含链路事实，不含用户名/邮箱。
 - 管理员 `GET /api/v1/chains` 仍返回全部链，并新增 `source`（`admin` / `user`）、
   `owner_user_id`、`template_id`，用户链不会被误认为是管理员手建的链。

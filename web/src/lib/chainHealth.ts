@@ -123,10 +123,40 @@ export interface ChainEndpoint {
 /** 端点某一行的缺失原因：整段缺失 / 只有地址缺失 / 只有服务器名缺失。 */
 export type ChainEndpointIssue = "missing" | "no_address" | "no_name" | null;
 
+/**
+ * 新契约的链状态：`chains[].status`。
+ *
+ * 旧主控没有该字段 → `status` 为 null，列表回退到「变慢 / 样本」判定；
+ * 新主控的 `kind` 是节点健康（服务器是否在线 / 异常）的权威结论，优先于
+ * 旧的 `blocked_reason` / `degraded` 布尔位。
+ */
+export type ChainStatusKind = "blocked" | "degraded" | "ok";
+
+export type ChainStatusCause =
+  | "node_offline"
+  | "node_unhealthy"
+  | "no_samples"
+  | "slow";
+
+export interface ChainStatusNode {
+  /** 路径序号；契约缺失时为 0。 */
+  seq: number;
+  name: string;
+}
+
+export interface ChainStatus {
+  kind: ChainStatusKind;
+  cause: ChainStatusCause | null;
+  /** 导致该状态的节点；`cause` 不是节点级原因时为 null。 */
+  node: ChainStatusNode | null;
+}
+
 export interface ChainHealthChain {
   id: string;
   name: string;
   hops: number;
+  /** 新契约的链状态；旧主控缺失时为 null。 */
+  status: ChainStatus | null;
   /** 链路入口；旧主控没有该字段时为 null。 */
   entry: ChainEndpoint | null;
   /** 链路出口；旧主控没有该字段时为 null。 */
@@ -568,6 +598,34 @@ function sumSegmentP50(segments: readonly ChainHealthSegment[]): number | null {
   return found ? sum : null;
 }
 
+function readStatusNode(raw: unknown): ChainStatusNode | null {
+  if (!isRecord(raw)) return null;
+  const name = trimmedString(raw.name);
+  if (name === null) return null;
+  return { seq: finiteInt(raw.seq) ?? 0, name };
+}
+
+/**
+ * `chains[].status` 归一化。
+ *
+ * `kind` 不是三个已知值之一（旧主控 / 半成品字段）时整体按缺失处理，
+ * 让调用方回退到旧的 `slow` / 样本判定，而不是猜一个状态画出来。
+ */
+function readChainStatus(raw: unknown): ChainStatus | null {
+  if (!isRecord(raw)) return null;
+  const kind = trimmedString(raw.kind)?.toLowerCase();
+  if (kind !== "blocked" && kind !== "degraded" && kind !== "ok") return null;
+  const rawCause = trimmedString(raw.cause)?.toLowerCase();
+  const cause: ChainStatusCause | null =
+    rawCause === "node_offline" ||
+    rawCause === "node_unhealthy" ||
+    rawCause === "no_samples" ||
+    rawCause === "slow"
+      ? rawCause
+      : null;
+  return { kind, cause, node: readStatusNode(raw.node) };
+}
+
 function readChain(
   raw: unknown,
   window?: SeriesWindowSpec,
@@ -601,6 +659,7 @@ function readChain(
       1,
       32,
     ),
+    status: readChainStatus(raw.status),
     entry: readEndpoint(raw.entry),
     exit: readEndpoint(raw.exit),
     nodes: readNodes(raw.nodes),
@@ -884,12 +943,85 @@ export function buildChainTrendData(
   return { rows, series };
 }
 
-/** 列表页一行链路的状态；正常 / 变慢 / 样本不足。 */
-export type ChainLatencyStatus = "normal" | "slow" | "insufficient";
+/**
+ * 列表页一行链路的时延状态；正常 / 变慢 / 样本不足，以及新契约的
+ * 阻断 / 降级。`slow` 是「时延变慢」，仍单独用徽章表达，不是状态文案。
+ */
+export type ChainLatencyStatus =
+  | "normal"
+  | "slow"
+  | "insufficient"
+  | "blocked"
+  | "degraded";
 
+/**
+ * 优先用契约的 `status.kind`：节点离线 → 阻断、节点异常 → 降级；
+ * 缺失时回退到旧的「变慢 / 样本」判定。`kind = ok` 只说明节点健康，
+ * 没有样本时仍然是「样本不足」，不能画成正常。
+ */
 export function chainStatus(chain: ChainHealthChain): ChainLatencyStatus {
+  if (chain.status?.kind === "blocked") return "blocked";
+  if (chain.status?.kind === "degraded") return "degraded";
   if (!chain.hasSamples || chain.deltaMs === null) return "insufficient";
   return chain.slow ? "slow" : "normal";
+}
+
+/** 状态列展示值：在时延状态上叠加链配置的停用位；`ok` 同时覆盖「变慢」。 */
+export type ChainHealthState =
+  | "ok"
+  | "degraded"
+  | "blocked"
+  | "disabled"
+  | "insufficient";
+
+/** 只取链列表里的三个字段，避免把整个 `Chain` 拖进纯逻辑模块。 */
+export interface ChainHealthConfig {
+  enabled: boolean;
+  degraded: boolean;
+  blocked_reason?: string | null;
+}
+
+/**
+ * 列表 / 详情共用的链状态。
+ *
+ * 顺序：停用 → 新契约 status → 旧配置的 blocked / degraded（仅在 status
+ * 缺失时）→ 样本不足 → 正常。新契约存在时以它为权威，不再用旧的
+ * `blocked_reason` / `degraded` 覆盖节点健康结论。
+ */
+export function chainHealthState(
+  chain: ChainHealthChain,
+  config: ChainHealthConfig | null,
+): ChainHealthState {
+  if (config !== null && !config.enabled) return "disabled";
+  const status = chainStatus(chain);
+  if (status === "blocked" || status === "degraded") return status;
+  if (chain.status === null && config !== null) {
+    if ((config.blocked_reason ?? "").trim() !== "") return "blocked";
+    if (config.degraded) return "degraded";
+  }
+  return status === "insufficient" ? "insufficient" : "ok";
+}
+
+/** 节点级原因：详情徽章与行内小字都从这里取，保证两个页面说法一致。 */
+export type ChainNodeIssueKind = "offline" | "unhealthy";
+
+export interface ChainNodeIssue {
+  kind: ChainNodeIssueKind;
+  node: ChainStatusNode;
+}
+
+export function chainNodeIssue(
+  chain: Pick<ChainHealthChain, "status">,
+): ChainNodeIssue | null {
+  const status = chain.status;
+  if (status === null || status.node === null) return null;
+  if (status.cause === "node_offline") {
+    return { kind: "offline", node: status.node };
+  }
+  if (status.cause === "node_unhealthy") {
+    return { kind: "unhealthy", node: status.node };
+  }
+  return null;
 }
 
 /** 数值变化的语义色：只有后端标记 slow（≥8ms）才 warning。 */

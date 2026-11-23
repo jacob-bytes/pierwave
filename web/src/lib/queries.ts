@@ -32,7 +32,7 @@ import {
   type CreateApiTokenInput,
   type CreateApiTokenResponse,
   type CreateCertificateInput,
-  type CreateChainInput,
+  type CreateChainPayload,
   type CreateChainTemplateInput,
   type CreateForwardInput,
   type CreateMeChainInput,
@@ -2017,7 +2017,7 @@ function applyChainInput(chain: Chain, input: UpdateChainInput): Chain {
 export function useCreateChain() {
   const queryClient = useQueryClient();
 
-  return useMutation<Chain, Error, CreateChainInput>({
+  return useMutation<Chain, Error, CreateChainPayload>({
     mutationFn: async (input) => (await api.chains.create(input)).chain,
     onSuccess: () => invalidateChainViews(queryClient),
   });
