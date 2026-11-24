@@ -35,8 +35,8 @@ const NUMERIC_FILES = {
   ],
   "pages/Packages.tsx": [
     // 额度 / 周期 / 倍率三个单元格
-    "text-right font-mono text-xs tabular-nums",
-    "text-right text-xs tabular-nums",
+    "text-right font-mono text-[13px] tabular-nums",
+    "text-right text-[13px] tabular-nums",
   ],
   "pages/Users.tsx": ["px-4 text-right", 'align="end"'],
   "pages/Subscriptions.tsx": ["px-4 text-right", 'align="end"'],
@@ -113,8 +113,8 @@ test("overview server leaderboard rows collapse to two lines below md", () => {
   );
 });
 
-/** W3：移动端卡片提供行内复制，桌面表格保留 title。 */
-test("server mobile cards expose copy buttons for name and address", () => {
+/** W3：移动端卡片的 IP 放进字段区并可复制；桌面表格保留 title。 */
+test("server mobile cards expose a copyable address field", () => {
   const mobile = read("../components/common/MobileDataCard.tsx");
   assert.ok(mobile.includes("titleCopyValue"), "MobileDataCard takes a title copy value");
   assert.ok(mobile.includes("subtitleCopyValue"), "MobileDataCard takes a subtitle copy value");
@@ -122,8 +122,24 @@ test("server mobile cards expose copy buttons for name and address", () => {
   assert.ok(mobile.includes("iconOnly"), "copy buttons stay inline on narrow cards");
 
   const servers = read("../pages/Servers.tsx");
-  assert.ok(servers.includes("titleCopyValue={server.name}"));
-  assert.ok(servers.includes("subtitleCopyValue={server.address}"));
+  assert.ok(
+    servers.includes('label: t("common.address"),'),
+    "mobile address is a field row",
+  );
+  assert.ok(
+    servers.includes("value={server.address}"),
+    "mobile address field copies the full address",
+  );
+  assert.ok(!servers.includes("subtitleCopyValue={server.address}"));
+  assert.ok(
+    servers.includes("subtitle={groupName || undefined}"),
+    "mobile second line is the group name",
+  );
+  assert.ok(servers.includes("subtitleMono={false}"), "group name is plain text");
+  assert.ok(
+    servers.includes("StatusBadge server={server} compact"),
+    "mobile header keeps the online status compact",
+  );
   assert.ok(servers.includes('title={server.name}'), "desktop name keeps a title");
   assert.ok(servers.includes('title={server.address}'), "desktop address keeps a title");
 });
@@ -135,8 +151,12 @@ test("apply status lives in identity and detail, not the online status cell", ()
   assert.ok(servers.includes("ApplyStatusSection server={server}"), "detail popover uses the section");
   assert.ok(servers.includes('label: t("servers.apply.title")'), "mobile cards put apply in a field");
   assert.ok(
-    servers.includes('label: t("common.status"),\n              value: <StatusBadge server={server} />,'),
-    "status field stays exclusively online/offline",
+    servers.includes("<StatusBadge server={server} />"),
+    "status stays exclusively online/offline in the mobile header",
+  );
+  assert.ok(
+    !servers.includes('label: t("common.status"),\n              value: <StatusBadge server={server} />,'),
+    "status is not duplicated as a mobile field",
   );
   const component = read("../components/servers/ApplyStatus.tsx");
   assert.ok(component.includes("apply_error"), "failed keeps apply_error");

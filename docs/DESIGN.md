@@ -30,7 +30,72 @@
 - 卡片用 1px border，**不用 box-shadow**；只有 Dialog / Dropdown 允许一层轻阴影（`shadow-lg/40`）。
 - 间距走 4 的倍数，页面内边距 24px，卡片内 16–20px。
 
-## 三、动效（「灵动」的唯一来源）
+## 三、字号 / Typography
+
+字号负责第一层主次，但**不是唯一手段**；到 11px 就停止继续缩小，改用颜色与字重
+区分层级。全站字阶固定为四档：
+
+| 用途 | 字号 | 说明 |
+|---|---|---|
+| 图表刻度 / 极密数字标签 | **11px** | 全站下限：任何 UI 文字不得低于 11px |
+| 常用辅助信息 | **12px** | 行内元信息、时间戳、说明、图例正文；语义类 `.type-micro` |
+| 需要被读的次要数据 | **13px** | 列表第二行、表格非主列数据、详情字段值、空态/错误态正文 |
+| 正文 / 表单 label | **14px** | `text-sm`，保持现状，不因密度缩小 |
+
+规则：
+
+1. **最小 11px**：任何 UI 文字不得低于 11px（recharts 刻度可以正好 11px）；
+   不接受 8 / 9 / 10px，也不设「极小图例」白名单。
+2. **常用辅助信息 12px**：行内元信息、时间戳、说明、图例正文统一 12px；
+   密集场景用 `.type-micro`（12px + 0.01em 字距），不要再临时写更小字号。
+3. **正文 14px**：正文与表单 label 保持 14px，不缩小。
+4. **13px 用于「需要被读的次要数据」**：列表第二行（服务器 IP / 端口 / 分组、
+   链路路由与最近样本、转发目标、用户/套餐次要字段）、表格非主列数据
+   （心跳时间、版本、延迟等）、详情字段值（最近样本、探测次数、窗口丢包）
+   以及空态/错误态正文。图表刻度、图例、Badge 内部文字和表头仍保持 11–12px。
+5. **层级靠颜色与字重，不靠继续缩小字号**：低对比用 `text-muted-foreground`，
+   强调用 `font-medium` / `text-foreground`，而不是 10px 灰字。
+
+源码级约束：`web/src/components/typeFloor.test.mjs` 扫描 `web/src`，禁止
+`text-[8px]` / `text-[9px]` / `text-[10px]` 与 `fontSize: 9|10`；新增字号必须
+落在这四档内。放大字号后若列宽 / 折叠标签 / Badge / tooltip 被截断，优先调
+列宽与最小宽度，不把字缩回去。
+
+**English**: Type carries the first layer of hierarchy but is **not the only
+tool**; stop shrinking at 11px and switch to colour and weight. The scale has
+four steps:
+
+| Purpose | Size | Notes |
+|---|---|---|
+| Chart ticks / very dense numeric labels | **11px** | global floor: no UI text below 11px |
+| Common supporting text | **12px** | inline metadata, timestamps, descriptions, legend body; `.type-micro` |
+| Secondary data meant to be read | **13px** | list second line, non-primary table data, detail field values, empty/error body |
+| Body / form labels | **14px** | `text-sm`, unchanged, never reduced for density |
+
+Rules:
+
+1. **11px minimum**: no UI text below 11px (recharts ticks may be exactly
+   11px). 8 / 9 / 10px are not allowed, and there is no "tiny legend" exemption.
+2. **12px for common supporting text**: inline metadata, timestamps,
+   descriptions and legend body are 12px; use `.type-micro` (12px + 0.01em
+   tracking) in dense spots instead of inventing a smaller size.
+3. **14px body**: body copy and form labels stay at 14px.
+4. **13px for secondary data meant to be read**: list second lines (server
+   IP / port / group, chain route and latest sample, forward target, user and
+   package secondary fields), non-primary table data (heartbeat time, version,
+   latency), detail field values (latest sample, probe count, window loss) and
+   empty/error body copy. Chart ticks, legends, text inside badges and table
+   headers stay at 11–12px.
+5. **Hierarchy through colour and weight, not smaller type**: use
+   `text-muted-foreground` for lower contrast and `font-medium` /
+   `text-foreground` for emphasis, never 10px grey text.
+
+The source-level guard `web/src/components/typeFloor.test.mjs` scans `web/src`
+and rejects `text-[8px]` / `text-[9px]` / `text-[10px]` and `fontSize: 9|10`.
+When the larger type truncates a column, fold label, badge or tooltip, widen the
+column or its minimum width — do not shrink the text back.
+
+## 四、动效（「灵动」的唯一来源）
 
 时长 150–220ms，`ease-out`，位移不超过 4px。只用在这几处：
 
@@ -74,14 +139,14 @@ second color and no animation.
   reduce opacity under `prefers-contrast: more`; add no animation, and any
   future motion must respect `prefers-reduced-motion`.
 
-## 四、组件策略
+## 五、组件策略
 
 - 一律用 `@/components/ui/*`（shadcn 生成），业务里**不手写** Button/Dialog/Toast。
 - 组合优先：`Card` + `Table` + `Badge` 拼页面，不新造布局组件。
 - 反馈三件套：操作成功用 toast（sonner），失败用 toast + 表单内联错误，破坏性操作用 `AlertDialog` 二次确认。
 - 每个列表页必须实现四态：loading（骨架）/ empty（一句话 + 主操作）/ error（可重试）/ 正常。
 
-## 五、文案
+## 六、文案
 
 - 简体中文，动词开头，不用感叹号，不用「亲」。
 - 错误信息说「为什么 + 怎么办」：`Token 已失效，请在服务器页重新生成` 而不是 `错误 401`。

@@ -68,7 +68,7 @@ export function EmptyState({
           <p
             className={cn(
               "leading-relaxed text-muted-foreground",
-              size === "sm" ? "text-xs" : "text-sm",
+              size === "sm" ? "text-[13px]" : "text-sm",
             )}
           >
             {description}

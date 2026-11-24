@@ -299,16 +299,16 @@ export default function PackagesPage() {
         <TableCell sticky="left" className="px-4">
           {renderPackageName(item)}
         </TableCell>
-        <TableCell className="px-4 text-right font-mono text-xs tabular-nums text-muted-foreground">
+        <TableCell className="px-4 text-right font-mono text-[13px] tabular-nums text-muted-foreground">
           {formatBytes(item.quota_bytes)}
         </TableCell>
-        <TableCell className="px-4 text-right text-xs tabular-nums text-muted-foreground">
+        <TableCell className="px-4 text-right text-[13px] tabular-nums text-muted-foreground">
           {renderPackagePeriod(item)}
         </TableCell>
         <TableCell className="px-4">
           {renderPackageDirection(item)}
         </TableCell>
-        <TableCell className="px-4 text-right font-mono text-xs tabular-nums text-muted-foreground">
+        <TableCell className="px-4 text-right font-mono text-[13px] tabular-nums text-muted-foreground">
           ×{item.node_ratio}
         </TableCell>
         <TableCell className="px-4">

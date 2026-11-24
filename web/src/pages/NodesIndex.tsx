@@ -107,7 +107,7 @@ function ServerCard({ server }: { server: Server }) {
             <Badge
               key={protocol}
               variant="outline"
-              className="h-5 border-border/70 px-1.5 font-mono text-[10px] font-normal tracking-wide text-muted-foreground"
+              className="h-5 border-border/70 px-1.5 font-mono text-[11px] font-normal tracking-wide text-muted-foreground"
             >
               {protocol}
             </Badge>

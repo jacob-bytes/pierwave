@@ -204,7 +204,7 @@ export function AvailabilityCurve({
         <div
           data-slot="availability-yaxis"
           aria-hidden="true"
-          className="relative w-7 shrink-0 text-[10px] text-muted-foreground"
+          className="relative w-7 shrink-0 text-[11px] text-muted-foreground"
         >
           {Y_TICKS.map((value) => (
             <span
@@ -398,7 +398,7 @@ export function AvailabilityCurve({
                   aria-live="polite"
                   aria-atomic="true"
                   data-slot="availability-tooltip"
-                  className="pointer-events-none absolute bottom-full z-10 mb-2 rounded-md border border-border bg-popover px-2 py-1.5 text-[10px] leading-tight whitespace-nowrap text-popover-foreground shadow-lg/40"
+                  className="pointer-events-none absolute bottom-full z-10 mb-2 rounded-md border border-border bg-popover px-2 py-1.5 text-[11px] leading-tight whitespace-nowrap text-popover-foreground shadow-lg/40"
                   style={{
                     left: `${activeCenter}%`,
                     transform: tooltipTransform,
@@ -433,7 +433,7 @@ export function AvailabilityCurve({
 
           <div
             aria-hidden="true"
-            className="mt-1.5 flex justify-between text-[10px] leading-none text-muted-foreground"
+            className="mt-1.5 flex justify-between text-[11px] leading-none text-muted-foreground"
           >
             {TICK_INDICES.map((tick, index) => (
               <span

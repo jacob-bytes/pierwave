@@ -24,6 +24,7 @@ import {
   WorkflowIcon,
 } from "lucide-react";
 import {
+  CopyButton,
   EmptyState,
   ListError,
   ListErrorRow,
@@ -216,7 +217,14 @@ function xrayTitle(server: Server, state: XrayState): string {
     : t("servers.xray.stoppedTitle");
 }
 
-function StatusBadge({ server }: { server: Server }) {
+function StatusBadge({
+  server,
+  compact = false,
+}: {
+  server: Server;
+  /** 移动卡片头部空间有限：只保留文字与底色，去掉图标。 */
+  compact?: boolean;
+}) {
   const online = server.status === "online";
   const serviceDown = isServiceDown(server);
 
@@ -225,7 +233,8 @@ function StatusBadge({ server }: { server: Server }) {
       variant="outline"
       title={serviceDown ? t("servers.serviceAbnormalTitle") : undefined}
       className={cn(
-        "gap-1.5 border-transparent font-normal",
+        "border-transparent font-normal",
+        compact ? "gap-0 px-1.5" : "gap-1.5",
         serviceDown
           ? "bg-destructive/10 text-destructive"
           : online
@@ -233,7 +242,7 @@ function StatusBadge({ server }: { server: Server }) {
             : "bg-muted text-muted-foreground",
       )}
     >
-      {serviceDown ? (
+      {compact ? null : serviceDown ? (
         <TriangleAlertIcon className="size-3" aria-hidden="true" />
       ) : (
         <span
@@ -343,7 +352,7 @@ function MemoryCell({ server }: { server: Server }) {
   if (percent === null) {
     return (
       <span
-        className="text-xs text-muted-foreground"
+        className="text-[13px] text-muted-foreground"
         title={t("servers.memoryNotReported")}
       >
         —
@@ -363,7 +372,7 @@ function MemoryCell({ server }: { server: Server }) {
         })}
         className="h-1.5 w-20"
       />
-      <span className="font-mono text-xs tabular-nums text-muted-foreground">
+      <span className="font-mono text-[13px] tabular-nums text-muted-foreground">
         {Math.round(percent)}%
       </span>
     </div>
@@ -379,12 +388,12 @@ function MemoryCell({ server }: { server: Server }) {
 function RatePartsView({ bps }: { bps: number | null | undefined }) {
   const parts = rateParts(bps);
   if (!parts) {
-    return <span className="text-xs text-muted-foreground">—</span>;
+    return <span className="text-[13px] text-muted-foreground">—</span>;
   }
   return (
     <span className="inline-flex items-baseline gap-0.5 font-mono tabular-nums">
-      <span className="text-xs text-foreground">{parts.value}</span>
-      <span className="type-micro text-muted-foreground">{parts.unit}</span>
+      <span className="text-[13px] text-foreground">{parts.value}</span>
+      <span className="text-[13px] text-muted-foreground">{parts.unit}</span>
     </span>
   );
 }
@@ -407,7 +416,7 @@ function RateCell({ server }: { server: Server }) {
   if (!hasData) {
     return (
       <span
-        className="inline-flex items-center text-xs text-muted-foreground"
+        className="inline-flex items-center text-[13px] text-muted-foreground"
         title={title}
       >
         —
@@ -421,13 +430,13 @@ function RateCell({ server }: { server: Server }) {
       title={t("servers.detail.rateHint")}
     >
       <span className="inline-flex items-center gap-1 whitespace-nowrap">
-        <span className="text-xs text-muted-foreground" aria-hidden="true">
+        <span className="text-[13px] text-muted-foreground" aria-hidden="true">
           ↓
         </span>
         <RatePartsView bps={rx} />
       </span>
       <span className="inline-flex items-center gap-1 whitespace-nowrap">
-        <span className="text-xs text-muted-foreground" aria-hidden="true">
+        <span className="text-[13px] text-muted-foreground" aria-hidden="true">
           ↑
         </span>
         <RatePartsView bps={tx} />
@@ -446,7 +455,7 @@ function VersionCell({ server }: { server: Server }) {
       <div className="flex flex-wrap items-center gap-1.5">
         <span
           className={cn(
-            "font-mono text-xs",
+            "font-mono text-[13px]",
             !version && "text-muted-foreground",
           )}
           title={
@@ -475,7 +484,7 @@ function VersionCell({ server }: { server: Server }) {
         1440 下英文列头更宽，第二行完整写「Config v0 · 42 ms latency」会把
         整张表撑出横向滚动；<2xl 只保留延迟，配置版本在更宽屏或详情里看。
       */}
-      <span className="font-mono type-micro text-muted-foreground">
+      <span className="font-mono text-[13px] text-muted-foreground">
         <span className="hidden 2xl:inline">
           {t("servers.configVersion", { version: server.config_version })}
         </span>
@@ -563,12 +572,11 @@ function ServerDetailsPopover({ server }: { server: Server }) {
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
-          size="sm"
+          size="icon-sm"
           className="xl:hidden"
           aria-label={t("servers.detailsAria", { name: server.name })}
         >
           <InfoIcon className="icon-md" />
-          {t("common.details")}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -578,7 +586,7 @@ function ServerDetailsPopover({ server }: { server: Server }) {
       >
         <PopoverHeader>
           <PopoverTitle className="text-sm">{server.name}</PopoverTitle>
-          <PopoverDescription className="truncate font-mono text-xs">
+          <PopoverDescription className="truncate font-mono text-[13px]">
             {server.address}
           </PopoverDescription>
           {nicLabel(server.nic_name) ? (
@@ -587,7 +595,7 @@ function ServerDetailsPopover({ server }: { server: Server }) {
             </div>
           ) : null}
         </PopoverHeader>
-        <dl className="flex flex-col gap-2 text-xs">
+        <dl className="flex flex-col gap-2 text-[13px]">
           <DetailRow
             label={t("servers.agentVersion")}
             value={agentVersionLabel(server)}
@@ -1039,7 +1047,7 @@ export default function ServersPage() {
           {groupName ? (
             <div
               title={groupName}
-              className="max-w-40 truncate type-micro text-muted-foreground"
+              className="max-w-40 truncate text-[13px] text-muted-foreground"
             >
               {groupName}
             </div>
@@ -1083,7 +1091,7 @@ export default function ServersPage() {
   function renderServerLoad(server: Server) {
     return (
       <span
-        className="font-mono text-xs tabular-nums"
+        className="font-mono text-[13px] tabular-nums"
         title={t("servers.loadTitle")}
       >
         {server.load1 === null ? (
@@ -1243,12 +1251,12 @@ export default function ServersPage() {
           {renderServerName(server)}
         </TableCell>
         <TableCell
-          className="hidden px-2 font-mono text-xs text-muted-foreground lg:table-cell"
+          className="hidden px-2 font-mono text-[13px] text-muted-foreground lg:table-cell"
           title={server.address}
         >
           {server.address}
         </TableCell>
-        <TableCell className="hidden px-2 text-xs text-muted-foreground 2xl:table-cell">
+        <TableCell className="hidden px-2 text-[13px] text-muted-foreground 2xl:table-cell">
           {renderServerMode(server)}
         </TableCell>
         <TableCell className="px-2">
@@ -1257,7 +1265,7 @@ export default function ServersPage() {
         <TableCell className="px-2">
           <XrayStatus server={server} />
         </TableCell>
-        <TableCell className="px-2 text-xs text-muted-foreground">
+        <TableCell className="px-2 text-[13px] text-muted-foreground">
           <HeartbeatText healthAt={server.health_at} />
         </TableCell>
         <TableCell className="hidden px-2 xl:table-cell">
@@ -1298,33 +1306,36 @@ export default function ServersPage() {
       <div key={server.id} id={`server-row-${server.id}`}>
         <MobileDataCard
           title={server.name}
-          titleCopyValue={server.name}
-          subtitle={server.address}
-          subtitleCopyValue={server.address}
+          subtitle={groupName || undefined}
+          subtitleMono={false}
           className={cn(
             serviceDown && "ring-destructive/30",
             highlighted &&
               "ring-1 ring-primary/40 transition-[box-shadow] duration-500",
             highlighted && highlightFading && "ring-primary/0",
           )}
-          badge={renderServerCheckbox(server, selected)}
+          badge={
+            <span className="flex items-center gap-1.5">
+              {renderServerCheckbox(server, selected)}
+              <StatusBadge server={server} compact />
+            </span>
+          }
           actions={renderServerActions(server)}
           fields={[
-            ...(groupName
-              ? [
-                  {
-                    label: t("servers.group"),
-                    value: (
-                      <span
-                        title={groupName}
-                        className="inline-block max-w-32 truncate align-bottom text-muted-foreground"
-                      >
-                        {groupName}
-                      </span>
-                    ),
-                  },
-                ]
-              : []),
+            {
+              label: t("common.address"),
+              value: (
+                <span className="inline-flex min-w-0 items-center justify-end gap-1">
+                  <span className="break-all font-mono">{server.address}</span>
+                  <CopyButton
+                    value={server.address}
+                    label={server.address}
+                    iconOnly
+                    className="shrink-0"
+                  />
+                </span>
+              ),
+            },
             ...(portLabel
               ? [
                   {
@@ -1363,10 +1374,6 @@ export default function ServersPage() {
             {
               label: t("servers.mode.column"),
               value: renderServerMode(server),
-            },
-            {
-              label: t("common.status"),
-              value: <StatusBadge server={server} />,
             },
             {
               label: "Xray",

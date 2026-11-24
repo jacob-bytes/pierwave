@@ -1,0 +1,421 @@
+{
+  "generatedAt": "2026-11-24T18:25:01.922Z",
+  "widthChecks": [
+    {
+      "width": 1440,
+      "page": "servers",
+      "headerCells": [
+        "",
+        "名称",
+        "地址",
+        "模式",
+        "状态",
+        "Xray",
+        "最后心跳",
+        "Agent 版本",
+        "负载（1 分钟）",
+        "内存",
+        "当前速率",
+        "操作"
+      ],
+      "address": [
+        {
+          "text": "203.0.113.11",
+          "font": 13
+        }
+      ],
+      "heartbeat": [
+        {
+          "text": "2026-11-26 00:22:34",
+          "font": 13
+        }
+      ],
+      "version": [
+        {
+          "text": "v0.9.3",
+          "font": 13
+        },
+        {
+          "text": "延迟 28 ms",
+          "font": 13
+        }
+      ],
+      "load": [
+        {
+          "text": "0.42",
+          "font": 13
+        }
+      ],
+      "memory": [
+        {
+          "text": "42%",
+          "font": 13
+        }
+      ],
+      "rate": [
+        {
+          "text": "↓",
+          "font": 13
+        },
+        {
+          "text": "1.8",
+          "font": 13
+        },
+        {
+          "text": "MB/s",
+          "font": 13
+        },
+        {
+          "text": "↑",
+          "font": 13
+        },
+        {
+          "text": "512",
+          "font": 13
+        },
+        {
+          "text": "KB/s",
+          "font": 13
+        }
+      ],
+      "name": [
+        {
+          "text": "香港-01",
+          "font": 14
+        },
+        {
+          "text": "香港",
+          "font": 13
+        },
+        {
+          "text": "端口 10000-60000",
+          "font": 12
+        },
+        {
+          "text": "网卡 eth0",
+          "font": 12
+        }
+      ],
+      "mobileFields": [],
+      "mobileSubtitleFont": null,
+      "mobileTitleClip": null,
+      "mobileSubtitleClip": null,
+      "mobileAddressClip": null,
+      "mobileAddressCopy": false,
+      "tableScroll": 1229,
+      "tableClient": 1152,
+      "tableOverflow": 77,
+      "docOverflow": 0
+    },
+    {
+      "width": 1440,
+      "page": "chain-list",
+      "sampleFont": 13,
+      "routeFont": 13,
+      "addressFont": 12,
+      "headerFont": 11,
+      "sampleClip": false,
+      "routeClip": false,
+      "addressClip": false,
+      "rowHeight": 88,
+      "rowOverflow": 0,
+      "docOverflow": 0
+    },
+    {
+      "width": 1440,
+      "page": "forwards",
+      "portFont": 13,
+      "targetFont": 13,
+      "enabledFont": 13,
+      "tableOverflow": 0,
+      "docOverflow": 0
+    },
+    {
+      "width": 1440,
+      "page": "users",
+      "shortCodeFont": 13,
+      "createdFont": 13,
+      "usageFont": 13,
+      "mobileFields": [],
+      "docOverflow": 0
+    },
+    {
+      "width": 1440,
+      "page": "packages",
+      "quotaFont": 13,
+      "periodFont": 13,
+      "ratioFont": 13,
+      "mobileFields": [],
+      "docOverflow": 0
+    },
+    {
+      "width": 1440,
+      "page": "chain-detail",
+      "overallValues": [
+        {
+          "text": "81 ms",
+          "font": 13
+        },
+        {
+          "text": "3.1%",
+          "font": 13
+        }
+      ],
+      "diagnosisFont": 13,
+      "segmentRowFont": 13,
+      "segmentLabelFont": 13,
+      "segmentRows": [
+        {
+          "width": 896,
+          "scrollWidth": 896,
+          "font": 13
+        },
+        {
+          "width": 896,
+          "scrollWidth": 896,
+          "font": 13
+        },
+        {
+          "width": 896,
+          "scrollWidth": 896,
+          "font": 13
+        },
+        {
+          "width": 896,
+          "scrollWidth": 896,
+          "font": 13
+        }
+      ],
+      "tickFont": 11,
+      "legendFont": 11,
+      "topologyFont": 11,
+      "docOverflow": 0
+    },
+    {
+      "width": 1440,
+      "page": "logs-empty",
+      "emptyFont": 13,
+      "text": "用户流量用尽、套餐过期或被停用时，主控会在这里记录断流与恢复。",
+      "docOverflow": 0
+    },
+    {
+      "width": 1440,
+      "page": "servers-error",
+      "errorFont": 13,
+      "text": "测试错误：无法连接主控",
+      "docOverflow": 0
+    },
+    {
+      "width": 390,
+      "page": "servers",
+      "headerCells": [],
+      "address": [],
+      "heartbeat": [],
+      "version": [],
+      "load": [],
+      "memory": [],
+      "rate": [],
+      "name": [],
+      "mobileFields": [
+        {
+          "text": "203.0.113.11",
+          "font": 13
+        },
+        {
+          "text": "端口 10000-60000",
+          "font": 13
+        },
+        {
+          "text": "10.0.0.11",
+          "font": 13
+        },
+        {
+          "text": "eth0",
+          "font": 13
+        },
+        {
+          "text": "外置",
+          "font": 13
+        },
+        {
+          "text": "运行中",
+          "font": 13
+        },
+        {
+          "text": "2026-11-26 00:22:34",
+          "font": 13
+        },
+        {
+          "text": "v0.9.3配置 v19 · 延迟 28 ms",
+          "font": 13
+        },
+        {
+          "text": "0.42",
+          "font": 13
+        },
+        {
+          "text": "42%",
+          "font": 13
+        },
+        {
+          "text": "↓1.8MB/s↑512KB/s",
+          "font": 13
+        }
+      ],
+      "mobileSubtitleFont": 13,
+      "mobileTitleClip": false,
+      "mobileSubtitleClip": false,
+      "mobileAddressClip": false,
+      "mobileAddressCopy": true,
+      "tableScroll": null,
+      "tableClient": null,
+      "tableOverflow": null,
+      "docOverflow": 0
+    },
+    {
+      "width": 390,
+      "page": "chain-list",
+      "sampleFont": 13,
+      "routeFont": 13,
+      "addressFont": 12,
+      "headerFont": 11,
+      "sampleClip": false,
+      "routeClip": false,
+      "addressClip": false,
+      "rowHeight": 196,
+      "rowOverflow": 0,
+      "docOverflow": 0
+    },
+    {
+      "width": 390,
+      "page": "forwards",
+      "portFont": 13,
+      "targetFont": 13,
+      "enabledFont": 13,
+      "tableOverflow": 418,
+      "docOverflow": 0
+    },
+    {
+      "width": 390,
+      "page": "users",
+      "shortCodeFont": 13,
+      "createdFont": null,
+      "usageFont": null,
+      "mobileFields": [
+        {
+          "text": "普通用户",
+          "font": 13
+        },
+        {
+          "text": "正常",
+          "font": 13
+        },
+        {
+          "text": "1 张",
+          "font": 13
+        },
+        {
+          "text": "23 GB / 100 GB",
+          "font": 13
+        },
+        {
+          "text": "10 天前",
+          "font": 13
+        }
+      ],
+      "docOverflow": 0
+    },
+    {
+      "width": 390,
+      "page": "packages",
+      "quotaFont": null,
+      "periodFont": null,
+      "ratioFont": null,
+      "mobileFields": [
+        {
+          "text": "10 GB",
+          "font": 13
+        },
+        {
+          "text": "7 天",
+          "font": 13
+        },
+        {
+          "text": "下行",
+          "font": 13
+        },
+        {
+          "text": "×1",
+          "font": 13
+        },
+        {
+          "text": "全部（18）",
+          "font": 13
+        },
+        {
+          "text": "1 人",
+          "font": 13
+        }
+      ],
+      "docOverflow": 0
+    },
+    {
+      "width": 390,
+      "page": "chain-detail",
+      "overallValues": [
+        {
+          "text": "81 ms",
+          "font": 13
+        },
+        {
+          "text": "3.1%",
+          "font": 13
+        }
+      ],
+      "diagnosisFont": 13,
+      "segmentRowFont": 13,
+      "segmentLabelFont": 13,
+      "segmentRows": [
+        {
+          "width": 342,
+          "scrollWidth": 342,
+          "font": 13
+        },
+        {
+          "width": 342,
+          "scrollWidth": 342,
+          "font": 13
+        },
+        {
+          "width": 342,
+          "scrollWidth": 342,
+          "font": 13
+        },
+        {
+          "width": 342,
+          "scrollWidth": 342,
+          "font": 13
+        }
+      ],
+      "tickFont": 11,
+      "legendFont": 11,
+      "topologyFont": 11,
+      "docOverflow": 0
+    },
+    {
+      "width": 390,
+      "page": "logs-empty",
+      "emptyFont": 13,
+      "text": "用户流量用尽、套餐过期或被停用时，主控会在这里记录断流与恢复。",
+      "docOverflow": 0
+    },
+    {
+      "width": 390,
+      "page": "servers-error",
+      "errorFont": 13,
+      "text": "测试错误：无法连接主控",
+      "docOverflow": 0
+    }
+  ],
+  "errors": []
+}

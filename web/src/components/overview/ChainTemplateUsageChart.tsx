@@ -93,7 +93,7 @@ function UsageTooltip({
       aria-live="polite"
       className="min-w-52 max-w-72 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40"
     >
-      <p className="mb-2 font-mono text-[10px] text-muted-foreground">
+      <p className="mb-2 font-mono text-[11px] text-muted-foreground">
         {formatChainTime(row.ts, bucket)}
       </p>
       <div className="flex flex-col gap-1">
@@ -124,11 +124,11 @@ function UsageTooltip({
         data-template-usage-tooltip-users
         className="mt-2 border-t border-border/60 pt-2"
       >
-        <p className="text-[10px] text-muted-foreground">
+        <p className="text-[11px] text-muted-foreground">
           {t("overview.chainTemplateInsight.usageCurrentUsers")}
         </p>
         {users.users.length === 0 ? (
-          <p className="mt-1 text-[10px] text-muted-foreground">
+          <p className="mt-1 text-[11px] text-muted-foreground">
             {t("overview.chainTemplateInsight.usageNoUsers")}
           </p>
         ) : (
@@ -142,8 +142,8 @@ function UsageTooltip({
                   n: user.chains,
                 })}
               >
-                <span className="truncate text-[10px]">{user.name}</span>
-                <span className="shrink-0 font-mono text-[9px] text-muted-foreground tabular-nums">
+                <span className="truncate text-[11px]">{user.name}</span>
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
                   {user.chains}
                 </span>
               </li>
@@ -233,7 +233,7 @@ export function ChainTemplateUsageChart({
           <ChainLatencyRangeTabs range={range} onRangeChange={onRangeChange} />
         </div>
         {hasData ? (
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <LineKey
               index={0}
               label={t("overview.chainTemplateInsight.usageChains")}
@@ -267,7 +267,7 @@ export function ChainTemplateUsageChart({
                   interval={xTicks ? 0 : "preserveStartEnd"}
                   tickFormatter={(value: number) => axisTick(value, range)}
                   minTickGap={xTicks ? 8 : 32}
-                  tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                  tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -275,7 +275,7 @@ export function ChainTemplateUsageChart({
                   domain={[0, "auto"]}
                   allowDecimals={false}
                   width={36}
-                  tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                  tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                 />
@@ -327,7 +327,7 @@ export function ChainTemplateUsageChart({
         {detail.seriesBasis === "existing_chains" ? (
           <p
             data-template-usage-basis
-            className="mt-1.5 text-[10px] leading-normal text-muted-foreground"
+            className="mt-1.5 text-[11px] leading-normal text-muted-foreground"
           >
             {t("overview.chainTemplateInsight.usageExistingChainsBasis")}
           </p>

@@ -317,7 +317,7 @@ function UptimeLegend({ approximate }: { approximate: boolean }) {
   return (
     <div
       data-heatmap-legend
-      className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] text-muted-foreground"
+      className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-muted-foreground"
     >
       <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-muted-foreground">
@@ -610,7 +610,7 @@ function HeatmapCard({
               data-heatmap-row-scroll
             >
               <div className="flex min-w-0 gap-1 sm:gap-2">
-                <div className="w-[60px] shrink-0 sm:w-[120px]">
+                <div className="w-[80px] shrink-0 sm:w-[120px]">
                   <div
                     style={{
                       height: "calc(var(--heatmap-cell-size) * 2 + 4px)",
@@ -638,7 +638,7 @@ function HeatmapCard({
                           )}
                         />
                         <span
-                          className="truncate text-[9px] leading-none sm:text-[11px]"
+                          className="truncate text-[11px] leading-none"
                           title={server.name}
                         >
                           {server.name}
@@ -660,13 +660,13 @@ function HeatmapCard({
                       style={{ gap: "var(--heatmap-gap)" }}
                     >
                       <div
-                        className="grid text-[9px] text-muted-foreground sm:text-[10px]"
+                        className="grid text-[11px] text-muted-foreground"
                         style={gridStyle}
                       >
                         {dayGroups.map((group, index) => (
                           <span
                             key={`${group.day}-${index}`}
-                            className="truncate text-center"
+                            className="whitespace-nowrap text-center"
                             style={{ gridColumn: `span ${group.columns}` }}
                           >
                             {group.day}
@@ -674,7 +674,7 @@ function HeatmapCard({
                         ))}
                       </div>
                       <div
-                        className="grid text-[8px] text-muted-foreground sm:text-[9px]"
+                        className="grid text-[11px] text-muted-foreground"
                         style={gridStyle}
                       >
                         {hourGroups.map((group, index) => (
@@ -772,7 +772,7 @@ function HeatmapCard({
               </div>
             </div>
 
-            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
               <span>
                 {first === undefined || last === undefined
                   ? t("overview.serverHealth.heatmapNoSamples")
@@ -788,7 +788,7 @@ function HeatmapCard({
               </span>
             </div>
             {snapshot.hasSamples ? null : (
-              <p className="mt-1 text-[10px] text-muted-foreground">
+              <p className="mt-1 text-[11px] text-muted-foreground">
                 {t("overview.serverHealth.heatmapNoSamples")}
               </p>
             )}
@@ -797,7 +797,7 @@ function HeatmapCard({
               data-heatmap-tooltip
               role="tooltip"
               hidden
-              className="pointer-events-none absolute top-0 left-0 z-20 rounded-md border border-border bg-popover px-2 py-1 text-[10px] leading-normal text-popover-foreground shadow-md/30"
+              className="pointer-events-none absolute top-0 left-0 z-20 rounded-md border border-border bg-popover px-2 py-1 text-[11px] leading-normal text-popover-foreground shadow-md/30"
             />
           </div>
         )}
@@ -898,7 +898,7 @@ function CurrentResourcesCard({
           defaultVisibleIds={defaultVisibleIds}
         />
       </CardContent>
-      <p className="px-4 pt-1 pb-4 text-[10px] leading-normal text-muted-foreground">
+      <p className="px-4 pt-1 pb-4 text-[11px] leading-normal text-muted-foreground">
         {t("overview.serverHealth.resourceFootnote")}
       </p>
     </Card>
@@ -929,7 +929,7 @@ function AnomalyRow({
           <span className="truncate text-sm" title={window.serverName}>
             {window.serverName}
           </span>
-          <span className="shrink-0 font-mono text-[10px] text-muted-foreground tabular-nums">
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground tabular-nums">
             {t("overview.serverHealth.anomalyDuration", { n: hours })}
           </span>
         </div>

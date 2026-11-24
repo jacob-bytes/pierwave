@@ -1,0 +1,1806 @@
+{
+  "phase": "after13",
+  "base": "http://localhost:5173",
+  "generatedAt": "2026-11-24T18:13:26.037Z",
+  "pages": [
+    {
+      "name": "overview-server",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/?view=server",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 105,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 30,
+      "twelveCount": 30,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-server-heatmap",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/?view=server&mode=heatmap",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 160,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 85,
+      "twelveCount": 30,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-traffic",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/?view=traffic",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 145,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 7,
+      "twelveCount": 78,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-cost",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/?view=cost",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 179,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 46,
+      "twelveCount": 36,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        18,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-chain",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/?view=chain",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 190,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 32,
+      "twelveCount": 55,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        15,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "servers",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/servers",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 201,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 65,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "forwards",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 60,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 24,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "status",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/status",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 352,
+      "minFont": {
+        "selector": "p.mt-0.5.truncate.text-xs.leading-tight",
+        "text": "现在有一把钥匙，就在你面前",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 323,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "settings",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/settings",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 90,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 38,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "overview-server",
+      "theme": "dark",
+      "width": 390,
+      "url": "/?view=server",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 85,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 30,
+      "twelveCount": 24,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-server-heatmap",
+      "theme": "dark",
+      "width": 390,
+      "url": "/?view=server&mode=heatmap",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 140,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 85,
+      "twelveCount": 24,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-traffic",
+      "theme": "dark",
+      "width": 390,
+      "url": "/?view=traffic",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 130,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 7,
+      "twelveCount": 77,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-cost",
+      "theme": "dark",
+      "width": 390,
+      "url": "/?view=cost",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 159,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 46,
+      "twelveCount": 30,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        18,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-chain",
+      "theme": "dark",
+      "width": 390,
+      "url": "/?view=chain",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 208,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 70,
+      "twelveCount": 49,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        15,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "servers",
+      "theme": "dark",
+      "width": 390,
+      "url": "/servers",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 318,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 38,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "forwards",
+      "theme": "dark",
+      "width": 390,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 41,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 19,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "status",
+      "theme": "dark",
+      "width": 390,
+      "url": "/status",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 352,
+      "minFont": {
+        "selector": "p.mt-0.5.truncate.text-xs.leading-tight",
+        "text": "现在有一把钥匙，就在你面前",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 323,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        14,
+        16,
+        18,
+        19
+      ]
+    },
+    {
+      "name": "settings",
+      "theme": "dark",
+      "width": 390,
+      "url": "/settings",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 70,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 32,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "overview-server",
+      "theme": "light",
+      "width": 1440,
+      "url": "/?view=server",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 105,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 30,
+      "twelveCount": 30,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-server-heatmap",
+      "theme": "light",
+      "width": 1440,
+      "url": "/?view=server&mode=heatmap",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 160,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 85,
+      "twelveCount": 30,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-traffic",
+      "theme": "light",
+      "width": 1440,
+      "url": "/?view=traffic",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 145,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 7,
+      "twelveCount": 78,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-cost",
+      "theme": "light",
+      "width": 1440,
+      "url": "/?view=cost",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 179,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 46,
+      "twelveCount": 36,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        18,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-chain",
+      "theme": "light",
+      "width": 1440,
+      "url": "/?view=chain",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 190,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 32,
+      "twelveCount": 55,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        15,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "servers",
+      "theme": "light",
+      "width": 1440,
+      "url": "/servers",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 201,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 65,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "forwards",
+      "theme": "light",
+      "width": 1440,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 60,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 24,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "status",
+      "theme": "light",
+      "width": 1440,
+      "url": "/status",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 352,
+      "minFont": {
+        "selector": "p.mt-0.5.truncate.text-xs.leading-tight",
+        "text": "现在有一把钥匙，就在你面前",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 323,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "settings",
+      "theme": "light",
+      "width": 1440,
+      "url": "/settings",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 90,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 38,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "overview-server",
+      "theme": "light",
+      "width": 390,
+      "url": "/?view=server",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 85,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 30,
+      "twelveCount": 24,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-server-heatmap",
+      "theme": "light",
+      "width": 390,
+      "url": "/?view=server&mode=heatmap",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 140,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 85,
+      "twelveCount": 24,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-traffic",
+      "theme": "light",
+      "width": 390,
+      "url": "/?view=traffic",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 130,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 7,
+      "twelveCount": 77,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-cost",
+      "theme": "light",
+      "width": 390,
+      "url": "/?view=cost",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 159,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 46,
+      "twelveCount": 30,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        18,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-chain",
+      "theme": "light",
+      "width": 390,
+      "url": "/?view=chain",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 208,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 70,
+      "twelveCount": 49,
+      "typeMicro": 12,
+      "fonts": [
+        11,
+        12,
+        12.8,
+        13,
+        14,
+        15,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "servers",
+      "theme": "light",
+      "width": 390,
+      "url": "/servers",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 318,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 38,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "forwards",
+      "theme": "light",
+      "width": 390,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 41,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 19,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "status",
+      "theme": "light",
+      "width": 390,
+      "url": "/status",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 352,
+      "minFont": {
+        "selector": "p.mt-0.5.truncate.text-xs.leading-tight",
+        "text": "现在有一把钥匙，就在你面前",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 323,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        14,
+        16,
+        18,
+        19
+      ]
+    },
+    {
+      "name": "settings",
+      "theme": "light",
+      "width": 390,
+      "url": "/settings",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 70,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 12
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 32,
+      "typeMicro": 12,
+      "fonts": [
+        12,
+        12.8,
+        14,
+        16,
+        20
+      ]
+    }
+  ],
+  "topology": [
+    {
+      "theme": "dark",
+      "width": 1440,
+      "variant": "real",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "16 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 33,
+          "scrollWidth": 33,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 33,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "22 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 33,
+          "scrollWidth": 33,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 33,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "2.9%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "35 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 33,
+          "scrollWidth": 33,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 33,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 7,
+          "scrollWidth": 7,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 7,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "8 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 7,
+          "scrollWidth": 7,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 7,
+          "parentWidth": 88
+        }
+      ],
+      "edgeCount": 4,
+      "scrollOverflow": 16
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "variant": "long-labels",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "13 ms ≈",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 46,
+          "scrollWidth": 46,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 46,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 118
+        },
+        {
+          "kind": "latency",
+          "text": "128.5 ms ≈",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 66,
+          "scrollWidth": 66,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 66,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "0.8%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 118
+        },
+        {
+          "kind": "latency",
+          "text": "不可测量",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 44,
+          "scrollWidth": 44,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 44,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "（引擎不支持探测）",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 99,
+          "scrollWidth": 99,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 99,
+          "parentWidth": 118
+        }
+      ],
+      "edgeCount": 3,
+      "scrollOverflow": 0
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "variant": "real",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "16 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 33,
+          "scrollWidth": 33,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 33,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "22 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 33,
+          "scrollWidth": 33,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 33,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "2.9%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "35 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 33,
+          "scrollWidth": 33,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 33,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 7,
+          "scrollWidth": 7,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 7,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "8 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 7,
+          "scrollWidth": 7,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 7,
+          "parentWidth": 88
+        }
+      ],
+      "edgeCount": 4,
+      "scrollOverflow": 570
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "variant": "long-labels",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "13 ms ≈",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 46,
+          "scrollWidth": 46,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 46,
+          "parentWidth": 91
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 91
+        },
+        {
+          "kind": "latency",
+          "text": "128.5 ms ≈",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 66,
+          "scrollWidth": 66,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 66,
+          "parentWidth": 91
+        },
+        {
+          "kind": "loss",
+          "text": "0.8%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 91
+        },
+        {
+          "kind": "latency",
+          "text": "不可测量",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 44,
+          "scrollWidth": 44,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 44,
+          "parentWidth": 112
+        },
+        {
+          "kind": "loss",
+          "text": "（引擎不支持探测）",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 99,
+          "scrollWidth": 99,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 99,
+          "parentWidth": 112
+        }
+      ],
+      "edgeCount": 3,
+      "scrollOverflow": 400
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "variant": "real",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "15.5 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 46,
+          "scrollWidth": 46,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 46,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "21.5 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 46,
+          "scrollWidth": 46,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 46,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "2.9%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "35 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 33,
+          "scrollWidth": 33,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 33,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 7,
+          "scrollWidth": 7,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 7,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "8 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 7,
+          "scrollWidth": 7,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 7,
+          "parentWidth": 88
+        }
+      ],
+      "edgeCount": 4,
+      "scrollOverflow": 16
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "variant": "long-labels",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "13.5 ms ≈",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 60,
+          "scrollWidth": 60,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 60,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 118
+        },
+        {
+          "kind": "latency",
+          "text": "128.5 ms ≈",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 66,
+          "scrollWidth": 66,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 66,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "0.8%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 118
+        },
+        {
+          "kind": "latency",
+          "text": "不可测量",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 44,
+          "scrollWidth": 44,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 44,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "（引擎不支持探测）",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 99,
+          "scrollWidth": 99,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 99,
+          "parentWidth": 118
+        }
+      ],
+      "edgeCount": 3,
+      "scrollOverflow": 0
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "variant": "real",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "15.5 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 46,
+          "scrollWidth": 46,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 46,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "21.5 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 46,
+          "scrollWidth": 46,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 46,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "2.9%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "35 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 33,
+          "scrollWidth": 33,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 33,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 7,
+          "scrollWidth": 7,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 7,
+          "parentWidth": 88
+        },
+        {
+          "kind": "latency",
+          "text": "8 ms",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 88
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 7,
+          "scrollWidth": 7,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 7,
+          "parentWidth": 88
+        }
+      ],
+      "edgeCount": 4,
+      "scrollOverflow": 570
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "variant": "long-labels",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "13.5 ms ≈",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 60,
+          "scrollWidth": 60,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 60,
+          "parentWidth": 91
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 91
+        },
+        {
+          "kind": "latency",
+          "text": "128.5 ms ≈",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 66,
+          "scrollWidth": 66,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 66,
+          "parentWidth": 91
+        },
+        {
+          "kind": "loss",
+          "text": "0.8%",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 27,
+          "scrollWidth": 27,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 27,
+          "parentWidth": 91
+        },
+        {
+          "kind": "latency",
+          "text": "不可测量",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 44,
+          "scrollWidth": 44,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 44,
+          "parentWidth": 112
+        },
+        {
+          "kind": "loss",
+          "text": "（引擎不支持探测）",
+          "fontSize": 11,
+          "truncate": "ellipsis",
+          "clientWidth": 99,
+          "scrollWidth": 99,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 99,
+          "parentWidth": 112
+        }
+      ],
+      "edgeCount": 3,
+      "scrollOverflow": 400
+    }
+  ],
+  "errors": []
+}

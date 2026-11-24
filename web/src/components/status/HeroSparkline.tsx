@@ -128,7 +128,7 @@ function HeroTooltip({
       aria-live="polite"
       aria-atomic="true"
       data-slot="hero-sparkline-tooltip"
-      className="pointer-events-none absolute bottom-full z-10 mb-1.5 min-w-24 rounded-md border border-border bg-popover px-2 py-1.5 text-[10px] leading-tight whitespace-nowrap text-popover-foreground shadow-lg/40"
+      className="pointer-events-none absolute bottom-full z-10 mb-1.5 min-w-24 rounded-md border border-border bg-popover px-2 py-1.5 text-[11px] leading-tight whitespace-nowrap text-popover-foreground shadow-lg/40"
       style={{
         left: `${(index / Math.max(1, count - 1)) * 100}%`,
         transform:

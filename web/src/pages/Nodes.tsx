@@ -645,7 +645,7 @@ export default function NodesPage() {
                         {node.region ? (
                           <Badge
                             variant="outline"
-                            className="h-4 border-border/70 px-1 font-mono text-[10px] font-normal"
+                            className="h-4 border-border/70 px-1 font-mono text-[11px] font-normal"
                           >
                             {node.region}
                           </Badge>
@@ -653,7 +653,7 @@ export default function NodesPage() {
                         {(node.tags ?? []).map((tag) => (
                           <span
                             key={tag}
-                            className="rounded-full bg-muted px-1.5 text-[10px]"
+                            className="rounded-full bg-muted px-1.5 text-[11px]"
                           >
                             {tag}
                           </span>

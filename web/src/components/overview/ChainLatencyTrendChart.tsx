@@ -101,7 +101,7 @@ function ChainTrendLegend({
               if (hasTrend) onToggle(chain.id);
             }}
             className={cn(
-              "inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] transition-opacity duration-150",
+              "inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] transition-opacity duration-150",
               hasTrend
                 ? hiddenHere
                   ? "opacity-35 hover:opacity-60"
@@ -182,7 +182,7 @@ function ChainTrendTooltip({
       aria-live="polite"
       className="min-w-52 max-w-64 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40"
     >
-      <p className="mb-2 font-mono text-[10px] text-muted-foreground">
+      <p className="mb-2 font-mono text-[11px] text-muted-foreground">
         {formatChainTime(Number(label), bucket)}
       </p>
       <div className="flex flex-col gap-1">
@@ -218,7 +218,7 @@ function ChainTrendTooltip({
                   {highest ? (
                     <span
                       className={cn(
-                        "font-sans text-[9px]",
+                        "font-sans text-[11px]",
                         row.chain.slow ? "text-warning" : "text-primary",
                       )}
                     >
@@ -228,7 +228,7 @@ function ChainTrendTooltip({
                 </span>
                 <span
                   data-chain-tooltip-loss
-                  className="font-sans text-[9px] font-normal text-muted-foreground"
+                  className="font-sans text-[11px] font-normal text-muted-foreground"
                 >
                   {t("overview.chainLatency.lossAtTime")}{" "}
                   {formatLossPct(
@@ -269,7 +269,7 @@ function ChainTrendTable({
       data-chain-trend-table
       className="max-h-[280px] overflow-auto rounded-md border border-border"
     >
-      <table className="w-full min-w-[560px] border-collapse text-left text-[10px] tabular-nums">
+      <table className="w-full min-w-[560px] border-collapse text-left text-[11px] tabular-nums">
         <thead className="sticky top-0 bg-card">
           <tr className="border-b border-border">
             <th scope="col" className="px-2 py-1.5 font-medium text-muted-foreground">
@@ -386,7 +386,7 @@ export function ChainLatencyTrendChart({
       <div className="flex items-center justify-between gap-2 pb-1">
         <p
           data-chain-trend-hint
-          className="flex-1 truncate text-[9px] text-muted-foreground"
+          className="flex-1 truncate text-[11px] text-muted-foreground"
         >
           {t("overview.chainLatency.hoverLossHint")}
         </p>
@@ -397,7 +397,7 @@ export function ChainLatencyTrendChart({
           data-chain-table-toggle
           aria-pressed={tableView}
           onClick={() => setTableView((value) => !value)}
-          className="h-7 shrink-0 px-2 text-[10px] font-normal"
+          className="h-7 shrink-0 px-2 text-[11px] font-normal"
         >
           {t(
             tableView
@@ -440,7 +440,7 @@ export function ChainLatencyTrendChart({
                   axis?.labels.get(value) ?? axisTick(value, bucket)
                 }
                 minTickGap={bucket >= 3600 ? 40 : 30}
-                tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
               />
@@ -448,7 +448,7 @@ export function ChainLatencyTrendChart({
                 domain={[0, "auto"]}
                 width={48}
                 tickFormatter={(value: number) => `${Math.round(value)}ms`}
-                tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
               />

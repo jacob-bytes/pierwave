@@ -94,12 +94,12 @@ export function FxDetailsPopover({
                       {row.currency}
                     </span>
                     {row.currency === "CNY" ? (
-                      <span className="rounded-sm bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
+                      <span className="rounded-sm bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
                         {t("overview.cost.fxBase")}
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                  <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
                     1 {row.currency} = ¥
                     {formatFxRateDisplay(row.rate, locale)}
                   </p>
@@ -120,7 +120,7 @@ export function FxDetailsPopover({
         {details.unknownCount > 0 ? (
           <div
             data-fx-unknown
-            className="flex items-start gap-1.5 border-t border-destructive/20 bg-destructive/5 px-3 py-2 text-[10px] leading-normal text-destructive"
+            className="flex items-start gap-1.5 border-t border-destructive/20 bg-destructive/5 px-3 py-2 text-[11px] leading-normal text-destructive"
           >
             <TriangleAlertIcon
               className="mt-0.5 size-3 shrink-0"
@@ -138,7 +138,7 @@ export function FxDetailsPopover({
         {fx.provided ? null : (
           <div
             data-fx-missing-hint
-            className="border-t border-border bg-muted/30 px-3 py-2 text-[10px] leading-normal text-muted-foreground"
+            className="border-t border-border bg-muted/30 px-3 py-2 text-[11px] leading-normal text-muted-foreground"
           >
             <p>{t("overview.cost.fxNotConfigured")}</p>
             <p className="mt-0.5">{t("overview.cost.fxHowToConfigure")}</p>
@@ -147,7 +147,7 @@ export function FxDetailsPopover({
 
         <div
           data-fx-footer
-          className="border-t border-border px-3 py-2 text-[10px] text-muted-foreground"
+          className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground"
         >
           {fx.provided ? (updated ?? source) : t("overview.cost.fxMissingShort")}
         </div>

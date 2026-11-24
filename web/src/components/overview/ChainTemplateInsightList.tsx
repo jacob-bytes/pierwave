@@ -173,7 +173,7 @@ function TemplateRow({
           className="col-span-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs lg:contents"
         >
           <span className="inline-flex items-baseline gap-1 lg:col-start-2 lg:row-start-1">
-            <span className="text-[10px] text-muted-foreground lg:hidden">
+            <span className="text-[11px] text-muted-foreground lg:hidden">
               {t("overview.chainTemplateInsight.colHops")}
             </span>
             <span className="font-mono text-sm tabular-nums">{item.hops}</span>
@@ -182,7 +182,7 @@ function TemplateRow({
             data-template-row-chains
             className="inline-flex items-baseline gap-1 lg:col-start-3 lg:row-start-1"
           >
-            <span className="text-[10px] text-muted-foreground lg:hidden">
+            <span className="text-[11px] text-muted-foreground lg:hidden">
               {t("overview.chainTemplateInsight.mobileChains")}
             </span>
             <span className="font-mono text-sm tabular-nums">
@@ -193,7 +193,7 @@ function TemplateRow({
             data-template-row-users
             className="inline-flex items-baseline gap-1 lg:col-start-4 lg:row-start-1"
           >
-            <span className="text-[10px] text-muted-foreground lg:hidden">
+            <span className="text-[11px] text-muted-foreground lg:hidden">
               {t("overview.chainTemplateInsight.mobileUsers")}
             </span>
             <span className="font-mono text-sm tabular-nums">
@@ -292,7 +292,7 @@ export function ChainTemplateInsightList() {
                 data-chain-template-head
                 aria-hidden="true"
                 className={cn(
-                  "hidden items-center gap-x-3 px-3 pb-1 text-left text-[10px] text-muted-foreground lg:grid",
+                  "hidden items-center gap-x-3 px-3 pb-1 text-left text-[11px] text-muted-foreground lg:grid",
                   LIST_GRID,
                 )}
               >

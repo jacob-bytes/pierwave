@@ -19,6 +19,8 @@ export type MobileDataCardProps = {
   subtitle?: ReactNode;
   /** 副标识的完整文本：与 `titleCopyValue` 同理。 */
   subtitleCopyValue?: string;
+  /** 副标识是否用等宽字体；分组名等自然语言传 false。 */
+  subtitleMono?: boolean;
   /** 标题右侧的状态徽章等。 */
   badge?: ReactNode;
   /** 操作按钮 / `⋯` 菜单，与桌面行共用同一份回调。 */
@@ -38,6 +40,7 @@ export function MobileDataCard({
   titleCopyValue,
   subtitle,
   subtitleCopyValue,
+  subtitleMono = true,
   badge,
   actions,
   fields,
@@ -71,7 +74,10 @@ export function MobileDataCard({
           {subtitle ? (
             <div className="flex min-w-0 items-center gap-1">
               <div
-                className="min-w-0 flex-1 truncate font-mono type-micro text-muted-foreground"
+                className={cn(
+                  "min-w-0 flex-1 truncate text-[13px] text-muted-foreground",
+                  subtitleMono && "font-mono",
+                )}
                 title={subtitleCopyValue}
               >
                 {subtitle}
@@ -97,7 +103,7 @@ export function MobileDataCard({
           <div
             key={index}
             className={cn(
-              "flex items-start justify-between gap-3 text-xs",
+              "flex items-start justify-between gap-3 text-[13px]",
               field.className,
             )}
           >

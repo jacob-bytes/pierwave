@@ -54,7 +54,7 @@ function UptimeTooltip({
       data-uptime-tooltip
       className="min-w-44 max-w-64 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40"
     >
-      <p className="mb-2 font-mono text-[10px] text-muted-foreground">
+      <p className="mb-2 font-mono text-[11px] text-muted-foreground">
         {formatMonthDayHour(point.ts)}
       </p>
       <div className="flex items-center justify-between gap-6">
@@ -75,7 +75,7 @@ function UptimeTooltip({
       </div>
       {offlineText === null ? null : (
         <p
-          className="mt-1 truncate text-[10px] text-muted-foreground"
+          className="mt-1 truncate text-[11px] text-muted-foreground"
           title={point.offlineServers.join(" · ")}
         >
           {t("overview.serverHealth.trendOffline", { names: offlineText })}
@@ -158,7 +158,7 @@ export function ServerUptimeTrendChart({
                 formatMonthDayHour(value).slice(0, 5)
               }
               minTickGap={44}
-              tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+              tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
             />
@@ -167,7 +167,7 @@ export function ServerUptimeTrendChart({
               ticks={[0, 25, 50, 75, 100]}
               tickFormatter={(value: number) => `${value}%`}
               width={34}
-              tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+              tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
             />
@@ -193,7 +193,7 @@ export function ServerUptimeTrendChart({
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <span
             aria-hidden="true"

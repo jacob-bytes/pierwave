@@ -321,7 +321,7 @@ export function ServerFilter({
                         )}
                       />
                       <span className="min-w-0 truncate">{label}</span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                      <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
                         {t("overview.scope.groupCount", {
                           n: group.ids.length,
                         })}
@@ -374,7 +374,7 @@ export function ServerFilter({
                           >
                             {server.name}
                           </span>
-                          <span className="max-w-[45%] shrink-0 truncate text-[10px] text-muted-foreground">
+                          <span className="max-w-[45%] shrink-0 truncate text-[11px] text-muted-foreground">
                             {server.group_name?.trim() ||
                               t("overview.scope.ungrouped")}
                           </span>
@@ -426,7 +426,7 @@ export function ServerFilter({
               </Button>
             </div>
           </div>
-          <p className="mt-1 text-[10px] leading-normal text-muted-foreground">
+          <p className="mt-1 text-[11px] leading-normal text-muted-foreground">
             {t(
               searching
                 ? "overview.scope.scopeResults"

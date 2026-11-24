@@ -40,7 +40,7 @@ export function ListError({
       </div>
       <div>
         <p className="text-sm font-medium">{title}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{message}</p>
+        <p className="mt-1 text-[13px] text-muted-foreground">{message}</p>
       </div>
       <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
         <RefreshCwIcon className={cn("size-3.5", retrying && "animate-spin")} />

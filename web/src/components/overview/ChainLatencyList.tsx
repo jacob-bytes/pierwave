@@ -41,11 +41,15 @@ import { t, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 /**
- * 标准表格列：链路 20% / 起点·终点 32% / 路由 22% / 跳数 64 / P50 80 /
- * 丢包 88 / 状态 88 / chevron 24。三个百分比列吃掉剩余空间。
+ * 标准表格列：链路 18% / 起点·终点 31% / 路由 25% / 跳数 56 / P50 72 /
+ * 丢包 80 / 状态 80 / chevron 24。三个百分比列吃掉剩余空间。
+ *
+ * 路由升到 13px 后 22fr 会截断 4 跳链的「… → 新加坡-02」；把数值列缩到
+ * 仍能容纳表头与 15px 数值的宽度（56/72/80/80），把空间让给地址与路由，
+ * 保证 12px 地址和完整路由同时放得下。
  */
 const LIST_GRID =
-  "lg:grid-cols-[minmax(0,20fr)_minmax(0,32fr)_minmax(0,22fr)_64px_80px_88px_88px_24px]";
+  "lg:grid-cols-[minmax(0,18fr)_minmax(0,31fr)_minmax(0,25fr)_56px_72px_80px_80px_24px]";
 
 /**
  * 端点单元格的 title：地址行和服务器名行各自说明缺失原因。
@@ -369,7 +373,7 @@ function ChainListRow({
           ) : null}
           <span
             data-chain-sample
-            className="truncate text-xs leading-5 text-muted-foreground"
+            className="truncate text-[13px] leading-5 text-muted-foreground"
             title={sampleText}
           >
             {sampleText}
@@ -382,7 +386,7 @@ function ChainListRow({
           data-chain-row-address
           className="flex min-w-0 flex-col gap-0.5 lg:col-start-2 lg:row-start-1"
         >
-          <span className="text-[10px] text-muted-foreground lg:hidden">
+          <span className="text-[11px] text-muted-foreground lg:hidden">
             {t("overview.chainLatency.colEndpoint")}
           </span>
           <span
@@ -413,12 +417,12 @@ function ChainListRow({
           data-chain-row-route
           className="flex min-w-0 flex-col gap-0.5 lg:col-start-3 lg:row-start-1"
         >
-          <span className="text-[10px] text-muted-foreground lg:hidden">
+          <span className="text-[11px] text-muted-foreground lg:hidden">
             {t("overview.chainLatency.colRoute")}
           </span>
           <span
             data-chain-endpoint-name
-            className="min-w-0 truncate text-xs leading-5 text-muted-foreground"
+            className="min-w-0 truncate text-[13px] leading-5 text-muted-foreground"
             title={routeTitle}
           >
             {routeText}
@@ -434,7 +438,7 @@ function ChainListRow({
             data-chain-hops
             className="text-[15px] font-medium text-muted-foreground tabular-nums lg:col-start-4 lg:row-start-1"
           >
-            <span className="text-[10px] lg:hidden">
+            <span className="text-[11px] lg:hidden">
               {t("overview.chainLatency.colHops")}{" "}
             </span>
             {chain.hops}
@@ -444,7 +448,7 @@ function ChainListRow({
             className="inline-flex items-baseline gap-1 lg:col-start-5 lg:row-start-1"
             title={sampleText}
           >
-            <span className="text-[10px] text-muted-foreground lg:hidden">
+            <span className="text-[11px] text-muted-foreground lg:hidden">
               {t("overview.chainLatency.mobileLatency")}
             </span>
             <span className="font-mono text-[15px] leading-none font-medium tabular-nums">
@@ -456,7 +460,7 @@ function ChainListRow({
             className="inline-flex items-baseline gap-1 lg:col-start-6 lg:row-start-1"
             title={lossTitle}
           >
-            <span className="text-[10px] text-muted-foreground lg:hidden">
+            <span className="text-[11px] text-muted-foreground lg:hidden">
               {t("overview.chainLatency.mobileLoss")}
             </span>
             <ChainLossValue value={chain.lossPct} className="text-sm" />
@@ -552,7 +556,7 @@ export function ChainLatencyList({
             data-chain-list-head
             aria-hidden="true"
             className={cn(
-              "hidden items-center gap-x-3 px-3 pb-1 text-left text-[10px] text-muted-foreground lg:grid",
+              "hidden items-center gap-x-3 px-3 pb-1 text-left text-[11px] text-muted-foreground lg:grid",
               LIST_GRID,
             )}
           >

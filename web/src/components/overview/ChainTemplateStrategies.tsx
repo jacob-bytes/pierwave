@@ -56,12 +56,12 @@ export function ChainTemplateStrategies({
                 >
                   <div className="flex min-w-0 items-baseline justify-between gap-3">
                     <span
-                      className="min-w-0 truncate text-[10px] text-muted-foreground"
+                      className="min-w-0 truncate text-[11px] text-muted-foreground"
                       title={share.strategy}
                     >
                       {label}
                     </span>
-                    <span className="shrink-0 font-mono text-[10px] tabular-nums">
+                    <span className="shrink-0 font-mono text-[11px] tabular-nums">
                       {t("overview.chainTemplateInsight.strategyValue", {
                         pct: formatPercentValue(pct),
                         chains: share.chains,

@@ -1,0 +1,2608 @@
+{
+  "phase": "before",
+  "base": "http://localhost:5173",
+  "generatedAt": "2026-11-24T17:22:13.983Z",
+  "pages": [
+    {
+      "name": "overview-server",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/?view=server",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 105,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 23,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.inline-flex.items-center.gap-1.5.whitespace-nowrap",
+          "text": "异常窗口",
+          "fontSize": 10
+        },
+        {
+          "selector": "span",
+          "text": "11/18 02:00 → 11/25 01:00 · 1 小时粒度",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "新加坡-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "东京-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "东京-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "新加坡-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-03",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "美西-01",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 7,
+      "twelveCount": 23,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-traffic",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/?view=traffic",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 145,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 6,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "39%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "27%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "23%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "11%",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 1,
+      "twelveCount": 68,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-cost",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/?view=cost",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 179,
+      "minFont": {
+        "selector": "span.text-[8px].opacity-70.max-sm:hidden",
+        "text": "2027",
+        "fontSize": 8
+      },
+      "belowElevenCount": 39,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.text-[10px].text-muted-foreground",
+          "text": "CNY",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥9,023",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥6,015",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥3,008",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥0",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "11月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "12月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "1月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.text-[8px].opacity-70.max-sm:hidden",
+          "text": "2027",
+          "fontSize": 8
+        },
+        {
+          "selector": "span.truncate",
+          "text": "2月",
+          "fontSize": 9
+        }
+      ],
+      "elevenCount": 7,
+      "twelveCount": 29,
+      "typeMicro": 11.5,
+      "fonts": [
+        8,
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        18,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-chain",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/?view=chain",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 190,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 26,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港日中转链",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港新直达链",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港日多路径",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "kenji · 港日双路",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "mei · 港日双路 A",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "mei · 港日双路 B",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "kenji · 港新单跳",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 6,
+      "twelveCount": 65,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        15,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "servers",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/servers",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 201,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 109,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "forwards",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 60,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 16,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "status",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/status",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 354,
+      "minFont": {
+        "selector": "span.relative.bg-card.px-1.text-[11px]",
+        "text": "数据收集中",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 2,
+      "twelveCount": 304,
+      "typeMicro": 11.5,
+      "fonts": [
+        11,
+        11.5,
+        12,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "settings",
+      "theme": "dark",
+      "width": 1440,
+      "url": "/settings",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 90,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 31,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "overview-server",
+      "theme": "dark",
+      "width": 390,
+      "url": "/?view=server",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 85,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 23,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.inline-flex.items-center.gap-1.5.whitespace-nowrap",
+          "text": "异常窗口",
+          "fontSize": 10
+        },
+        {
+          "selector": "span",
+          "text": "11/18 02:00 → 11/25 01:00 · 1 小时粒度",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "新加坡-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "东京-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "东京-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "新加坡-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-03",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "美西-01",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 7,
+      "twelveCount": 23,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-traffic",
+      "theme": "dark",
+      "width": 390,
+      "url": "/?view=traffic",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 130,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 6,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "39%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "27%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "23%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "11%",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 1,
+      "twelveCount": 73,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-cost",
+      "theme": "dark",
+      "width": 390,
+      "url": "/?view=cost",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 159,
+      "minFont": {
+        "selector": "p.ml-11.mt-1.text-right.text-[8px]",
+        "text": "2026–2027",
+        "fontSize": 8
+      },
+      "belowElevenCount": 39,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.text-[10px].text-muted-foreground",
+          "text": "CNY",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥9,023",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥6,015",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥3,008",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥0",
+          "fontSize": 9
+        },
+        {
+          "selector": "p.ml-11.mt-1.text-right.text-[8px]",
+          "text": "2026–2027",
+          "fontSize": 8
+        },
+        {
+          "selector": "span.truncate",
+          "text": "11月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "12月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "1月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "2月",
+          "fontSize": 9
+        }
+      ],
+      "elevenCount": 7,
+      "twelveCount": 29,
+      "typeMicro": 11.5,
+      "fonts": [
+        8,
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        18,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-chain",
+      "theme": "dark",
+      "width": 390,
+      "url": "/?view=chain",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 208,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 64,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港日中转链",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港新直达链",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港日多路径",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "kenji · 港日双路",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "mei · 港日双路 A",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "mei · 港日双路 B",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "kenji · 港新单跳",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 6,
+      "twelveCount": 65,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        14,
+        15,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "servers",
+      "theme": "dark",
+      "width": 390,
+      "url": "/servers",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 318,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 247,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "forwards",
+      "theme": "dark",
+      "width": 390,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 41,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 16,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "status",
+      "theme": "dark",
+      "width": 390,
+      "url": "/status",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 354,
+      "minFont": {
+        "selector": "span.relative.bg-card.px-1.text-[11px]",
+        "text": "数据收集中",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 2,
+      "twelveCount": 304,
+      "typeMicro": 11.5,
+      "fonts": [
+        11,
+        11.5,
+        12,
+        14,
+        16,
+        18,
+        19
+      ]
+    },
+    {
+      "name": "settings",
+      "theme": "dark",
+      "width": 390,
+      "url": "/settings",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 70,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 31,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "overview-server",
+      "theme": "light",
+      "width": 1440,
+      "url": "/?view=server",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 105,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 23,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.inline-flex.items-center.gap-1.5.whitespace-nowrap",
+          "text": "异常窗口",
+          "fontSize": 10
+        },
+        {
+          "selector": "span",
+          "text": "11/18 02:00 → 11/25 01:00 · 1 小时粒度",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "新加坡-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "东京-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "东京-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "新加坡-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-03",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "美西-01",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 7,
+      "twelveCount": 23,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-traffic",
+      "theme": "light",
+      "width": 1440,
+      "url": "/?view=traffic",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 145,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 6,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "39%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "27%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "23%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "11%",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 1,
+      "twelveCount": 68,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-cost",
+      "theme": "light",
+      "width": 1440,
+      "url": "/?view=cost",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 179,
+      "minFont": {
+        "selector": "span.text-[8px].opacity-70.max-sm:hidden",
+        "text": "2027",
+        "fontSize": 8
+      },
+      "belowElevenCount": 39,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.text-[10px].text-muted-foreground",
+          "text": "CNY",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥9,023",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥6,015",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥3,008",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥0",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "11月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "12月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "1月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.text-[8px].opacity-70.max-sm:hidden",
+          "text": "2027",
+          "fontSize": 8
+        },
+        {
+          "selector": "span.truncate",
+          "text": "2月",
+          "fontSize": 9
+        }
+      ],
+      "elevenCount": 7,
+      "twelveCount": 29,
+      "typeMicro": 11.5,
+      "fonts": [
+        8,
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        18,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "overview-chain",
+      "theme": "light",
+      "width": 1440,
+      "url": "/?view=chain",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 190,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 26,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港日中转链",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港新直达链",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港日多路径",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "kenji · 港日双路",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "mei · 港日双路 A",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "mei · 港日双路 B",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "kenji · 港新单跳",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 6,
+      "twelveCount": 65,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        15,
+        16,
+        20,
+        24,
+        28
+      ]
+    },
+    {
+      "name": "servers",
+      "theme": "light",
+      "width": 1440,
+      "url": "/servers",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 201,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 109,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "forwards",
+      "theme": "light",
+      "width": 1440,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 60,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 16,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "status",
+      "theme": "light",
+      "width": 1440,
+      "url": "/status",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 354,
+      "minFont": {
+        "selector": "span.relative.bg-card.px-1.text-[11px]",
+        "text": "数据收集中",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 2,
+      "twelveCount": 304,
+      "typeMicro": 11.5,
+      "fonts": [
+        11,
+        11.5,
+        12,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "settings",
+      "theme": "light",
+      "width": 1440,
+      "url": "/settings",
+      "innerWidth": 1440,
+      "scrollWidth": 1440,
+      "overflowX": 0,
+      "textNodeCount": 90,
+      "minFont": {
+        "selector": "p.px-2.5.pb-1.5.type-micro.font-medium",
+        "text": "资源",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 31,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "overview-server",
+      "theme": "light",
+      "width": 390,
+      "url": "/?view=server",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 85,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 23,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.inline-flex.items-center.gap-1.5.whitespace-nowrap",
+          "text": "异常窗口",
+          "fontSize": 10
+        },
+        {
+          "selector": "span",
+          "text": "11/18 02:00 → 11/25 01:00 · 1 小时粒度",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "新加坡-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "东京-02",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "东京-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "新加坡-01",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "香港-03",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-32.truncate",
+          "text": "美西-01",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 7,
+      "twelveCount": 23,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-traffic",
+      "theme": "light",
+      "width": 390,
+      "url": "/?view=traffic",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 130,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 6,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "39%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "27%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "23%",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.w-8.shrink-0.text-right.text-[10px]",
+          "text": "11%",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 1,
+      "twelveCount": 73,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-cost",
+      "theme": "light",
+      "width": 390,
+      "url": "/?view=cost",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 159,
+      "minFont": {
+        "selector": "p.ml-11.mt-1.text-right.text-[8px]",
+        "text": "2026–2027",
+        "fontSize": 8
+      },
+      "belowElevenCount": 39,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.text-[10px].text-muted-foreground",
+          "text": "CNY",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥9,023",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥6,015",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥3,008",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "¥0",
+          "fontSize": 9
+        },
+        {
+          "selector": "p.ml-11.mt-1.text-right.text-[8px]",
+          "text": "2026–2027",
+          "fontSize": 8
+        },
+        {
+          "selector": "span.truncate",
+          "text": "11月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "12月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "1月",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.truncate",
+          "text": "2月",
+          "fontSize": 9
+        }
+      ],
+      "elevenCount": 7,
+      "twelveCount": 29,
+      "typeMicro": 11.5,
+      "fonts": [
+        8,
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        13,
+        14,
+        16,
+        18,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "overview-chain",
+      "theme": "light",
+      "width": 390,
+      "url": "/?view=chain",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 208,
+      "minFont": {
+        "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+        "text": "全局",
+        "fontSize": 9
+      },
+      "belowElevenCount": 64,
+      "belowEleven": [
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.shrink-0.rounded-sm.bg-muted.px-1",
+          "text": "全局",
+          "fontSize": 9
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港日中转链",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港新直达链",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "港日多路径",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "kenji · 港日双路",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "mei · 港日双路 A",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "mei · 港日双路 B",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.shrink-0.text-muted-foreground",
+          "text": "暂无时延样本",
+          "fontSize": 10
+        },
+        {
+          "selector": "span.max-w-40.truncate",
+          "text": "kenji · 港新单跳",
+          "fontSize": 10
+        }
+      ],
+      "elevenCount": 6,
+      "twelveCount": 65,
+      "typeMicro": 11.5,
+      "fonts": [
+        9,
+        10,
+        11,
+        11.5,
+        12,
+        12.8,
+        14,
+        15,
+        16,
+        20,
+        28
+      ]
+    },
+    {
+      "name": "servers",
+      "theme": "light",
+      "width": 390,
+      "url": "/servers",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 318,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 247,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "forwards",
+      "theme": "light",
+      "width": 390,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 41,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 16,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20
+      ]
+    },
+    {
+      "name": "status",
+      "theme": "light",
+      "width": 390,
+      "url": "/status",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 354,
+      "minFont": {
+        "selector": "span.relative.bg-card.px-1.text-[11px]",
+        "text": "数据收集中",
+        "fontSize": 11
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 2,
+      "twelveCount": 304,
+      "typeMicro": 11.5,
+      "fonts": [
+        11,
+        11.5,
+        12,
+        14,
+        16,
+        18,
+        19
+      ]
+    },
+    {
+      "name": "settings",
+      "theme": "light",
+      "width": 390,
+      "url": "/settings",
+      "innerWidth": 390,
+      "scrollWidth": 390,
+      "overflowX": 0,
+      "textNodeCount": 70,
+      "minFont": {
+        "selector": "span.grid.size-7.shrink-0.place-items-center",
+        "text": "A",
+        "fontSize": 11.5
+      },
+      "belowElevenCount": 0,
+      "belowEleven": [],
+      "elevenCount": 0,
+      "twelveCount": 31,
+      "typeMicro": 11.5,
+      "fonts": [
+        11.5,
+        12,
+        12.8,
+        14,
+        16,
+        20
+      ]
+    }
+  ],
+  "topology": [
+    {
+      "theme": "dark",
+      "width": 1440,
+      "variant": "real",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "15.5 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 84
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 84
+        },
+        {
+          "kind": "latency",
+          "text": "21.5 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 84
+        },
+        {
+          "kind": "loss",
+          "text": "2.9%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 84
+        },
+        {
+          "kind": "latency",
+          "text": "35 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 30,
+          "scrollWidth": 30,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 30,
+          "parentWidth": 84
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 6,
+          "scrollWidth": 6,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 6,
+          "parentWidth": 84
+        },
+        {
+          "kind": "latency",
+          "text": "8 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 84
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 6,
+          "scrollWidth": 6,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 6,
+          "parentWidth": 84
+        }
+      ],
+      "edgeCount": 4,
+      "scrollOverflow": 0
+    },
+    {
+      "theme": "dark",
+      "width": 1440,
+      "variant": "long-labels",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "13 ms ≈",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 118
+        },
+        {
+          "kind": "latency",
+          "text": "128.5 ms ≈",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 60,
+          "scrollWidth": 60,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 60,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "0.8%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 118
+        },
+        {
+          "kind": "latency",
+          "text": "不可测量",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 40,
+          "scrollWidth": 40,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 40,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "（引擎不支持探测）",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 90,
+          "scrollWidth": 90,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 90,
+          "parentWidth": 118
+        }
+      ],
+      "edgeCount": 3,
+      "scrollOverflow": 0
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "variant": "real",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "15.5 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 80
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 80
+        },
+        {
+          "kind": "latency",
+          "text": "21.5 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 80
+        },
+        {
+          "kind": "loss",
+          "text": "2.9%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 80
+        },
+        {
+          "kind": "latency",
+          "text": "35 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 30,
+          "scrollWidth": 30,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 30,
+          "parentWidth": 80
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 6,
+          "scrollWidth": 6,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 6,
+          "parentWidth": 80
+        },
+        {
+          "kind": "latency",
+          "text": "8 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 80
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 6,
+          "scrollWidth": 6,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 6,
+          "parentWidth": 80
+        }
+      ],
+      "edgeCount": 4,
+      "scrollOverflow": 538
+    },
+    {
+      "theme": "dark",
+      "width": 390,
+      "variant": "long-labels",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "13 ms ≈",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 83
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 83
+        },
+        {
+          "kind": "latency",
+          "text": "128.5 ms ≈",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 60,
+          "scrollWidth": 60,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 60,
+          "parentWidth": 83
+        },
+        {
+          "kind": "loss",
+          "text": "0.8%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 83
+        },
+        {
+          "kind": "latency",
+          "text": "不可测量",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 40,
+          "scrollWidth": 40,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 40,
+          "parentWidth": 104
+        },
+        {
+          "kind": "loss",
+          "text": "（引擎不支持探测）",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 90,
+          "scrollWidth": 90,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 90,
+          "parentWidth": 104
+        }
+      ],
+      "edgeCount": 3,
+      "scrollOverflow": 376
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "variant": "real",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "15.5 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 84
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 84
+        },
+        {
+          "kind": "latency",
+          "text": "21.5 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 84
+        },
+        {
+          "kind": "loss",
+          "text": "2.9%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 84
+        },
+        {
+          "kind": "latency",
+          "text": "35 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 30,
+          "scrollWidth": 30,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 30,
+          "parentWidth": 84
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 6,
+          "scrollWidth": 6,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 6,
+          "parentWidth": 84
+        },
+        {
+          "kind": "latency",
+          "text": "8 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 84
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 6,
+          "scrollWidth": 6,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 6,
+          "parentWidth": 84
+        }
+      ],
+      "edgeCount": 4,
+      "scrollOverflow": 0
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "variant": "long-labels",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "13 ms ≈",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 118
+        },
+        {
+          "kind": "latency",
+          "text": "128.5 ms ≈",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 60,
+          "scrollWidth": 60,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 60,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "0.8%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 118
+        },
+        {
+          "kind": "latency",
+          "text": "不可测量",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 40,
+          "scrollWidth": 40,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 40,
+          "parentWidth": 118
+        },
+        {
+          "kind": "loss",
+          "text": "（引擎不支持探测）",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 90,
+          "scrollWidth": 90,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 90,
+          "parentWidth": 118
+        }
+      ],
+      "edgeCount": 3,
+      "scrollOverflow": 0
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "variant": "real",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "15.5 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 80
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 80
+        },
+        {
+          "kind": "latency",
+          "text": "21.5 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 80
+        },
+        {
+          "kind": "loss",
+          "text": "2.9%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 80
+        },
+        {
+          "kind": "latency",
+          "text": "35 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 30,
+          "scrollWidth": 30,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 30,
+          "parentWidth": 80
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 6,
+          "scrollWidth": 6,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 6,
+          "parentWidth": 80
+        },
+        {
+          "kind": "latency",
+          "text": "8 ms",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 80
+        },
+        {
+          "kind": "loss",
+          "text": "—",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 6,
+          "scrollWidth": 6,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 6,
+          "parentWidth": 80
+        }
+      ],
+      "edgeCount": 4,
+      "scrollOverflow": 538
+    },
+    {
+      "theme": "light",
+      "width": 390,
+      "variant": "long-labels",
+      "labels": [
+        {
+          "kind": "latency",
+          "text": "13 ms ≈",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 42,
+          "scrollWidth": 42,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 42,
+          "parentWidth": 83
+        },
+        {
+          "kind": "loss",
+          "text": "0.2%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 83
+        },
+        {
+          "kind": "latency",
+          "text": "128.5 ms ≈",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 60,
+          "scrollWidth": 60,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 60,
+          "parentWidth": 83
+        },
+        {
+          "kind": "loss",
+          "text": "0.8%",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 24,
+          "scrollWidth": 24,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 24,
+          "parentWidth": 83
+        },
+        {
+          "kind": "latency",
+          "text": "不可测量",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 40,
+          "scrollWidth": 40,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 40,
+          "parentWidth": 104
+        },
+        {
+          "kind": "loss",
+          "text": "（引擎不支持探测）",
+          "fontSize": 10,
+          "truncate": "ellipsis",
+          "clientWidth": 90,
+          "scrollWidth": 90,
+          "clipped": false,
+          "overflowsParent": false,
+          "rectWidth": 90,
+          "parentWidth": 104
+        }
+      ],
+      "edgeCount": 3,
+      "scrollOverflow": 376
+    }
+  ],
+  "errors": []
+}

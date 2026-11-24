@@ -1,0 +1,226 @@
+{
+  "generatedAt": "2026-11-24T18:19:35.856Z",
+  "tooltips": [
+    {
+      "name": "chain-trend",
+      "width": 1440,
+      "fontSizes": [
+        11,
+        12
+      ],
+      "rect": {
+        "left": 851,
+        "right": 1060,
+        "width": 209,
+        "top": 627,
+        "bottom": 818
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "11/24 16:30港日中转链76 ms最高丢包 0.6%港日多路径46.5 ms丢包 0.4%港新直达链44 ms丢包 0.3%kenji · 港新单跳20 ms丢包 0.1%"
+    },
+    {
+      "name": "latency-sparkline",
+      "width": 1440,
+      "fontSizes": [
+        11
+      ],
+      "rect": {
+        "left": 624,
+        "right": 816,
+        "width": 193,
+        "top": 428,
+        "bottom": 520
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "11/24 11:45P5079 msP10–P9076.6 ms – 81.4 ms12 个样本"
+    },
+    {
+      "name": "segment-trend",
+      "width": 1440,
+      "fontSizes": [
+        11,
+        12
+      ],
+      "rect": {
+        "left": 673,
+        "right": 887,
+        "width": 214,
+        "top": 437,
+        "bottom": 572
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "11/24 15:00第 1 段17 ms丢包 0.1%第 2 段23 ms丢包 0.1%第 3 段34 ms丢包 0.1%最高第 4 段8 ms丢包 0.1%最低"
+    },
+    {
+      "name": "server-heatmap",
+      "width": 1440,
+      "fontSizes": [
+        11
+      ],
+      "rect": {
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "top": 0,
+        "bottom": 0
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": true,
+      "text": "新加坡-02 · 11/18 03:00｜在线率 100.0%"
+    },
+    {
+      "name": "status-sparkline",
+      "width": 1440,
+      "fontSizes": [
+        11
+      ],
+      "rect": {
+        "left": 689,
+        "right": 794,
+        "width": 105,
+        "top": 109,
+        "bottom": 157
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "01:50:00平均延迟54 ms"
+    },
+    {
+      "name": "status-availability",
+      "width": 1440,
+      "fontSizes": [
+        11
+      ],
+      "rect": {
+        "left": 322,
+        "right": 408,
+        "width": 87,
+        "top": 284,
+        "bottom": 330
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "00:00–01:00100%正常"
+    },
+    {
+      "name": "chain-trend",
+      "width": 390,
+      "fontSizes": [
+        11,
+        12
+      ],
+      "rect": {
+        "left": 71,
+        "right": 279,
+        "width": 209,
+        "top": 346,
+        "bottom": 537
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "11/24 17:00港日中转链82 ms最高丢包 0.6%港日多路径45.5 ms丢包 0.4%港新直达链43 ms丢包 0.3%kenji · 港新单跳19 ms丢包 0.1%"
+    },
+    {
+      "name": "latency-sparkline",
+      "width": 390,
+      "fontSizes": [
+        11
+      ],
+      "rect": {
+        "left": 112,
+        "right": 279,
+        "width": 167,
+        "top": 462,
+        "bottom": 572
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "11/24 11:45P5079 msP10–P9076.6 ms – 81.4 ms12 个样本"
+    },
+    {
+      "name": "segment-trend",
+      "width": 390,
+      "fontSizes": [
+        11,
+        12
+      ],
+      "rect": {
+        "left": 64,
+        "right": 278,
+        "width": 214,
+        "top": 415,
+        "bottom": 550
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "11/24 14:15第 1 段16 ms丢包 0.1%第 2 段22 ms丢包 0.1%第 3 段33 ms丢包 0.1%最高第 4 段8 ms丢包 0.1%最低"
+    },
+    {
+      "name": "server-heatmap",
+      "width": 390,
+      "fontSizes": [
+        11
+      ],
+      "rect": {
+        "left": 0,
+        "right": 0,
+        "width": 0,
+        "top": 0,
+        "bottom": 0
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": true,
+      "text": "新加坡-02 · 11/18 03:00｜在线率 100.0%"
+    },
+    {
+      "name": "status-sparkline",
+      "width": 390,
+      "fontSizes": [
+        11
+      ],
+      "rect": {
+        "left": 243,
+        "right": 348,
+        "width": 105,
+        "top": 143,
+        "bottom": 191
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "01:50:00平均延迟54 ms"
+    },
+    {
+      "name": "status-availability",
+      "width": 390,
+      "fontSizes": [
+        11
+      ],
+      "rect": {
+        "left": 241,
+        "right": 328,
+        "width": 87,
+        "top": 275,
+        "bottom": 321
+      },
+      "inViewport": true,
+      "clippedRows": [],
+      "hidden": false,
+      "text": "00:00–01:00100%正常"
+    }
+  ],
+  "errors": []
+}

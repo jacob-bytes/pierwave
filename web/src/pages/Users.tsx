@@ -451,7 +451,7 @@ export default function UsersPage() {
         <div className="flex min-w-0 items-baseline gap-1.5">
           <span className="truncate font-medium">{user.username}</span>
           <span
-            className="shrink-0 font-mono type-micro text-muted-foreground"
+            className="shrink-0 font-mono text-[13px] text-muted-foreground"
             title={user.short_code}
           >
             {user.short_code}
@@ -488,7 +488,7 @@ export default function UsersPage() {
       <div className="space-y-1">
         {user.package_count === 0 ? (
           <p
-            className="w-48 text-xs text-muted-foreground"
+            className="w-48 text-[13px] text-muted-foreground"
             title={t("users.noPackagesTitle")}
           >
             —
@@ -520,7 +520,7 @@ export default function UsersPage() {
   function renderUserCreated(user: UserView) {
     return (
       <span
-        className="text-xs tabular-nums text-muted-foreground"
+        className="text-[13px] tabular-nums text-muted-foreground"
         title={formatAbsoluteTime(user.created_at)}
       >
         {formatRelativeTime(user.created_at)}

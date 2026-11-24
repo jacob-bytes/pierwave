@@ -18,7 +18,7 @@ export function ChainTemplateStaleNotice({
     <p
       data-template-stale
       title={detail.template.staleReason ?? undefined}
-      className="flex items-start gap-1.5 rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-[10px] leading-normal text-muted-foreground"
+      className="flex items-start gap-1.5 rounded-md border border-border bg-muted/20 px-2.5 py-1.5 text-[11px] leading-normal text-muted-foreground"
     >
       <InfoIcon aria-hidden="true" className="mt-px size-3 shrink-0" />
       <span>{t("overview.chainTemplateInsight.staleNotice")}</span>

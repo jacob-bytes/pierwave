@@ -86,7 +86,7 @@ export function UsageBar({
     >
       <div
         className={cn(
-          "flex items-center gap-3 text-xs",
+          "flex items-center gap-3 text-[13px]",
           label
             ? "justify-between"
             : align === "end"

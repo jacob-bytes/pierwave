@@ -1,0 +1,644 @@
+{
+  "generatedAt": "2026-11-24T18:18:11.531Z",
+  "base": "http://localhost:5173",
+  "pages": [
+    {
+      "name": "overview-server",
+      "width": 1440,
+      "url": "/?view=server",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "overview-traffic",
+      "width": 1440,
+      "url": "/?view=traffic",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "overview-cost",
+      "width": 1440,
+      "url": "/?view=cost",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "overview-chain",
+      "width": 1440,
+      "url": "/?view=chain",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "servers",
+      "width": 1440,
+      "url": "/servers",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "server-nodes",
+      "width": 1440,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/nodes",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "server-outbounds",
+      "width": 1440,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/outbounds",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "server-forwards",
+      "width": 1440,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "chains",
+      "width": 1440,
+      "url": "/chains",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "chain-templates",
+      "width": 1440,
+      "url": "/chain-templates",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "forward-usage",
+      "width": 1440,
+      "url": "/forward-usage",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "nodes",
+      "width": 1440,
+      "url": "/nodes",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "users",
+      "width": 1440,
+      "url": "/users",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "subscriptions",
+      "width": 1440,
+      "url": "/subscriptions",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "packages",
+      "width": 1440,
+      "url": "/packages",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "logs",
+      "width": 1440,
+      "url": "/logs",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings",
+      "width": 1440,
+      "url": "/settings",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-security",
+      "width": 1440,
+      "url": "/settings?tab=security",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-alerts",
+      "width": 1440,
+      "url": "/settings?tab=alerts",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-backup",
+      "width": 1440,
+      "url": "/settings?tab=backup",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-templates",
+      "width": 1440,
+      "url": "/settings?tab=templates",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-subscription-templates",
+      "width": 1440,
+      "url": "/settings?tab=subscription-templates",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-certificates",
+      "width": 1440,
+      "url": "/settings?tab=certificates",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "me",
+      "width": 1440,
+      "url": "/me",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "me-subscription",
+      "width": 1440,
+      "url": "/me/subscription",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "me-forwards",
+      "width": 1440,
+      "url": "/me/forwards",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "me-packages",
+      "width": 1440,
+      "url": "/me/packages",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "status",
+      "width": 1440,
+      "url": "/status",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "status-detail",
+      "width": 1440,
+      "url": "/status/c0ffee00-0000-4000-8000-000000000001",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "overview-server-heatmap",
+      "width": 1440,
+      "url": "/?view=server&mode=heatmap",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "chain-detail-ticks",
+      "width": 1440,
+      "ticks": [
+        {
+          "dialogWidth": 960,
+          "ticks": [
+            {
+              "text": "00:00",
+              "left": 281,
+              "right": 314
+            },
+            {
+              "text": "04:00",
+              "left": 414,
+              "right": 447
+            },
+            {
+              "text": "08:00",
+              "left": 563,
+              "right": 597
+            },
+            {
+              "text": "12:00",
+              "left": 713,
+              "right": 746
+            },
+            {
+              "text": "16:00",
+              "left": 862,
+              "right": 895
+            },
+            {
+              "text": "20:00",
+              "left": 1011,
+              "right": 1045
+            },
+            {
+              "text": "23:45",
+              "left": 1135,
+              "right": 1168
+            }
+          ],
+          "overlaps": []
+        }
+      ]
+    },
+    {
+      "name": "overview-server",
+      "width": 390,
+      "url": "/?view=server",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "overview-traffic",
+      "width": 390,
+      "url": "/?view=traffic",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "overview-cost",
+      "width": 390,
+      "url": "/?view=cost",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "overview-chain",
+      "width": 390,
+      "url": "/?view=chain",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "servers",
+      "width": 390,
+      "url": "/servers",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "server-nodes",
+      "width": 390,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/nodes",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "server-outbounds",
+      "width": 390,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/outbounds",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "server-forwards",
+      "width": 390,
+      "url": "/servers/c0ffee00-0000-4000-8000-000000000001/forwards",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "chains",
+      "width": 390,
+      "url": "/chains",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "chain-templates",
+      "width": 390,
+      "url": "/chain-templates",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "forward-usage",
+      "width": 390,
+      "url": "/forward-usage",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "nodes",
+      "width": 390,
+      "url": "/nodes",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "users",
+      "width": 390,
+      "url": "/users",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "subscriptions",
+      "width": 390,
+      "url": "/subscriptions",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "packages",
+      "width": 390,
+      "url": "/packages",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "logs",
+      "width": 390,
+      "url": "/logs",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings",
+      "width": 390,
+      "url": "/settings",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-security",
+      "width": 390,
+      "url": "/settings?tab=security",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-alerts",
+      "width": 390,
+      "url": "/settings?tab=alerts",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-backup",
+      "width": 390,
+      "url": "/settings?tab=backup",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-templates",
+      "width": 390,
+      "url": "/settings?tab=templates",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-subscription-templates",
+      "width": 390,
+      "url": "/settings?tab=subscription-templates",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "settings-certificates",
+      "width": 390,
+      "url": "/settings?tab=certificates",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "me",
+      "width": 390,
+      "url": "/me",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "me-subscription",
+      "width": 390,
+      "url": "/me/subscription",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "me-forwards",
+      "width": 390,
+      "url": "/me/forwards",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "me-packages",
+      "width": 390,
+      "url": "/me/packages",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "status",
+      "width": 390,
+      "url": "/status",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "status-detail",
+      "width": 390,
+      "url": "/status/c0ffee00-0000-4000-8000-000000000001",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "overview-server-heatmap",
+      "width": 390,
+      "url": "/?view=server&mode=heatmap",
+      "overflowX": 0,
+      "minFont": 11,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "chain-detail-ticks",
+      "width": 390,
+      "ticks": [
+        {
+          "dialogWidth": 382,
+          "ticks": [
+            {
+              "text": "00:00",
+              "left": 31,
+              "right": 65
+            },
+            {
+              "text": "08:00",
+              "left": 126,
+              "right": 159
+            },
+            {
+              "text": "16:00",
+              "left": 238,
+              "right": 271
+            },
+            {
+              "text": "23:45",
+              "left": 329,
+              "right": 362
+            }
+          ],
+          "overlaps": []
+        }
+      ]
+    },
+    {
+      "name": "login",
+      "width": 1440,
+      "url": "/login",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    },
+    {
+      "name": "login",
+      "width": 390,
+      "url": "/login",
+      "overflowX": 0,
+      "minFont": 12,
+      "belowEleven": [],
+      "belowElevenCount": 0
+    }
+  ],
+  "errors": []
+}

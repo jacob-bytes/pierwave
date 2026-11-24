@@ -18,12 +18,12 @@ const row = source.slice(rowStart, rowEnd);
 test("eight standard columns include an independent route column", () => {
   assert.match(
     source,
-    /minmax\(0,20fr\)_minmax\(0,32fr\)_minmax\(0,22fr\)_64px_80px_88px_88px_24px/,
+    /minmax\(0,18fr\)_minmax\(0,31fr\)_minmax\(0,25fr\)_56px_72px_80px_80px_24px/,
   );
-  assert.match(source, /minmax\(0,20fr\)/);
-  assert.match(source, /minmax\(0,32fr\)/);
-  assert.match(source, /minmax\(0,22fr\)/);
-  assert.match(source, /64px_80px_88px_88px_24px/);
+  assert.match(source, /minmax\(0,18fr\)/);
+  assert.match(source, /minmax\(0,31fr\)/);
+  assert.match(source, /minmax\(0,25fr\)/);
+  assert.match(source, /56px_72px_80px_80px_24px/);
   assert.doesNotMatch(source, /44fr/);
   assert.doesNotMatch(source, /96px/);
 });
@@ -43,14 +43,14 @@ test("address stays capped, route is its own cell, sample lives under the name",
   assert.doesNotMatch(address, /h-px|flex-1/);
 
   assert.match(route, /data-chain-endpoint-name/);
-  assert.match(route, /text-xs/);
+  assert.match(route, /text-\[13px\]/);
   assert.match(route, /text-muted-foreground/);
   assert.match(route, /truncate/);
   assert.match(route, /title=\{routeTitle\}/);
 
   // 样本时间保留在链路名下的小字，不再占第二行路由。
   assert.match(lead, /data-chain-sample/);
-  assert.match(lead, /text-xs/);
+  assert.match(lead, /text-\[13px\]/);
   assert.doesNotMatch(row, /data-chain-row-meta/);
 });
 

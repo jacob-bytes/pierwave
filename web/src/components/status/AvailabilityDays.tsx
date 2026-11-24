@@ -32,7 +32,7 @@ export function AvailabilityDays({
       data-slot="detail-days"
       className={cn("flex min-w-0 items-center gap-2", className)}
     >
-      <span className="shrink-0 text-[10px] text-muted-foreground">
+      <span className="shrink-0 text-[11px] text-muted-foreground">
         {t("publicStatus.detail.last7Days")}
       </span>
       <div

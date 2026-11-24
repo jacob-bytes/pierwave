@@ -377,7 +377,7 @@ export function ChainLatencySparkline({
           data-chain-sparkline-tooltip
           role="tooltip"
           aria-live="polite"
-          className="pointer-events-none absolute top-0 z-20 min-w-36 rounded-md border border-border bg-popover px-2 py-1.5 text-[10px] leading-normal text-popover-foreground shadow-md/30"
+          className="pointer-events-none absolute top-0 z-20 min-w-36 rounded-md border border-border bg-popover px-2 py-1.5 text-[11px] leading-normal text-popover-foreground shadow-md/30"
           style={{ left: `${activePct}%`, transform }}
         >
           <p className="font-mono text-muted-foreground">

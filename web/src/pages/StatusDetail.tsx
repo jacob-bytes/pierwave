@@ -391,7 +391,7 @@ function Metric({
         {children}
       </div>
       {sub ? (
-        <div className="tnum mt-0.5 truncate text-[10px] leading-tight font-normal text-muted-foreground">
+        <div className="tnum mt-0.5 truncate text-[11px] leading-tight font-normal text-muted-foreground">
           {sub}
         </div>
       ) : null}
@@ -687,10 +687,10 @@ function Ring({
           <strong className="tnum text-sm leading-none font-semibold sm:text-base">
             {percent === null ? "—" : `${Math.round(percent)}%`}
           </strong>
-          <span className="text-[10px] text-muted-foreground">{label}</span>
+          <span className="text-[11px] text-muted-foreground">{label}</span>
         </div>
       </div>
-      <span className="tnum min-w-0 text-[10px] leading-tight text-muted-foreground sm:max-w-full sm:truncate">
+      <span className="tnum min-w-0 text-[11px] leading-tight text-muted-foreground sm:max-w-full sm:truncate">
         {pair ?? t("publicStatus.server.notReported")}
       </span>
     </div>
@@ -761,7 +761,7 @@ function RuntimeCard({
           <strong className="tnum text-sm font-semibold text-foreground">
             {load === null ? "—" : load.toFixed(2)}
           </strong>
-          <span className="text-[10px]">
+          <span className="text-[11px]">
             {load === null
               ? t("publicStatus.server.notReported")
               : t("publicStatus.server.loadHint")}
@@ -799,7 +799,7 @@ function RuntimeCard({
                 key={row.label}
                 className={cn("min-w-0", index === 0 && "col-span-2 sm:col-auto")}
               >
-                <dt className="text-[10px] leading-tight text-muted-foreground">
+                <dt className="text-[11px] leading-tight text-muted-foreground">
                   {row.label}
                 </dt>
                 <dd
@@ -830,7 +830,7 @@ function RuntimeCard({
           <span className={xray.textClass}>{xray.text}</span>
         </span>
         {inbounds === null ? null : (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[11px] text-muted-foreground">
             {inbounds === 1
               ? t("publicStatus.detail.inboundCountOne", { count: inbounds })
               : t("publicStatus.detail.inboundCountMany", {
@@ -839,7 +839,7 @@ function RuntimeCard({
           </span>
         )}
         {latencyText === null ? null : (
-          <span className="inline-flex items-baseline gap-1 text-[10px] text-muted-foreground">
+          <span className="inline-flex items-baseline gap-1 text-[11px] text-muted-foreground">
             <span>{t("publicStatus.detail.latencyTrend")}</span>
             <span className="tnum text-foreground">{latencyText}</span>
           </span>
@@ -1003,7 +1003,7 @@ function BillingTrafficCard({
                     </div>
                     <div
                       data-slot="billing-meta"
-                      className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground"
+                      className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground"
                     >
                       <span className="tnum">
                         {t("publicStatus.detail.remainingDays", {
@@ -1072,7 +1072,7 @@ function BillingTrafficCard({
           {avgRx === null && avgTx === null ? null : (
             <div
               data-slot="traffic-average"
-              className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground"
+              className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"
             >
               <span>{t("publicStatus.detail.averageHourly")}</span>
               <span className="tnum">

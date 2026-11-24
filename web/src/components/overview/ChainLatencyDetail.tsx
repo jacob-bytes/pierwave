@@ -50,6 +50,7 @@ import {
   type ChainTopologyNode,
 } from "@/lib/chainHealth";
 import { t, useI18n } from "@/i18n";
+import { useIsDesktop } from "@/lib/useIsDesktop";
 import { cn } from "@/lib/utils";
 
 function diagnosisText(
@@ -93,7 +94,7 @@ function DiagnosisBlock({ chain }: { chain: ChainHealthChain }) {
       data-kind={diagnosis.kind}
       role="status"
       className={cn(
-        "mt-3 rounded-md border px-3 py-2 text-xs leading-normal",
+        "mt-3 rounded-md border px-3 py-2 text-[13px] leading-normal",
         tone,
       )}
     >
@@ -190,7 +191,7 @@ function TopologyNode({
     >
       <span
         data-chain-topology-node-label
-        className="absolute inset-x-0 top-1 flex items-center justify-center gap-1 px-1 text-[10px] uppercase tracking-wide text-muted-foreground"
+        className="absolute inset-x-0 top-1 flex items-center justify-center gap-1 px-1 text-[11px] uppercase tracking-wide text-muted-foreground"
       >
         <span>{topologyNodeLabel(index, total)}</span>
         {showDot ? (
@@ -240,7 +241,7 @@ function TopologyNode({
               className="flex min-w-0 items-center gap-1"
             >
               <MemberDot status={member.status} />
-              <span className="min-w-0 flex-1 truncate text-left text-[10px] leading-tight text-muted-foreground">
+              <span className="min-w-0 flex-1 truncate text-left text-[11px] leading-tight text-muted-foreground">
                 {member.name}
               </span>
             </span>
@@ -248,7 +249,7 @@ function TopologyNode({
           {hidden > 0 ? (
             <span
               data-chain-topology-member-more
-              className="text-[9px] leading-tight text-muted-foreground"
+              className="text-[11px] leading-tight text-muted-foreground"
             >
               {t("overview.chainLatency.memberMore", { n: hidden })}
             </span>
@@ -301,13 +302,13 @@ function TopologyEdge({ edge }: { edge: TopologyEdgeView }) {
       title={title}
       className={cn(
         "relative flex h-14 flex-1 flex-col items-center justify-center px-0.5",
-        unmeasurable ? "min-w-[104px]" : "min-w-[80px]",
+        unmeasurable ? "min-w-[112px]" : "min-w-[88px]",
       )}
     >
       <span
         data-chain-topology-edge-latency
         className={cn(
-          "absolute left-1/2 max-w-full -translate-x-1/2 -translate-y-full truncate whitespace-nowrap font-mono text-[10px] leading-none tabular-nums",
+          "absolute left-1/2 max-w-full -translate-x-1/2 -translate-y-full truncate whitespace-nowrap font-mono text-[11px] leading-none tabular-nums",
           unmeasurable
             ? "text-muted-foreground"
             : missing
@@ -337,7 +338,7 @@ function TopologyEdge({ edge }: { edge: TopologyEdgeView }) {
       <span
         data-chain-topology-edge-loss
         data-kind={unmeasurable ? "unmeasurable-reason" : "loss"}
-        className="absolute left-1/2 max-w-full -translate-x-1/2 truncate whitespace-nowrap font-mono text-[10px] leading-none tabular-nums text-muted-foreground"
+        className="absolute left-1/2 max-w-full -translate-x-1/2 truncate whitespace-nowrap font-mono text-[11px] leading-none tabular-nums text-muted-foreground"
         style={{ top: "calc(50% + 3px)" }}
       >
         {loss}
@@ -367,11 +368,11 @@ function ChainOverallStats({ chain }: { chain: ChainHealthChain }) {
   return (
     <div
       data-chain-overall-stats
-      className="flex min-w-0 flex-wrap items-baseline justify-end gap-x-3 gap-y-1 text-[10px] text-muted-foreground"
+      className="flex min-w-0 flex-wrap items-baseline justify-end gap-x-3 gap-y-1 text-[11px] text-muted-foreground"
     >
       <span className="inline-flex items-baseline gap-1.5">
-        <span className="text-[10px] text-muted-foreground">P50</span>
-        <span className="font-mono text-xs text-foreground tabular-nums">
+        <span className="text-[11px] text-muted-foreground">P50</span>
+        <span className="font-mono text-[13px] text-foreground tabular-nums">
           {formatMs(chain.latestP50)}
         </span>
       </span>
@@ -381,21 +382,21 @@ function ChainOverallStats({ chain }: { chain: ChainHealthChain }) {
         title={lossTitle}
         className="inline-flex items-baseline gap-1.5"
       >
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-[11px] text-muted-foreground">
           {t("overview.chainLatency.currentWindowLoss")}
         </span>
-        <ChainLossValue value={chain.lossPct} className="text-xs" />
+        <ChainLossValue value={chain.lossPct} className="text-[13px]" />
       </span>
       {chain.lossPct === null ? (
         <span
           data-chain-loss-nodata
-          className="text-[9px] text-muted-foreground"
+          className="text-[11px] text-muted-foreground"
         >
           {t("overview.chainLatency.lossNoData")}
         </span>
       ) : null}
       {chain.lossPartial ? (
-        <span data-chain-loss-partial className="text-[9px] text-warning">
+        <span data-chain-loss-partial className="text-[11px] text-warning">
           {t("overview.chainLatency.lossPartial")}
         </span>
       ) : null}
@@ -478,14 +479,14 @@ function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
                 ))}
               </div>
             </div>
-            <p className="mt-1 text-[10px] text-muted-foreground sm:hidden">
+            <p className="mt-1 text-[11px] text-muted-foreground sm:hidden">
               {t("overview.chainLatency.topologyScroll")}
             </p>
           </>
         )}
         {/* 不可测不是「缺数据」：原因已经标在最后一跳的边上，不再叠旧告警。 */}
         {topology.targetMissing && !lastHopUnmeasurable ? (
-          <p className="mt-2 flex items-start gap-1.5 text-[10px] leading-normal text-warning">
+          <p className="mt-2 flex items-start gap-1.5 text-[11px] leading-normal text-warning">
             <TriangleAlertIcon
               aria-hidden="true"
               className="mt-0.5 size-3 shrink-0"
@@ -511,12 +512,25 @@ function TimeAxis({
   ticks: readonly ChainTimeTick[];
   window: ChainSeriesWindow;
 }) {
+  const desktop = useIsDesktop();
+  /*
+   * 11px 的刻度比原来的 9px 宽约 22%。390 下相邻 4h 刻度的右边界会压到
+   * 末位样本标签（实测 20:00 与 23:15 重叠 4px），所以窄屏隔一个显示：
+   * 保留 00/08/16 与末位真实样本，桌面仍显示完整刻度。
+   */
+  const visibleTicks = desktop
+    ? ticks
+    : ticks.filter((tick, index) => {
+        if (tick.kind === "last" || index === ticks.length - 1) return true;
+        if (index % 2 !== 0) return false;
+        return index <= ticks.length - 3;
+      });
   return (
     <div
       data-chain-time-axis
-      className="relative mt-1 h-3 font-mono text-[9px] text-muted-foreground tabular-nums"
+      className="relative mt-1 h-3 font-mono text-[11px] text-muted-foreground tabular-nums"
     >
-      {ticks.map((tick) => {
+      {visibleTicks.map((tick) => {
         const left = chainPointX(tick.ts, window, 100);
         const transform =
           left < 4
@@ -606,7 +620,7 @@ function OverallChartCard({
         {hasCurve ? (
           <div
             data-chain-overall-legend
-            className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground"
+            className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground"
           >
             <span className="inline-flex items-center gap-1.5">
               <span
@@ -654,7 +668,7 @@ function OverallChartCard({
             {showNow && snapshot.generatedAt !== null ? (
               <p
                 data-chain-axis-now
-                className="mt-0.5 text-right font-mono text-[9px] text-muted-foreground tabular-nums"
+                className="mt-0.5 text-right font-mono text-[11px] text-muted-foreground tabular-nums"
               >
                 {t("overview.chainLatency.now")}{" "}
                 {formatChainClock(snapshot.generatedAt, snapshot.hours)}
@@ -735,9 +749,9 @@ function SegmentContributions({ chain }: { chain: ChainHealthChain }) {
                 ? `${label} · ${unmeasurableText}`
                 : label
             }
-            className="flex min-w-0 items-center gap-2 text-[10px]"
+            className="flex min-w-0 items-center gap-2 text-[13px]"
           >
-            <span className="w-12 shrink-0 font-mono text-muted-foreground sm:w-14">
+            <span className="w-14 shrink-0 whitespace-nowrap font-mono text-muted-foreground">
               {t("overview.chainLatency.segment", { seq: segment.seq })}
             </span>
             <span
@@ -760,7 +774,7 @@ function SegmentContributions({ chain }: { chain: ChainHealthChain }) {
                   data-segment-current
                   className="shrink-0 whitespace-nowrap font-mono tabular-nums"
                 >
-                  <span className="mr-1 text-[9px] text-muted-foreground">
+                  <span className="mr-1 text-[11px] text-muted-foreground">
                     P50
                   </span>
                   {formatMs(segment.p50)}
@@ -771,12 +785,12 @@ function SegmentContributions({ chain }: { chain: ChainHealthChain }) {
                   title={probesTitle}
                   className="shrink-0 whitespace-nowrap"
                 >
-                  <span className="mr-1 text-[9px] text-muted-foreground">
+                  <span className="mr-1 text-[11px] text-muted-foreground">
                     {t("overview.chainLatency.windowLoss")}
                   </span>
                   <ChainLossValue
                     value={segment.lossPct}
-                    className="text-[10px]"
+                    className="text-[13px]"
                   />
                 </span>
                 <span
@@ -795,7 +809,7 @@ function SegmentContributions({ chain }: { chain: ChainHealthChain }) {
                       style={{ width: `${share}%` }}
                     />
                   </span>
-                  <span className="w-7 shrink-0 text-right text-[9px] text-muted-foreground tabular-nums">
+                  <span className="w-9 shrink-0 text-right text-[13px] text-muted-foreground tabular-nums">
                     {formatPercentValue(segment.contributionPct)}%
                   </span>
                 </span>

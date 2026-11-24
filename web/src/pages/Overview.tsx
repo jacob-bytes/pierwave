@@ -89,7 +89,7 @@ function KpiCard({
           {global ? (
             <span
               data-kpi-global
-              className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-[9px] leading-none text-muted-foreground"
+              className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-[11px] leading-none text-muted-foreground"
             >
               {t("overview.scope.global")}
             </span>

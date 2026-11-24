@@ -350,7 +350,7 @@ function MonthExpenseCard({
           <CardTitle className="text-sm font-medium">
             {t("overview.cost.calendarTitle")}
           </CardTitle>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[11px] text-muted-foreground">
             {t("overview.cost.monthUnit")}
           </span>
         </div>
@@ -474,7 +474,7 @@ function MonthBarChart({
   return (
     <div className="flex min-h-[300px] flex-1 flex-col" data-cost-bar-chart>
       <div className="relative flex min-h-0 flex-1 gap-2">
-        <div className="flex w-9 shrink-0 flex-col justify-between pb-1 text-right text-[9px] text-muted-foreground tabular-nums">
+        <div className="flex w-9 shrink-0 flex-col justify-between pb-1 text-right text-[11px] text-muted-foreground tabular-nums">
           {[max, max * (2 / 3), max * (1 / 3), 0].map(
             (value, index) => (
               <span key={index} className="truncate">
@@ -568,7 +568,7 @@ function MonthBarChart({
       </div>
 
       {spansYears ? (
-        <p className="ml-11 mt-1 text-right text-[8px] text-muted-foreground sm:hidden">
+        <p className="ml-11 mt-1 text-right text-[11px] text-muted-foreground sm:hidden">
           {Math.floor(months[0].monthIndex / 12)}–
           {Math.floor(months.at(-1)!.monthIndex / 12)}
         </p>
@@ -580,14 +580,14 @@ function MonthBarChart({
           return (
             <span
               key={month.monthIndex}
-              className="flex min-w-0 flex-1 flex-col items-center text-[9px] leading-tight text-muted-foreground"
+              className="flex min-w-0 flex-1 flex-col items-center text-[11px] leading-tight text-muted-foreground"
               title={formatMonthIndex(month.monthIndex)}
             >
               <span className="truncate">
                 {formatMonthLabel(month.monthIndex, locale)}
               </span>
               {showYear ? (
-                <span className="text-[8px] opacity-70 max-sm:hidden">
+                <span className="text-[11px] opacity-70 max-sm:hidden">
                   {year}
                 </span>
               ) : null}
@@ -653,12 +653,12 @@ function MonthExpenseTooltip({
               </span>
               <span className="flex shrink-0 items-center gap-1.5">
                 {row.kind === "once" ? (
-                  <span className="rounded-sm bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
+                  <span className="rounded-sm bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
                     {t("overview.cost.onceShort")}
                   </span>
                 ) : null}
                 {row.prepaid ? (
-                  <span className="rounded-sm bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
+                  <span className="rounded-sm bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
                     {t("overview.cost.calendarLegendPrepaid")}
                   </span>
                 ) : null}
@@ -681,7 +681,7 @@ function MonthExpenseTooltip({
       {month.hiddenCharges > 0 ? (
         <p
           data-month-tooltip-more
-          className="mt-1 text-[10px] text-muted-foreground"
+          className="mt-1 text-[11px] text-muted-foreground"
         >
           {t("overview.cost.monthMore", { n: month.hiddenCharges })}
         </p>
@@ -690,7 +690,7 @@ function MonthExpenseTooltip({
       {month.prepaid.length > 0 ? (
         <div
           data-month-tooltip-prepaid
-          className="mt-1.5 border-t border-border/60 pt-1.5 text-[10px] text-muted-foreground"
+          className="mt-1.5 border-t border-border/60 pt-1.5 text-[11px] text-muted-foreground"
         >
           <p>
             {t("overview.cost.monthPrepaid", {
@@ -936,7 +936,7 @@ function RenewalCalendarCard({
 
         <CardContent className="flex flex-1 flex-col p-2">
           <div className="flex flex-1 flex-col">
-            <div className="grid grid-cols-7 pb-1 text-center text-[9px] text-muted-foreground">
+            <div className="grid grid-cols-7 pb-1 text-center text-[11px] text-muted-foreground">
               {weekdays.map((weekday) => (
                 <span key={weekday} data-renewal-weekday>
                   {weekday}
@@ -1027,7 +1027,7 @@ function RenewalCalendarCard({
                     {day.unconverted > 0 ? (
                       <span
                         data-renewal-unconverted
-                        className="mt-0.5 text-[10px] leading-none text-warning"
+                        className="mt-0.5 text-[11px] leading-none text-warning"
                         title={t("overview.cost.renewalUnconverted", {
                           n: day.unconverted,
                         })}
@@ -1139,7 +1139,7 @@ function RenewalDayDialog({
         </DialogHeader>
 
         <div className="min-w-0">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 bg-muted/40 px-4 py-1.5 text-[10px] text-muted-foreground">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 bg-muted/40 px-4 py-1.5 text-[11px] text-muted-foreground">
             <span>{t("overview.cost.renewalDialogServer")}</span>
             <span className="text-right">
               {t("overview.cost.renewalDialogAmount")}
@@ -1159,7 +1159,7 @@ function RenewalDayDialog({
                   >
                     {event.name}
                   </p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {cycleLabel(event, locale)}
                     {" · "}
                     {t("overview.cost.renewalDue", {
@@ -1174,7 +1174,7 @@ function RenewalDayDialog({
                       "—"
                     ) : (
                       <>
-                        <span className="mr-1 text-[9px] text-muted-foreground">
+                        <span className="mr-1 text-[11px] text-muted-foreground">
                           {event.currency}
                         </span>
                         {formatCurrency(
@@ -1185,7 +1185,7 @@ function RenewalDayDialog({
                       </>
                     )}
                   </p>
-                  <p className="mt-0.5 font-mono text-[10px] tabular-nums text-muted-foreground">
+                  <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
                     {event.amountCnyCents === null
                       ? "—"
                       : formatCny(event.amountCnyCents, locale)}
@@ -1210,7 +1210,7 @@ function RenewalDayDialog({
             {day.unconverted > 0 ? (
               <span
                 data-renewal-dialog-unconverted
-                className="text-[10px] text-warning"
+                className="text-[11px] text-warning"
               >
                 {t("overview.cost.renewalUnconverted", {
                   n: day.unconverted,
@@ -1344,7 +1344,7 @@ function TopCostCard({
                 className="px-4 py-2.5"
               >
                 <div className="flex min-w-0 items-baseline gap-2">
-                  <span className="w-4 shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                  <span className="w-4 shrink-0 text-[11px] text-muted-foreground tabular-nums">
                     {index + 1}
                   </span>
                   <span
@@ -1353,11 +1353,11 @@ function TopCostCard({
                   >
                     {row.name}
                   </span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                  <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
                     {row.share.toFixed(0)}%
                   </span>
                 </div>
-                <div className="mt-1 flex items-baseline gap-2 pl-6 font-mono text-[10px] tabular-nums">
+                <div className="mt-1 flex items-baseline gap-2 pl-6 font-mono text-[11px] tabular-nums">
                   <span className="text-muted-foreground">{row.currency}</span>
                   <span className="text-muted-foreground">
                     {formatCurrency(
@@ -1417,16 +1417,16 @@ function TopCostRowItem({
   return (
     <li className="rounded-md px-2.5 py-1.5" data-cost-top-row>
       <div className="flex min-w-0 items-baseline gap-2">
-        <span className="w-3 shrink-0 text-[10px] text-muted-foreground tabular-nums">
+        <span className="w-3 shrink-0 text-[11px] text-muted-foreground tabular-nums">
           {index + 1}
         </span>
         <span className="min-w-0 flex-1 truncate text-sm" title={row.name}>
           {row.name}
         </span>
-        <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+        <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
           {row.currency}
         </span>
-        <span className="max-w-20 shrink-0 truncate font-mono text-[10px] text-muted-foreground tabular-nums">
+        <span className="max-w-20 shrink-0 truncate font-mono text-[11px] text-muted-foreground tabular-nums">
           {formatCurrency(row.cycleOriginalCents, row.currency, locale)}
         </span>
         <span className="shrink-0 font-mono text-xs tabular-nums">
@@ -1449,7 +1449,7 @@ function TopCostRowItem({
           />
         </span>
         <span
-          className="w-8 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums"
+          className="w-8 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums"
           title={t("overview.cost.topShare", {
             share: row.share.toFixed(0),
           })}
@@ -1798,7 +1798,7 @@ function OneTimeCard({
                 </>
               )}
               {row.paidUntil ? (
-                <span className="shrink-0 text-[10px] text-muted-foreground">
+                <span className="shrink-0 text-[11px] text-muted-foreground">
                   {t("overview.cost.oneTimePaidUntil", {
                     date: row.paidUntil,
                   })}

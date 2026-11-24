@@ -218,7 +218,7 @@ function ForwardEnabledSwitch({
           );
         }}
       />
-      <span className="text-xs text-muted-foreground">
+      <span className="text-[13px] text-muted-foreground">
         {enabled ? t("common.enabled") : t("common.disabled")}
       </span>
     </div>
@@ -472,10 +472,10 @@ export default function ForwardsPage() {
                           />
                         </div>
                       </TableCell>
-                      <TableCell className="px-4 text-right font-mono text-xs tabular-nums">
+                      <TableCell className="px-4 text-right font-mono text-[13px] tabular-nums">
                         {forward.listen_port}
                       </TableCell>
-                      <TableCell className="px-4 font-mono text-xs text-muted-foreground">
+                      <TableCell className="px-4 font-mono text-[13px] text-muted-foreground">
                         <span className="break-all" title={target}>
                           {target}
                         </span>

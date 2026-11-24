@@ -161,7 +161,7 @@ function ProtocolDistributionList({
                     style={{ width: `${share}%` }}
                   />
                 </div>
-                <span className="w-8 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums">
+                <span className="w-8 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
                   {Math.round(share)}%
                 </span>
               </div>
@@ -219,7 +219,7 @@ function PackageDistributionList({
                     style={{ width: `${share}%` }}
                   />
                 </div>
-                <span className="w-8 shrink-0 text-right text-[10px] text-muted-foreground tabular-nums">
+                <span className="w-8 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums">
                   {Math.round(share)}%
                 </span>
               </div>
@@ -792,7 +792,7 @@ function AlertRow({
             {sitewide ? (
               <span
                 data-alert-sitewide
-                className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-[9px] leading-none text-muted-foreground"
+                className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-[11px] leading-none text-muted-foreground"
               >
                 {t("overview.scope.sitewide")}
               </span>

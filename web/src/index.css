@@ -262,13 +262,15 @@
 }
 
 /*
- * 小字号语义类：11px 在中文回退字体（PingFang SC / 微软雅黑）下笔画会粘连，
- * 且 11px 不在任何字阶里。统一收到 11.5px + 0.01em 字距：
- * - 只放大 4.5%，比直接提到 12px（+9%）更不容易让表格 / 徽章换行；
- * - 字距补足汉字之间的呼吸，配合 normal 行高（需要多行说明时叠加
- *   `leading-normal`）不再是 11px 的密排效果。
- * 字号声明放在 utilities 层，才能盖过 Badge 等组件自带的 `text-xs`；
- * `leading-*` 工具类仍可覆盖这里的默认行高。
+ * 小字号语义类：全站文字下限是 11px（见 docs/DESIGN.md「字号 / Typography」），
+ * 而「常用辅助信息」统一落在 12px —— 行内元信息、时间戳、说明、图例正文。
+ * `.type-micro` 就是这一档的语义类：12px + 0.01em 字距。
+ * - 11px 在中文回退字体（PingFang SC / 微软雅黑）下笔画会粘连，只留给
+ *   图表刻度 / 极密的数字标签，不再用于成句的说明文字；
+ * - 字距补足汉字之间的呼吸，配合 1.35 行高保持密排信息的一行高度；
+ *   需要多行说明时叠加 `leading-normal`。
+ * 字号声明放在 utilities 层，才能盖过 Badge / Button 等组件自带的 `text-xs`；
+ * `text-[13px]` / `text-sm` 等显式字号仍可覆盖这里。
  *
  * 刻意不叫 `.text-micro`：`cn` 的 tailwind-merge 会把未知的 `text-*`
  * 当成文字颜色 / 字号，遇到同串里的 `text-muted-foreground` 会直接删掉它。
@@ -283,12 +285,13 @@
 
 /*
  * 字号单独放在 utilities 层：Badge 自带 `text-xs`，组件层会被它盖住。
- * 放在所有内置 utilities 之后才能稳定赢过 12px，且不改变 line-height
- * 的覆盖顺序（`leading-*` 仍可覆盖上面的 1.35）。
+ * `.type-micro` 与 `text-xs` 同为 12px，但这里显式声明字号，避免以后
+ * Badge / Button 改动内置字号时把辅助信息带偏；`leading-*` 仍可覆盖
+ * 组件层里的 1.35。
  */
 @layer utilities {
   .type-micro {
-    font-size: 11.5px;
+    font-size: 12px;
   }
 }
 
