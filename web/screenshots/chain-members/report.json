@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-24T13:46:44.169Z",
+  "generatedAt": "2026-11-24T13:49:28.464Z",
   "base": "http://127.0.0.1:5173",
   "chains": {
     "mixed": "c0ffee00-0006-4000-8000-000000000601",
@@ -21,8 +21,54 @@
   "results": [
     {
       "name": "mixed 1440 dark: node labels / heights / member rows",
-      "ok": false,
-      "detail": "mixed 1440 dark: node 0 height\n\n53 !== 56\n"
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "name": "香港入口",
+          "height": 56,
+          "memberCount": 1,
+          "rows": 0,
+          "count": null,
+          "more": null
+        },
+        {
+          "label": "HOP 1",
+          "name": "东京中转",
+          "height": 72,
+          "memberCount": 2,
+          "rows": 2,
+          "count": "2 台",
+          "more": null
+        },
+        {
+          "label": "HOP 2",
+          "name": "新加坡中转",
+          "height": 88,
+          "memberCount": 3,
+          "rows": 2,
+          "count": "3 台",
+          "more": "+1"
+        },
+        {
+          "label": "HOP 3",
+          "name": "大阪出口",
+          "height": 56,
+          "memberCount": 1,
+          "rows": 0,
+          "count": null,
+          "more": null
+        },
+        {
+          "label": "TARGET",
+          "name": "链目标",
+          "height": 56,
+          "memberCount": 0,
+          "rows": 0,
+          "count": null,
+          "more": null
+        }
+      ]
     },
     {
       "name": "mixed 1440 dark: member row count matches member_count (<=2 rows)",
@@ -974,7 +1020,5 @@
       }
     }
   ],
-  "failures": [
-    "mixed 1440 dark: node labels / heights / member rows: mixed 1440 dark: node 0 height\n\n53 !== 56\n"
-  ]
+  "failures": []
 }
