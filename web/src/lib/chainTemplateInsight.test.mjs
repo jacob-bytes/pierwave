@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  MAX_TEMPLATE_HEAT_TIERS,
   TEMPLATE_STRATEGY_ORDER,
   chainTemplateDetailTotals,
   chainTemplateHotspots,
@@ -9,17 +8,13 @@ import {
   chainTemplateStrategyLabelKey,
   chainTemplateStatus,
   chainTemplateStatusKind,
-  chainTemplateTopology,
   chainTemplateUsageHasData,
   chainTemplateUsageSeries,
   chainTemplateUsageUsers,
-  edgeStrokeWidth,
   isChainTemplateInsightUnsupported,
-  nodeHeatTier,
   normalizeChainTemplateDetail,
   normalizeChainTemplateList,
   strategyShares,
-  templatePulseSchedule,
   templateTargetLabels,
 } from "./chainTemplateInsight.ts";
 import { ApiError } from "./apiError.ts";
@@ -216,30 +211,6 @@ test("状态归一化：只有三种契约状态，cause 去空白", () => {
   });
 });
 
-test("热力色阶：最多 4 档，0 链不占档，超过上限收敛到 4", () => {
-  assert.equal(MAX_TEMPLATE_HEAT_TIERS, 4);
-  assert.equal(nodeHeatTier(0, 10), 0);
-  assert.equal(nodeHeatTier(1, 10), 1);
-  assert.equal(nodeHeatTier(2.5, 10), 1);
-  assert.equal(nodeHeatTier(3, 10), 2);
-  assert.equal(nodeHeatTier(6, 10), 3);
-  assert.equal(nodeHeatTier(10, 10), 4);
-  assert.equal(nodeHeatTier(20, 10), 4);
-  assert.equal(nodeHeatTier(5, 0), 0);
-  assert.equal(nodeHeatTier(Number.NaN, 10), 0);
-});
-
-test("边宽 ∝ 链数，最小 1px、最大 6px，缺基线时保持 1px", () => {
-  assert.equal(edgeStrokeWidth(0, 10), 1);
-  assert.equal(edgeStrokeWidth(5, 10), 3.5);
-  assert.equal(edgeStrokeWidth(10, 10), 6);
-  assert.equal(edgeStrokeWidth(20, 10), 6);
-  assert.equal(edgeStrokeWidth(4, 0), 1);
-  const small = edgeStrokeWidth(2, 10);
-  const large = edgeStrokeWidth(8, 10);
-  assert.ok(large > small);
-});
-
 test("策略分布：同类合并、按固定顺序、百分比合计 100、零链不出现", () => {
   const shares = strategyShares([
     { strategy: "round_robin", chains: 2, users: 1 },
@@ -345,133 +316,6 @@ test("热点排序：按链数降序取 Top 5，按服务器去重，排除目�
   assert.equal(rows.filter((row) => row.name === "1.2.3.4:443").length, 0);
 });
 
-test("拓扑布局：SOURCE + 中间跳 + 聚合 TARGET，头尾聚合而中间分行", () => {
-  const topology = chainTemplateTopology(normalizeChainTemplateDetail(detail()));
-  assert.equal(topology.columns.length, 4);
-  assert.deepEqual(
-    topology.columns.map((column) => column.role),
-    ["source", "hop", "hop", "target"],
-  );
-  assert.equal(topology.columns[1].members.length, 2);
-  assert.equal(topology.columns[3].members.length, 0);
-  assert.equal(topology.target.count, 2);
-  assert.equal(topology.edges.length, 5);
-  assert.ok(topology.width > 4 * 176);
-  assert.ok(topology.height >= 3 * 26);
-
-  // 进入 TARGET 的边汇聚到同一列右侧，且 y 略有展开，不是同一根线。
-  const intoTarget = topology.edges.filter((edge) => edge.toSeq === 3);
-  assert.equal(intoTarget.length, 1);
-  assert.equal(intoTarget[0].unavailable, true);
-  assert.equal(intoTarget[0].pulse, false);
-
-  for (const edge of topology.edges) {
-    assert.ok(edge.path.startsWith("M "));
-    assert.ok(edge.path.includes(" C "));
-    assert.ok(Number.isFinite(edge.x1));
-    assert.ok(Number.isFinite(edge.y1));
-    assert.ok(Number.isFinite(edge.x2));
-    assert.ok(Number.isFinite(edge.y2));
-  }
-});
-
-test("拓扑布局：离线成员标红且该路径无脉冲，可用路径保留脉冲", () => {
-  const topology = chainTemplateTopology(normalizeChainTemplateDetail(detail()));
-  const offlineColumn = topology.columns[2];
-  assert.equal(offlineColumn.members[0].status, "offline");
-  assert.equal(offlineColumn.members[0].offline, true);
-  const offlineEdges = topology.edges.filter((edge) => edge.unavailable);
-  assert.equal(offlineEdges.length, 3);
-  assert.equal(offlineEdges[0].chains, 4);
-  assert.equal(topology.pulseCount, topology.edges.filter((edge) => edge.pulse).length);
-  assert.equal(topology.pulseCount, 2);
-});
-
-test("拓扑布局：无目标时仍有聚合 TARGET 列，目标数为 0", () => {
-  const topology = chainTemplateTopology(
-    normalizeChainTemplateDetail(detail({ targets: [], users: [] })),
-  );
-  const target = topology.columns[topology.columns.length - 1];
-  assert.equal(target.role, "target");
-  assert.equal(target.members.length, 0);
-  assert.equal(topology.target.count, 0);
-  assert.deepEqual(templateTargetLabels(normalizeChainTemplateDetail(detail({ targets: [] }))), []);
-});
-
-test("拓扑布局：成员全离线时所有路径不可用、脉冲为 0", () => {
-  const payload = detail();
-  for (const node of payload.nodes) {
-    for (const item of node.members) item.status = "offline";
-  }
-  const topology = chainTemplateTopology(normalizeChainTemplateDetail(payload));
-  assert.equal(topology.pulseCount, 0);
-  assert.equal(topology.hasOffline, true);
-  assert.ok(topology.edges.every((edge) => edge.unavailable));
-});
-
-test("拓扑布局：节点缺失时用边反推，目标列补在最后", () => {
-  const payload = detail({ nodes: [] });
-  const normalized = normalizeChainTemplateDetail(payload);
-  assert.equal(normalized.nodes.length > 0, true);
-  const topology = chainTemplateTopology(normalized);
-  assert.equal(topology.columns[0].role, "source");
-  assert.equal(topology.columns[topology.columns.length - 1].role, "target");
-  assert.ok(topology.edges.length > 0);
-});
-
-test("大图：20 成员 × 6 跳不产生 NaN，边数保持 O(E)", () => {
-  const nodes = [];
-  const edges = [];
-  for (let seq = 0; seq <= 6; seq += 1) {
-    const role = seq === 0 ? "source" : seq === 6 ? "target" : "hop";
-    nodes.push({
-      seq,
-      role,
-      name: `第 ${seq} 跳`,
-      members:
-        role === "target"
-          ? [{ name: "10.0.0.1:443", chains: 20, users: 20 }]
-          : Array.from({ length: 20 }, (_, index) =>
-              member(`s-${seq}-${index}`, 20 - index, 10, "online"),
-            ),
-    });
-  }
-  for (let seq = 1; seq <= 6; seq += 1) {
-    const toRole = seq === 6 ? "target" : "hop";
-    for (let index = 0; index < 20; index += 1) {
-      edges.push({
-        seq,
-        from: { seq: seq - 1, member: `s-${seq - 1}-${index}` },
-        to: {
-          seq,
-          member:
-            toRole === "target" ? "10.0.0.1:443" : `s-${seq}-${index}`,
-        },
-        chains: 20 - index,
-        users: 10,
-        p50_ms: 10 + seq,
-        loss_pct: 0,
-      });
-    }
-  }
-  const topology = chainTemplateTopology(
-    normalizeChainTemplateDetail({
-      template: { id: "big", name: "大模板", hops: 6 },
-      nodes,
-      edges,
-      targets: [{ host: "10.0.0.1", port: 443, chains: 20 }],
-      users: [],
-      series: [],
-      strategies: [],
-    }),
-  );
-  assert.equal(topology.columns.length, 7);
-  assert.equal(topology.edges.length, 120);
-  assert.ok(topology.width > 7 * 176);
-  assert.ok(topology.edges.every((edge) => Number.isFinite(edge.y2)));
-  assert.ok(topology.edges.every((edge) => edge.width >= 1 && edge.width <= 6));
-});
-
 test("详情合计：优先源成员汇总，缺失时回退最大值", () => {
   const normalized = normalizeChainTemplateDetail(detail());
   assert.deepEqual(chainTemplateDetailTotals(normalized), {
@@ -499,24 +343,6 @@ test("目标文案：host:port 与链数，缺失端口不编造", () => {
   assert.deepEqual(templateTargetLabels(noPort), ["example.com"]);
 });
 
-test("脉冲节奏：3–4s 一轮，延迟从左向右递增，目标在最后一跳后亮起", () => {
-  const schedule = templatePulseSchedule(3);
-  assert.ok(schedule.periodMs >= 3000 && schedule.periodMs <= 4000);
-  const first = schedule.edgeDelaySec(0);
-  const second = schedule.edgeDelaySec(1);
-  const third = schedule.edgeDelaySec(2);
-  assert.ok(second > first);
-  assert.ok(third > second);
-  assert.ok(first < 0, "首条边用负延迟立即进入动画");
-  const lastTravel = 2 * schedule.stepPct + 18;
-  assert.ok(schedule.targetDelaySec >= (lastTravel / 100) * 3.6 - 0.01);
-  const wide = templatePulseSchedule(6);
-  assert.ok(wide.stepPct < schedule.stepPct);
-  assert.ok(wide.targetDelaySec < 3.6, "目标高亮必须在周期内结束");
-  assert.equal(templatePulseSchedule(0).edgeDelaySec(0), -3.6);
-});
-
-
 test("404 / 403 视为旧主控能力缺失，其它错误照常抛出", () => {
   assert.equal(isChainTemplateInsightUnsupported(new ApiError("nf", 404)), true);
   assert.equal(isChainTemplateInsightUnsupported(new ApiError("forbidden", 403)), true);
@@ -524,41 +350,6 @@ test("404 / 403 视为旧主控能力缺失，其它错误照常抛出", () => {
   assert.equal(isChainTemplateInsightUnsupported(new Error("network")), false);
   assert.equal(isChainTemplateInsightUnsupported(null), false);
 });
-
-test("拓扑标签：同一列多路径横向摊开，不再叠成一个数字", () => {
-  const payload = detail();
-  payload.nodes[1].members = [
-    member("东京-01", 4, 2),
-    member("东京-02", 3, 2),
-    member("东京-03", 2, 1),
-    member("东京-04", 1, 1),
-  ];
-  payload.edges = [
-    ...payload.edges.filter((edge) => edge.seq === 1),
-    ...payload.edges.filter((edge) => edge.seq > 1),
-  ];
-  payload.edges = [
-    ...payload.nodes[1].members.map((item, index) => ({
-      seq: 1,
-      from: { seq: 0, member: "香港-01" },
-      to: { seq: 1, member: item.name },
-      chains: 4 - index,
-      users: 1,
-      p50_ms: 15 + index,
-      loss_pct: 0,
-    })),
-    ...payload.edges.filter((edge) => edge.seq > 1),
-  ];
-  const topology = chainTemplateTopology(normalizeChainTemplateDetail(payload));
-  const firstGroup = topology.edges.filter((edge) => edge.fromSeq === 0);
-  assert.equal(firstGroup.length, 4);
-  assert.equal(new Set(firstGroup.map((edge) => edge.labelX)).size, 4);
-  const labelValues = firstGroup
-    .map((edge) => edge.labelY)
-    .sort((a, b) => a - b);
-  assert.ok(labelValues[labelValues.length - 1] - labelValues[0] > 10);
-});
-
 
 test("重复路径聚合：链数求和、用户取最大、P50 按链数加权，O(E) 一趟", () => {
   const edges = aggregateChainTemplateEdges([

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <meta name="color-scheme" content="dark light" />
+    <title>TreeChart harness</title>
+    <script>
+      (function () {
+        try {
+          var params = new URLSearchParams(location.search);
+          var theme = params.get("theme") === "light" ? "light" : "dark";
+          var root = document.documentElement;
+          root.classList.toggle("dark", theme === "dark");
+          root.dataset.theme = theme;
+          root.style.colorScheme = theme;
+        } catch (error) {
+          // 保持深色默认。
+        }
+      })();
+    </script>
+  </head>
+  <body class="bg-background text-foreground">
+    <div id="root"></div>
+    <script type="module" src="./harness.tsx"></script>
+  </body>
+</html>

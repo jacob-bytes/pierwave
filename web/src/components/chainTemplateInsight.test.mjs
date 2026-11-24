@@ -10,6 +10,8 @@ function read(relative) {
 const list = read("../components/overview/ChainTemplateInsightList.tsx");
 const dialog = read("../components/overview/ChainTemplateInsightDialog.tsx");
 const topology = read("../components/overview/ChainTemplateTopology.tsx");
+const treeChart = read("../components/ui/charts/tree-chart.tsx");
+const treeLib = read("../lib/treeChart.ts");
 const usage = read("../components/overview/ChainTemplateUsageChart.tsx");
 const strategies = read(
   "../components/overview/ChainTemplateStrategies.tsx",
@@ -74,7 +76,7 @@ test("详情弹窗由选中列表项驱动，四块内容都在", () => {
   assertIncludes(
     dialog,
     [
-      "<ChainTemplateTopology detail={detail} />",
+      "<ChainTemplateTopology key={detail.template.id} detail={detail} />",
       "<ChainTemplateUsageChart",
       "<ChainTemplateStrategies detail={detail} />",
       "data-template-dialog",
@@ -89,24 +91,59 @@ test("详情弹窗由选中列表项驱动，四块内容都在", () => {
   );
 });
 
-test("拓扑：边宽绑定 chains、离线不可用、脉冲与静态高亮并存", () => {
+test("拓扑：本地 TreeChart 横向树、贝塞尔曲线、折叠与离线路径", () => {
   assertIncludes(
     topology,
     [
-      "data-width={edge.width}",
-      "data-chains={edge.chains}",
-      "data-unavailable={edge.unavailable ? \"true\" : \"false\"}",
-      "data-template-pulse",
-      "data-template-pulse-static",
-      "pathLength={100}",
-      "data-template-member",
-      "data-heat={member.heat}",
-      "data-template-target-node",
-      "data-template-target-detail",
+      'from "@/components/ui/charts/tree-chart"',
+      "<TreeChart",
+      "links={model.links}",
+      "collapsedIds={collapsed}",
+      "onNodeToggle={toggleNode}",
+      "pulse",
+      "renderTooltip",
+      "chainTemplateTree(detail",
+      "data-template-unused",
       "data-template-hotspots",
-      "data-template-node-count",
+      "data-template-tree-tooltip",
+      "tooltipStatus",
+      "tooltipChains",
+      "tooltipUsers",
+      'translate("overview.chainTemplateInsight.treeTargetsFold"',
     ],
     "ChainTemplateTopology",
+  );
+  assertIncludes(
+    treeChart,
+    [
+      'data-tree-node',
+      'data-tree-edge',
+      'data-tree-edge-label',
+      'data-tree-hidden-count',
+      'data-tree-pulse',
+      'data-tree-pulse-static',
+      "data-collapsed=",
+      "data-value={edge.value}",
+      "data-width={edge.width}",
+      'aria-label={ariaLabel}',
+      "data-chart-tooltip",
+      "renderTooltip",
+      "treeHighlightPath",
+      "+{layoutNode.hiddenCount}",
+    ],
+    "TreeChart",
+  );
+  // 曲线与层级 x 在纯布局层生成；这里守住 C（三次贝塞尔）和 O(n) 行/列。
+  assertIncludes(
+    treeLib,
+    [
+      " C ",
+      "hiddenCount",
+      "treeHighlightPath",
+      "treeNodePathToRoot",
+      "Math.max(options.minColumnWidth",
+    ],
+    "tree layout",
   );
   assertIncludes(
     css,
@@ -187,6 +224,16 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     "causeMemberOffline",
     "causeDisabled",
     "heatLegend",
+    "online",
+    "treeRoot",
+    "treeTargetsFold",
+    "topologyAria",
+    "unusedTitle",
+    "tooltipStatus",
+    "tooltipChains",
+    "tooltipUsers",
+    "chainsUnit",
+    "topologyHintPulse",
   ];
   for (const key of keys) {
     assert.ok(zh.includes(`${key}:`), `zh missing ${key}`);

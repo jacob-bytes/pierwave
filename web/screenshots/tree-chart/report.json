@@ -1,0 +1,293 @@
+{
+  "generatedAt": "2026-11-24T15:03:37.250Z",
+  "shots": [
+    {
+      "name": "single-dark-1440.png",
+      "bytes": 33655,
+      "fixture": "single",
+      "theme": "dark",
+      "width": 1440,
+      "targetLeaves": 3,
+      "edges": 5,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "single-dark-390.png",
+      "bytes": 26210,
+      "fixture": "single",
+      "theme": "dark",
+      "width": 390,
+      "targetLeaves": 3,
+      "edges": 5,
+      "scroll": [
+        477,
+        350
+      ]
+    },
+    {
+      "name": "single-light-1440.png",
+      "bytes": 34083,
+      "fixture": "single",
+      "theme": "light",
+      "width": 1440,
+      "targetLeaves": 3,
+      "edges": 5,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "single-light-390.png",
+      "bytes": 26865,
+      "fixture": "single",
+      "theme": "light",
+      "width": 390,
+      "targetLeaves": 3,
+      "edges": 5,
+      "scroll": [
+        477,
+        350
+      ]
+    },
+    {
+      "name": "multi-dark-1440.png",
+      "bytes": 56418,
+      "fixture": "multi",
+      "theme": "dark",
+      "width": 1440,
+      "targetLeaves": 4,
+      "edges": 15,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "multi-dark-390.png",
+      "bytes": 35370,
+      "fixture": "multi",
+      "theme": "dark",
+      "width": 390,
+      "targetLeaves": 4,
+      "edges": 15,
+      "scroll": [
+        768,
+        350
+      ]
+    },
+    {
+      "name": "multi-light-1440.png",
+      "bytes": 55974,
+      "fixture": "multi",
+      "theme": "light",
+      "width": 1440,
+      "targetLeaves": 4,
+      "edges": 15,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "multi-light-390.png",
+      "bytes": 35890,
+      "fixture": "multi",
+      "theme": "light",
+      "width": 390,
+      "targetLeaves": 4,
+      "edges": 15,
+      "scroll": [
+        768,
+        350
+      ]
+    },
+    {
+      "name": "fold-dark-1440.png",
+      "bytes": 76782,
+      "fixture": "fold",
+      "theme": "dark",
+      "width": 1440,
+      "targetLeaves": 8,
+      "edges": 20,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "fold-dark-390.png",
+      "bytes": 36485,
+      "fixture": "fold",
+      "theme": "dark",
+      "width": 390,
+      "targetLeaves": 8,
+      "edges": 20,
+      "scroll": [
+        768,
+        350
+      ]
+    },
+    {
+      "name": "fold-light-1440.png",
+      "bytes": 74687,
+      "fixture": "fold",
+      "theme": "light",
+      "width": 1440,
+      "targetLeaves": 8,
+      "edges": 20,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "fold-light-390.png",
+      "bytes": 36582,
+      "fixture": "fold",
+      "theme": "light",
+      "width": 390,
+      "targetLeaves": 8,
+      "edges": 20,
+      "scroll": [
+        768,
+        350
+      ]
+    },
+    {
+      "name": "offline-dark-1440.png",
+      "bytes": 57603,
+      "fixture": "offline",
+      "theme": "dark",
+      "width": 1440,
+      "targetLeaves": 4,
+      "edges": 15,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "offline-dark-390.png",
+      "bytes": 35972,
+      "fixture": "offline",
+      "theme": "dark",
+      "width": 390,
+      "targetLeaves": 4,
+      "edges": 15,
+      "scroll": [
+        768,
+        350
+      ]
+    },
+    {
+      "name": "offline-light-1440.png",
+      "bytes": 57115,
+      "fixture": "offline",
+      "theme": "light",
+      "width": 1440,
+      "targetLeaves": 4,
+      "edges": 15,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "offline-light-390.png",
+      "bytes": 36575,
+      "fixture": "offline",
+      "theme": "light",
+      "width": 390,
+      "targetLeaves": 4,
+      "edges": 15,
+      "scroll": [
+        768,
+        350
+      ]
+    },
+    {
+      "name": "multi-390-dark-end.png",
+      "bytes": 33805,
+      "scroll": [
+        768,
+        350
+      ],
+      "targetLeaves": 4
+    },
+    {
+      "name": "fold-390-dark-end.png",
+      "bytes": 48746,
+      "scroll": [
+        768,
+        350
+      ],
+      "targetLeaves": 8
+    },
+    {
+      "name": "offline-390-dark-end.png",
+      "bytes": 33896,
+      "scroll": [
+        768,
+        350
+      ],
+      "targetLeaves": 4
+    },
+    {
+      "name": "multi-collapsed-1440-dark.png",
+      "bytes": 44153,
+      "hidden": "5",
+      "visibleNodes": 9
+    },
+    {
+      "name": "multi-hover-path-1440-dark.png",
+      "bytes": 60439,
+      "halos": 5
+    },
+    {
+      "name": "multi-hover-edge-1440-dark.png",
+      "bytes": 59061,
+      "halos": 3
+    },
+    {
+      "name": "fold-expanded-1440-dark.png",
+      "bytes": 87399,
+      "targetLeaves": 12
+    },
+    {
+      "name": "multi-pulse-frame-a-1440-dark.png",
+      "bytes": 57459
+    },
+    {
+      "name": "multi-pulse-frame-b-1440-dark.png",
+      "bytes": 56354
+    },
+    {
+      "name": "multi-reduced-motion-1440-dark.png",
+      "bytes": 57191,
+      "pulseAnimation": "none",
+      "pulseOpacity": "0",
+      "staticOpacity": "0.42",
+      "halos": 0
+    },
+    {
+      "name": "multi-en-1440-dark.png",
+      "bytes": 56289,
+      "lang": "en"
+    }
+  ],
+  "checks": [
+    {
+      "name": "hover-node-halos",
+      "value": 5
+    },
+    {
+      "name": "hover-edge-halos",
+      "value": 3
+    }
+  ],
+  "errors": []
+}

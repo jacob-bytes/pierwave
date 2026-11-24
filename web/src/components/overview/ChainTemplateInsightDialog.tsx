@@ -53,7 +53,7 @@ function TemplateDetailBody({
 }) {
   return (
     <div className="space-y-4" data-template-detail>
-      <ChainTemplateTopology detail={detail} />
+      <ChainTemplateTopology key={detail.template.id} detail={detail} />
       <div className="grid gap-4 lg:grid-cols-2">
         <ChainTemplateUsageChart
           detail={detail}
