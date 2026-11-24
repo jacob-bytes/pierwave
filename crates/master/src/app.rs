@@ -99,6 +99,19 @@ async fn security_headers(request: Request<Body>, next: Next) -> Response {
     let no_store = request.uri().path().starts_with("/api/");
     let mut response = next.run(request).await;
     apply_security_headers(response.headers_mut(), secure, no_store);
+
+    // SPA 入口必须每次回源校验：Vite 的资源文件名带哈希，但 `index.html`
+    // 本身没有，浏览器一旦按启发式缓存，升级后仍会加载旧 bundle。
+    let is_html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/html"));
+    if is_html {
+        response
+            .headers_mut()
+            .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    }
     response
 }
 
@@ -661,10 +674,13 @@ mod tests {
                 .expect("缺少 nosniff"),
             "nosniff"
         );
-        assert!(
-            headers.get(header::CACHE_CONTROL).is_none(),
-            "静态资源不能套用 API 的 no-store"
+        // 静态资源不能套 API 的 no-store（那会让每次请求都重新传输），
+        // 但 SPA 入口必须回源校验，否则浏览器会按启发式缓存旧的 index.html。
+        assert_eq!(
+            headers.get(header::CACHE_CONTROL).expect("缺少 no-cache"),
+            "no-cache"
         );
+        assert!(headers.get(header::PRAGMA).is_none());
     }
 
     #[tokio::test]
