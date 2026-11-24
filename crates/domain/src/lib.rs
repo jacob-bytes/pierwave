@@ -6,6 +6,7 @@ pub mod backup;
 pub mod billing;
 pub mod certificate;
 pub mod chain_health;
+pub mod chain_template_insight;
 pub mod chain_templates;
 pub mod chains;
 pub mod country;

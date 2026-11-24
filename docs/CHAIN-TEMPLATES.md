@@ -7,6 +7,11 @@
 > default and may also be given explicitly at creation time (it only overrides
 > the first hop's public listen port).
 
+> 模板使用情况（多少链 / 用户、候选成员、真实路径边）见
+> [`docs/CHAIN-TEMPLATE-INSIGHT.md`](CHAIN-TEMPLATE-INSIGHT.md)。
+> Template usage insight (chain/user counts, candidates, real path edges) lives
+> in [`docs/CHAIN-TEMPLATE-INSIGHT.md`](CHAIN-TEMPLATE-INSIGHT.md).
+
 ## 规则 / Rules
 
 - 用户可建链数 = **生效中**套餐 `chain_limit` 的最大值（多套餐不累加；无套餐 = 0）。

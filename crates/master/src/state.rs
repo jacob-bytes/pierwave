@@ -570,6 +570,81 @@ impl ChainHealthCache {
     }
 }
 
+/// 「转发链模板」洞察的 30 秒缓存。
+///
+/// 列表与详情共用一份缓存，key = `(template_id, hours)`：列表的
+/// `template_id` 是 `None`、`hours` 固定 0；详情是 `Some(id)` + 24/168。
+/// 链模板与链的写入频率很低，30 秒陈旧可以接受；两条 SQL 聚合（拓扑 +
+/// 当前窗口样本）在刷新高峰时被压成一次。
+pub const CHAIN_TEMPLATE_INSIGHT_CACHE_TTL: Duration = Duration::from_secs(30);
+
+const CHAIN_TEMPLATE_INSIGHT_CACHE_MAX_ENTRIES: usize = 64;
+
+type ChainTemplateInsightKey = (Option<String>, i64);
+type ChainTemplateInsightEntry = (Instant, Value);
+
+/// `GET /api/v1/overview/chain-templates[/{id}]` 的 30 秒结果缓存。
+#[derive(Clone)]
+pub struct ChainTemplateInsightCache {
+    inner: Arc<Mutex<HashMap<ChainTemplateInsightKey, ChainTemplateInsightEntry>>>,
+    ttl: Duration,
+}
+
+impl Default for ChainTemplateInsightCache {
+    fn default() -> Self {
+        Self::with_ttl(CHAIN_TEMPLATE_INSIGHT_CACHE_TTL)
+    }
+}
+
+impl ChainTemplateInsightCache {
+    pub fn with_ttl(ttl: Duration) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+            ttl,
+        }
+    }
+
+    /// 命中返回整份响应；`id` / `hours` 任一不同都必须 miss。
+    pub fn get(&self, id: Option<&str>, hours: i64) -> Option<Value> {
+        let key = (id.map(str::to_string), hours);
+        let guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard
+            .get(&key)
+            .filter(|(at, _)| self.ttl > Duration::ZERO && at.elapsed() < self.ttl)
+            .map(|(_, value)| value.clone())
+    }
+
+    pub fn put(&self, id: Option<&str>, hours: i64, value: Value) {
+        if self.ttl.is_zero() {
+            return;
+        }
+        let key = (id.map(str::to_string), hours);
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard.len() >= CHAIN_TEMPLATE_INSIGHT_CACHE_MAX_ENTRIES && !guard.contains_key(&key) {
+            guard.retain(|_, (at, _)| at.elapsed() < self.ttl);
+            while guard.len() >= CHAIN_TEMPLATE_INSIGHT_CACHE_MAX_ENTRIES {
+                let oldest = guard
+                    .iter()
+                    .min_by_key(|(_, (at, _))| *at)
+                    .map(|(key, _)| key.clone());
+                match oldest {
+                    Some(oldest) => {
+                        guard.remove(&oldest);
+                    }
+                    None => break,
+                }
+            }
+        }
+        guard.insert(key, (Instant::now(), value));
+    }
+}
+
 /// 导出 / 异地备份的数据库大小上限：与恢复共用 512 MB 默认值。
 ///
 /// 可用 `PIERWAVE_MAX_BACKUP_MB` 调整；非法值（0 / 非数字）回落默认值，
@@ -938,6 +1013,8 @@ pub struct AppState {
     pub server_health: ServerHealthCache,
     /// 管理员「链路时延」聚合缓存（30 秒，按 `(hours, bucket, server_ids)`）。
     pub chain_health: ChainHealthCache,
+    /// 管理员「转发链模板」洞察缓存（30 秒，按 `(template_id, hours)`）。
+    pub chain_template_insight: ChainTemplateInsightCache,
     /// 自动汇率：可注入的抓取器 + 串行化手动覆盖/自动抓取的锁。
     pub fx: crate::fx::FxService,
     /// 告警去抖状态 + 投递器；未配置渠道时所有通知都是 no-op。
@@ -981,6 +1058,7 @@ impl AppState {
             overview_traffic: OverviewTrafficCache::with_ttl(overview_cache_ttl_from_env()),
             server_health: ServerHealthCache::default(),
             chain_health: ChainHealthCache::default(),
+            chain_template_insight: ChainTemplateInsightCache::default(),
             fx: crate::fx::FxService::default(),
             alerts: Alerts::default(),
             updates: UpdateService::default(),
@@ -1442,5 +1520,35 @@ mod tests {
         let disabled = ChainHealthCache::with_ttl(Duration::ZERO);
         disabled.put(24, 900, None, serde_json::json!({ "v": 1 }));
         assert!(disabled.get(24, 900, None).is_none());
+    }
+
+    /// 链模板洞察缓存：列表与详情、24h 与 168h 必须是不同 key。
+    #[tokio::test]
+    async fn chain_template_insight_cache_is_keyed_by_template_and_hours() {
+        let cache = ChainTemplateInsightCache::with_ttl(Duration::from_secs(30));
+        cache.put(None, 0, serde_json::json!({ "v": "list" }));
+        cache.put(Some("t1"), 24, serde_json::json!({ "v": "t1-24" }));
+        cache.put(Some("t1"), 168, serde_json::json!({ "v": "t1-168" }));
+
+        assert_eq!(cache.get(None, 0).unwrap()["v"], "list");
+        assert_eq!(cache.get(Some("t1"), 24).unwrap()["v"], "t1-24");
+        assert_eq!(cache.get(Some("t1"), 168).unwrap()["v"], "t1-168");
+        assert!(cache.get(Some("t2"), 24).is_none(), "id 不同必须 miss");
+        assert!(cache.get(Some("t1"), 12).is_none(), "hours 不同必须 miss");
+        assert!(cache.get(None, 24).is_none(), "列表与详情不能共用 key");
+    }
+
+    /// 30 秒 TTL + `0` 关闭缓存。
+    #[tokio::test]
+    async fn chain_template_insight_cache_expires_and_can_be_disabled() {
+        let cache = ChainTemplateInsightCache::with_ttl(Duration::from_millis(30));
+        cache.put(Some("t1"), 24, serde_json::json!({ "v": 1 }));
+        assert!(cache.get(Some("t1"), 24).is_some());
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(cache.get(Some("t1"), 24).is_none(), "超过 TTL 必须 miss");
+
+        let disabled = ChainTemplateInsightCache::with_ttl(Duration::ZERO);
+        disabled.put(Some("t1"), 24, serde_json::json!({ "v": 1 }));
+        assert!(disabled.get(Some("t1"), 24).is_none());
     }
 }

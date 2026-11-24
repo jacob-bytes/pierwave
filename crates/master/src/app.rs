@@ -432,6 +432,15 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/overview/chain-health",
             get(routes::chain_health::chain_health),
         )
+        // 管理员「转发链模板」洞察：列表 / 详情，30 秒短缓存。
+        .route(
+            "/api/v1/overview/chain-templates",
+            get(routes::chain_template_insight::list),
+        )
+        .route(
+            "/api/v1/overview/chain-templates/{id}",
+            get(routes::chain_template_insight::detail),
+        )
         .route("/api/v1/stats/traffic", get(routes::stats::traffic))
         .route("/api/v1/stats/nodes", get(routes::stats::nodes))
         .route(

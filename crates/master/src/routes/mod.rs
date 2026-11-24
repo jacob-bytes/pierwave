@@ -6,6 +6,7 @@ pub mod auth;
 pub mod backup;
 pub mod certificates;
 pub mod chain_health;
+pub mod chain_template_insight;
 pub mod chain_templates;
 pub mod chains;
 pub mod desired;

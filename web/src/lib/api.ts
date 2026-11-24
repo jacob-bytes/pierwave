@@ -2360,6 +2360,106 @@ export interface OverviewChainHealthResponse {
   warnings?: OverviewWarnings | null;
 }
 
+/* ------------------------------------------------------------------ */
+/* 转发链模板洞察                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface OverviewChainTemplateStatus {
+  /** `ok` / `degraded` / `blocked`；未知值由前端降级为 unknown。 */
+  kind?: string | null;
+  cause?: string | null;
+}
+
+export interface OverviewChainTemplateUser {
+  id?: string | null;
+  name?: string | null;
+  chains?: number | null;
+}
+
+export interface OverviewChainTemplateTarget {
+  host?: string | null;
+  port?: number | null;
+  chains?: number | null;
+  /** 列表接口不带 users；详情接口的 targets 才带。 */
+  users?: (OverviewChainTemplateUser | null)[] | null;
+}
+
+export interface OverviewChainTemplateStrategy {
+  strategy?: string | null;
+  chains?: number | null;
+  users?: number | null;
+}
+
+export interface OverviewChainTemplateListItem {
+  id?: string | null;
+  name?: string | null;
+  hops?: number | null;
+  enabled?: boolean | null;
+  chains?: number | null;
+  users?: number | null;
+  status?: OverviewChainTemplateStatus | null;
+  strategies?: (OverviewChainTemplateStrategy | null)[] | null;
+  targets?: (OverviewChainTemplateTarget | null)[] | null;
+}
+
+export interface OverviewChainTemplateListResponse {
+  generated_at?: number | null;
+  items?: (OverviewChainTemplateListItem | null)[] | null;
+}
+
+export interface OverviewChainTemplateNodeMember {
+  server_id?: string | null;
+  name?: string | null;
+  /** `online` / `offline`；缺失按 unknown 处理。 */
+  status?: string | null;
+  chains?: number | null;
+  users?: number | null;
+}
+
+export interface OverviewChainTemplateNode {
+  seq?: number | null;
+  /** `source` / `hop` / `target`；缺失按位置推断。 */
+  role?: string | null;
+  name?: string | null;
+  members?: (OverviewChainTemplateNodeMember | null)[] | null;
+}
+
+export interface OverviewChainTemplateEndpointRef {
+  seq?: number | null;
+  member?: string | null;
+}
+
+export interface OverviewChainTemplateEdge {
+  seq?: number | null;
+  from?: OverviewChainTemplateEndpointRef | null;
+  to?: OverviewChainTemplateEndpointRef | null;
+  chains?: number | null;
+  users?: number | null;
+  p50_ms?: number | null;
+  loss_pct?: number | null;
+}
+
+export interface OverviewChainTemplateSeriesPoint {
+  ts?: number | null;
+  chains?: number | null;
+  users?: number | null;
+}
+
+export interface OverviewChainTemplateDetailResponse {
+  template?: {
+    id?: string | null;
+    name?: string | null;
+    hops?: number | null;
+    created_at?: number | null;
+  } | null;
+  nodes?: (OverviewChainTemplateNode | null)[] | null;
+  edges?: (OverviewChainTemplateEdge | null)[] | null;
+  targets?: (OverviewChainTemplateTarget | null)[] | null;
+  users?: (OverviewChainTemplateUser | null)[] | null;
+  series?: (OverviewChainTemplateSeriesPoint | null)[] | null;
+  strategies?: (OverviewChainTemplateStrategy | null)[] | null;
+}
+
 /**
  * P2：节点维度流量，见 docs/PLAN.md「P2：节点维度流量明细」。
  *
@@ -2863,6 +2963,25 @@ export const api = {
         `/api/v1/overview/chain-health?${params.toString()}`,
       );
     },
+    /**
+     * 转发链模板洞察（列表）：每个模板的跳数、使用它的链数 / 用户数与状态。
+     *
+     * 接口由新主控提供；旧主控 404 / 403 时查询层返回 null，页面显示
+     * 「需要新版本主控」。路径与 `hours` 参数都集中在 `api.overview` 这一处。
+     */
+    chainTemplateInsights: () =>
+      request<OverviewChainTemplateListResponse>(
+        "/api/v1/overview/chain-templates",
+      ),
+    /**
+     * 单个模板的拓扑 / 使用量 / 策略 / 用户明细。
+     *
+     * `hours` 只接受 24 / 168；后端按该窗口返回 15 分钟桶的使用量序列。
+     */
+    chainTemplateInsight: (id: string, hours = 24) =>
+      request<OverviewChainTemplateDetailResponse>(
+        `/api/v1/overview/chain-templates/${encodeURIComponent(id)}?hours=${encodeURIComponent(String(hours))}`,
+      ),
   },
   stats: {
     overview: () => request<OverviewStats>("/api/v1/stats/overview"),

@@ -643,6 +643,90 @@
 }
 
 /*
+ * 转发链模板拓扑的丝带脉冲。
+ *
+ * 每条边一个短 dash（pathLength=100 归一化，长度与边的像素宽度无关），
+ * 负延迟由 JS 按列序写入：第 k 条边在 k * step 出发，多路径同相位分裂，
+ * 最后一跳到达后 TARGET 外框亮起再淡出。周期 3.6s，与 DESIGN.md 的
+ * 「短、只解释状态」一致；不引入新色相，只用 primary。
+ *
+ * prefers-reduced-motion 下彻底停掉动画，用静态半透明高亮代替：
+ * 信息（哪条路径有流量）仍然可见，只是不再移动。
+ */
+@keyframes template-pulse-flow {
+  0% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+  2% {
+    opacity: 0.95;
+  }
+  18% {
+    stroke-dashoffset: -92;
+    opacity: 0.95;
+  }
+  26% {
+    stroke-dashoffset: -92;
+    opacity: 0;
+  }
+  100% {
+    stroke-dashoffset: -92;
+    opacity: 0;
+  }
+}
+
+.template-pulse {
+  opacity: 0;
+  animation: template-pulse-flow 3.6s linear infinite;
+}
+
+.template-pulse-static {
+  opacity: 0;
+}
+
+@keyframes template-target-pulse {
+  0% {
+    opacity: 0;
+  }
+  6% {
+    opacity: 0.55;
+  }
+  18% {
+    opacity: 0.12;
+  }
+  24%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.template-target-glow {
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in oklab, var(--primary) 70%, transparent);
+  opacity: 0;
+  animation: template-target-pulse 3.6s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .template-pulse {
+    animation: none !important;
+    opacity: 0;
+  }
+
+  .template-pulse-static {
+    opacity: 0.42;
+  }
+
+  .template-target-glow {
+    animation: none !important;
+    opacity: 0.45;
+  }
+}
+
+/*
  * 卡片头部窄屏纵向堆叠（U2）。
  *
  * 英文 390 下「配额 + New forward」动作行约占 217px，把标题压到 88px。

@@ -543,3 +543,36 @@ async fn chain_health_queries_use_their_indexes() {
     )
     .await;
 }
+
+/// 「转发链模板」洞察的读路径：模板列表走新增的 `(created_at)` 索引，用户
+/// 名字用主键 `IN (...)` 批量取；链拓扑 / 样本查询与 chain-health 共用同一批
+/// 索引（见上一条测试）。
+#[tokio::test]
+async fn chain_template_insight_queries_use_their_indexes() {
+    let pool = setup().await;
+    // 空表时 SQLite 可能直接扫表；放一行，让规划器按真实基数选择索引。
+    sqlx::query(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 100)
+         INSERT INTO chain_templates
+            (id, name, engine, security, transport, protocol, groups_json, enabled, created_at)
+         SELECT 'tpl' || i, '模板 ' || i, 'native', 'tls', 'none', 'tcp', '[]', 1, 100 + i
+         FROM n",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert_plan_uses_index(
+        &pool,
+        "SELECT * FROM chain_templates ORDER BY created_at ASC, rowid ASC",
+        "idx_chain_templates_created",
+    )
+    .await;
+
+    assert_uses_index(
+        &pool,
+        "SELECT id, username FROM users WHERE id IN ('u1', 'u2')",
+        "sqlite_autoindex_users_1",
+    )
+    .await;
+}

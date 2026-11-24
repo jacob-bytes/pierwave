@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChainLatencyDetailDialog } from "@/components/overview/ChainLatencyDetailDialog";
+import { ChainTemplateInsightList } from "@/components/overview/ChainTemplateInsightList";
 import { ChainLatencyList } from "@/components/overview/ChainLatencyList";
 import { PanelError } from "@/components/overview/PanelError";
 import {
@@ -184,6 +185,8 @@ export default function ChainLatencyView({
     return (
       <div className="space-y-4" data-chain-view>
         <NoChainsCard scoped={scoped} />
+        {/* 模板洞察是独立接口：没有链时仍要能列出自家的模板。 */}
+        <ChainTemplateInsightList />
       </div>
     );
   }
@@ -211,6 +214,7 @@ export default function ChainLatencyView({
         trendPending={latency.isPending}
         onClose={closeChain}
       />
+      <ChainTemplateInsightList />
     </div>
   );
 }

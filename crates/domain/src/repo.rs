@@ -309,6 +309,25 @@ pub mod users {
         )
     }
 
+    /// 一批用户的 `id -> username`：概览洞察里给 tooltip 补名字，一次 `IN (...)`
+    /// 查完，不在循环里按用户查库。不存在的 id 不出现在结果里。
+    pub async fn names_by_ids(
+        pool: &SqlitePool,
+        ids: &[String],
+    ) -> anyhow::Result<std::collections::HashMap<String, String>> {
+        if ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let mut builder = sqlx::QueryBuilder::new("SELECT id, username FROM users WHERE id IN (");
+        let mut separated = builder.separated(", ");
+        for id in ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        let rows: Vec<(String, String)> = builder.build_query_as().fetch_all(pool).await?;
+        Ok(rows.into_iter().collect())
+    }
+
     pub async fn find_by_username(
         pool: &SqlitePool,
         username: &str,

@@ -127,6 +127,13 @@ import {
   CHAIN_HEALTH_POLL_MS,
   isChainHealthUnsupported,
 } from "@/lib/chainHealth";
+import {
+  isChainTemplateInsightUnsupported,
+  normalizeChainTemplateDetail,
+  normalizeChainTemplateList,
+  type ChainTemplateDetail,
+  type ChainTemplateListSnapshot,
+} from "@/lib/chainTemplateInsight";
 import { isServerHealthUnsupported } from "@/lib/serverHealth";
 
 /** P4：有升级在途时，服务器列表与升级历史的轮询间隔。 */
@@ -196,6 +203,10 @@ export const queryKeys = {
       bucket,
       [...serverIds].sort().join(","),
     ] as const,
+  /** 转发链模板洞察：列表与详情分开缓存，详情不牵动列表。 */
+  chainTemplateInsights: ["overview", "chain-templates"] as const,
+  chainTemplateInsight: (id: string, hours: number) =>
+    ["overview", "chain-templates", id, hours] as const,
   statsTraffic: (days: number) => ["stats", "traffic", days] as const,
   /** 管理员转发日表对账；窗口天数进 key，切换窗口即换查询。 */
   forwardUsage: (days: number) => ["forward-traffic", days] as const,
@@ -526,6 +537,61 @@ export function useChainHealth(
     refetchInterval: (query) =>
       query.state.data === null ? false : CHAIN_HEALTH_POLL_MS,
     refetchIntervalInBackground: false,
+  });
+}
+
+/**
+ * 转发链模板洞察（列表）：链路时延 tab 底部的「转发链模板」区块。
+ *
+ * 旧主控没有该接口时返回 404；与 chain-health 一样转成 `null`（查询成功），
+ * 区块显示「需要新版本主控」，不做无意义的重试。其它错误仍按错误态处理。
+ */
+export function useChainTemplateInsights(enabled = true) {
+  return useQuery<ChainTemplateListSnapshot | null>({
+    queryKey: queryKeys.chainTemplateInsights,
+    queryFn: async () => {
+      try {
+        return normalizeChainTemplateList(
+          await api.overview.chainTemplateInsights(),
+        );
+      } catch (error) {
+        if (isChainTemplateInsightUnsupported(error)) return null;
+        throw error;
+      }
+    },
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+    // 旧主控返回 null 后停止轮询；正常时 1 分钟刷新一次。
+    refetchInterval: (query) =>
+      query.state.data === null ? false : 60_000,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** 单个模板的详情；404 / 403 同样降级成「需要新版本主控」。 */
+export function useChainTemplateInsight(
+  id: string | null,
+  hours = 24,
+) {
+  const templateId = id ?? "";
+  return useQuery<ChainTemplateDetail | null>({
+    queryKey: queryKeys.chainTemplateInsight(templateId, hours),
+    queryFn: async () => {
+      try {
+        return normalizeChainTemplateDetail(
+          await api.overview.chainTemplateInsight(templateId, hours),
+        );
+      } catch (error) {
+        if (isChainTemplateInsightUnsupported(error)) return null;
+        throw error;
+      }
+    },
+    enabled: templateId !== "",
+    retry: false,
+    staleTime: 60_000,
+    // 24h ↔ 7d 切换时先保留上一份详情，弹窗不能被拆掉重挂骨架。
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -2089,6 +2155,9 @@ function invalidateChainTemplateViews(
 ) {
   void queryClient.invalidateQueries({ queryKey: queryKeys.chainTemplates });
   void queryClient.invalidateQueries({ queryKey: queryKeys.myChainTemplates });
+  void queryClient.invalidateQueries({
+    queryKey: queryKeys.chainTemplateInsights,
+  });
   void queryClient.invalidateQueries({ queryKey: queryKeys.packages });
 }
 
