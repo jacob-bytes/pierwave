@@ -6,7 +6,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ServerIcon, ServerOffIcon, TriangleAlertIcon } from "lucide-react";
 import { EmptyState, ListError } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { InsightMetrics } from "./InsightMetrics";
 import { ResourceLineChart } from "./ResourceLineChart";
+import { ServerUptimeTrendChart } from "./ServerUptimeTrendChart";
 import { errorText } from "@/lib/errors";
 import { useServerHealth } from "@/lib/queries";
 import {
@@ -24,6 +25,7 @@ import {
   buildAnomalyWindows,
   buildHeatmapColumns,
   buildResourceChartData,
+  buildUptimeTrend,
   formatHourTick,
   formatMonthDayHour,
   formatPercent,
@@ -38,6 +40,11 @@ import {
   type ServerHealthServer,
   type ServerHealthSnapshot,
 } from "@/lib/serverHealth";
+import {
+  applyServerHealthMode,
+  resolveServerHealthMode,
+  type ServerHealthMode,
+} from "@/lib/serverHealthView";
 import { useIsDesktop } from "@/lib/useIsDesktop";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
@@ -156,6 +163,16 @@ function ServerHealthBody({
   filtered: boolean;
 }) {
   const desktop = useIsDesktop();
+  // 呈现方式的唯一来源是 URL：默认趋势不写参数，热力图写 `?mode=heatmap`。
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mode = resolveServerHealthMode(searchParams.get("mode"));
+  const onModeChange = (value: string) => {
+    setSearchParams(
+      (previous) =>
+        applyServerHealthMode(previous, resolveServerHealthMode(value)),
+      { replace: true },
+    );
+  };
   // KPI 直接用后端 summary：筛选已由 `server_ids` 交给后端，前端不再重算。
   // 旧主控忽略筛选时，行数据仍按选中集合过滤，避免热力图混入范围外服务器。
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
@@ -259,6 +276,8 @@ function ServerHealthBody({
         snapshot={scopedSnapshot}
         servers={selectedServers}
         desktop={desktop}
+        mode={mode}
+        onModeChange={onModeChange}
       />
 
       <section className="grid gap-4 xl:grid-cols-3">
@@ -380,10 +399,15 @@ function HeatmapCard({
   snapshot,
   servers,
   desktop,
+  mode,
+  onModeChange,
 }: {
   snapshot: ServerHealthSnapshot;
   servers: ServerHealthServer[];
   desktop: boolean;
+  /** 热力图 / 趋势；由 `?mode=` 决定。 */
+  mode: ServerHealthMode;
+  onModeChange: (value: string) => void;
 }) {
   const stepSecs = Math.max(1, snapshot.window.bucketSecs || 3600);
   const columns = useMemo(
@@ -414,6 +438,8 @@ function HeatmapCard({
     }
     return starts;
   }, [dayGroups]);
+
+  const trend = useMemo(() => buildUptimeTrend(snapshot, 168), [snapshot]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const tipWrapRef = useRef<HTMLDivElement>(null);
@@ -519,20 +545,38 @@ function HeatmapCard({
   }
 
   return (
-    <Card className="min-w-0 gap-0" data-heatmap-card>
+    <Card className="min-w-0 gap-0" data-heatmap-card data-uptime-mode={mode}>
       <CardHeader className="border-b border-border pb-4">
-        <div className="flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium">
             {t("overview.serverHealth.heatmapTitle")}
           </CardTitle>
-          <Badge
-            variant="outline"
-            className="shrink-0 font-normal text-muted-foreground"
-          >
-            {t("overview.serverHealth.metricUptime")}
-          </Badge>
+          <div className="flex min-w-0 items-center gap-2">
+            <Badge
+              variant="outline"
+              className="shrink-0 font-normal text-muted-foreground"
+            >
+              {t("overview.serverHealth.metricUptime")}
+            </Badge>
+            <Tabs value={mode} onValueChange={onModeChange}>
+              <TabsList
+                aria-label={t("overview.serverHealth.uptimeModeAria")}
+                data-uptime-mode-tabs
+                className="max-w-full overflow-x-auto"
+              >
+                <TabsTrigger value="heatmap" className="px-2 text-xs">
+                  {t("overview.serverHealth.uptimeModeHeatmap")}
+                </TabsTrigger>
+                <TabsTrigger value="trend" className="px-2 text-xs">
+                  {t("overview.serverHealth.uptimeModeTrend")}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         </div>
-        <UptimeLegend approximate={snapshot.approximateUptime} />
+        {mode === "heatmap" ? (
+          <UptimeLegend approximate={snapshot.approximateUptime} />
+        ) : null}
       </CardHeader>
 
       <CardContent className="min-w-0 p-2 sm:p-4">
@@ -543,6 +587,11 @@ function HeatmapCard({
             title={t("overview.scope.emptyTitle")}
             description={t("overview.scope.emptyDesc")}
             className="py-12"
+          />
+        ) : mode === "trend" ? (
+          <ServerUptimeTrendChart
+            trend={trend}
+            approximate={snapshot.approximateUptime}
           />
         ) : (
           <div

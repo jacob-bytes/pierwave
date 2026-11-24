@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { TriangleAlertIcon, WaypointsIcon } from "lucide-react";
 import { EmptyState } from "@/components/common";
@@ -9,6 +9,7 @@ import { ChainLatencyDetailDialog } from "@/components/overview/ChainLatencyDeta
 import { ChainTemplateInsightList } from "@/components/overview/ChainTemplateInsightList";
 import { ChainLatencyList } from "@/components/overview/ChainLatencyList";
 import { PanelError } from "@/components/overview/PanelError";
+import { resolveChainSection } from "@/lib/chainSections";
 import {
   CHAIN_HEALTH_POLL_MS,
   chainLatencyWindow,
@@ -40,9 +41,14 @@ function ScopeWarning() {
 /**
  * 「链路时延」tab：KPI + 趋势图 + 链路表格。
  *
+ * 内容再分两个子页（转发链 / 转发模板），子 tab 由 `ChainSectionTabs` 渲染在
+ * 主 tab 行、服务器筛选器右侧；URL 是子页的唯一来源：
+ * `?view=chain&section=chains|templates`，默认「转发链」不写参数。离开本 tab
+ * 时 `applyOverviewView` 会清掉 `section`，刷新 / 分享仍保持当前子页。
+ *
  * 详情不再替换整页，而是列表之上的一层居中弹窗；`?chain=<id>` 只作为
  * 深链接兼容保留（刷新 / 分享时直接打开弹窗），关闭弹窗即清理该参数，
- * 不改变 `view=chain`，列表始终留在身后。
+ * 不改变 `view=chain` 与 `section`，列表始终留在身后。
  */
 export default function ChainLatencyView({
   selectedIds,
@@ -55,14 +61,17 @@ export default function ChainLatencyView({
   useI18n();
   const [range, setRange] = useState<ChainLatencyRange>("24h");
   const [searchParams, setSearchParams] = useSearchParams();
+  const section = resolveChainSection(searchParams.get("section"));
   const chainParam = (searchParams.get("chain") ?? "").trim() || null;
   const { hours, bucket } = chainLatencyWindow(range);
   const scoped = filtered && selectedIds.length > 0;
+  // 模板子页是独立接口，不需要 chain-health；切到模板时停掉链路轮询，
+  // 切回转发链仍会先命中缓存，不会重新铺骨架。
   const query = useChainHealth(
     hours,
     bucket,
     scoped ? selectedIds : [],
-    selectedIds.length > 0,
+    selectedIds.length > 0 && section === "chains",
   );
   const chains = useChains();
   const scopedChains = useMemo(
@@ -79,7 +88,7 @@ export default function ChainLatencyView({
       ? parsed.snapshot
       : null;
   const detailChain =
-    chainParam && snapshot
+    section === "chains" && chainParam && snapshot
       ? (snapshot.chains.find((chain) => chain.id === chainParam) ?? null)
       : null;
   // 详情徽章要和列表状态列说同一句话：把配置里的停用 / 旧 blocked 一并带进去。
@@ -112,6 +121,20 @@ export default function ChainLatencyView({
     );
   }, [chainParam, snapshot, setSearchParams]);
 
+  // 模板子页不接受 `chain` 深链：直接访问 `?section=templates&chain=x` 时
+  // 也要清掉它，否则切回转发链会重新弹出详情。
+  useEffect(() => {
+    if (section === "chains" || !chainParam) return;
+    setSearchParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        next.delete("chain");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [section, chainParam, setSearchParams]);
+
   function openChain(id: string) {
     setSearchParams(
       (previous) => {
@@ -137,84 +160,76 @@ export default function ChainLatencyView({
     );
   }
 
+  // 两个子页互不占位：转发链子页只拼自己的四态，模板子页整块交给模板列表。
+  let chainsContent: ReactNode;
   if (selectedIds.length === 0) {
-    return (
-      <div className="space-y-4" data-chain-view>
-        <ChainScopeEmpty
-          title={t("overview.scope.emptyTitle")}
-          description={t("overview.scope.emptyDesc")}
+    chainsContent = (
+      <ChainScopeEmpty
+        title={t("overview.scope.emptyTitle")}
+        description={t("overview.scope.emptyDesc")}
+      />
+    );
+  } else if (query.isPending && query.data === undefined) {
+    // 只有第一次请求（还没有任何 payload）才铺骨架；切时窗时 placeholderData
+    // 会先顶上旧快照，整棵视图（含详情弹窗）保持挂载。
+    chainsContent = <ChainLatencySkeleton />;
+  } else if (query.isError) {
+    chainsContent = (
+      <Card>
+        <CardContent>
+          <PanelError
+            message={errorText(
+              query.error,
+              t("overview.chainLatency.loadFailed"),
+            )}
+            retrying={query.isFetching}
+            onRetry={() => void query.refetch()}
+          />
+        </CardContent>
+      </Card>
+    );
+  } else if (parsed === null || parsed.status === "unsupported") {
+    chainsContent = <UnsupportedChainLatency />;
+  } else if (parsed.status === "empty") {
+    chainsContent = <NoChainsCard scoped={scoped} />;
+  } else {
+    const scopeUnsupported =
+      scoped && query.data !== null && query.data?.scope?.filtered !== true;
+    chainsContent = (
+      <div className="space-y-4" data-chain-list-page>
+        {scopeUnsupported ? <ScopeWarning /> : null}
+        <ChainLatencyList
+          snapshot={parsed.snapshot}
+          chains={scopedChains}
+          range={range}
+          onRangeChange={setRange}
+          onOpenChain={openChain}
+        />
+        <ChainLatencyDetailDialog
+          chain={detailChain}
+          config={detailConfig}
+          snapshot={parsed.snapshot}
+          range={range}
+          onRangeChange={setRange}
+          trends={trends}
+          trendPending={latency.isPending}
+          onClose={closeChain}
         />
       </div>
     );
   }
 
-  // 只有第一次请求（还没有任何 payload）才铺骨架；切时窗时 placeholderData
-  // 会先顶上旧快照，整棵视图（含详情弹窗）保持挂载。
-  if (query.isPending && query.data === undefined) {
-    return <ChainLatencySkeleton />;
-  }
-
-  if (query.isError) {
+  if (section === "templates") {
     return (
-      <div className="space-y-4" data-chain-view>
-        <Card>
-          <CardContent>
-            <PanelError
-              message={errorText(
-                query.error,
-                t("overview.chainLatency.loadFailed"),
-              )}
-              retrying={query.isFetching}
-              onRetry={() => void query.refetch()}
-            />
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (parsed === null || parsed.status === "unsupported") {
-    return (
-      <div className="space-y-4" data-chain-view>
-        <UnsupportedChainLatency />
-      </div>
-    );
-  }
-
-  if (parsed.status === "empty") {
-    return (
-      <div className="space-y-4" data-chain-view>
-        <NoChainsCard scoped={scoped} />
-        {/* 模板洞察是独立接口：没有链时仍要能列出自家的模板。 */}
+      <div data-chain-sections>
         <ChainTemplateInsightList />
       </div>
     );
   }
 
-  const scopeUnsupported =
-    scoped && query.data !== null && query.data?.scope?.filtered !== true;
-
   return (
-    <div className="space-y-4" data-chain-view data-chain-list-page>
-      {scopeUnsupported ? <ScopeWarning /> : null}
-      <ChainLatencyList
-        snapshot={parsed.snapshot}
-        chains={scopedChains}
-        range={range}
-        onRangeChange={setRange}
-        onOpenChain={openChain}
-      />
-      <ChainLatencyDetailDialog
-        chain={detailChain}
-        config={detailConfig}
-        snapshot={parsed.snapshot}
-        range={range}
-        onRangeChange={setRange}
-        trends={trends}
-        trendPending={latency.isPending}
-        onClose={closeChain}
-      />
-      <ChainTemplateInsightList />
+    <div className="space-y-4" data-chain-view data-chain-sections>
+      {chainsContent}
     </div>
   );
 }

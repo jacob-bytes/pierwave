@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChainSectionTabs } from "@/components/overview/ChainSectionTabs";
 import { ServerFilter } from "@/components/overview/ServerFilter";
 import type { OverviewScopeState } from "@/components/overview/useOverviewScope";
 import type { OverviewStats } from "@/lib/api";
@@ -92,7 +93,7 @@ export default function OverviewInsight({
             ))}
           </TabsList>
 
-          <div className="flex w-full items-center justify-end gap-2 md:w-auto md:justify-start">
+          <div className="flex w-full flex-wrap items-center justify-end gap-2 md:w-auto md:justify-start">
             <span
               aria-hidden="true"
               className="hidden h-5 shrink-0 border-l border-border md:block"
@@ -102,6 +103,16 @@ export default function OverviewInsight({
               selectedIds={scope.selectedIds}
               onChange={scope.setSelectedIds}
             />
+            {/* 子页只属于「链路时延」；其它 tab 连竖线一起不渲染。 */}
+            {view === "chain" ? (
+              <div className="flex shrink-0 items-center gap-2">
+                <span
+                  aria-hidden="true"
+                  className="h-5 shrink-0 border-l border-border"
+                />
+                <ChainSectionTabs />
+              </div>
+            ) : null}
           </div>
         </div>
 

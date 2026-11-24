@@ -161,6 +161,44 @@ export interface ResourceServerRow {
   value: number | null;
 }
 
+/**
+ * 「趋势」视图的一行：所选服务器在该小时的聚合在线率。
+ *
+ * `pct` 与 summary 的在线率同一口径：`Σ(online_ratio * samples) / Σ samples`。
+ * 该小时没有任何服务器有采样时为 `null`——折线必须断开，不能画成 0 / 100。
+ *
+ * `onlineServers` 不是整数台数：一台服务器桶内 7/12 采样在线时按 0.583 台计入，
+ * 这样「在线台数 / 总台数」与 `pct` 用的是同一套加权口径，不会出现曲线 58%
+ * 却写着「1/1 台在线」的矛盾。`offlineServers` 只列桶内 0% 在线的服务器。
+ */
+export interface UptimeTrendPoint {
+  ts: number;
+  /** 0–100；空桶为 null。 */
+  pct: number | null;
+  /** 桶内所有服务器的采样数合计。 */
+  samples: number;
+  /** 桶内有采样的服务器数（分母）。 */
+  totalServers: number;
+  /** 按采样加权后的在线台数（可以带小数）。 */
+  onlineServers: number;
+  /** 桶内 0% 在线的服务器名，按名称升序。 */
+  offlineServers: string[];
+}
+
+/** 异常时段（离线窗口合并后）；`endTs` 是最后一个异常桶的起点。 */
+export interface UptimeTrendRange {
+  startTs: number;
+  endTs: number;
+}
+
+export interface UptimeTrend {
+  /** 与热力图同一时间窗、同一小时粒度，含空桶（`pct: null`）。 */
+  points: UptimeTrendPoint[];
+  hasData: boolean;
+  /** 离线异常窗口合并后的时段，用于折线图背景阴影。 */
+  anomalyRanges: UptimeTrendRange[];
+}
+
 export interface AnomalyWindow {
   key: string;
   serverId: string;
@@ -589,6 +627,109 @@ export function buildAnomalyWindows(
       b.startTs - a.startTs ||
       b.endTs - b.startTs - (a.endTs - a.startTs),
   );
+}
+
+/**
+ * 「趋势」视图：把热力图的同一批小时列聚合成一条在线率折线。
+ *
+ * 聚合口径与 `summary.online_ratio_24h` / 加权在线率一致：
+ * `Σ(bucket.online_ratio * bucket.samples) / Σ bucket.samples`（跳过空桶）。
+ * 因此趋势线上任意一小时的值都能和 KPI 用同一把尺子核对。
+ *
+ * 台数用同一套加权口径反推：`onlineServers = pct / 100 * totalServers`。
+ * 桶内有采样的服务器才进入分母，无采样不等于离线；一台服务器桶内只有 7/12
+ * 采样在线时贡献 0.583 台，而不是按多数判定写成 1 台。
+ *
+ * `anomalyRanges` 取现有「异常窗口」里 `metric = offline` 的那些窗口，并把
+ * 重叠 / 相邻的时段合并；负载 / 内存 / 硬盘窗口不在这条在线率曲线上标阴影。
+ */
+export function buildUptimeTrend(
+  snapshot: ServerHealthSnapshot,
+  limit = 168,
+): UptimeTrend {
+  const step = Math.max(1, snapshot.window.bucketSecs || 3600);
+  const columns = buildHeatmapColumns(snapshot, limit);
+  let hasData = false;
+
+  const points: UptimeTrendPoint[] = columns.map(({ ts }) => {
+    let samples = 0;
+    let onlineSamples = 0;
+    let totalServers = 0;
+    const offlineServers: string[] = [];
+
+    for (const server of snapshot.servers) {
+      const bucket = bucketAt(server, ts, step);
+      if (!bucket || bucket.samples <= 0 || bucket.onlineRatio === null) {
+        continue;
+      }
+      totalServers += 1;
+      samples += bucket.samples;
+      onlineSamples += bucket.onlineRatio * bucket.samples;
+      // 只有整个桶都离线才进「离线」名单；部分在线由小数台数表达。
+      if (bucket.onlineRatio <= 0) offlineServers.push(server.name);
+    }
+
+    const pct = samples > 0 ? (onlineSamples / samples) * 100 : null;
+    if (pct !== null) hasData = true;
+    offlineServers.sort((a, b) => a.localeCompare(b));
+    return {
+      ts,
+      pct,
+      samples: Math.round(samples),
+      totalServers,
+      // 与折线同一个加权口径：曲线 58.3% 时写「≈0.6/1 台」，不会自相矛盾。
+      onlineServers: pct === null ? 0 : (pct / 100) * totalServers,
+      offlineServers,
+    };
+  });
+
+  const firstTs = columns[0]?.ts;
+  const windowEnd = (columns.at(-1)?.ts ?? 0) + step;
+  const rawRanges = buildAnomalyWindows(
+    snapshot.servers,
+    step,
+    snapshot.latestTs,
+  )
+    .filter((window) => window.metric === "offline")
+    .map((window) => ({
+      startTs: Math.max(window.startTs, firstTs ?? window.startTs),
+      endTs: Math.min(window.endTs, windowEnd),
+    }))
+    .filter((range) => range.startTs <= range.endTs)
+    .sort((a, b) => a.startTs - b.startTs);
+
+  const anomalyRanges: UptimeTrendRange[] = [];
+  for (const range of rawRanges) {
+    const last = anomalyRanges.at(-1);
+    if (last && range.startTs - last.endTs <= step) {
+      last.endTs = Math.max(last.endTs, range.endTs);
+    } else {
+      anomalyRanges.push({ ...range });
+    }
+  }
+
+  return { points, hasData, anomalyRanges };
+}
+
+/**
+ * 趋势 tooltip 的在线台数：整数就写 `4`，带小数时写 `≈3.6`（一位小数）。
+ * 单独抽出来是为了让「部分采样」的展示可被单测覆盖。
+ */
+export function formatOnlineCount(online: number): string {
+  const rounded = Math.round(online * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : `≈${rounded.toFixed(1)}`;
+}
+
+/** 趋势 tooltip 的离线名单：最多 `limit` 个，其余只报数量。 */
+export function offlineServerNamePreview(
+  names: readonly string[],
+  limit = 3,
+): { names: string[]; extra: number } {
+  const max = Math.max(0, Math.floor(limit));
+  return {
+    names: names.slice(0, max),
+    extra: Math.max(0, names.length - max),
+  };
 }
 
 function weightedUptime(

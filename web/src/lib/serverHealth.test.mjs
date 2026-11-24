@@ -7,12 +7,15 @@ import {
   buildAnomalyWindows,
   buildHeatmapColumns,
   buildResourceChartData,
+  buildUptimeTrend,
   formatHourTick,
+  formatOnlineCount,
   formatMonthDayHour,
   formatPercent,
   heatmapCell,
   isServerHealthUnsupported,
   normalizeServerHealth,
+  offlineServerNamePreview,
   resourceServerRows,
   uptimeHeatmapStep,
 } from "./serverHealth.ts";
@@ -575,4 +578,221 @@ test("服务器级 online_ratio 在缺 status 且缺桶时也能推断状态", (
   assert.equal(result.snapshot.servers[0].status, "online");
   assert.equal(result.snapshot.servers[1].status, "offline");
   assert.equal(result.snapshot.servers[0].onlineRatio, 0.98);
+});
+
+test("buildUptimeTrend: 按采样数加权聚合，与 summary 口径一致", () => {
+  const snapshot = normalizeServerHealth(
+    health(
+      [
+        server("a", [
+          bucket(BASE, { online_ratio: 1, samples: 6 }),
+          bucket(BASE + HOUR, { online_ratio: 0, samples: 12 }),
+          bucket(BASE + 2 * HOUR, { online_ratio: 1, samples: 6 }),
+        ]),
+        server("b", [
+          bucket(BASE, { online_ratio: 0.5, samples: 2 }),
+          bucket(BASE + HOUR, { online_ratio: 1, samples: 4 }),
+          bucket(BASE + 2 * HOUR, { online_ratio: 0.75, samples: 4 }),
+        ]),
+      ],
+      {},
+      { generated_at: BASE + 2 * HOUR },
+    ),
+  ).snapshot;
+
+  const trend = buildUptimeTrend(snapshot, 3);
+  assert.equal(trend.hasData, true);
+  assert.deepEqual(
+    trend.points.map((point) => point.ts),
+    [BASE, BASE + HOUR, BASE + 2 * HOUR],
+  );
+
+  // (6*1 + 2*0.5) / (6+2) = 87.5%；台数同一口径：87.5% × 2 = 1.75 台。
+  assert.equal(trend.points[0].pct, 87.5);
+  assert.equal(trend.points[0].samples, 8);
+  assert.equal(trend.points[0].totalServers, 2);
+  assert.equal(trend.points[0].onlineServers, 1.75);
+  assert.deepEqual(trend.points[0].offlineServers, []);
+
+  // (12*0 + 4*1) / (12+4) = 25%；a 桶内 0% 在线 → 离线名单。
+  assert.equal(trend.points[1].pct, 25);
+  assert.equal(trend.points[1].samples, 16);
+  assert.equal(trend.points[1].totalServers, 2);
+  assert.equal(trend.points[1].onlineServers, 0.5);
+  assert.deepEqual(trend.points[1].offlineServers, ["server-a"]);
+
+  // (6*1 + 4*0.75) / (6+4) = 90%；台数 90% × 2 = 1.8 台。
+  assert.equal(trend.points[2].pct, 90);
+  assert.equal(trend.points[2].onlineServers, 1.8);
+});
+
+test("buildUptimeTrend: 空桶 pct 为 null，不画 0", () => {
+  const snapshot = normalizeServerHealth(
+    health(
+      [server("a", [bucket(BASE, { online_ratio: 1 })])],
+      {},
+      { generated_at: BASE + 2 * HOUR },
+    ),
+  ).snapshot;
+
+  const trend = buildUptimeTrend(snapshot, 3);
+  assert.equal(trend.points.length, 3);
+  assert.equal(trend.points[0].pct, 100);
+  // 中间 / 最后两小时没有任何采样：保持 null，折线断开。
+  assert.equal(trend.points[1].pct, null);
+  assert.equal(trend.points[1].totalServers, 0);
+  assert.deepEqual(trend.points[1].offlineServers, []);
+  assert.equal(trend.points[2].pct, null);
+  // 有采样的小时仍然算「有数据」，空桶不能把整块视图判成空态。
+  assert.equal(trend.hasData, true);
+});
+
+test("buildUptimeTrend: 全部没有采样时 hasData=false，所有点都是 null", () => {
+  const snapshot = normalizeServerHealth(
+    health([server("a", [])], {}, { generated_at: BASE }),
+  ).snapshot;
+
+  const trend = buildUptimeTrend(snapshot, 4);
+  assert.equal(trend.hasData, false);
+  assert.equal(trend.points.length, 4);
+  assert.ok(trend.points.every((point) => point.pct === null));
+});
+
+test("buildUptimeTrend: 离线异常窗口合并成阴影时段，资源窗口不入图", () => {
+  const snapshot = normalizeServerHealth(
+    health(
+      [
+        server("a", [
+          bucket(BASE, { online_ratio: 0.9 }),
+          bucket(BASE + HOUR, { online_ratio: 1 }),
+          bucket(BASE + 2 * HOUR, { online_ratio: 1 }),
+        ]),
+        server("b", [
+          bucket(BASE, { online_ratio: 1 }),
+          bucket(BASE + HOUR, { online_ratio: 0.8 }),
+          bucket(BASE + 2 * HOUR, { online_ratio: 1 }),
+        ]),
+        // 只有负载异常、在线率 100%：不应给在线率曲线加阴影。
+        server("c", [
+          bucket(BASE, { online_ratio: 1, load1_max: 5, load1_avg: 4.5 }),
+          bucket(BASE + HOUR, { online_ratio: 1 }),
+          bucket(BASE + 2 * HOUR, { online_ratio: 1 }),
+        ]),
+      ],
+      {},
+      { generated_at: BASE + 2 * HOUR },
+    ),
+  ).snapshot;
+
+  const trend = buildUptimeTrend(snapshot, 3);
+  assert.deepEqual(trend.anomalyRanges, [
+    { startTs: BASE, endTs: BASE + HOUR },
+  ]);
+});
+
+test("offlineServerNamePreview: 最多 3 个名字，其余折成 +N", () => {
+  assert.deepEqual(offlineServerNamePreview([]), { names: [], extra: 0 });
+  assert.deepEqual(offlineServerNamePreview(["a", "b"]), {
+    names: ["a", "b"],
+    extra: 0,
+  });
+  assert.deepEqual(
+    offlineServerNamePreview(["a", "b", "c", "d", "e"]),
+    { names: ["a", "b", "c"], extra: 2 },
+  );
+});
+
+test("buildUptimeTrend: 7/12 采样在线的桶是 58.3%，不是多数判定的 100%", () => {
+  const snapshot = normalizeServerHealth(
+    health(
+      [
+        server("a", [
+          bucket(BASE, { online_ratio: 7 / 12, samples: 12 }),
+        ]),
+      ],
+      {},
+      { generated_at: BASE },
+    ),
+  ).snapshot;
+
+  const trend = buildUptimeTrend(snapshot, 1);
+  assert.equal(trend.points.length, 1);
+  assert.ok(
+    Math.abs(trend.points[0].pct - (7 / 12) * 100) < 1e-9,
+    "trend must use online_ratio, not the majority online boolean",
+  );
+  assert.equal(trend.points[0].pct.toFixed(1), "58.3");
+  // 台数同一口径：58.3% × 1 = 0.583 台，而不是 1 台。
+  assert.equal(trend.points[0].onlineServers.toFixed(3), "0.583");
+  // 部分在线不算「离线服务器」，否则会把 58% 在线说成全离线。
+  assert.deepEqual(trend.points[0].offlineServers, []);
+});
+
+test("buildUptimeTrend: 24h 加权平均与 summary.online_ratio_24h 对得上", () => {
+  const snapshot = normalizeServerHealth(
+    health(
+      [
+        server("a", [
+          bucket(BASE, { online_ratio: 0.25, samples: 12 }),
+          bucket(BASE + HOUR, { online_ratio: 1, samples: 12 }),
+          bucket(BASE + 2 * HOUR, { online_ratio: 0.5, samples: 12 }),
+        ]),
+        server("b", [
+          bucket(BASE, { online_ratio: 0.75, samples: 12 }),
+          bucket(BASE + HOUR, { online_ratio: 0.5, samples: 12 }),
+          bucket(BASE + 2 * HOUR, { online_ratio: 1, samples: 12 }),
+        ]),
+      ],
+      {},
+      { generated_at: BASE + 2 * HOUR },
+    ),
+  ).snapshot;
+
+  const trend = buildUptimeTrend(snapshot, 3);
+  const samples = trend.points.reduce((sum, point) => sum + point.samples, 0);
+  const weighted =
+    trend.points.reduce(
+      (sum, point) => sum + (point.pct ?? 0) * point.samples,
+      0,
+    ) / samples;
+
+  assert.ok(snapshot.summary.uptime24h !== null);
+  assert.ok(
+    Math.abs(weighted - snapshot.summary.uptime24h * 100) <= 1,
+    `trend ${weighted}% must match KPI ${(snapshot.summary.uptime24h * 100).toFixed(1)}%`,
+  );
+});
+
+test("buildUptimeTrend: 旧契约只有 online 布尔时回退并保留近似标记", () => {
+  const snapshot = normalizeServerHealth({
+    generated_at: BASE + HOUR,
+    hours: 24,
+    bucket: HOUR,
+    summary: {},
+    servers: [
+      {
+        id: "legacy",
+        name: "旧主控-01",
+        buckets: [
+          { ts: BASE, online: true, load1: 0.4 },
+          { ts: BASE + HOUR, online: false, load1: 0.3 },
+        ],
+      },
+    ],
+  }).snapshot;
+
+  // 旧契约没有桶内 online_ratio：热力图 / 趋势都要标记「近似」。
+  assert.equal(snapshot.approximateUptime, true);
+  const trend = buildUptimeTrend(snapshot, 2);
+  assert.equal(trend.points[0].pct, 100);
+  assert.equal(trend.points[1].pct, 0);
+  assert.equal(trend.points[1].onlineServers, 0);
+  assert.deepEqual(trend.points[1].offlineServers, ["旧主控-01"]);
+});
+
+test("formatOnlineCount: 整数台直接写，部分采样带 ≈ 和一位小数", () => {
+  assert.equal(formatOnlineCount(4), "4");
+  assert.equal(formatOnlineCount(0), "0");
+  assert.equal(formatOnlineCount(3.583), "≈3.6");
+  assert.equal(formatOnlineCount(3.04), "3");
 });

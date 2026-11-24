@@ -52,6 +52,10 @@ export function applyOverviewView(
   else next.set("view", param);
   // `chain` 只属于链路时延视图；离开时必须清掉，否则切回来会重新弹窗，
   // 后退历史里也会留下指向已关闭弹窗的脏参数。
-  if (view !== "chain") next.delete("chain");
+  // `section`（转发链 / 转发模板）同理：它只在链路时延 tab 内有意义。
+  if (view !== "chain") {
+    next.delete("chain");
+    next.delete("section");
+  }
   return next;
 }

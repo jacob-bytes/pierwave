@@ -14,6 +14,12 @@ const server = read("../components/overview/ServerHealthView.tsx");
 const traffic = read("../components/overview/TrafficView.tsx");
 const cost = read("../components/overview/CostView.tsx");
 const chain = read("../components/overview/ChainLatencyView.tsx");
+const chainSectionTabs = read(
+  "../components/overview/ChainSectionTabs.tsx",
+);
+const uptimeTrend = read(
+  "../components/overview/ServerUptimeTrendChart.tsx",
+);
 const chainList = read("../components/overview/ChainLatencyList.tsx");
 const chainDetail = read("../components/overview/ChainLatencyDetail.tsx");
 const chainDialog = read("../components/overview/ChainLatencyDetailDialog.tsx");
@@ -54,17 +60,57 @@ test("tab 显示名：资源状态 / 流量趋势 / 成本开支 / 链路时延"
   assertIncludes(en, ['server: "Resource status"', 'traffic: "Traffic trends"', 'cost: "Cost spend"'], "en");
 });
 
-test("热力图只保留在线率，不再有指标切换", () => {
+test("热力图只保留在线率，不再有资源指标切换", () => {
   const heatmap = server.slice(
     server.indexOf("function HeatmapCard"),
     server.indexOf("function CurrentResourcesCard"),
   );
-  assert.ok(!heatmap.includes("TabsTrigger"), "heatmap should not render metric tabs");
   assert.ok(
     !heatmap.includes("resolveHeatmapMetric"),
     "heatmap should not resolve a metric",
   );
+  // 头部新增的是「呈现方式」（热力图 / 趋势），不是负载 / 内存 / 硬盘切换。
+  assert.ok(
+    !heatmap.includes("RESOURCE_METRICS"),
+    "heatmap should not render resource metric tabs",
+  );
+  assertIncludes(
+    heatmap,
+    [
+      "data-uptime-mode-tabs",
+      "overview.serverHealth.uptimeModeHeatmap",
+      "overview.serverHealth.uptimeModeTrend",
+    ],
+    "HeatmapCard mode switch",
+  );
   assertIncludes(css, ["@utility heatmap-step-0", "@utility heatmap-step-4"], "heatmap scale");
+});
+
+test("服务器 × 时间：趋势视图由 URL 的 mode 驱动，默认是趋势", () => {
+  assertIncludes(
+    server,
+    [
+      'searchParams.get("mode")',
+      "resolveServerHealthMode",
+      "applyServerHealthMode",
+      "buildUptimeTrend",
+      "<ServerUptimeTrendChart",
+      "approximate={snapshot.approximateUptime}",
+    ],
+    "ServerHealthView",
+  );
+  // 旧主控缺桶内 online_ratio 时，趋势和热力图用同一个「近似」标记。
+  assertIncludes(
+    uptimeTrend,
+    [
+      "overview.serverHealth.legendApproximate",
+      "overview.serverHealth.legendApproximateHint",
+      "data-uptime-approx",
+      "formatOnlineCount",
+      "connectNulls={false}",
+    ],
+    "ServerUptimeTrendChart",
+  );
 });
 
 test("资源图是折线图，不是面积图", () => {
@@ -226,6 +272,36 @@ test("成本 tab：三数字 / 12 个月开销柱状图 / Top 3 / 币种构成 /
       "data-renewal-tooltip",
     ],
     "CostView",
+  );
+});
+
+test("链路 tab：子页（转发链 / 转发模板）由 URL 的 section 驱动", () => {
+  assertIncludes(
+    chain,
+    [
+      "resolveChainSection(searchParams.get(\"section\"))",
+      'section === "templates"',
+      "<ChainTemplateInsightList />",
+    ],
+    "ChainLatencyView",
+  );
+  // 子 tab 在主 tab 行、服务器筛选右侧，且只在链路时延 tab 渲染。
+  assertIncludes(
+    shell,
+    ["<ChainSectionTabs", 'view === "chain"'],
+    "OverviewInsight",
+  );
+  assertIncludes(
+    chainSectionTabs,
+    [
+      "applyChainSection",
+      "resolveChainSection",
+      "data-chain-section-tabs",
+      "overview.chainLatency.sections.chains",
+      "overview.chainLatency.sections.templates",
+      "shrink-0",
+    ],
+    "ChainSectionTabs",
   );
 });
 
