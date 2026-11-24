@@ -11,9 +11,13 @@
 //!   里任一 `servers.status = offline` → `blocked/member_offline`；任一非
 //!   `online` → `degraded`（没有专门的 cause）；全部 online → `ok`；模板
 //!   没有任何候选成员 → `degraded`；
-//! * 详情的 `nodes` 来自**模板定义**（不是某条链的实际拓扑），每跳列出全部
-//!   候选成员；`chains`/`users` 是实际经过该成员（链在该组包含该成员）的
-//!   去重链/用户数；
+//! * 详情 `nodes[].members[].chains` / `users` = 实际链在该组包含该成员的
+//!   去重链 / 用户数（键是真实组的 `seq`，不是模板的 `seq`）；
+//! * 详情的 `nodes` **只来自真实链的实际拓扑**（`chain_groups` /
+//!   `chain_group_members`），模板只提供候选清单：模板改过跳数或成员后，
+//!   节点/边仍然画真实链，不会错位。与模板当前定义不一致时 `template.stale`
+//!   为 `true` 并给出 `stale_reason`；没被任何链用到的候选成员单独放在
+//!   `unused_candidates`，不混进 `nodes`；
 //! * `edges` 来自**实际链的 groups**：相邻两组之间按成员对展开，最后一组
 //!   的每个成员再连到该链的目标。同一 `(from.member → to.member)` 跨链合并；
 //! * `p50_ms` / `loss_pct` 复用 chain-health 的口径：时延取最近
@@ -22,13 +26,15 @@
 //!   不补 0。多成员下一跳的探测不区分目标，同一源成员的每条出边共享该
 //!   forward 的计数（与 chain-health 的段级聚合一致）；
 //! * `series` 用 `chains.created_at` 派生「截至该桶末仍存在的链数 / 去重
-//!   用户数」。创建即计入，删除不扣减历史（没有删除时间可扣）；桶宽固定
-//!   [`SERIES_BUCKET_SECS`]（15 分钟）；
+//!   用户数」。**按当前存在的链回填**：创建即计入，删除后该链从所有历史桶
+//!   消失（没有删除时间，无法保留历史）；`series_basis = "existing_chains"`
+//!   显式声明这个口径。桶宽固定 [`SERIES_BUCKET_SECS`]（15 分钟），最后
+//!   一个点是**当前未完成桶**（`ts` = 当前桶起点，统计到 `now`）；
 //! * `strategies` 按每条链**第一跳**（`seq` 最小）的
 //!   `chain_groups.strategy` 统计，一条链只计一次，所以不会因为中间跳换了
 //!   策略而重复。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -142,6 +148,8 @@ pub struct TargetDetail {
 }
 
 /// 节点成员。服务器成员带 `server_id` / `status`；目标成员两者都省略。
+///
+/// `chains` / `users` 是**真实链**在该组包含该成员的去重链 / 用户数。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NodeMember {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,7 +161,10 @@ pub struct NodeMember {
     pub users: i64,
 }
 
-/// 详情里的一个拓扑节点（模板的每一跳 + 目标）。
+/// 详情里的一个拓扑节点：真实链出现过的每个组 + 目标。
+///
+/// 节点不是模板定义的展开，而是链实际走过的组；模板只提供候选（未使用的
+/// 候选在 [`UnusedCandidate`] 里）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TemplateNode {
     pub seq: i64,
@@ -191,6 +202,22 @@ pub struct SeriesPoint {
     pub users: i64,
 }
 
+/// 没有被任何实际链用到的模板候选成员。
+///
+/// 模板改过之后，旧链仍按自己的成员走；新增 / 换掉的候选不会出现在
+/// `nodes` 里（`nodes` 只画真实路径），单独在这里列出，前端放在「未使用」
+/// 区域，避免把候选混成真实拓扑。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnusedCandidate {
+    /// 模板组的 `seq`（0 起）。
+    pub seq: i64,
+    pub server_id: String,
+    /// `servers.name`；服务器已删除时回退 id。
+    pub name: String,
+    /// `servers.status`；服务器已删除 / 状态缺失时是 `"unknown"`。
+    pub status: String,
+}
+
 /// 详情里的模板摘要。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TemplateSummary {
@@ -198,6 +225,10 @@ pub struct TemplateSummary {
     pub name: String,
     pub hops: i64,
     pub created_at: i64,
+    /// 是否存在链的跳数 / 成员与模板**当前定义**不一致。
+    pub stale: bool,
+    /// 不一致的人可读说明（中英双语）；`stale = false` 时为 `null`。
+    pub stale_reason: Option<String>,
 }
 
 /// 详情响应（不含 `generated_at`，由路由层补）。
@@ -209,6 +240,11 @@ pub struct TemplateDetail {
     pub targets: Vec<TargetDetail>,
     pub users: Vec<UserStat>,
     pub series: Vec<SeriesPoint>,
+    /// `series` 的口径：固定 `"existing_chains"`（按当前存在的链回填，
+    /// 删除链会回退历史）。前端据此标注「按现有链回填」。
+    pub series_basis: &'static str,
+    /// 没有被任何链用到的候选成员。
+    pub unused_candidates: Vec<UnusedCandidate>,
     pub strategies: Vec<StrategyDetail>,
 }
 
@@ -237,11 +273,14 @@ impl Counts {
 struct PathMember {
     id: String,
     name: String,
+    priority: i64,
 }
 
 #[derive(Debug, Clone)]
 struct PathGroup {
     seq: i64,
+    /// 真实链的组名（`chain_groups.name`）；菜单里没有名称字段，通常为 None。
+    name: Option<String>,
     strategy: String,
     members: Vec<PathMember>,
 }
@@ -269,12 +308,20 @@ impl PathChain {
                 members.sort_by_key(|member| (member.priority, member.server_id.clone()));
                 PathGroup {
                     seq: group.group.seq,
+                    name: group
+                        .group
+                        .name
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|name| !name.is_empty())
+                        .map(str::to_string),
                     strategy: group.group.strategy.clone(),
                     members: members
                         .into_iter()
                         .map(|member| PathMember {
                             id: member.server_id.clone(),
                             name: member.server_name.clone(),
+                            priority: member.priority,
                         })
                         .collect(),
                 }
@@ -474,8 +521,19 @@ pub fn detail(
     let paths = paths_of(&chains_of(&template.id, chains));
     let hops = groups.len() as i64;
 
-    // ---- nodes：模板定义的全部候选成员 + 实际经过的链/用户数 ----
+    // ---- 实际拓扑：nodes 只来自真实链的 groups；模板只提供候选清单 ----
+    //
+    // 计数键是**真实组的 seq**（`chain_groups.seq`），不是模板的 seq：模板
+    // 改过跳数后，旧链的 seq 与模板不再一一对应，用模板 seq 做键会让计数
+    // 大面积归零、节点成员错位。
     let mut member_counts: HashMap<(i64, String), Counts> = HashMap::new();
+    let mut member_priority: HashMap<(i64, String), i64> = HashMap::new();
+    let mut member_names: HashMap<(i64, String), String> = HashMap::new();
+    let mut group_names: HashMap<i64, String> = HashMap::new();
+    // 真实出现过的组 seq；节点按它升序排列。
+    let mut levels: BTreeSet<i64> = BTreeSet::new();
+    // 被任意链用到过的 server id：`unused_candidates` 用它排除候选。
+    let mut used_servers: HashSet<String> = HashSet::new();
     let mut target_counts: HashMap<String, Counts> = HashMap::new();
     let mut first_strategy_counts: HashMap<String, Counts> = HashMap::new();
     let mut user_counts: HashMap<String, i64> = HashMap::new();
@@ -492,50 +550,71 @@ pub fn detail(
                 .add(owner);
         }
         for group in &path.groups {
+            levels.insert(group.seq);
+            if let Some(name) = group.name.as_deref() {
+                group_names
+                    .entry(group.seq)
+                    .or_insert_with(|| name.to_string());
+            }
             for member in &group.members {
-                member_counts
-                    .entry((group.seq, member.id.clone()))
-                    .or_default()
-                    .add(owner);
+                let key = (group.seq, member.id.clone());
+                member_counts.entry(key.clone()).or_default().add(owner);
+                // 同一成员在真实链里只有一个 priority / 名称；取第一次遇到的。
+                member_priority
+                    .entry(key.clone())
+                    .or_insert(member.priority);
+                member_names.entry(key).or_insert(member.name.clone());
+                used_servers.insert(member.id.clone());
             }
         }
         target_counts.entry(path.target()).or_default().add(owner);
     }
 
-    let mut nodes: Vec<TemplateNode> = Vec::with_capacity(groups.len() + 1);
-    for (index, group) in groups.iter().enumerate() {
-        let members = group
-            .server_ids
+    let mut nodes: Vec<TemplateNode> = Vec::with_capacity(levels.len() + 1);
+    for (index, seq) in levels.iter().copied().enumerate() {
+        let mut members: Vec<(i64, String, NodeMember)> = member_counts
             .iter()
-            .map(|server_id| {
-                let counts = member_counts
-                    .get(&(group.seq, server_id.clone()))
-                    .cloned()
-                    .unwrap_or_default();
+            .filter(|((level, _), _)| *level == seq)
+            .map(|((level, server_id), counts)| {
                 let state = servers.get(server_id);
-                NodeMember {
-                    server_id: Some(server_id.clone()),
-                    name: state
-                        .map(|state| state.name.clone())
-                        .unwrap_or_else(|| server_id.clone()),
-                    status: Some(
-                        state
-                            .map(|state| state.status.clone())
-                            .unwrap_or_else(|| "unknown".to_string()),
-                    ),
-                    chains: counts.chains,
-                    users: counts.users(),
-                }
+                let name = state
+                    .map(|state| state.name.clone())
+                    .or_else(|| member_names.get(&(*level, server_id.clone())).cloned())
+                    .unwrap_or_else(|| server_id.clone());
+                let status = state
+                    .map(|state| state.status.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+                (
+                    member_priority
+                        .get(&(*level, server_id.clone()))
+                        .copied()
+                        .unwrap_or(0),
+                    server_id.clone(),
+                    NodeMember {
+                        server_id: Some(server_id.clone()),
+                        name,
+                        status: Some(status),
+                        chains: counts.chains,
+                        users: counts.users(),
+                    },
+                )
             })
             .collect();
+        // 与 chain-health / derive_forwards 同一顺序：`(priority, server_id)`。
+        members.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
         nodes.push(TemplateNode {
-            seq: group.seq,
+            seq,
             role: if index == 0 { "source" } else { "hop" },
-            name: node_name(index),
-            members,
+            name: group_names
+                .get(&seq)
+                .cloned()
+                .unwrap_or_else(|| node_name(index)),
+            members: members.into_iter().map(|(_, _, member)| member).collect(),
         });
     }
-    if !groups.is_empty() {
+    // 目标节点：seq = 真实最后一组 seq + 1（没有链就没有目标节点）。
+    let target_seq = levels.iter().next_back().map(|seq| seq + 1);
+    if let Some(seq) = target_seq {
         let mut target_members: Vec<NodeMember> = target_counts
             .iter()
             .map(|(target, counts)| NodeMember {
@@ -548,12 +627,85 @@ pub fn detail(
             .collect();
         target_members.sort_by(|a, b| b.chains.cmp(&a.chains).then_with(|| a.name.cmp(&b.name)));
         nodes.push(TemplateNode {
-            seq: hops,
+            seq,
             role: "target",
             name: "目标".to_string(),
             members: target_members,
         });
     }
+
+    // ---- stale：链的跳数 / 成员是否仍与模板当前定义一致 ----
+    //
+    // 候选成员是「菜单」，链选中其中一部分是正常的；只有链里出现模板
+    // 候选之外的成员、或跳数不同，才算模板改过之后链没有跟上。
+    let mut actual_hops: BTreeSet<i64> = BTreeSet::new();
+    let mut member_mismatch_seqs: BTreeSet<i64> = BTreeSet::new();
+    for path in &paths {
+        let hops = path.groups.len() as i64;
+        if hops != hops_of_template(&groups) {
+            actual_hops.insert(hops);
+        }
+        for (index, group) in path.groups.iter().enumerate() {
+            match groups.get(index) {
+                Some(template_group) => {
+                    let candidates: HashSet<&str> = template_group
+                        .server_ids
+                        .iter()
+                        .map(|id| id.trim())
+                        .collect();
+                    if group
+                        .members
+                        .iter()
+                        .any(|member| !candidates.contains(member.id.as_str()))
+                    {
+                        member_mismatch_seqs.insert(group.seq);
+                    }
+                }
+                None => {
+                    member_mismatch_seqs.insert(group.seq);
+                }
+            }
+        }
+    }
+    let stale = !actual_hops.is_empty() || !member_mismatch_seqs.is_empty();
+    let stale_reason = stale.then(|| {
+        stale_text(
+            &actual_hops,
+            &member_mismatch_seqs,
+            hops_of_template(&groups),
+        )
+    });
+
+    // ---- unused_candidates：模板候选里没有被任何链用到的成员 ----
+    let mut unused_candidates: Vec<UnusedCandidate> = Vec::new();
+    let mut seen_candidates: HashSet<String> = HashSet::new();
+    for group in &groups {
+        for server_id in &group.server_ids {
+            let id = server_id.trim();
+            if id.is_empty() || !seen_candidates.insert(id.to_string()) {
+                continue;
+            }
+            if used_servers.contains(id) {
+                continue;
+            }
+            let state = servers.get(id);
+            unused_candidates.push(UnusedCandidate {
+                seq: group.seq,
+                server_id: id.to_string(),
+                name: state
+                    .map(|state| state.name.clone())
+                    .unwrap_or_else(|| id.to_string()),
+                status: state
+                    .map(|state| state.status.clone())
+                    .unwrap_or_else(|| "unknown".to_string()),
+            });
+        }
+    }
+    unused_candidates.sort_by(|a, b| {
+        a.seq
+            .cmp(&b.seq)
+            .then_with(|| a.server_id.cmp(&b.server_id))
+    });
 
     // ---- edges：真实链的 group 成员对 + 最后一跳到目标 ----
     let mut edge_counts: HashMap<EdgeKey, Counts> = HashMap::new();
@@ -815,24 +967,33 @@ pub fn detail(
             name: template.name.clone(),
             hops,
             created_at: template.created_at,
+            stale,
+            stale_reason,
         },
         nodes,
         edges,
         targets,
         users,
         series: series(&paths, now, hours),
+        series_basis: "existing_chains",
+        unused_candidates,
         strategies,
     }
 }
 
 /// 截至每个桶末的累计链数 / 去重用户数。
 ///
-/// 用 `created_at` 派生；删除链不会回退历史（没有删除时间可用）。桶宽固定
-/// 15 分钟；窗口内没有创建时仍补齐 0 值，不返回空数组。
+/// 用 `created_at` 派生，**按当前存在的链回填**：删除链后它从所有历史桶
+/// 消失（没有删除时间可用），`series_basis: "existing_chains"` 就是这个
+/// 口径的声明。桶宽固定 15 分钟；最后一个点是**当前未完成桶**：`ts` 是
+/// 当前桶起点、统计到 `now`，与 chain-health 的最后一个桶语义一致。
+/// 窗口内没有创建时仍补齐 0 值，不返回空数组。
 fn series(paths: &[PathChain], now: i64, hours: i64) -> Vec<SeriesPoint> {
     let count = (hours.max(1) * 3600 / SERIES_BUCKET_SECS).max(1);
+    // 当前未完成桶的起点（向下对齐 15 分钟）。
     let end = now - now.rem_euclid(SERIES_BUCKET_SECS);
-    let start = end - count * SERIES_BUCKET_SECS;
+    // 最后一个点就是当前桶，所以数组从 end 往前铺 count-1 个完整桶。
+    let start = end - (count - 1) * SERIES_BUCKET_SECS;
     let mut points = Vec::with_capacity(count as usize);
     for index in 0..count {
         let ts = start + index * SERIES_BUCKET_SECS;
@@ -865,6 +1026,45 @@ fn node_name(index: usize) -> String {
         "入口".to_string()
     } else {
         format!("第 {} 跳", index + 1)
+    }
+}
+
+/// 模板定义里的跳数；只用于和真实链比较，不做任何归一。
+fn hops_of_template(groups: &[ChainTemplateGroup]) -> i64 {
+    groups.len() as i64
+}
+
+/// `template.stale_reason` 的中英双语说明。
+///
+/// `actual_hops` 是和模板跳数不同的真实跳数集合（升序去重）；
+/// `member_mismatch_seqs` 是「链里有成员不在模板当前候选里」的真实组 seq
+/// （升序去重）。调用方只在至少一项非空时调用。
+fn stale_text(
+    actual_hops: &BTreeSet<i64>,
+    member_mismatch_seqs: &BTreeSet<i64>,
+    template_hops: i64,
+) -> String {
+    let hops = actual_hops
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(" / ");
+    let seqs = member_mismatch_seqs
+        .iter()
+        .map(|seq| (seq + 1).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    match (actual_hops.is_empty(), member_mismatch_seqs.is_empty()) {
+        (false, false) => format!(
+            "链的跳数（{hops}）与模板（{template_hops}）不一致，且第 {seqs} 跳有成员不在模板当前候选中 / chain hop count ({hops}) differs from the template ({template_hops}), and hop {seqs} contains members outside the template candidates"
+        ),
+        (false, true) => format!(
+            "链的跳数（{hops}）与模板（{template_hops}）不一致 / chain hop count ({hops}) differs from the template ({template_hops})"
+        ),
+        (true, false) => format!(
+            "第 {seqs} 跳的成员不在模板当前候选中 / hop {seqs} contains members outside the template candidates"
+        ),
+        (true, true) => String::new(),
     }
 }
 
@@ -1383,5 +1583,229 @@ mod tests {
             split_target("[2001:db8::1]:443"),
             ("2001:db8::1".into(), 443)
         );
+    }
+
+    fn detail_now(template: &ChainTemplate, chains: &[ChainWithGroups]) -> TemplateDetail {
+        detail(
+            template,
+            chains,
+            &servers(),
+            &HashMap::new(),
+            EdgeData {
+                samples: &[],
+                probes: &HashMap::new(),
+            },
+            1_800_000_000,
+            24,
+        )
+    }
+
+    /// B3：模板从 2 跳改成 1 跳后，详情仍按真实链画 2 跳；`stale` 为 true，
+    /// 计数键跟真实组 seq，不会因为模板少了第 2 组而大面积归零。
+    #[test]
+    fn an_edited_template_keeps_the_real_two_hop_topology() {
+        let chains = vec![
+            chain(
+                "c1",
+                Some("t1"),
+                Some("u1"),
+                ("1.1.1.1", 443),
+                100,
+                &[&["s1"], &["s2"]],
+            ),
+            chain(
+                "c2",
+                Some("t1"),
+                Some("u1"),
+                ("1.1.1.1", 443),
+                200,
+                &[&["s1"], &["s2"]],
+            ),
+        ];
+        // 模板被编辑成 1 跳；链还是旧的 2 跳。
+        let edited = template("t1", "港日双路", true, &[("round_robin", &["s1"])]);
+        let detail = detail_now(&edited, &chains);
+        assert!(detail.template.stale);
+        let reason = detail.template.stale_reason.as_deref().unwrap();
+        assert!(reason.contains("跳数"), "reason={reason}");
+        assert_eq!(detail.template.hops, 1, "template.hops 仍是模板定义");
+        // nodes 跟随真实链：0 / 1 两个组 + target(seq 2)。
+        let seqs: Vec<i64> = detail.nodes.iter().map(|node| node.seq).collect();
+        assert_eq!(seqs, vec![0, 1, 2]);
+        assert_eq!(detail.nodes[2].role, "target");
+        assert_eq!(detail.nodes[0].role, "source");
+        assert_eq!(detail.nodes[1].role, "hop");
+        // 计数没有归零：两个真实组各自 2 条链。
+        assert_eq!(detail.nodes[0].members[0].server_id.as_deref(), Some("s1"));
+        assert_eq!(detail.nodes[0].members[0].chains, 2);
+        assert_eq!(detail.nodes[1].members[0].server_id.as_deref(), Some("s2"));
+        assert_eq!(detail.nodes[1].members[0].chains, 2);
+        // edges 仍是真实两段（0→1 与 1→目标）。
+        assert!(detail
+            .edges
+            .iter()
+            .any(|edge| edge.seq == 1 && edge.from.member == "name-s1"));
+        assert!(detail
+            .edges
+            .iter()
+            .any(|edge| edge.seq == 2 && edge.to.member == "1.1.1.1:443"));
+        assert!(detail.unused_candidates.is_empty());
+        assert_eq!(detail.series_basis, "existing_chains");
+    }
+
+    /// B3：模板从 1 跳改成 2 跳后，真实链仍是 1 跳；新增的第 2 跳候选进入
+    /// `unused_candidates`，不混进 `nodes`。
+    #[test]
+    fn adding_a_hop_to_the_template_does_not_invent_a_node() {
+        let chains = vec![chain(
+            "c1",
+            Some("t1"),
+            None,
+            ("1.1.1.1", 443),
+            100,
+            &[&["s1"]],
+        )];
+        let edited = template(
+            "t1",
+            "单跳",
+            true,
+            &[("round_robin", &["s1"]), ("round_robin", &["s3"])],
+        );
+        let detail = detail_now(&edited, &chains);
+        assert!(detail.template.stale);
+        // 只有真实的一组 + 目标节点（seq 1），不会凭空多一个 hop 节点。
+        let seqs: Vec<i64> = detail.nodes.iter().map(|node| node.seq).collect();
+        assert_eq!(seqs, vec![0, 1]);
+        assert_eq!(detail.nodes[0].members.len(), 1);
+        assert_eq!(detail.nodes[0].members[0].chains, 1, "计数不能归零");
+        assert_eq!(detail.nodes[1].role, "target");
+        // s3 是模板新增的候选，没有任何链用它。
+        assert_eq!(
+            detail.unused_candidates,
+            vec![UnusedCandidate {
+                seq: 1,
+                server_id: "s3".into(),
+                name: "大阪-01".into(),
+                status: "offline".into(),
+            }]
+        );
+        assert_eq!(detail.edges.len(), 1);
+        assert_eq!(detail.edges[0].seq, 1);
+        assert_eq!(detail.edges[0].to.member, "1.1.1.1:443");
+    }
+
+    /// B3：模板换掉候选成员后，链里仍在用的旧成员必须继续出现在 nodes 里，
+    /// 计数不丢；新候选进 `unused_candidates`。
+    #[test]
+    fn replacing_a_candidate_keeps_the_member_the_chain_actually_uses() {
+        let chains = vec![chain(
+            "c1",
+            Some("t1"),
+            None,
+            ("1.1.1.1", 443),
+            100,
+            &[&["s1"]],
+        )];
+        // 模板把 s1 换成 s2：链仍然按 s1 走。
+        let edited = template("t1", "换成员", true, &[("round_robin", &["s2"])]);
+        let detail = detail_now(&edited, &chains);
+        assert!(detail.template.stale);
+        let reason = detail.template.stale_reason.as_deref().unwrap();
+        assert!(reason.contains("候选"), "reason={reason}");
+        assert_eq!(detail.nodes[0].members[0].server_id.as_deref(), Some("s1"));
+        assert_eq!(detail.nodes[0].members[0].chains, 1);
+        assert_eq!(
+            detail.unused_candidates,
+            vec![UnusedCandidate {
+                seq: 0,
+                server_id: "s2".into(),
+                name: "东京-01".into(),
+                status: "online".into(),
+            }]
+        );
+    }
+
+    /// B3：模板没变时 `stale = false`、`stale_reason = null`。
+    #[test]
+    fn an_unchanged_template_is_not_stale() {
+        let tpl = template("t1", "港日双路", true, &[("round_robin", &["s1"])]);
+        let chains = vec![chain(
+            "c1",
+            Some("t1"),
+            None,
+            ("1.1.1.1", 443),
+            100,
+            &[&["s1"]],
+        )];
+        let detail = detail_now(&tpl, &chains);
+        assert!(!detail.template.stale);
+        assert_eq!(detail.template.stale_reason, None);
+        assert!(detail.unused_candidates.is_empty());
+    }
+
+    /// B4：`series` 按**当前存在的链**回填——删链后历史桶也回退，
+    /// `series_basis` 显式声明这个口径。
+    #[test]
+    fn deleting_a_chain_rewinds_the_backfilled_series() {
+        let make = |id: &str, owner: &str, created_at: i64| PathChain {
+            id: id.into(),
+            owner: Some(owner.into()),
+            created_at,
+            target_host: "1.1.1.1".into(),
+            target_port: 443,
+            groups: Vec::new(),
+        };
+        let now = 1_800_000_000;
+        let paths = vec![
+            make("c1", "u1", now - 3 * 3600),
+            make("c2", "u2", now - 2 * 3600),
+        ];
+        let before = series(&paths, now, 24);
+        assert_eq!(before.last().unwrap().chains, 2);
+        assert_eq!(before.last().unwrap().users, 2);
+
+        // 删掉 c2：现有链只剩 c1，所有历史桶一起回退（不会再有 2 条）。
+        let after = series(&paths[..1], now, 24);
+        assert!(after.iter().all(|point| point.chains <= 1));
+        assert!(after.iter().all(|point| point.users <= 1));
+        assert_eq!(after.last().unwrap().chains, 1);
+        assert_eq!(after.last().unwrap().users, 1);
+        assert!(
+            before
+                .iter()
+                .zip(after.iter())
+                .any(|(before, after)| before.chains == 2 && after.chains == 1),
+            "删除后历史桶必须回退"
+        );
+    }
+
+    /// B5：最后一个点代表**当前未完成桶**（`ts` = 当前 15 分钟桶起点），
+    /// now 不对齐 900 时也一样，且刚刚创建的链必须计入。
+    #[test]
+    fn the_last_series_point_is_the_current_incomplete_bucket() {
+        let now = 1_800_000_123; // 不是 900 的整数倍
+        let paths = vec![PathChain {
+            id: "c1".into(),
+            owner: Some("u1".into()),
+            created_at: now - 60,
+            target_host: "1.1.1.1".into(),
+            target_port: 443,
+            groups: Vec::new(),
+        }];
+        let points = series(&paths, now, 24);
+        assert_eq!(points.len(), 96);
+        let aligned = now - now.rem_euclid(SERIES_BUCKET_SECS);
+        let last = points.last().unwrap();
+        assert_eq!(last.ts, aligned, "最后一点是当前桶起点");
+        assert_eq!(last.chains, 1, "当前未完成桶必须包含刚创建的链");
+        assert_eq!(points[points.len() - 2].chains, 0, "上一个完整桶没有它");
+        assert!(points
+            .windows(2)
+            .all(|pair| pair[1].ts - pair[0].ts == SERIES_BUCKET_SECS));
+
+        // hours = 1 也是同样的边界（4 个点）。
+        let short = series(&paths, now, 1);
+        assert_eq!(short.len(), 4);
+        assert_eq!(short.last().unwrap().ts, aligned);
     }
 }

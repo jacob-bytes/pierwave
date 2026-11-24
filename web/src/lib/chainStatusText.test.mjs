@@ -1,91 +1,119 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chainStatusReasonText, chainStatusText } from "./chainStatusText.ts";
 import { setCurrentLocale } from "../i18n/locale.ts";
+import {
+  chainLastHopReasonLabel,
+  chainLastHopReasonText,
+  chainStatusText,
+} from "./chainStatusText.ts";
 
-function chain(status) {
-  return { status };
+function withLocale(locale, fn) {
+  setCurrentLocale(locale);
+  try {
+    fn();
+  } finally {
+    setCurrentLocale("en");
+  }
 }
 
-test("the four status causes keep their established wording", () => {
-  setCurrentLocale("zh-CN");
-  assert.equal(
-    chainStatusText(
-      chain({
-        kind: "blocked",
-        cause: "node_offline",
-        node: { seq: 3, name: "大阪-01" },
-      }),
-    ),
-    "阻断 · 大阪-01 离线",
-  );
-  assert.equal(
-    chainStatusText(
-      chain({
-        kind: "degraded",
-        cause: "node_unhealthy",
-        node: { seq: 1, name: "东京-01" },
-      }),
-    ),
-    "降级 · 东京-01 异常",
-  );
-  assert.equal(
-    chainStatusText(
-      chain({ kind: "degraded", cause: "no_samples", node: null }),
-    ),
-    "降级 · 无样本",
-  );
-  assert.equal(
-    chainStatusText(chain({ kind: "degraded", cause: "slow", node: null })),
-    "降级 · 变慢",
-  );
+function chain(overrides = {}) {
+  return {
+    status: { kind: "unknown", cause: "unmeasurable", node: null },
+    lastHop: { measurable: false, reason: "engine_unsupported" },
+    hasSamples: true,
+    deltaMs: 0,
+    slow: false,
+    ...overrides,
+  };
+}
 
-  setCurrentLocale("en");
-  assert.equal(
-    chainStatusText(
-      chain({
-        kind: "degraded",
-        cause: "no_samples",
-        node: null,
-      }),
-    ),
-    "Degraded · No samples",
-  );
-  assert.equal(
-    chainStatusText(
-      chain({
-        kind: "blocked",
-        cause: "node_offline",
-        node: { seq: 0, name: "Osaka-01" },
-      }),
-    ),
-    "Blocked · Osaka-01 offline",
-  );
+test("last_hop reason maps to the bilingual unmeasurable wording", () => {
+  withLocale("zh-CN", () => {
+    assert.equal(
+      chainLastHopReasonLabel(chain()),
+      "引擎不支持探测",
+    );
+    assert.equal(
+      chainLastHopReasonText(chain()),
+      "不可测量（引擎不支持探测）",
+    );
+    assert.equal(
+      chainLastHopReasonLabel(
+        chain({ lastHop: { measurable: false, reason: "protocol_unsupported" } }),
+      ),
+      "协议不支持探测",
+    );
+    assert.equal(
+      chainLastHopReasonText(
+        chain({ lastHop: { measurable: false, reason: "protocol_unsupported" } }),
+      ),
+      "不可测量（协议不支持探测）",
+    );
+  });
+
+  withLocale("en", () => {
+    assert.equal(
+      chainLastHopReasonLabel(chain()),
+      "engine probing unsupported",
+    );
+    assert.equal(
+      chainLastHopReasonText(chain()),
+      "Unmeasurable (engine probing unsupported)",
+    );
+    assert.equal(
+      chainLastHopReasonLabel(
+        chain({ lastHop: { measurable: false, reason: "protocol_unsupported" } }),
+      ),
+      "protocol probing unsupported",
+    );
+  });
 });
 
-test("no_samples only expands when the chain is degraded", () => {
-  setCurrentLocale("zh-CN");
-  assert.equal(
-    chainStatusReasonText(chain({ kind: "ok", cause: "no_samples", node: null })),
-    null,
-  );
-  assert.equal(
-    chainStatusText({
-      status: { kind: "ok", cause: null, node: null },
-      hasSamples: true,
-      deltaMs: 0,
-      slow: false,
-    }),
-    "正常",
-  );
-  // 旧契约没有 status 时保持纯标签，不凭空拼原因。
-  assert.equal(chainStatusText({ status: null }), "样本不足");
-  // 停用优先于后端状态：不能显示成「停用 · 无样本」。
-  assert.equal(
-    chainStatusText(
-      chain({ kind: "degraded", cause: "no_samples", node: null }),
-      { enabled: false, degraded: false },
-    ),
-    "停用",
-  );
+test("unknown status badge reads 未知 · 不可测量, not degraded / blocked", () => {
+  withLocale("zh-CN", () => {
+    assert.equal(chainStatusText(chain()), "未知 · 不可测量");
+  });
+  withLocale("en", () => {
+    assert.equal(chainStatusText(chain()), "Unknown · Unmeasurable");
+  });
+});
+
+test("a disabled unmeasurable chain stays 停用, without the reason", () => {
+  const config = { enabled: false, degraded: false, blocked_reason: null };
+  withLocale("zh-CN", () => {
+    assert.equal(chainStatusText(chain(), config), "停用");
+  });
+  withLocale("en", () => {
+    assert.equal(chainStatusText(chain(), config), "Disabled");
+  });
+});
+
+test("old controller without last_hop keeps the legacy wording", () => {
+  const legacy = chain({ status: null, lastHop: null });
+  withLocale("zh-CN", () => {
+    assert.equal(chainLastHopReasonLabel(legacy), null);
+    assert.equal(chainLastHopReasonText(legacy), null);
+  });
+  withLocale("en", () => {
+    assert.equal(chainLastHopReasonText(legacy), null);
+  });
+
+  // 新契约说可测时也不显示「不可测量」。
+  const measurable = chain({
+    status: { kind: "ok", cause: null, node: null },
+    lastHop: { measurable: true, reason: null },
+  });
+  assert.equal(chainLastHopReasonText(measurable), null);
+  assert.equal(chainLastHopReasonLabel(measurable), null);
+});
+
+test("missing reason still says unmeasurable without inventing a cause", () => {
+  const noReason = chain({ lastHop: { measurable: false, reason: null } });
+  withLocale("zh-CN", () => {
+    assert.equal(chainLastHopReasonLabel(noReason), null);
+    assert.equal(chainLastHopReasonText(noReason), "不可测量");
+  });
+  withLocale("en", () => {
+    assert.equal(chainLastHopReasonText(noReason), "Unmeasurable");
+  });
 });

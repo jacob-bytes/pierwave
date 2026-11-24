@@ -30,7 +30,9 @@ import type {
 } from "@/lib/api";
 import {
   CHAIN_STRATEGIES,
+  collectTemplateGroupIssues,
   nftablesStrategySupported,
+  templateServerUsagesElsewhere,
   type ChainStrategy,
 } from "@/lib/chains";
 import { errorText } from "@/lib/errors";
@@ -115,6 +117,20 @@ export function ChainTemplateFormDialog({
       if (group.server_ids.length === 0) {
         return t("chainTemplates.form.groupEmpty", { seq: index + 1 });
       }
+    }
+    // 多选已经置灰了其它跳用过的服务器；这里兜底，防止旧数据 / 手工改动
+    // 绕过 UI 提交同一台服务器（后端 `chain.duplicate_server` /
+    // `chain.duplicate_group_member` 同样会拒绝）。
+    for (const issue of collectTemplateGroupIssues(groups)) {
+      if (issue.kind === "member_duplicate") {
+        return t("validation.chainTemplateMemberDuplicate", {
+          seq: issue.groupIndex + 1,
+        });
+      }
+      return t("validation.chainTemplateServerDuplicate", {
+        seq: issue.groupIndex + 1,
+        first: issue.firstGroupIndex + 1,
+      });
     }
     if (engine === "tunnel") {
       if (groups.length < 2) return t("chainTemplates.form.tunnelHops");
@@ -292,7 +308,20 @@ export function ChainTemplateFormDialog({
           </div>
 
           <div className="space-y-3 border-t border-border pt-4">
-            {groups.map((group, index) => (
+            {groups.map((group, index) => {
+              const unavailable = new Map<string, string>();
+              for (const [serverId, firstGroupIndex] of templateServerUsagesElsewhere(
+                groups,
+                index,
+              )) {
+                unavailable.set(
+                  serverId,
+                  t("chains.form.serverUsedInHop", {
+                    seq: firstGroupIndex + 1,
+                  }),
+                );
+              }
+              return (
               <div
                 key={index}
                 className="space-y-3 rounded-lg border border-border bg-muted/20 p-3"
@@ -369,10 +398,13 @@ export function ChainTemplateFormDialog({
                 <ServerMultiSelectField
                   value={group.server_ids}
                   disabled={pending}
+                  unavailable={unavailable}
+                  idPrefix={`chain-template-group-${index}-server`}
                   onChange={(ids) => patchGroup(index, { server_ids: ids })}
                 />
               </div>
-            ))}
+              );
+            })}
 
             <Button
               type="button"

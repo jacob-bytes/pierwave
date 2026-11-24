@@ -1,0 +1,85 @@
+{
+  "base": "http://localhost:5173",
+  "results": [
+    {
+      "name": "hop2-blocked-1440-dark",
+      "ok": true,
+      "detail": {
+        "options": 10,
+        "blocked": "香港-01 已在第 1 跳"
+      }
+    },
+    {
+      "name": "hop2-released-1440-dark",
+      "ok": true,
+      "detail": {
+        "released": "香港-01",
+        "taken": "香港-02 已在第 1 跳"
+      }
+    },
+    {
+      "name": "hop2-blocked-390-dark",
+      "ok": true,
+      "detail": {
+        "options": 10,
+        "blocked": "香港-01 已在第 1 跳"
+      }
+    },
+    {
+      "name": "hop2-released-390-dark",
+      "ok": true,
+      "detail": {
+        "released": "香港-01",
+        "taken": "香港-02 已在第 1 跳"
+      }
+    },
+    {
+      "name": "hop2-blocked-1440-light",
+      "ok": true,
+      "detail": {
+        "options": 10,
+        "blocked": "香港-01 已在第 1 跳"
+      }
+    },
+    {
+      "name": "hop2-released-1440-light",
+      "ok": true,
+      "detail": {
+        "released": "香港-01",
+        "taken": "香港-02 已在第 1 跳"
+      }
+    },
+    {
+      "name": "hop2-blocked-390-light",
+      "ok": true,
+      "detail": {
+        "options": 10,
+        "blocked": "香港-01 已在第 1 跳"
+      }
+    },
+    {
+      "name": "hop2-released-390-light",
+      "ok": true,
+      "detail": {
+        "released": "香港-01",
+        "taken": "香港-02 已在第 1 跳"
+      }
+    },
+    {
+      "name": "grouped-same-hop",
+      "ok": true,
+      "detail": {
+        "taken": "香港-01"
+      }
+    },
+    {
+      "name": "template-editor-occupancy",
+      "ok": true,
+      "detail": {
+        "released": "香港-01",
+        "taken": "香港-02"
+      }
+    }
+  ],
+  "failures": []
+}

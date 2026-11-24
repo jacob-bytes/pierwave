@@ -12,7 +12,9 @@ import { ApiError } from "./apiError.ts";
  * - `summary` / `series` / `segments` 字段缺失或旧字段名 → 这里统一归一化，
  *   绝不把缺失画成 0；
  * - 最后一跳没有历史数据 → `missing_hops` 里会有该 seq，逐段行明确标出，
- *   不计入跳间时延。
+ *   不计入跳间时延；
+ * - 新契约的 `last_hop.measurable = false` → 最后一跳是「测不了」，不是
+ *   「没数据」；旧主控没有该字段时保持上面的 missing 逻辑。
  *
  * 所有计算都不依赖 React / DOM / i18n，便于 `node:test` 直接覆盖边界。
  */
@@ -129,14 +131,41 @@ export type ChainEndpointIssue = "missing" | "no_address" | "no_name" | null;
  * 旧主控没有该字段 → `status` 为 null，列表回退到「变慢 / 样本」判定；
  * 新主控的 `kind` 是节点健康（服务器是否在线 / 异常）的权威结论，优先于
  * 旧的 `blocked_reason` / `degraded` 布尔位。
+ *
+ * `unknown` 是 Agent 根本不会探测最后一跳（realm / nftables / tunnel 或
+ * udp / both）时的独立状态，与 `degraded`（节点异常 / 无样本 / 变慢）不同：
+ * 它不是「数据还没到」，而是「测不了」，前端用 muted 文案，不报警。
  */
-export type ChainStatusKind = "blocked" | "degraded" | "ok";
+export type ChainStatusKind = "blocked" | "degraded" | "ok" | "unknown";
 
 export type ChainStatusCause =
   | "node_offline"
   | "node_unhealthy"
+  | "unmeasurable"
   | "no_samples"
   | "slow";
+
+/**
+ * 最后一跳不可测的原因：
+ * - `engine_unsupported`：realm / nftables / tunnel 从不跑目标探测；
+ * - `protocol_unsupported`：udp / both 的 TCP 握手证明不了 UDP 可达。
+ */
+export type ChainLastHopReason =
+  | "engine_unsupported"
+  | "protocol_unsupported";
+
+/**
+ * 新契约的 `chains[].last_hop`：最后一跳能不能被 Agent 探测。
+ *
+ * 旧主控没有该字段 → `lastHop` 为 null，前端保持原来的「最后一跳无历史
+ * 数据」逻辑；新契约 `measurable = false` 时显示「不可测量 + 原因」，
+ * 不能再把「测不了」说成「没数据」。
+ */
+export interface ChainLastHop {
+  measurable: boolean;
+  /** 不可测原因；可测时恒为 null。 */
+  reason: ChainLastHopReason | null;
+}
 
 export interface ChainStatusNode {
   /** 路径序号；契约缺失时为 0。 */
@@ -157,6 +186,11 @@ export interface ChainHealthChain {
   hops: number;
   /** 新契约的链状态；旧主控缺失时为 null。 */
   status: ChainStatus | null;
+  /**
+   * 最后一跳可测性；旧主控没有该字段时为 null。
+   * `measurable = false` 时最后一跳显示「不可测量」而不是「无历史数据」。
+   */
+  lastHop: ChainLastHop | null;
   /** 链路入口；旧主控没有该字段时为 null。 */
   entry: ChainEndpoint | null;
   /** 链路出口；旧主控没有该字段时为 null。 */
@@ -619,16 +653,42 @@ function readStatusNode(raw: unknown): ChainStatusNode | null {
 function readChainStatus(raw: unknown): ChainStatus | null {
   if (!isRecord(raw)) return null;
   const kind = trimmedString(raw.kind)?.toLowerCase();
-  if (kind !== "blocked" && kind !== "degraded" && kind !== "ok") return null;
+  if (
+    kind !== "blocked" &&
+    kind !== "degraded" &&
+    kind !== "ok" &&
+    kind !== "unknown"
+  ) {
+    return null;
+  }
   const rawCause = trimmedString(raw.cause)?.toLowerCase();
   const cause: ChainStatusCause | null =
     rawCause === "node_offline" ||
     rawCause === "node_unhealthy" ||
+    rawCause === "unmeasurable" ||
     rawCause === "no_samples" ||
     rawCause === "slow"
       ? rawCause
       : null;
   return { kind, cause, node: readStatusNode(raw.node) };
+}
+
+/**
+ * `chains[].last_hop` 归一化。
+ *
+ * 旧主控没有该字段 → null，调用方保留旧的「无历史数据」文案；字段存在但
+ * `measurable` 不是布尔值（半成品 / 脏数据）也按缺失处理，不猜可测性。
+ * 可测时忽略残留的 `reason`，不可测时只认契约里的两个原因。
+ */
+function readLastHop(raw: unknown): ChainLastHop | null {
+  if (!isRecord(raw) || typeof raw.measurable !== "boolean") return null;
+  if (raw.measurable) return { measurable: true, reason: null };
+  const rawReason = trimmedString(raw.reason)?.toLowerCase();
+  const reason: ChainLastHopReason | null =
+    rawReason === "engine_unsupported" || rawReason === "protocol_unsupported"
+      ? rawReason
+      : null;
+  return { measurable: false, reason };
 }
 
 function readChain(
@@ -665,6 +725,7 @@ function readChain(
       32,
     ),
     status: readChainStatus(raw.status),
+    lastHop: readLastHop(raw.last_hop),
     entry: readEndpoint(raw.entry),
     exit: readEndpoint(raw.exit),
     nodes: readNodes(raw.nodes),
@@ -951,23 +1012,25 @@ export function buildChainTrendData(
 
 /**
  * 列表页一行链路的时延状态；正常 / 变慢 / 样本不足，以及新契约的
- * 阻断 / 降级。`slow` 是「时延变慢」，仍单独用徽章表达，不是状态文案。
+ * 阻断 / 降级 / 不可测。`slow` 是「时延变慢」，仍单独用徽章表达，不是状态文案。
  */
 export type ChainLatencyStatus =
   | "normal"
   | "slow"
   | "insufficient"
   | "blocked"
-  | "degraded";
+  | "degraded"
+  | "unknown";
 
 /**
- * 优先用契约的 `status.kind`：节点离线 → 阻断、节点异常 → 降级；
- * 缺失时回退到旧的「变慢 / 样本」判定。`kind = ok` 只说明节点健康，
- * 没有样本时仍然是「样本不足」，不能画成正常。
+ * 优先用契约的 `status.kind`：节点离线 → 阻断、节点异常 → 降级、
+ * 最后一跳测不了 → 未知；缺失时回退到旧的「变慢 / 样本」判定。
+ * `kind = ok` 只说明节点健康，没有样本时仍然是「样本不足」，不能画成正常。
  */
 export function chainStatus(chain: ChainHealthChain): ChainLatencyStatus {
   if (chain.status?.kind === "blocked") return "blocked";
   if (chain.status?.kind === "degraded") return "degraded";
+  if (chain.status?.kind === "unknown") return "unknown";
   if (!chain.hasSamples || chain.deltaMs === null) return "insufficient";
   return chain.slow ? "slow" : "normal";
 }
@@ -978,7 +1041,8 @@ export type ChainHealthState =
   | "degraded"
   | "blocked"
   | "disabled"
-  | "insufficient";
+  | "insufficient"
+  | "unknown";
 
 /** 只取链列表里的三个字段，避免把整个 `Chain` 拖进纯逻辑模块。 */
 export interface ChainHealthConfig {
@@ -1000,7 +1064,13 @@ export function chainHealthState(
 ): ChainHealthState {
   if (config !== null && !config.enabled) return "disabled";
   const status = chainStatus(chain);
-  if (status === "blocked" || status === "degraded") return status;
+  if (
+    status === "blocked" ||
+    status === "degraded" ||
+    status === "unknown"
+  ) {
+    return status;
+  }
   if (chain.status === null && config !== null) {
     if ((config.blocked_reason ?? "").trim() !== "") return "blocked";
     if (config.degraded) return "degraded";
@@ -1028,6 +1098,18 @@ export function chainNodeIssue(
     return { kind: "unhealthy", node: status.node };
   }
   return null;
+}
+
+/**
+ * 最后一跳是否「测不了」（不是「没数据」）。
+ *
+ * 只认新契约的 `last_hop.measurable = false`；旧主控没有 `last_hop` 时返回
+ * false，调用方继续沿用 `missing_hops` / 「无历史数据」的旧逻辑。
+ */
+export function chainLastHopUnmeasurable(
+  chain: Pick<ChainHealthChain, "lastHop">,
+): boolean {
+  return chain.lastHop !== null && chain.lastHop.measurable === false;
 }
 
 /** 数值变化的语义色：只有后端标记 slow（≥8ms）才 warning。 */

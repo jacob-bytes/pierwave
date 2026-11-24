@@ -1,14 +1,16 @@
 {
-  "generatedAt": "2026-11-24T15:03:37.250Z",
+  "generatedAt": "2026-11-24T16:16:07.920Z",
   "shots": [
     {
       "name": "single-dark-1440.png",
-      "bytes": 33655,
+      "bytes": 30899,
       "fixture": "single",
       "theme": "dark",
       "width": 1440,
-      "targetLeaves": 3,
+      "targets": 3,
+      "folds": 0,
       "edges": 5,
+      "pulsePaths": 5,
       "scroll": [
         1008,
         1008
@@ -16,12 +18,14 @@
     },
     {
       "name": "single-dark-390.png",
-      "bytes": 26210,
+      "bytes": 21689,
       "fixture": "single",
       "theme": "dark",
       "width": 390,
-      "targetLeaves": 3,
+      "targets": 3,
+      "folds": 0,
       "edges": 5,
+      "pulsePaths": 5,
       "scroll": [
         477,
         350
@@ -29,12 +33,14 @@
     },
     {
       "name": "single-light-1440.png",
-      "bytes": 34083,
+      "bytes": 31304,
       "fixture": "single",
       "theme": "light",
       "width": 1440,
-      "targetLeaves": 3,
+      "targets": 3,
+      "folds": 0,
       "edges": 5,
+      "pulsePaths": 5,
       "scroll": [
         1008,
         1008
@@ -42,12 +48,14 @@
     },
     {
       "name": "single-light-390.png",
-      "bytes": 26865,
+      "bytes": 22150,
       "fixture": "single",
       "theme": "light",
       "width": 390,
-      "targetLeaves": 3,
+      "targets": 3,
+      "folds": 0,
       "edges": 5,
+      "pulsePaths": 5,
       "scroll": [
         477,
         350
@@ -55,12 +63,14 @@
     },
     {
       "name": "multi-dark-1440.png",
-      "bytes": 56418,
+      "bytes": 52017,
       "fixture": "multi",
       "theme": "dark",
       "width": 1440,
-      "targetLeaves": 4,
+      "targets": 4,
+      "folds": 0,
       "edges": 15,
+      "pulsePaths": 10,
       "scroll": [
         1008,
         1008
@@ -68,12 +78,14 @@
     },
     {
       "name": "multi-dark-390.png",
-      "bytes": 35370,
+      "bytes": 28689,
       "fixture": "multi",
       "theme": "dark",
       "width": 390,
-      "targetLeaves": 4,
+      "targets": 4,
+      "folds": 0,
       "edges": 15,
+      "pulsePaths": 10,
       "scroll": [
         768,
         350
@@ -81,12 +93,14 @@
     },
     {
       "name": "multi-light-1440.png",
-      "bytes": 55974,
+      "bytes": 51082,
       "fixture": "multi",
       "theme": "light",
       "width": 1440,
-      "targetLeaves": 4,
+      "targets": 4,
+      "folds": 0,
       "edges": 15,
+      "pulsePaths": 10,
       "scroll": [
         1008,
         1008
@@ -94,12 +108,14 @@
     },
     {
       "name": "multi-light-390.png",
-      "bytes": 35890,
+      "bytes": 28697,
       "fixture": "multi",
       "theme": "light",
       "width": 390,
-      "targetLeaves": 4,
+      "targets": 4,
+      "folds": 0,
       "edges": 15,
+      "pulsePaths": 10,
       "scroll": [
         768,
         350
@@ -107,12 +123,14 @@
     },
     {
       "name": "fold-dark-1440.png",
-      "bytes": 76782,
+      "bytes": 70706,
       "fixture": "fold",
       "theme": "dark",
       "width": 1440,
-      "targetLeaves": 8,
+      "targets": 8,
+      "folds": 1,
       "edges": 20,
+      "pulsePaths": 10,
       "scroll": [
         1008,
         1008
@@ -120,12 +138,14 @@
     },
     {
       "name": "fold-dark-390.png",
-      "bytes": 36485,
+      "bytes": 30207,
       "fixture": "fold",
       "theme": "dark",
       "width": 390,
-      "targetLeaves": 8,
+      "targets": 8,
+      "folds": 1,
       "edges": 20,
+      "pulsePaths": 10,
       "scroll": [
         768,
         350
@@ -133,12 +153,14 @@
     },
     {
       "name": "fold-light-1440.png",
-      "bytes": 74687,
+      "bytes": 68490,
       "fixture": "fold",
       "theme": "light",
       "width": 1440,
-      "targetLeaves": 8,
+      "targets": 8,
+      "folds": 1,
       "edges": 20,
+      "pulsePaths": 10,
       "scroll": [
         1008,
         1008
@@ -146,12 +168,14 @@
     },
     {
       "name": "fold-light-390.png",
-      "bytes": 36582,
+      "bytes": 30336,
       "fixture": "fold",
       "theme": "light",
       "width": 390,
-      "targetLeaves": 8,
+      "targets": 8,
+      "folds": 1,
       "edges": 20,
+      "pulsePaths": 10,
       "scroll": [
         768,
         350
@@ -159,12 +183,14 @@
     },
     {
       "name": "offline-dark-1440.png",
-      "bytes": 57603,
+      "bytes": 52225,
       "fixture": "offline",
       "theme": "dark",
       "width": 1440,
-      "targetLeaves": 4,
+      "targets": 4,
+      "folds": 0,
       "edges": 15,
+      "pulsePaths": 10,
       "scroll": [
         1008,
         1008
@@ -172,12 +198,14 @@
     },
     {
       "name": "offline-dark-390.png",
-      "bytes": 35972,
+      "bytes": 28857,
       "fixture": "offline",
       "theme": "dark",
       "width": 390,
-      "targetLeaves": 4,
+      "targets": 4,
+      "folds": 0,
       "edges": 15,
+      "pulsePaths": 10,
       "scroll": [
         768,
         350
@@ -185,12 +213,14 @@
     },
     {
       "name": "offline-light-1440.png",
-      "bytes": 57115,
+      "bytes": 51576,
       "fixture": "offline",
       "theme": "light",
       "width": 1440,
-      "targetLeaves": 4,
+      "targets": 4,
+      "folds": 0,
       "edges": 15,
+      "pulsePaths": 10,
       "scroll": [
         1008,
         1008
@@ -198,12 +228,134 @@
     },
     {
       "name": "offline-light-390.png",
-      "bytes": 36575,
+      "bytes": 28908,
       "fixture": "offline",
       "theme": "light",
       "width": 390,
-      "targetLeaves": 4,
+      "targets": 4,
+      "folds": 0,
       "edges": 15,
+      "pulsePaths": 10,
+      "scroll": [
+        768,
+        350
+      ]
+    },
+    {
+      "name": "fold-multi-dark-1440.png",
+      "bytes": 67221,
+      "fixture": "fold-multi",
+      "theme": "dark",
+      "width": 1440,
+      "targets": 16,
+      "folds": 2,
+      "edges": 20,
+      "pulsePaths": 10,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "fold-multi-dark-390.png",
+      "bytes": 44866,
+      "fixture": "fold-multi",
+      "theme": "dark",
+      "width": 390,
+      "targets": 16,
+      "folds": 2,
+      "edges": 20,
+      "pulsePaths": 10,
+      "scroll": [
+        472,
+        350
+      ]
+    },
+    {
+      "name": "fold-multi-light-1440.png",
+      "bytes": 63952,
+      "fixture": "fold-multi",
+      "theme": "light",
+      "width": 1440,
+      "targets": 16,
+      "folds": 2,
+      "edges": 20,
+      "pulsePaths": 10,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "fold-multi-light-390.png",
+      "bytes": 43350,
+      "fixture": "fold-multi",
+      "theme": "light",
+      "width": 390,
+      "targets": 16,
+      "folds": 2,
+      "edges": 20,
+      "pulsePaths": 10,
+      "scroll": [
+        472,
+        350
+      ]
+    },
+    {
+      "name": "degraded-dark-1440.png",
+      "bytes": 53325,
+      "fixture": "degraded",
+      "theme": "dark",
+      "width": 1440,
+      "targets": 4,
+      "folds": 0,
+      "edges": 15,
+      "pulsePaths": 10,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "degraded-dark-390.png",
+      "bytes": 28962,
+      "fixture": "degraded",
+      "theme": "dark",
+      "width": 390,
+      "targets": 4,
+      "folds": 0,
+      "edges": 15,
+      "pulsePaths": 10,
+      "scroll": [
+        768,
+        350
+      ]
+    },
+    {
+      "name": "degraded-light-1440.png",
+      "bytes": 52447,
+      "fixture": "degraded",
+      "theme": "light",
+      "width": 1440,
+      "targets": 4,
+      "folds": 0,
+      "edges": 15,
+      "pulsePaths": 10,
+      "scroll": [
+        1008,
+        1008
+      ]
+    },
+    {
+      "name": "degraded-light-390.png",
+      "bytes": 28819,
+      "fixture": "degraded",
+      "theme": "light",
+      "width": 390,
+      "targets": 4,
+      "folds": 0,
+      "edges": 15,
+      "pulsePaths": 10,
       "scroll": [
         768,
         350
@@ -211,82 +363,289 @@
     },
     {
       "name": "multi-390-dark-end.png",
-      "bytes": 33805,
+      "bytes": 26783,
       "scroll": [
         768,
         350
       ],
-      "targetLeaves": 4
+      "targets": 4
     },
     {
-      "name": "fold-390-dark-end.png",
-      "bytes": 48746,
+      "name": "fold-multi-390-dark-end.png",
+      "bytes": 51527,
       "scroll": [
-        768,
+        472,
         350
       ],
-      "targetLeaves": 8
+      "targets": 16
     },
     {
       "name": "offline-390-dark-end.png",
-      "bytes": 33896,
+      "bytes": 26789,
       "scroll": [
         768,
         350
       ],
-      "targetLeaves": 4
+      "targets": 4
     },
     {
       "name": "multi-collapsed-1440-dark.png",
-      "bytes": 44153,
+      "bytes": 38927,
       "hidden": "5",
       "visibleNodes": 9
     },
     {
+      "name": "fold-multi-collapsed-1440-dark.png",
+      "bytes": 67221,
+      "p1": 8,
+      "p2": 8,
+      "folds": 2
+    },
+    {
+      "name": "fold-multi-expanded-p1-1440-dark.png",
+      "bytes": 71950,
+      "p1": 10,
+      "p2": 8,
+      "folds": 1
+    },
+    {
       "name": "multi-hover-path-1440-dark.png",
-      "bytes": 60439,
+      "bytes": 56824,
       "halos": 5
     },
     {
-      "name": "multi-hover-edge-1440-dark.png",
-      "bytes": 59061,
-      "halos": 3
+      "name": "multi-hover-cross-1440-dark.png",
+      "bytes": 54665,
+      "hotCrossEdges": 1
     },
     {
       "name": "fold-expanded-1440-dark.png",
-      "bytes": 87399,
-      "targetLeaves": 12
+      "bytes": 81563,
+      "targets": 12
+    },
+    {
+      "name": "tap-first-390-dark.png",
+      "bytes": 32735,
+      "collapsed": "false",
+      "tooltip": "洛杉矶-01状态在线链数8用户数5"
+    },
+    {
+      "name": "tap-second-390-dark.png",
+      "bytes": 31570,
+      "collapsed": "true",
+      "hidden": "5"
+    },
+    {
+      "name": "offline-unavailable-tooltip-1440-dark.png",
+      "bytes": 55050,
+      "tooltip": "东京-01 → 洛杉矶-02—2 链1 用户不可用最近已知 96 ms"
+    },
+    {
+      "name": "degraded-tooltip-1440-dark.png",
+      "bytes": 56958,
+      "tooltip": "东京-01 → 洛杉矶-0296 ms2 链1 用户降级 · 数值为最近已知"
+    },
+    {
+      "name": "tooltip-top-row-1440-dark.png",
+      "bytes": 51579,
+      "tooltip": [
+        764,
+        148
+      ]
+    },
+    {
+      "name": "tooltip-390-end-390-dark.png",
+      "bytes": 30056,
+      "tooltip": [
+        150,
+        294
+      ],
+      "scroll": [
+        20,
+        370
+      ]
+    },
+    {
+      "name": "tooltip-focus-1440-light.png",
+      "bytes": 54726,
+      "describedBy": "tree-chart-tooltip-_r_0_",
+      "tooltip": [
+        764,
+        148
+      ]
     },
     {
       "name": "multi-pulse-frame-a-1440-dark.png",
-      "bytes": 57459
+      "bytes": 52791
     },
     {
       "name": "multi-pulse-frame-b-1440-dark.png",
-      "bytes": 56354
+      "bytes": 52095
     },
     {
       "name": "multi-reduced-motion-1440-dark.png",
-      "bytes": 57191,
+      "bytes": 54340,
       "pulseAnimation": "none",
-      "pulseOpacity": "0",
-      "staticOpacity": "0.42",
-      "halos": 0
+      "pulseOpacity": "1",
+      "pulseStrokeOpacity": "0.42",
+      "pulseDash": "none",
+      "staticCopies": 0,
+      "pulsePath": "M 19 190.75 C 88 190.75, 88 127.5, 157 127.5",
+      "visiblePath": "M 19 190.75 C 88 190.75, 88 127.5, 157 127.5"
     },
     {
-      "name": "multi-en-1440-dark.png",
-      "bytes": 56289,
-      "lang": "en"
+      "name": "longlabel-1440-dark.png",
+      "bytes": 25016,
+      "labels": [
+        "入口",
+        "香港-节点名字非常长需要截断-01",
+        "a-very-long-target-hostn…"
+      ],
+      "aria": "a-very-long-target-hostname.example.com:443, 2 链, 未知, 1 用户",
+      "longest": 25,
+      "ariaLength": 58
+    },
+    {
+      "name": "empty-topology-1440-dark.png",
+      "bytes": 17041,
+      "emptyState": 1,
+      "nodes": 0,
+      "title": "暂无流量还没有转发链使用这个模板。"
+    },
+    {
+      "name": "fold-multi-en-1440-dark.png",
+      "bytes": 67747,
+      "lang": "en",
+      "folds": 2
     }
   ],
   "checks": [
+    {
+      "name": "collapse-hidden",
+      "value": "5"
+    },
+    {
+      "name": "collapse-aria",
+      "value": {
+        "label": "转发链模板 三跳多路径 的拓扑：9 个节点，9 条路径",
+        "nodes": "9",
+        "edges": "9"
+      }
+    },
+    {
+      "name": "fold-multi-before",
+      "value": {
+        "p1": 8,
+        "p2": 8,
+        "folds": 2
+      }
+    },
+    {
+      "name": "fold-multi-restored",
+      "value": {
+        "folds": 2
+      }
+    },
     {
       "name": "hover-node-halos",
       "value": 5
     },
     {
-      "name": "hover-edge-halos",
-      "value": 3
+      "name": "cross-edge-hot",
+      "value": 1
+    },
+    {
+      "name": "tap-two-step",
+      "value": {
+        "first": {
+          "collapsed": "false",
+          "tooltip": "洛杉矶-01状态在线链数8用户数5"
+        },
+        "second": {
+          "collapsed": "true",
+          "hidden": "5"
+        }
+      }
+    },
+    {
+      "name": "unavailable-tooltip",
+      "value": "东京-01 → 洛杉矶-02—2 链1 用户不可用最近已知 96 ms"
+    },
+    {
+      "name": "degraded-tooltip",
+      "value": "东京-01 → 洛杉矶-0296 ms2 链1 用户降级 · 数值为最近已知"
+    },
+    {
+      "name": "tooltip-top-row",
+      "value": {
+        "tooltipTop": 148,
+        "scrollTop": 84
+      }
+    },
+    {
+      "name": "tooltip-390-end",
+      "value": {
+        "tooltip": [
+          150,
+          294
+        ],
+        "scroll": [
+          20,
+          370
+        ]
+      }
+    },
+    {
+      "name": "tooltip-focus",
+      "value": {
+        "describedBy": "tree-chart-tooltip-_r_0_",
+        "ariaLive": "polite"
+      }
+    },
+    {
+      "name": "reduced-motion",
+      "value": {
+        "pulseAnimation": "none",
+        "pulseOpacity": "1",
+        "pulseStrokeOpacity": "0.42",
+        "pulseDash": "none",
+        "staticCopies": 0,
+        "pulsePath": "M 19 190.75 C 88 190.75, 88 127.5, 157 127.5",
+        "visiblePath": "M 19 190.75 C 88 190.75, 88 127.5, 157 127.5"
+      }
+    },
+    {
+      "name": "aria-labels",
+      "value": {
+        "member": "东京-01, 10 链, 在线, 6 用户",
+        "target": "1.1.1.1:443, 5 链, 未知, 3 用户",
+        "edge": "入口 → 东京-01 15.5 ms 1 用户",
+        "hit": {
+          "width": 104,
+          "height": 44
+        }
+      }
+    },
+    {
+      "name": "long-label",
+      "value": {
+        "labels": [
+          "入口",
+          "香港-节点名字非常长需要截断-01",
+          "a-very-long-target-hostn…"
+        ],
+        "aria": "a-very-long-target-hostname.example.com:443, 2 链, 未知, 1 用户",
+        "longest": 25,
+        "ariaLength": 58
+      }
+    },
+    {
+      "name": "empty-topology",
+      "value": {
+        "emptyState": 1,
+        "nodes": 0,
+        "title": "暂无流量还没有转发链使用这个模板。"
+      }
     }
   ],
   "errors": []

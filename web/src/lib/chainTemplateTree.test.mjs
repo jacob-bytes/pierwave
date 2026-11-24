@@ -72,6 +72,10 @@ function detail(overrides = {}) {
     users: [],
     series: [],
     strategies: [],
+    // 新契约：未被任何链用到的候选只出现在这里，不再混进 nodes。
+    unused_candidates: [
+      { seq: 1, server_id: "东京-备用", name: "东京-备用", status: "online" },
+    ],
     ...overrides,
   };
 }
@@ -126,6 +130,33 @@ test("树结构：入口聚合根 → 真实跳成员 → 目标叶子", () => {
   const rootMeta = chainTemplateTreeNodeMeta(model.data);
   assert.equal(rootMeta.chains, 5);
   assert.equal(rootMeta.status, "online");
+});
+
+test("未使用候选只读契约的 unused_candidates；缺失时为空", () => {
+  // 旧契约：nodes 里还混着 chains = 0 的候选，但没有 unused_candidates 字段。
+  const legacy = detail();
+  legacy.unused_candidates = undefined;
+  const legacyModel = chainTemplateTree(
+    normalizeChainTemplateDetail(legacy),
+    { labels: labels() },
+  );
+  assert.deepEqual(legacyModel.unusedMembers, []);
+
+  const fromContract = detail({
+    unused_candidates: [
+      { seq: 2, server_id: "srv-7", name: "洛杉矶-02", status: "abnormal" },
+    ],
+  });
+  const model = chainTemplateTree(normalizeChainTemplateDetail(fromContract), {
+    labels: labels(),
+  });
+  assert.deepEqual(
+    model.unusedMembers.map((row) => [row.seq, row.name, row.status]),
+    [[2, "洛杉矶-02", "degraded"]],
+  );
+  // 候选不画进树。
+  const names = flatten(model.data).map((node) => node.name);
+  assert.equal(names.includes("洛杉矶-02"), false);
 });
 
 test("只画 chains > 0 的成员与边；边标签 P50 缺失显示 —", () => {
@@ -273,4 +304,422 @@ test("大图 20 成员 × 6 跳：O(n) 布局、无 NaN、目标仍是叶子点"
     assert.ok(Number.isFinite(edgeItem.labelX));
     assert.ok(edgeItem.width >= 1 && edgeItem.width <= 6);
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* F1 折叠按父节点分组：每个父节点各自保留至少 1 个目标                 */
+/* ------------------------------------------------------------------ */
+
+/** 两跳：入口 → p1 / p2 → 各自的目标。 */
+function multiParentDetail({ p1Targets, p2Targets }) {
+  const all = [...p1Targets, ...p2Targets];
+  const targets = all.map(([label, chains]) => {
+    const [host, port] = label.split(":");
+    return { host, port: Number(port), chains, users: [] };
+  });
+  const edges = [
+    edge(0, "入口-01", 1, "p1", 20, 10),
+    edge(0, "入口-01", 1, "p2", 20, 10),
+  ];
+  for (const [label, chains] of p1Targets) {
+    edges.push(edge(1, "p1", 2, label, chains, 30));
+  }
+  for (const [label, chains] of p2Targets) {
+    edges.push(edge(1, "p2", 2, label, chains, 30));
+  }
+  return {
+    template: { id: "tpl-multi", name: "多父模板", hops: 2 },
+    nodes: [
+      { seq: 0, role: "source", name: "入口", members: [member("入口-01", 40, 5)] },
+      {
+        seq: 1,
+        role: "hop",
+        name: "第一跳",
+        members: [member("p1", 20, 3), member("p2", 20, 2)],
+      },
+      { seq: 2, role: "target", name: "目标", members: [] },
+    ],
+    edges,
+    targets,
+    users: [],
+    series: [],
+    strategies: [],
+  };
+}
+
+function childrenOf(model, id) {
+  const node = flatten(model.data).find((item) => item.id === id);
+  assert.ok(node, `node ${id} exists`);
+  return node.children ?? [];
+}
+
+function flattenNodes(model) {
+  return flatten(model.data);
+}
+
+function targetChildrenOf(model, name) {
+  const node = flattenNodes(model).find((item) => item.name === name);
+  assert.ok(node, `node ${name}`);
+  return (node.children ?? []).filter(
+    (child) => chainTemplateTreeNodeMeta(child)?.kind === "target",
+  );
+}
+
+function foldChildrenOf(model, name) {
+  const node = flattenNodes(model).find((item) => item.name === name);
+  assert.ok(node, `node ${name}`);
+  return (node.children ?? []).filter(
+    (child) => chainTemplateTreeNodeMeta(child)?.kind === "fold",
+  );
+}
+
+test("折叠按父节点分组：p1 链数全低也不至于 0 子节点，各家 +N 只连自家", () => {
+  // p2 的 9 个目标链数都高于 p1：旧的全局 slice 会把 p1 全折叠，
+  // 并让 p1 变成挂着别家目标的死端。
+  const p1Targets = Array.from({ length: 9 }, (_, index) => [
+    `10.1.0.${index + 1}:443`,
+    1,
+  ]);
+  const p2Targets = Array.from({ length: 9 }, (_, index) => [
+    `10.2.0.${index + 1}:443`,
+    100 - index,
+  ]);
+  const model = chainTemplateTree(
+    normalizeChainTemplateDetail(multiParentDetail({ p1Targets, p2Targets })),
+    { labels: labels() },
+  );
+
+  // 每个父节点都保留目标，且各自折叠多余的 1 个。
+  assert.equal(targetChildrenOf(model, "p1").length, 8);
+  assert.equal(targetChildrenOf(model, "p2").length, 8);
+  const p1Fold = foldChildrenOf(model, "p1");
+  const p2Fold = foldChildrenOf(model, "p2");
+  assert.equal(p1Fold.length, 1);
+  assert.equal(p2Fold.length, 1);
+  assert.equal(chainTemplateTreeNodeMeta(p1Fold[0]).hiddenTargets, 1);
+  assert.equal(chainTemplateTreeNodeMeta(p2Fold[0]).hiddenTargets, 1);
+  // 折叠节点记录自己的父节点，展开时可以只展开这一组。
+  assert.equal(chainTemplateTreeNodeMeta(p1Fold[0]).foldParent, "m:1:p1");
+  assert.equal(chainTemplateTreeNodeMeta(p2Fold[0]).foldParent, "m:1:p2");
+
+  // 折叠节点只连到对应父节点：一条边、source 就是父节点。
+  for (const [parent, fold] of [
+    ["m:1:p1", p1Fold[0]],
+    ["m:1:p2", p2Fold[0]],
+  ]) {
+    const incoming = model.links.filter((link) => link.target === fold.id);
+    assert.equal(incoming.length, 1);
+    assert.equal(incoming[0].source, parent);
+  }
+
+  // 恒等式：目标总数 = 可见 + 折叠；叶子数 = 可见目标 + 折叠节点。
+  assert.equal(model.targetCount, 18);
+  assert.equal(
+    model.visibleTargetCount + model.hiddenTargetCount,
+    model.targetCount,
+  );
+  const layout = buildTreeChartLayout(model.data, { links: model.links });
+  const foldCount = flattenNodes(model).filter(
+    (node) => chainTemplateTreeNodeMeta(node)?.kind === "fold",
+  ).length;
+  assert.equal(foldCount, 2);
+  assert.equal(
+    layout.nodes.length,
+    1 + model.usedMemberCount + model.visibleTargetCount + foldCount,
+  );
+  assert.equal(
+    layout.nodes.filter((node) => node.leaf).length,
+    model.visibleTargetCount + foldCount,
+  );
+  // 树边 = 节点数 - 1（含折叠节点），没有孤儿、没有重复父节点。
+  const treeEdges = layout.edges.filter((item) => item.tree);
+  assert.equal(treeEdges.length, layout.nodes.length - 1);
+  const parents = new Set(treeEdges.map((item) => item.target));
+  assert.equal(parents.size, treeEdges.length, "每个非根节点只有一条树边");
+});
+
+test("折叠按父节点分组：p1/p2 交错排序时各家的目标不会串门", () => {
+  const p1Targets = [];
+  const p2Targets = [];
+  for (let index = 0; index < 9; index += 1) {
+    // 交错：p1 略高、p2 略低，全局 slice 会把两边混在一起。
+    p1Targets.push([`10.1.0.${index + 1}:443`, 50 - index]);
+    p2Targets.push([`10.2.0.${index + 1}:443`, 49 - index]);
+  }
+  const model = chainTemplateTree(
+    normalizeChainTemplateDetail(multiParentDetail({ p1Targets, p2Targets })),
+    { labels: labels() },
+  );
+  const p1Visible = targetChildrenOf(model, "p1").map((node) => node.name);
+  const p2Visible = targetChildrenOf(model, "p2").map((node) => node.name);
+  assert.ok(p1Visible.every((name) => name.startsWith("10.1.0.")));
+  assert.ok(p2Visible.every((name) => name.startsWith("10.2.0.")));
+  assert.equal(p1Visible.length, 8);
+  assert.equal(p2Visible.length, 8);
+  // 折叠数字也是各家的：各 1 个。
+  assert.equal(model.hiddenTargetCount, 2);
+  assert.equal(model.foldCount, 2);
+});
+
+test("只折叠超限的父节点：另一个父节点目标不多时保持全展开", () => {
+  const p1Targets = Array.from({ length: 10 }, (_, index) => [
+    `10.1.0.${index + 1}:443`,
+    10 - index,
+  ]);
+  const p2Targets = [["10.2.0.1:443", 5]];
+  const model = chainTemplateTree(
+    normalizeChainTemplateDetail(multiParentDetail({ p1Targets, p2Targets })),
+    { labels: labels() },
+  );
+  assert.equal(targetChildrenOf(model, "p1").length, 8);
+  assert.equal(foldChildrenOf(model, "p1").length, 1);
+  assert.equal(targetChildrenOf(model, "p2").length, 1);
+  assert.equal(foldChildrenOf(model, "p2").length, 0);
+  assert.equal(model.foldTargets, true);
+  assert.equal(model.foldCount, 1);
+});
+
+test("可以只展开某一组折叠：展开后该组叶子数恢复，其它组仍折叠", () => {
+  const p1Targets = Array.from({ length: 10 }, (_, index) => [
+    `10.1.0.${index + 1}:443`,
+    10 - index,
+  ]);
+  const p2Targets = Array.from({ length: 10 }, (_, index) => [
+    `10.2.0.${index + 1}:443`,
+    10 - index,
+  ]);
+  const detail = normalizeChainTemplateDetail(
+    multiParentDetail({ p1Targets, p2Targets }),
+  );
+  const expanded = chainTemplateTree(detail, {
+    labels: labels(),
+    expandedParents: new Set(["m:1:p1"]),
+  });
+  assert.equal(targetChildrenOf(expanded, "p1").length, 10);
+  assert.equal(foldChildrenOf(expanded, "p1").length, 0);
+  assert.equal(targetChildrenOf(expanded, "p2").length, 8);
+  assert.equal(foldChildrenOf(expanded, "p2").length, 1);
+  assert.equal(expanded.foldTargets, true);
+  assert.equal(expanded.foldCount, 1);
+
+  const all = chainTemplateTree(detail, {
+    labels: labels(),
+    targetsExpanded: true,
+  });
+  assert.equal(all.foldCount, 0);
+  assert.equal(all.visibleTargetCount, 20);
+  assert.equal(all.foldTargets, false);
+});
+
+/* ------------------------------------------------------------------ */
+/* F2/F7 离线与降级：不可用边标签不再冒充当前 P50                       */
+/* ------------------------------------------------------------------ */
+
+test("离线边：标签为 —，最近已知 P50 单独保留，不进 pulse", () => {
+  const model = chainTemplateTree(normalizeChainTemplateDetail(detail()), {
+    labels: labels(),
+  });
+  const offline = model.links.filter((link) => link.unavailable);
+  assert.ok(offline.length >= 1);
+  for (const link of offline) {
+    assert.equal(link.label, "—");
+    assert.equal(link.pulse, false);
+    // 历史 P50 仍然保留，但只作为「最近已知」给 tooltip，不是当前值。
+    assert.ok(link.lastP50Ms === null || link.lastP50Ms > 0);
+  }
+  const withHistory = offline.find((link) => link.lastP50Ms !== null);
+  assert.ok(withHistory, "至少有一条离线边保留历史 P50");
+  // 在线边不带 lastP50Ms，避免把它当成「历史」。
+  const online = model.links.filter((link) => !link.unavailable);
+  assert.ok(online.every((link) => link.lastP50Ms === null));
+});
+
+test("降级成员（abnormal / no_data）：边标黄不脉冲，状态归一为 degraded", () => {
+  const payload = detail();
+  payload.nodes = payload.nodes.map((node) => ({
+    ...node,
+    members: node.members.map((item) =>
+      item.name === "洛杉矶-01" ? { ...item, status: "abnormal" } : item,
+    ),
+  }));
+  payload.edges = payload.edges.filter((item) => item.to.member !== "1.2.3.4:443");
+  payload.nodes = payload.nodes.filter((node) => node.role !== "target");
+  payload.targets = [];
+  const model = chainTemplateTree(normalizeChainTemplateDetail(payload), {
+    labels: labels(),
+  });
+  const degraded = model.links.filter((link) => link.degraded);
+  assert.ok(degraded.length >= 1);
+  assert.ok(degraded.every((link) => link.pulse === false));
+  assert.ok(degraded.every((link) => link.unavailable === false));
+  // 数值仍然给出：降级不是不可用，只是不当成健康路径脉冲。
+  assert.ok(degraded.some((link) => link.label !== "—"));
+
+  const layout = buildTreeChartLayout(model.data, { links: model.links });
+  const node = layout.nodes.find((item) => item.node.name === "洛杉矶-01");
+  const meta = chainTemplateTreeNodeMeta(node.node);
+  assert.equal(meta.status, "degraded");
+  assert.equal(meta.offline, false);
+
+  payload.nodes = payload.nodes.map((node) => ({
+    ...node,
+    members: node.members.map((item) =>
+      item.name === "洛杉矶-01" ? { ...item, status: "no_data" } : item,
+    ),
+  }));
+  const noData = chainTemplateTree(normalizeChainTemplateDetail(payload), {
+    labels: labels(),
+  });
+  assert.ok(noData.links.some((link) => link.degraded));
+});
+
+/* ------------------------------------------------------------------ */
+/* F9 成员去重：serverId 优先，缺失时用名字                             */
+/* ------------------------------------------------------------------ */
+
+test("同一台服务器两条成员记录（同名不同 server_id）合并成一个节点", () => {
+  const payload = {
+    template: { id: "tpl-dup", name: "重复成员", hops: 1 },
+    nodes: [
+      {
+        seq: 0,
+        role: "source",
+        name: "入口",
+        members: [
+          { server_id: "srv-1", name: "香港-01", status: "online", chains: 3, users: 2 },
+          // 同一台机器换了显示名：去重键用 serverId，只画一个节点。
+          { server_id: "srv-1", name: "香港-01-renamed", status: "online", chains: 0, users: 0 },
+        ],
+      },
+      {
+        seq: 1,
+        role: "target",
+        name: "目标",
+        members: [{ name: "1.2.3.4:443", chains: 3, users: 2 }],
+      },
+    ],
+    edges: [
+      {
+        seq: 1,
+        from: { seq: 0, member: "香港-01-renamed" },
+        to: { seq: 1, member: "1.2.3.4:443" },
+        chains: 3,
+        users: 2,
+        p50_ms: 12,
+        loss_pct: 0,
+      },
+    ],
+    targets: [{ host: "1.2.3.4", port: 443, chains: 3, users: [] }],
+    users: [],
+    series: [],
+    strategies: [],
+  };
+  const model = chainTemplateTree(normalizeChainTemplateDetail(payload), {
+    labels: labels(),
+  });
+  // 源成员只在根节点聚合，第一跳没有成员；目标挂在根下。
+  assert.equal(model.targetCount, 1);
+  assert.equal(model.visibleTargetCount, 1);
+  const names = flattenNodes(model).map((node) => node.name);
+  assert.equal(
+    names.filter((name) => name.startsWith("香港-01")).length,
+    0,
+    "源成员不画成中间节点",
+  );
+
+  const hopDup = {
+    ...payload,
+    template: { id: "tpl-dup2", name: "重复跳成员", hops: 2 },
+    nodes: [
+      {
+        seq: 0,
+        role: "source",
+        name: "入口",
+        members: [{ server_id: "srv-0", name: "入口-01", status: "online", chains: 3, users: 2 }],
+      },
+      {
+        seq: 1,
+        role: "hop",
+        name: "第一跳",
+        members: [
+          { server_id: "srv-1", name: "东京-01", status: "online", chains: 3, users: 2 },
+          { server_id: "srv-1", name: "东京-01-old", status: "online", chains: 0, users: 0 },
+          { name: "无ID-01", status: "online", chains: 0, users: 0 },
+          { name: "无ID-01", status: "online", chains: 0, users: 0 },
+        ],
+      },
+      {
+        seq: 2,
+        role: "target",
+        name: "目标",
+        members: [{ name: "1.2.3.4:443", chains: 3, users: 2 }],
+      },
+    ],
+    edges: [
+      {
+        seq: 1,
+        from: { seq: 0, member: "入口-01" },
+        to: { seq: 1, member: "东京-01-old" },
+        chains: 3,
+        users: 2,
+        p50_ms: 12,
+        loss_pct: 0,
+      },
+      {
+        seq: 2,
+        from: { seq: 1, member: "东京-01" },
+        to: { seq: 2, member: "1.2.3.4:443" },
+        chains: 3,
+        users: 2,
+        p50_ms: 20,
+        loss_pct: 0,
+      },
+    ],
+    targets: [{ host: "1.2.3.4", port: 443, chains: 3, users: [] }],
+    // 候选里同名重复的记录由归一化按名字去重，未使用列表也只出现一次。
+    unused_candidates: [
+      { seq: 1, name: "无ID-01", status: "online" },
+      { seq: 1, name: "无ID-01", status: "online" },
+    ],
+  };
+  const dupModel = chainTemplateTree(normalizeChainTemplateDetail(hopDup), {
+    labels: labels(),
+  });
+  assert.equal(dupModel.usedMemberCount, 1, "srv-1 只画一个节点");
+  const hopNames = flattenNodes(dupModel).map((node) => node.name);
+  assert.equal(hopNames.filter((name) => name.startsWith("东京-01")).length, 1);
+  assert.equal(
+    dupModel.unusedMembers.filter((row) => row.name === "无ID-01").length,
+    1,
+  );
+  // 边用旧名字引用同一台机器，仍然连到去重后的节点。
+  const ids = new Set(flattenNodes(dupModel).map((node) => node.id));
+  assert.ok(dupModel.links.every((link) => ids.has(link.source) && ids.has(link.target)));
+  assert.ok(!flattenNodes(dupModel).some((node) => node.name === "东京-01-old"));
+});
+
+/* ------------------------------------------------------------------ */
+/* F9 0 链拓扑：空态而不是孤立 root                                     */
+/* ------------------------------------------------------------------ */
+
+test("0 链模板：模型标记为空，拓扑不画孤立根节点", () => {
+  const payload = detail();
+  payload.edges = payload.edges.map((item) => ({ ...item, chains: 0 }));
+  payload.nodes = payload.nodes.map((node) => ({
+    ...node,
+    members: node.members.map((item) => ({ ...item, chains: 0 })),
+  }));
+  payload.targets = [];
+  const model = chainTemplateTree(normalizeChainTemplateDetail(payload), {
+    labels: labels(),
+  });
+  assert.equal(model.isEmpty, true);
+  assert.equal(model.targetCount, 0);
+  assert.equal((model.data.children ?? []).length, 0);
+  assert.equal(model.links.length, 0);
+
+  const withTraffic = chainTemplateTree(normalizeChainTemplateDetail(detail()), {
+    labels: labels(),
+  });
+  assert.equal(withTraffic.isEmpty, false);
 });

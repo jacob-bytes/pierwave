@@ -1,0 +1,243 @@
+{
+  "generatedAt": "2026-11-24T16:13:31.069Z",
+  "shots": [
+    {
+      "name": "stale-dark-1440.png",
+      "bytes": 27817,
+      "fixture": "stale",
+      "theme": "dark",
+      "width": 1440,
+      "stale": "模板已修改，以下按现有链的实际路径展示",
+      "unused": 1
+    },
+    {
+      "name": "unused-dark-1440.png",
+      "bytes": 29876,
+      "fixture": "unused",
+      "theme": "dark",
+      "width": 1440,
+      "unused": [
+        "离线东京-03",
+        "降级东京-04"
+      ]
+    },
+    {
+      "name": "legacy-dark-1440.png",
+      "bytes": 52017,
+      "fixture": "multi",
+      "theme": "dark",
+      "width": 1440,
+      "treeNodes": 14
+    },
+    {
+      "name": "stale-dark-390.png",
+      "bytes": 21391,
+      "fixture": "stale",
+      "theme": "dark",
+      "width": 390,
+      "stale": "模板已修改，以下按现有链的实际路径展示",
+      "unused": 1
+    },
+    {
+      "name": "unused-dark-390.png",
+      "bytes": 22623,
+      "fixture": "unused",
+      "theme": "dark",
+      "width": 390,
+      "unused": [
+        "离线东京-03",
+        "降级东京-04"
+      ]
+    },
+    {
+      "name": "legacy-dark-390.png",
+      "bytes": 28685,
+      "fixture": "multi",
+      "theme": "dark",
+      "width": 390,
+      "treeNodes": 14
+    },
+    {
+      "name": "stale-light-1440.png",
+      "bytes": 28693,
+      "fixture": "stale",
+      "theme": "light",
+      "width": 1440,
+      "stale": "模板已修改，以下按现有链的实际路径展示",
+      "unused": 1
+    },
+    {
+      "name": "unused-light-1440.png",
+      "bytes": 30589,
+      "fixture": "unused",
+      "theme": "light",
+      "width": 1440,
+      "unused": [
+        "离线东京-03",
+        "降级东京-04"
+      ]
+    },
+    {
+      "name": "legacy-light-1440.png",
+      "bytes": 51082,
+      "fixture": "multi",
+      "theme": "light",
+      "width": 1440,
+      "treeNodes": 14
+    },
+    {
+      "name": "stale-light-390.png",
+      "bytes": 22280,
+      "fixture": "stale",
+      "theme": "light",
+      "width": 390,
+      "stale": "模板已修改，以下按现有链的实际路径展示",
+      "unused": 1
+    },
+    {
+      "name": "unused-light-390.png",
+      "bytes": 23262,
+      "fixture": "unused",
+      "theme": "light",
+      "width": 390,
+      "unused": [
+        "离线东京-03",
+        "降级东京-04"
+      ]
+    },
+    {
+      "name": "legacy-light-390.png",
+      "bytes": 28692,
+      "fixture": "multi",
+      "theme": "light",
+      "width": 390,
+      "treeNodes": 14
+    }
+  ],
+  "checks": [
+    {
+      "name": "stale/dark/1440",
+      "value": {
+        "text": "模板已修改，以下按现有链的实际路径展示",
+        "title": "链的跳数（2）与模板（3）不一致 / chain hop count (2) differs from the template (3)",
+        "unused": [
+          "大阪-01"
+        ]
+      }
+    },
+    {
+      "name": "unused/dark/1440",
+      "value": {
+        "names": [
+          "离线东京-03",
+          "降级东京-04"
+        ],
+        "statuses": [
+          "offline",
+          "degraded"
+        ]
+      }
+    },
+    {
+      "name": "legacy/dark/1440",
+      "value": {
+        "stale": null,
+        "unused": 0,
+        "treeNodes": 14
+      }
+    },
+    {
+      "name": "stale/dark/390",
+      "value": {
+        "text": "模板已修改，以下按现有链的实际路径展示",
+        "title": "链的跳数（2）与模板（3）不一致 / chain hop count (2) differs from the template (3)",
+        "unused": [
+          "大阪-01"
+        ]
+      }
+    },
+    {
+      "name": "unused/dark/390",
+      "value": {
+        "names": [
+          "离线东京-03",
+          "降级东京-04"
+        ],
+        "statuses": [
+          "offline",
+          "degraded"
+        ]
+      }
+    },
+    {
+      "name": "legacy/dark/390",
+      "value": {
+        "stale": null,
+        "unused": 0,
+        "treeNodes": 14
+      }
+    },
+    {
+      "name": "stale/light/1440",
+      "value": {
+        "text": "模板已修改，以下按现有链的实际路径展示",
+        "title": "链的跳数（2）与模板（3）不一致 / chain hop count (2) differs from the template (3)",
+        "unused": [
+          "大阪-01"
+        ]
+      }
+    },
+    {
+      "name": "unused/light/1440",
+      "value": {
+        "names": [
+          "离线东京-03",
+          "降级东京-04"
+        ],
+        "statuses": [
+          "offline",
+          "degraded"
+        ]
+      }
+    },
+    {
+      "name": "legacy/light/1440",
+      "value": {
+        "stale": null,
+        "unused": 0,
+        "treeNodes": 14
+      }
+    },
+    {
+      "name": "stale/light/390",
+      "value": {
+        "text": "模板已修改，以下按现有链的实际路径展示",
+        "title": "链的跳数（2）与模板（3）不一致 / chain hop count (2) differs from the template (3)",
+        "unused": [
+          "大阪-01"
+        ]
+      }
+    },
+    {
+      "name": "unused/light/390",
+      "value": {
+        "names": [
+          "离线东京-03",
+          "降级东京-04"
+        ],
+        "statuses": [
+          "offline",
+          "degraded"
+        ]
+      }
+    },
+    {
+      "name": "legacy/light/390",
+      "value": {
+        "stale": null,
+        "unused": 0,
+        "treeNodes": 14
+      }
+    }
+  ]
+}

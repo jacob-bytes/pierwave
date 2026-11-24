@@ -18,11 +18,22 @@ import {
  *
  * 只收 `chains > 0` 的实际路径；DAG 里的汇合 / 分流保留为交叉边，树结构
  * 取每个节点链数最大的入边当主父节点（用于折叠、hover 到根、行布局）。
- * 目标超过 `targetLimit`（默认 8）且未展开时，只留前 8 个叶子并把其余
- * 折叠成「+N 个目标」节点。
+ *
+ * 目标折叠按**父节点分组**：同一个父节点下的目标超过 `targetLimit`（默认 8）
+ * 时，只留链数最多的 8 个，其余折成**这个父节点自己的** `+N`。早先按全局
+ * 排序 slice 再挂到第一个父节点，会让某些父节点变成 0 目标的死端，还会把
+ * 别家的目标计入自己的 `+N`。
+ *
+ * 状态口径与链路详情一致：online / offline / degraded（后端 abnormal、
+ * no_data）/ unknown。offline 路径标红且不脉冲；degraded 路径标黄、不脉冲。
+ * 不可用路径的边标签固定 `—`，历史 P50 只以 `lastP50Ms`（「最近已知」）
+ * 出现，不冒充当前值。
  */
 
 export const CHAIN_TEMPLATE_TARGET_LIMIT = 8;
+
+/** 不可用路径的边标签：不给可能已经过期的 P50 冒充当前值。 */
+export const CHAIN_TEMPLATE_UNAVAILABLE_LABEL = "—";
 
 export type ChainTemplateTreeNodeKind = "root" | "member" | "target" | "fold";
 
@@ -37,6 +48,8 @@ export interface ChainTemplateTreeNodeMeta {
   memberKey: string;
   /** 折叠节点：被折叠的目标数量。 */
   hiddenTargets?: number;
+  /** 折叠节点：它折叠的是哪个父节点的目标（展开时只展开这一组）。 */
+  foldParent?: string;
 }
 
 export interface ChainTemplateUnusedMember {
@@ -57,7 +70,10 @@ export interface ChainTemplateTreeLabels {
 
 export interface ChainTemplateTreeOptions {
   labels: ChainTemplateTreeLabels;
+  /** 展开全部目标（不再折叠任何父节点）。 */
   targetsExpanded?: boolean;
+  /** 只展开这些父节点下的目标，其余父节点仍折叠。 */
+  expandedParents?: ReadonlySet<string>;
   targetLimit?: number;
 }
 
@@ -71,11 +87,29 @@ export interface ChainTemplateTreeModel {
   targetCount: number;
   visibleTargetCount: number;
   hiddenTargetCount: number;
+  /** 折叠节点数量（每个折叠的父节点一个）。 */
+  foldCount: number;
   foldTargets: boolean;
-  maxEdgeChains: number;
   hasOffline: boolean;
   pulseCount: number;
+  /** 0 链：拓扑显示空态，不画孤立根节点。 */
+  isEmpty: boolean;
   unusedMembers: ChainTemplateUnusedMember[];
+}
+
+const STATUS_RANK: Record<ChainTemplateMemberStatus, number> = {
+  unknown: 0,
+  online: 1,
+  degraded: 2,
+  offline: 3,
+};
+
+/** 取更差的状态；offline > degraded > online > unknown。 */
+function worstStatus(
+  a: ChainTemplateMemberStatus,
+  b: ChainTemplateMemberStatus,
+): ChainTemplateMemberStatus {
+  return STATUS_RANK[b] > STATUS_RANK[a] ? b : a;
 }
 
 export function chainTemplateTreeNodeMeta(
@@ -97,6 +131,7 @@ export function chainTemplateTreeNodeMeta(
   const status =
     meta.status === "online" ||
     meta.status === "offline" ||
+    meta.status === "degraded" ||
     meta.status === "unknown"
       ? meta.status
       : "unknown";
@@ -110,6 +145,8 @@ export function chainTemplateTreeNodeMeta(
     memberKey: typeof meta.memberKey === "string" ? meta.memberKey : node.name,
     hiddenTargets:
       typeof meta.hiddenTargets === "number" ? meta.hiddenTargets : undefined,
+    foldParent:
+      typeof meta.foldParent === "string" ? meta.foldParent : undefined,
   };
 }
 
@@ -121,12 +158,77 @@ function targetNodeId(label: string): string {
   return `t:${label}`;
 }
 
-function memberKey(seq: number, name: string): string {
-  return `${seq}::${name}`;
+function foldNodeId(parentId: string): string {
+  return targetNodeId(`__fold__:${parentId}`);
+}
+
+/** 去重键：优先 server id，缺失时用名字。 */
+function memberIdentity(member: ChainTemplateMember): string {
+  const serverId = member.serverId ?? "";
+  return serverId !== "" ? serverId : member.name;
+}
+
+interface MemberLookup {
+  /** `seq::name`（含别名）→ 去重后的成员。 */
+  byName: Map<string, ChainTemplateMember>;
+  /** `seq::identity` → 成员。 */
+  byIdentity: Map<string, ChainTemplateMember>;
+}
+
+/**
+ * 按 `serverId ?? name` 去重；同一台机器的旧名字作为别名指到同一个成员，
+ * 这样边里引用任一名字都能连到同一个节点。
+ */
+function buildMemberLookup(detail: ChainTemplateDetail): MemberLookup {
+  const byName = new Map<string, ChainTemplateMember>();
+  const byIdentity = new Map<string, ChainTemplateMember>();
+  for (const node of detail.nodes) {
+    if (node.role === "target") continue;
+    for (const member of node.members) {
+      if (member.name === "") continue;
+      const identityKey = `${node.seq}::${memberIdentity(member)}`;
+      const existing = byIdentity.get(identityKey);
+      if (existing === undefined) byIdentity.set(identityKey, member);
+      const canonical = existing ?? member;
+      if (!byName.has(`${node.seq}::${member.name}`)) {
+        byName.set(`${node.seq}::${member.name}`, canonical);
+      }
+    }
+  }
+  return { byName, byIdentity };
+}
+
+/** 解析边上的成员名 → 去重后的成员 + 稳定键。 */
+function resolveMember(
+  lookup: MemberLookup,
+  seq: number,
+  name: string,
+): { member: ChainTemplateMember | null; key: string } {
+  const member = lookup.byName.get(`${seq}::${name}`) ?? null;
+  return {
+    member,
+    key: `${seq}::${member === null ? name : memberIdentity(member)}`,
+  };
+}
+
+function dedupeMembers(
+  members: readonly ChainTemplateMember[],
+): ChainTemplateMember[] {
+  const seen = new Set<string>();
+  const unique: ChainTemplateMember[] = [];
+  for (const member of members) {
+    const identity = memberIdentity(member);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    unique.push(member);
+  }
+  return unique;
 }
 
 interface MemberDraft {
   id: string;
+  /** 去重键 `seq::serverId ?? name`。 */
+  key: string;
   seq: number;
   name: string;
   member: ChainTemplateMember | null;
@@ -147,6 +249,7 @@ interface TargetSeed {
   incoming: ChainTemplateEdge[];
   parentId: string;
   offline: boolean;
+  degraded: boolean;
 }
 
 function statusOf(member: ChainTemplateMember | null): ChainTemplateMemberStatus {
@@ -173,9 +276,7 @@ function maxUsers(edges: readonly ChainTemplateEdge[]): number {
   return edges.reduce((max, edge) => Math.max(max, edge.users), 0);
 }
 
-/**
- * 边的主路径链数 P50：链数加权；全部缺失时 `null`（组件显示 `—`）。
- */
+/** 边的 P50：链数加权；全部缺失时 `null`（组件显示 `—`）。 */
 function weightedP50(
   entries: readonly { p50Ms: number | null; chains: number }[],
 ): number | null {
@@ -209,15 +310,15 @@ function seedTarget(
       incoming: [],
       parentId: "root",
       offline: status === "offline",
+      degraded: status === "degraded",
     });
     return;
   }
   existing.chains = Math.max(existing.chains, chains);
   existing.users = Math.max(existing.users, users);
-  if (status === "offline") existing.status = "offline";
-  else if (existing.status === "unknown" && status === "online") {
-    existing.status = "online";
-  }
+  existing.status = worstStatus(existing.status, status);
+  existing.offline = existing.status === "offline";
+  existing.degraded = existing.status === "degraded";
 }
 
 /**
@@ -254,7 +355,6 @@ function collectSourceMembers(
   return detail.nodes.find((node) => node.role === "source")?.members ?? [];
 }
 
-
 /** 按 kind / 链数 / 名字排序子树，纯视觉稳定，不影响布局复杂度。 */
 function sortChildren(node: TreeNode): void {
   if (node.children === undefined) return;
@@ -288,24 +388,8 @@ export function chainTemplateTree(
     detail.template.hops;
   const usedEdges = detail.edges.filter((edge) => edge.chains > 0);
 
-  const sourceMembers = collectSourceMembers(detail);
-  const memberByLevel = new Map<number, Map<string, ChainTemplateMember>>();
-  for (const node of detail.nodes) {
-    if (node.role === "target") continue;
-    let level = memberByLevel.get(node.seq);
-    if (level === undefined) {
-      level = new Map<string, ChainTemplateMember>();
-      memberByLevel.set(node.seq, level);
-    }
-    for (const member of node.members) {
-      if (!level.has(member.name)) level.set(member.name, member);
-    }
-  }
-  const findMember = (
-    seq: number,
-    name: string,
-  ): ChainTemplateMember | null =>
-    memberByLevel.get(seq)?.get(name) ?? null;
+  const lookup = buildMemberLookup(detail);
+  const sourceMembers = dedupeMembers(collectSourceMembers(detail));
 
   const usedSourceNames = new Set(
     usedEdges
@@ -319,19 +403,30 @@ export function chainTemplateTree(
             usedSourceNames.has(member.name) && member.chains > 0,
         )
       : sourceMembers.filter((member) => member.chains > 0);
+  const rootStatus: ChainTemplateMemberStatus =
+    usedSourceMembers.length === 0
+      ? "unknown"
+      : usedSourceMembers.reduce<ChainTemplateMemberStatus>(
+          (status, member) => worstStatus(status, member.status),
+          "unknown",
+        );
   const rootOffline =
     usedSourceMembers.length > 0 &&
     usedSourceMembers.every((member) => member.status === "offline");
+  const rootDegraded =
+    !rootOffline && usedSourceMembers.some((member) => member.status === "degraded");
   const rootOnline = usedSourceMembers.some(
     (member) => member.status === "online",
   );
-  const rootStatus: ChainTemplateMemberStatus = rootOffline
+  const resolvedRootStatus: ChainTemplateMemberStatus = rootOffline
     ? "offline"
     : usedSourceMembers.length === 0
       ? "unknown"
       : rootOnline
         ? "online"
-        : "unknown";
+        : rootDegraded
+          ? "degraded"
+          : rootStatus;
   const rootChains =
     usedSourceMembers.length > 0
       ? usedSourceMembers.reduce((sum, member) => sum + member.chains, 0)
@@ -342,16 +437,22 @@ export function chainTemplateTree(
       : maxUsers(usedEdges.filter((edge) => edge.fromSeq === 0));
 
   const drafts = new Map<string, MemberDraft>();
+  /** 边的成员名 → 节点 id（别名也指到去重后的节点）。 */
+  const draftIdByRef = new Map<string, string>();
   const ensureDraft = (seq: number, name: string): MemberDraft | null => {
     if (seq <= 0 || seq >= targetSeq || name === "") return null;
-    const key = memberKey(seq, name);
+    const { member, key } = resolveMember(lookup, seq, name);
     const existing = drafts.get(key);
-    if (existing !== undefined) return existing;
-    const member = findMember(seq, name);
+    if (existing !== undefined) {
+      draftIdByRef.set(`${seq}::${name}`, existing.id);
+      return existing;
+    }
+    const displayName = member?.name ?? name;
     const draft: MemberDraft = {
-      id: memberNodeId(seq, name),
+      id: memberNodeId(seq, displayName),
+      key,
       seq,
-      name,
+      name: displayName,
       member,
       chains: Math.max(0, member?.chains ?? 0),
       users: Math.max(0, member?.users ?? 0),
@@ -362,6 +463,8 @@ export function chainTemplateTree(
       parentId: "root",
     };
     drafts.set(key, draft);
+    draftIdByRef.set(`${seq}::${name}`, draft.id);
+    draftIdByRef.set(`${seq}::${displayName}`, draft.id);
     return draft;
   };
   for (const edge of usedEdges) {
@@ -373,20 +476,25 @@ export function chainTemplateTree(
     }
   }
 
+  const draftIdFor = (seq: number, name: string): string =>
+    draftIdByRef.get(`${seq}::${name}`) ?? memberNodeId(seq, name);
+
   const maxHopSeq = [...drafts.values()].reduce(
     (max, draft) => Math.max(max, draft.seq),
     0,
   );
   for (const draft of drafts.values()) {
     draft.incoming = usedEdges.filter(
-      (edge) => edge.toSeq === draft.seq && edge.toMember === draft.name,
+      (edge) =>
+        edge.toSeq === draft.seq &&
+        resolveMember(lookup, draft.seq, edge.toMember).key === draft.key,
     );
     draft.primary = pickPrimary(draft.incoming);
     if (draft.primary !== null) {
       draft.parentId =
         draft.primary.fromSeq === 0
           ? "root"
-          : memberNodeId(draft.primary.fromSeq, draft.primary.fromMember);
+          : draftIdFor(draft.primary.fromSeq, draft.primary.fromMember);
     }
     if (draft.chains <= 0) {
       draft.chains = sumChains(draft.incoming);
@@ -394,6 +502,7 @@ export function chainTemplateTree(
     if (draft.users <= 0) {
       draft.users = maxUsers(draft.incoming);
     }
+    draft.offline = draft.status === "offline";
   }
 
   const seeds = new Map<string, TargetSeed>();
@@ -437,6 +546,7 @@ export function chainTemplateTree(
         chains,
         users: Math.max(seed.users, maxUsers(seed.incoming)),
         offline: seed.status === "offline",
+        degraded: seed.status === "degraded",
       };
     })
     .filter((seed) => seed.chains > 0)
@@ -453,16 +563,38 @@ export function chainTemplateTree(
         ? fallbackParent
         : primary.fromSeq === 0
           ? "root"
-          : memberNodeId(primary.fromSeq, primary.fromMember);
+          : draftIdFor(primary.fromSeq, primary.fromMember);
     seed.offline = seed.status === "offline";
+    seed.degraded = seed.status === "degraded";
   }
 
-  const foldTargets =
-    options.targetsExpanded !== true && seedsByChain.length > targetLimit;
-  const visibleSeeds = foldTargets
-    ? seedsByChain.slice(0, targetLimit)
-    : seedsByChain;
-  const hiddenSeeds = foldTargets ? seedsByChain.slice(targetLimit) : [];
+  /* ---------------- 目标折叠：按父节点分组 ---------------- */
+  const seedsByParent = new Map<string, TargetSeed[]>();
+  for (const seed of seedsByChain) {
+    const group = seedsByParent.get(seed.parentId);
+    if (group === undefined) seedsByParent.set(seed.parentId, [seed]);
+    else group.push(seed);
+  }
+  const visibleSeeds: TargetSeed[] = [];
+  const folds: { parentId: string; hidden: TargetSeed[] }[] = [];
+  for (const [parentId, group] of seedsByParent) {
+    const expanded =
+      options.targetsExpanded === true ||
+      (options.expandedParents?.has(parentId) ?? false);
+    if (!expanded && group.length > targetLimit) {
+      visibleSeeds.push(...group.slice(0, targetLimit));
+      folds.push({
+        parentId,
+        hidden: group.slice(targetLimit),
+      });
+    } else {
+      visibleSeeds.push(...group);
+    }
+  }
+  const hiddenTargetCount = folds.reduce(
+    (sum, fold) => sum + fold.hidden.length,
+    0,
+  );
 
   const root: TreeNode = {
     id: "root",
@@ -471,7 +603,7 @@ export function chainTemplateTree(
     meta: {
       kind: "root",
       seq: 0,
-      status: rootStatus,
+      status: resolvedRootStatus,
       chains: rootChains,
       users: rootUsers,
       offline: rootOffline,
@@ -527,31 +659,38 @@ export function chainTemplateTree(
     parent.children ??= [];
     parent.children.push(node);
   }
-  if (foldTargets && hiddenSeeds.length > 0) {
-    const hiddenChains = hiddenSeeds.reduce((sum, seed) => sum + seed.chains, 0);
-    const hiddenUsers = hiddenSeeds.reduce(
+  for (const fold of folds) {
+    const hiddenChains = fold.hidden.reduce((sum, seed) => sum + seed.chains, 0);
+    const hiddenUsers = fold.hidden.reduce(
       (max, seed) => Math.max(max, seed.users),
       0,
     );
+    const parentStatus =
+      fold.parentId === "root"
+        ? resolvedRootStatus
+        : (memberNodes.get(fold.parentId)?.meta?.status as
+            | ChainTemplateMemberStatus
+            | undefined) ?? "unknown";
     const foldNode: TreeNode = {
-      id: targetNodeId("__fold__"),
-      name: options.labels.targets(hiddenSeeds.length),
+      id: foldNodeId(fold.parentId),
+      name: options.labels.targets(fold.hidden.length),
       value: hiddenChains,
       meta: {
         kind: "fold",
         seq: targetSeq,
-        status: "unknown",
+        status: parentStatus,
         chains: hiddenChains,
         users: hiddenUsers,
-        offline: false,
-        memberKey: "targets-fold",
-        hiddenTargets: hiddenSeeds.length,
+        offline: parentStatus === "offline",
+        memberKey: `targets-fold:${fold.parentId}`,
+        hiddenTargets: fold.hidden.length,
+        foldParent: fold.parentId,
       },
     };
     const parent =
-      hiddenSeeds[0].parentId === "root"
+      fold.parentId === "root"
         ? root
-        : memberNodes.get(hiddenSeeds[0].parentId) ?? root;
+        : memberNodes.get(fold.parentId) ?? root;
     parent.children ??= [];
     parent.children.push(foldNode);
   }
@@ -584,44 +723,48 @@ export function chainTemplateTree(
     }
     return null;
   };
-  const memberOffline = (seq: number, name: string): boolean =>
-    findMember(seq, name)?.status === "offline";
-  const targetOfflineByLabel = new Map(
-    visibleSeeds.map((seed) => [seed.label, seed.offline]),
+  const memberStatusOf = (seq: number, name: string): ChainTemplateMemberStatus =>
+    resolveMember(lookup, seq, name).member?.status ?? "unknown";
+  const targetStatusByLabel = new Map(
+    visibleSeeds.map((seed) => [seed.label, seed.status]),
   );
 
   interface LinkAccumulator {
     source: string;
     target: string;
     value: number;
+    users: number;
     p50: { p50Ms: number | null; chains: number }[];
     unavailable: boolean;
+    degraded: boolean;
   }
   const linkMap = new Map<string, LinkAccumulator>();
   for (const edge of usedEdges) {
     const source =
-      edge.fromSeq === 0 ? "root" : memberNodeId(edge.fromSeq, edge.fromMember);
+      edge.fromSeq === 0 ? "root" : draftIdFor(edge.fromSeq, edge.fromMember);
     if (!visibleIds.has(source)) continue;
     let target: string | null = null;
     if (edge.toSeq === targetSeq) {
       target = findVisibleTargetId(edge.toMember);
     } else if (edge.toSeq > 0 && edge.toSeq < targetSeq) {
-      const id = memberNodeId(edge.toSeq, edge.toMember);
+      const id = draftIdFor(edge.toSeq, edge.toMember);
       if (visibleIds.has(id)) target = id;
     }
     if (target === null) continue;
-    const fromOffline =
+    const fromStatus =
       edge.fromSeq === 0
-        ? rootOffline
-        : memberOffline(edge.fromSeq, edge.fromMember);
-    let toOffline = false;
+        ? resolvedRootStatus
+        : memberStatusOf(edge.fromSeq, edge.fromMember);
+    let toStatus: ChainTemplateMemberStatus;
     if (edge.toSeq === targetSeq) {
       const label = resolveTargetKey(edge.toMember, seeds);
-      toOffline =
-        label !== null && targetOfflineByLabel.get(label) === true;
+      toStatus = label === null ? "unknown" : targetStatusByLabel.get(label) ?? "unknown";
     } else {
-      toOffline = memberOffline(edge.toSeq, edge.toMember);
+      toStatus = memberStatusOf(edge.toSeq, edge.toMember);
     }
+    const unavailable = fromStatus === "offline" || toStatus === "offline";
+    const degraded =
+      !unavailable && (fromStatus === "degraded" || toStatus === "degraded");
     const key = `${source}->${target}`;
     const existing = linkMap.get(key);
     if (existing === undefined) {
@@ -629,13 +772,17 @@ export function chainTemplateTree(
         source,
         target,
         value: Math.max(0, edge.chains),
+        users: Math.max(0, edge.users),
         p50: [{ p50Ms: edge.p50Ms, chains: edge.chains }],
-        unavailable: fromOffline || toOffline,
+        unavailable,
+        degraded,
       });
     } else {
       existing.value += Math.max(0, edge.chains);
+      existing.users = Math.max(existing.users, edge.users);
       existing.p50.push({ p50Ms: edge.p50Ms, chains: edge.chains });
-      existing.unavailable = existing.unavailable || fromOffline || toOffline;
+      existing.unavailable = existing.unavailable || unavailable;
+      existing.degraded = existing.degraded || degraded;
     }
   }
   const links: TreeChartLink[] = [...linkMap.values()].map(
@@ -646,29 +793,47 @@ export function chainTemplateTree(
         source: item.source,
         target: item.target,
         value: item.value,
-        label: p50 === null ? "—" : formatMs(p50),
+        users: item.users,
+        // 不可用路径不给当前 P50：标签固定 —，历史值只走 lastP50Ms。
+        label: item.unavailable
+          ? CHAIN_TEMPLATE_UNAVAILABLE_LABEL
+          : p50 === null
+            ? "—"
+            : formatMs(p50),
+        lastP50Ms: item.unavailable ? p50 : null,
         unavailable: item.unavailable,
-        pulse: !item.unavailable,
+        degraded: item.unavailable ? false : item.degraded,
+        pulse: !item.unavailable && !item.degraded && item.value > 0,
       };
     },
   );
 
-  // 折叠标记也走一条真实曲线：标签保持 `—`，与其它缺失 P50 的边一致。
-  if (foldTargets && hiddenSeeds.length > 0) {
-    const hiddenChains = hiddenSeeds.reduce((sum, seed) => sum + seed.chains, 0);
+  // 每个折叠节点各走一条真实曲线连到自己的父节点。
+  for (const fold of folds) {
+    const hiddenChains = fold.hidden.reduce((sum, seed) => sum + seed.chains, 0);
+    const parentStatus =
+      fold.parentId === "root"
+        ? resolvedRootStatus
+        : (memberNodes.get(fold.parentId)?.meta?.status as
+            | ChainTemplateMemberStatus
+            | undefined) ?? "unknown";
+    const unavailable = parentStatus === "offline";
     links.push({
-      id: "link-target-fold",
-      source: hiddenSeeds[0].parentId,
-      target: targetNodeId("__fold__"),
+      id: `link-target-fold-${fold.parentId}`,
+      source: fold.parentId,
+      target: foldNodeId(fold.parentId),
       value: hiddenChains,
-      label: "—",
-      unavailable: false,
+      users: fold.hidden.reduce((max, seed) => Math.max(max, seed.users), 0),
+      label: CHAIN_TEMPLATE_UNAVAILABLE_LABEL,
+      lastP50Ms: null,
+      unavailable,
+      degraded: !unavailable && parentStatus === "degraded",
       pulse: false,
     });
   }
 
-  // 目标声明了链数但契约里没有对应边时，补一条回退边，保证离线父节点
-  // 下的目标路径同样标「不可用」且不脉冲。
+  // 目标声明了链数但契约里没有对应边时，补一条回退边，保证离线 / 降级父节点
+  // 下的目标路径同样标状态且不脉冲。
   const linkedTargets = new Set(links.map((link) => link.target));
   const draftById = new Map(
     [...drafts.values()].map((draft) => [draft.id, draft]),
@@ -676,51 +841,45 @@ export function chainTemplateTree(
   for (const seed of visibleSeeds) {
     const id = targetNodeId(seed.label);
     if (linkedTargets.has(id)) continue;
-    const parentOffline =
+    const parentStatus =
       seed.parentId === "root"
-        ? rootOffline
-        : draftById.get(seed.parentId)?.offline === true;
-    const unavailable = parentOffline || seed.offline;
+        ? resolvedRootStatus
+        : draftById.get(seed.parentId)?.status ?? "unknown";
+    const unavailable = parentStatus === "offline" || seed.offline;
     links.push({
       id: `link-fallback-${id}`,
       source: seed.parentId,
       target: id,
       value: seed.chains,
-      label: "—",
+      users: seed.users,
+      label: CHAIN_TEMPLATE_UNAVAILABLE_LABEL,
+      lastP50Ms: null,
       unavailable,
-      pulse: !unavailable && seed.chains > 0,
+      degraded:
+        !unavailable && (parentStatus === "degraded" || seed.degraded),
+      pulse: !unavailable && seed.chains > 0 && !seed.degraded,
     });
   }
 
-  const unusedMembers: ChainTemplateUnusedMember[] = [];
-  for (const node of detail.nodes) {
-    if (node.role === "target") continue;
-    for (const member of node.members) {
-      const used =
-        node.seq === 0
-          ? usedSourceNames.has(member.name) || member.chains > 0
-          : drafts.has(memberKey(node.seq, member.name));
-      if (used) continue;
-      unusedMembers.push({
-        key: member.serverId ?? member.name,
-        name: member.name,
-        seq: node.seq,
-        status: member.status,
-        chains: member.chains,
-        users: member.users,
-      });
-    }
-  }
+  // 未使用候选只来自契约的 `unused_candidates`；旧主控没有该数组时为空，
+  // 不再从 nodes 反推（新契约的 nodes 只含真实链成员）。
+  const unusedMembers: ChainTemplateUnusedMember[] = detail.unusedCandidates.map(
+    (candidate) => ({
+      key: candidate.serverId ?? candidate.name,
+      name: candidate.name,
+      seq: candidate.seq,
+      status: candidate.status,
+      chains: 0,
+      users: 0,
+    }),
+  );
   unusedMembers.sort(
     (a, b) => a.seq - b.seq || a.name.localeCompare(b.name),
   );
 
-  const maxEdgeChains = Math.max(1, ...links.map((link) => link.value));
   const nodeCount =
-    1 +
-    drafts.size +
-    visibleSeeds.length +
-    (foldTargets && hiddenSeeds.length > 0 ? 1 : 0);
+    1 + drafts.size + visibleSeeds.length + folds.length;
+  const isEmpty = usedEdges.length === 0 && seedsByChain.length === 0;
   return {
     data: root,
     links,
@@ -728,14 +887,15 @@ export function chainTemplateTree(
     usedMemberCount: drafts.size,
     targetCount: seedsByChain.length,
     visibleTargetCount: visibleSeeds.length,
-    hiddenTargetCount: hiddenSeeds.length,
-    foldTargets: foldTargets && hiddenSeeds.length > 0,
-    maxEdgeChains,
+    hiddenTargetCount,
+    foldCount: folds.length,
+    foldTargets: folds.length > 0,
     hasOffline:
       rootOffline ||
       [...drafts.values()].some((draft) => draft.offline) ||
       visibleSeeds.some((seed) => seed.offline),
     pulseCount: links.filter((link) => link.pulse).length,
+    isEmpty,
     unusedMembers,
   };
 }

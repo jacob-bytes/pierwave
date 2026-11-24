@@ -14,11 +14,14 @@
 //! 的同一批计数。两者都按各跳独立连乘 `1 - Π(1 - loss_i)`，`attempts = 0` 为
 //! null；链级只有「部分段有数据」时才标 `loss_partial`。
 //!
-//! 最后一跳（最后一组 → 链目标）与中间段同形：Agent 对最后一组的 forward
-//! 目标就是链目标，探测样本的 `target_server_id` 为空；主控按「源成员 ∈ 最后
-//! 一组」把它归到 `seq = 最后一组 seq + 1` 的段，`missing_hops` 只在确实没有
-//! 样本时才列这一跳。`chains[].nodes` 额外给出拓扑节点（每个组的**全部**
-//! 成员 + 链目标，组级 `status` 取最差成员），`entry` / `exit` 保留；
+//! 最后一跳（最后一组 → 链目标）与中间段同形：只有 `engine = native &&
+//! protocol = tcp` 的 forward 会被 Agent 探测（`target_health_loop`），这类
+//! 链的归一逻辑不变；realm / nftables / tunnel / udp / both 的最后一跳永远
+//! 没有样本，用 `chains[].last_hop = { measurable, reason }` 显式标注，并且
+//! 不参与 `series` 齐全判定 / 当前整体值 / `missing_hops` / `status.no_samples`
+//! （这类链是 `unknown` / `unmeasurable`）。`chains[].nodes` 额外给出拓扑节点
+//! （每个组的**全部**成员 + 链目标，组级 `status` 取最差成员），`entry` /
+//! `exit` 保留；
 //! `chains[].status` 把**每个成员**的状态与数据质量合成为
 //! `ok` / `degraded` / `blocked`（优先级见领域层 `ChainStatus`）。
 //!
@@ -27,7 +30,8 @@
 //! 非法 id 400；去重后上限 200。筛选保留「至少一个成员落在选中服务器」的链，
 //! `summary` 只按这些链重算；链内的段仍然完整返回。
 //!
-//! 结果缓存 30 秒，key = `(hours, bucket, 规范化后的请求 server_ids)`；响应头
+//! 结果缓存 30 秒，key = `(hours, bucket, (命中的 server_ids, 未知的
+//! server_ids))`：同一个 id 从「未知」变成「存在」必须 miss；响应头
 //! `X-Chain-Health-Cache: hit|miss`。口径细节见 `docs/CHAIN-HEALTH.md`。
 
 use std::collections::HashSet;
@@ -152,11 +156,12 @@ pub async fn chain_health(
     let bucket = parse_bucket(last_query_value(&params, "bucket"), hours)?;
     let requested = parse_server_ids(&query_values(&params, "server_ids"))?;
     let scope = resolve_scope(&state.db.pool, requested).await?;
-    // 与 server-health 一样把「命中的 + 未知的」完整请求集放进 key：
-    // warnings / scope 和 body 一起缓存，只按命中 id 做 key 会吞掉未知 id。
-    let cache_ids = scope.cache_ids();
+    // 与 server-health 一样把「命中的」与「未知的」分开放进 key：
+    // warnings / scope 和 body 一起缓存，合并成一个集合会让「X 未知」与
+    // 「X 存在」共用 key，X 出现后仍返回旧响应。
+    let cache_key = scope.cache_key();
 
-    let (body, cache_hit) = match state.chain_health.get(hours, bucket, cache_ids.as_deref()) {
+    let (body, cache_hit) = match state.chain_health.get(hours, bucket, cache_key.as_ref()) {
         Some(value) => (value, true),
         None => {
             let value = build_chain_health(
@@ -170,7 +175,7 @@ pub async fn chain_health(
             .await?;
             state
                 .chain_health
-                .put(hours, bucket, cache_ids.as_deref(), value.clone());
+                .put(hours, bucket, cache_key.as_ref(), value.clone());
             (value, false)
         }
     };
@@ -1307,5 +1312,177 @@ mod tests {
         assert_eq!(body["chains"][0]["name"], "乙链");
         assert_eq!(body["summary"]["loss_pct"], 1.0);
         assert_eq!(body["summary"]["worst_loss"]["chain_id"], cd);
+    }
+
+    /// 建一条指定引擎 / 协议的链（用于不可测最后一跳的回归）。
+    async fn chain_with_runtime(
+        pool: &sqlx::SqlitePool,
+        name: &str,
+        groups: Vec<Vec<&str>>,
+        engine: &str,
+        protocol: &str,
+    ) -> String {
+        static NEXT_PORT: AtomicI64 = AtomicI64::new(24_000);
+        let groups = groups
+            .into_iter()
+            .enumerate()
+            .map(|(seq, members)| NewChainGroup {
+                name: Some(format!("hop-{seq}")),
+                strategy: "round_robin".into(),
+                cert_id: None,
+                public_port: None,
+                use_internal_address: false,
+                members: members
+                    .into_iter()
+                    .enumerate()
+                    .map(|(priority, server_id)| NewChainGroupMember {
+                        server_id: server_id.into(),
+                        listen_port: NEXT_PORT.fetch_add(1, Ordering::Relaxed),
+                        priority: priority as i64,
+                        weight: 1,
+                    })
+                    .collect(),
+            })
+            .collect();
+        repo::chains::create(
+            pool,
+            NewChain {
+                name: name.into(),
+                target_host: "target.example".into(),
+                target_port: 443,
+                enabled: true,
+                engine: engine.into(),
+                protocol: protocol.into(),
+                proxy_protocol: false,
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups,
+            },
+        )
+        .await
+        .unwrap()
+        .chain
+        .id
+    }
+
+    /// B1 + B2：Agent 不探测的链（realm / nftables / tunnel / udp / both）
+    /// 最后一跳标 `measurable: false`、不拖空 `series`、不进 `missing_hops`，
+    /// 状态是 `unknown` / `unmeasurable` 而不是 `degraded` / `no_samples`；
+    /// native + tcp 的最后一跳仍然可测（回归）。
+    #[tokio::test]
+    async fn chain_health_marks_unprobeable_chains_instead_of_no_samples() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        servers::mark_online(pool, &a).await.unwrap();
+        servers::mark_online(pool, &b).await.unwrap();
+
+        let cases = [
+            ("realm-tcp", "realm", "tcp", "engine_unsupported"),
+            ("nftables-tcp", "nftables", "tcp", "engine_unsupported"),
+            ("tunnel-tcp", "tunnel", "tcp", "engine_unsupported"),
+            ("native-udp", "native", "udp", "protocol_unsupported"),
+            ("native-both", "native", "both", "protocol_unsupported"),
+        ];
+        let mut ids = Vec::new();
+        for (name, engine, protocol, _) in cases {
+            ids.push((
+                name,
+                chain_with_runtime(pool, name, vec![vec![&a], vec![&b]], engine, protocol).await,
+            ));
+        }
+        // native + tcp：最后一跳仍应参与（回归）。
+        let measurable = chain_with_runtime(
+            pool,
+            "native-tcp",
+            vec![vec![&a], vec![&b]],
+            "native",
+            "tcp",
+        )
+        .await;
+
+        let ts = end_at(repo::now(), 900) - 60;
+        for (name, chain_id) in &ids {
+            // 只写中间段：最后一跳按引擎 / 协议不会产生样本。
+            latency::record_sample(pool, ts, &a, &forward_id(chain_id, 0, &a, 1), &b, 20)
+                .await
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+        }
+        latency::record_sample(pool, ts, &a, &forward_id(&measurable, 0, &a, 1), &b, 20)
+            .await
+            .unwrap();
+        latency::record_sample(pool, ts, &b, &forward_id(&measurable, 1, &b, 1), "", 10)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let chains = body["chains"].as_array().unwrap();
+        let find = |name: &str| {
+            chains
+                .iter()
+                .find(|chain| chain["name"] == name)
+                .unwrap_or_else(|| panic!("缺少链 {name}：{body}"))
+        };
+
+        for (name, _, _, reason) in cases {
+            let view = find(name);
+            assert_eq!(view["hops"], 2, "{name}");
+            assert_eq!(view["last_hop"]["measurable"], false, "{name}");
+            assert_eq!(view["last_hop"]["reason"], reason, "{name}");
+            assert_eq!(view["missing_hops"], json!([]), "{name}：不可测不是缺失");
+            assert_eq!(view["status"]["kind"], "unknown", "{name}");
+            assert_eq!(view["status"]["cause"], "unmeasurable", "{name}");
+            assert_eq!(
+                view["series"].as_array().unwrap().last().unwrap()["p50"],
+                20.0,
+                "{name}：曲线不能被不可测的最后一跳拖空"
+            );
+            assert_eq!(view["segments"].as_array().unwrap().len(), 2, "{name}");
+        }
+
+        let view = find("native-tcp");
+        assert_eq!(view["last_hop"]["measurable"], true);
+        assert_eq!(view["last_hop"]["reason"], Value::Null);
+        assert_eq!(view["missing_hops"], json!([]));
+        assert_eq!(view["status"]["kind"], "ok");
+        assert_eq!(
+            view["series"].as_array().unwrap().last().unwrap()["p50"],
+            30.0
+        );
+    }
+
+    /// B7：缓存 key 分开存「命中的」与「未知的」——同一个 id 从存在变成
+    /// 未知必须 miss，不能命中「它还存在」的旧响应。
+    #[tokio::test]
+    async fn chain_health_cache_distinguishes_matched_and_unknown_ids() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let uri = format!("/api/v1/overview/chain-health?hours=1&bucket=900&server_ids={a}");
+
+        let (status, headers, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(headers["x-chain-health-cache"], "miss");
+        assert_eq!(body["scope"]["server_ids"], json!([a]));
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
+
+        // 删除服务器：同一个 id 变成未知。key 若只按合并后的 id 集合，
+        // 第二次会命中旧条目（scope 里还有它、也没有 warning）。
+        assert!(repo::servers::delete(pool, &a).await.unwrap());
+        let (status, headers, body) = request(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(
+            headers["x-chain-health-cache"], "miss",
+            "「X 存在」与「X 未知」必须是不同 key"
+        );
+        assert_eq!(body["scope"]["server_ids"], json!([]));
+        assert_eq!(body["warnings"]["unknown_ids"], json!([a]));
     }
 }

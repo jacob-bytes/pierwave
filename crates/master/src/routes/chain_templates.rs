@@ -2571,8 +2571,11 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "unexpected: {body}");
-        assert_eq!(body["code"], "chain.template_conflict");
-        assert_eq!(body["params"]["conflicts"], json!(["entry_port"]));
+        assert_eq!(
+            body["code"], "chain.entry_port_requires_template",
+            "手建链带 entry_port 是独立的错误码，不再混进 template_conflict"
+        );
+        assert_eq!(body["params"]["entry_port"], 20_011);
 
         assert!(
             repo::chains::list(&state.db.pool).await.unwrap().is_empty(),

@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "@/index.css";
 import { ChainTemplateTopology } from "@/components/overview/ChainTemplateTopology";
+import { ChainTemplateStaleNotice } from "@/components/overview/ChainTemplateStaleNotice";
 import { setLocale } from "@/i18n";
 import { detailFor } from "./fixtures";
 
@@ -22,7 +23,8 @@ const detail = detailFor(fixture);
 createRoot(document.getElementById("root") as HTMLElement).render(
   <StrictMode>
     <div data-harness className="min-h-dvh bg-background p-3 text-foreground sm:p-4">
-      <div className="mx-auto w-full max-w-[1040px]">
+      <div className="mx-auto w-full max-w-[1040px] space-y-4">
+        <ChainTemplateStaleNotice detail={detail} />
         <ChainTemplateTopology detail={detail} />
       </div>
     </div>

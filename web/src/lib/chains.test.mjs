@@ -13,6 +13,7 @@ import {
   chainPathNames,
   chainStatus,
   collectGroupIssues,
+  collectTemplateGroupIssues,
   degradedGroups,
   degradedHops,
   degradedMembers,
@@ -32,7 +33,9 @@ import {
   orderHops,
   orderMembers,
   parseWeight,
+  serverUsagesElsewhere,
   strategyUsesWeight,
+  templateServerUsagesElsewhere,
   weightFieldVisible,
 } from "./chains.ts";
 
@@ -442,4 +445,140 @@ test("chainPathNames joins entry to exit, or to the target on a single hop", () 
   );
   assert.deepEqual(chainPathNames([]), { from: null, to: null });
   assert.deepEqual(chainPathNames([group(0, [])]), { from: null, to: null });
+});
+
+// ---- 服务器占用：跨跳 / 同跳置灰，但当前值必须可选 ----
+
+const chainGroups = (serverIdsByGroup) => ({
+  groups: serverIdsByGroup.map((serverIds, groupIndex) => ({
+    seq: groupIndex,
+    strategy: "round_robin",
+    name: null,
+    members: serverIds.map((server_id, memberIndex) => ({
+      server_id,
+      listen_port: 20000 + memberIndex,
+      priority: memberIndex,
+    })),
+  })),
+});
+
+test("serverUsagesElsewhere marks servers taken by another hop", () => {
+  const { groups } = chainGroups([["hk-01"], ["tokyo-01"]]);
+  const taken = serverUsagesElsewhere(groups, 1, 0);
+  assert.deepEqual([...taken.entries()], [
+    ["hk-01", { groupIndex: 0, memberIndex: 0 }],
+  ]);
+  assert.equal(taken.has("tokyo-01"), false);
+});
+
+test("serverUsagesElsewhere never blocks the member's own current server", () => {
+  const { groups } = chainGroups([["hk-01"], ["tokyo-01"]]);
+  // 第 1 跳自己选了 hk-01：下拉里它必须可选，否则打不开当前值；
+  // 其它跳占用的东京-01 仍然置灰。
+  const taken = serverUsagesElsewhere(groups, 0, 0);
+  assert.equal(taken.has("hk-01"), false);
+  assert.deepEqual(taken.get("tokyo-01"), { groupIndex: 1, memberIndex: 0 });
+});
+
+test("serverUsagesElsewhere reports same-hop duplicates on later members", () => {
+  const { groups } = chainGroups([["hk-01", "hk-02"], ["tokyo-01"]]);
+  // 第 1 跳第 2 台看到「已在第 1 跳第 1 台」。
+  const second = serverUsagesElsewhere(groups, 0, 1);
+  assert.deepEqual(second.get("hk-01"), { groupIndex: 0, memberIndex: 0 });
+  // 第 1 跳第 1 台同样看到第 2 台已选的值。
+  const first = serverUsagesElsewhere(groups, 0, 0);
+  assert.deepEqual(first.get("hk-02"), { groupIndex: 0, memberIndex: 1 });
+});
+
+test("serverUsagesElsewhere releases a server once an earlier hop drops it", () => {
+  const { groups } = chainGroups([["hk-01"], ["tokyo-01"]]);
+  assert.equal(serverUsagesElsewhere(groups, 1, 0).has("hk-01"), true);
+
+  // 第 1 跳改选香港-02：第 2 跳的香港-01 立即恢复可选，香港-02 被置灰。
+  groups[0].members[0].server_id = "hk-02";
+  const taken = serverUsagesElsewhere(groups, 1, 0);
+  assert.equal(taken.has("hk-01"), false);
+  assert.deepEqual(taken.get("hk-02"), { groupIndex: 0, memberIndex: 0 });
+});
+
+test("serverUsagesElsewhere prefers the earliest hop and keeps group reasons", () => {
+  const { groups } = chainGroups([
+    ["hk-01", "hk-02"],
+    ["hk-01"],
+    ["tokyo-01"],
+  ]);
+  assert.deepEqual(serverUsagesElsewhere(groups, 2, 0).get("hk-01"), {
+    groupIndex: 0,
+    memberIndex: 0,
+  });
+  assert.deepEqual(serverUsagesElsewhere(groups, 2, 0).get("hk-02"), {
+    groupIndex: 0,
+    memberIndex: 1,
+  });
+});
+
+test("serverUsagesElsewhere ignores blank server ids", () => {
+  const { groups } = chainGroups([[""], ["tokyo-01"]]);
+  assert.deepEqual([...serverUsagesElsewhere(groups, 1, 0).entries()], []);
+});
+
+test("templateServerUsagesElsewhere marks servers taken by other hops", () => {
+  const groups = [
+    { strategy: "round_robin", server_ids: ["hk-01", "hk-02"] },
+    { strategy: "round_robin", server_ids: ["tokyo-01"] },
+  ];
+  assert.deepEqual([...templateServerUsagesElsewhere(groups, 1).entries()], [
+    ["hk-01", 0],
+    ["hk-02", 0],
+  ]);
+  // 本跳自己已选的不算占用，才能取消勾选。
+  assert.equal(templateServerUsagesElsewhere(groups, 0).has("hk-01"), false);
+  // 反向同理：第 1 跳不能选第 2 跳已用的东京-01。
+  assert.equal(templateServerUsagesElsewhere(groups, 0).get("tokyo-01"), 1);
+});
+
+test("templateServerUsagesElsewhere releases a server once an earlier hop drops it", () => {
+  const groups = [
+    { strategy: "round_robin", server_ids: ["hk-01"] },
+    { strategy: "round_robin", server_ids: ["tokyo-01"] },
+  ];
+  assert.equal(templateServerUsagesElsewhere(groups, 1).has("hk-01"), true);
+
+  groups[0].server_ids = ["hk-02"];
+  const taken = templateServerUsagesElsewhere(groups, 1);
+  assert.equal(taken.has("hk-01"), false);
+  assert.equal(taken.get("hk-02"), 0);
+});
+
+test("collectTemplateGroupIssues reports same-hop duplicates once per hop", () => {
+  assert.deepEqual(
+    collectTemplateGroupIssues([
+      { strategy: "round_robin", server_ids: ["hk-01", "hk-01", "hk-02", "hk-02"] },
+    ]),
+    [{ kind: "member_duplicate", groupIndex: 0 }],
+  );
+});
+
+test("collectTemplateGroupIssues reports cross-hop duplicates on the later hop", () => {
+  assert.deepEqual(
+    collectTemplateGroupIssues([
+      { strategy: "round_robin", server_ids: ["hk-01", "hk-02"] },
+      { strategy: "round_robin", server_ids: ["tokyo-01", "hk-01", "hk-02"] },
+    ]),
+    [{ kind: "server_duplicate", groupIndex: 1, firstGroupIndex: 0 }],
+  );
+  assert.deepEqual(
+    collectTemplateGroupIssues([
+      { strategy: "round_robin", server_ids: ["hk-01"] },
+      { strategy: "round_robin", server_ids: ["tokyo-01"] },
+    ]),
+    [],
+  );
+  assert.deepEqual(
+    collectTemplateGroupIssues([
+      { strategy: "round_robin", server_ids: ["", " "] },
+      { strategy: "round_robin", server_ids: ["tokyo-01"] },
+    ]),
+    [],
+  );
 });

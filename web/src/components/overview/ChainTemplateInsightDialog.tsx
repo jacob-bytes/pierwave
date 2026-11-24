@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/common";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChainTemplateStrategies } from "@/components/overview/ChainTemplateStrategies";
 import { ChainTemplateTopology } from "@/components/overview/ChainTemplateTopology";
+import { ChainTemplateStaleNotice } from "@/components/overview/ChainTemplateStaleNotice";
 import { ChainTemplateUsageChart } from "@/components/overview/ChainTemplateUsageChart";
 import { PanelError } from "@/components/overview/PanelError";
 import { errorText } from "@/lib/errors";
@@ -37,7 +38,7 @@ function DetailSkeleton() {
 }
 
 /**
- * 四块内容：丝带脉冲拓扑（含可折叠热点排序）、使用量折线、策略分布。
+ * 三块内容：横向树拓扑（含可折叠热点排序）、使用量折线、策略分布。
  *
  * 拓扑回答「流量怎么走」，使用量回答「用得多不多」，策略回答「为什么这么走」；
  * 热点排序与拓扑着色同源，收在拓扑卡底部，不另起一张等权重的表。
@@ -53,6 +54,7 @@ function TemplateDetailBody({
 }) {
   return (
     <div className="space-y-4" data-template-detail>
+      <ChainTemplateStaleNotice detail={detail} />
       <ChainTemplateTopology key={detail.template.id} detail={detail} />
       <div className="grid gap-4 lg:grid-cols-2">
         <ChainTemplateUsageChart
@@ -70,7 +72,8 @@ function TemplateDetailBody({
  * 转发链模板详情弹窗：标题给模板名 + 跳数 + 链数/用户数，内容四块。
  *
  * 打开状态由列表决定；详情请求只在有选中项时发出。旧主控没有详情接口
- * （404 / 403）时整块降级成「需要新版本主控」，不显示半张空图。
+ * （只有 404）时整块降级成「需要新版本主控」，不显示半张空图；403 是权限
+ * 问题，仍然按错误态提示。
  */
 export function ChainTemplateInsightDialog({
   item,

@@ -643,56 +643,98 @@
 }
 
 /*
- * 转发链模板拓扑的丝带脉冲。
+ * 转发链模板拓扑的路径脉冲。
  *
- * 每条边一个短 dash（pathLength=100 归一化，长度与边的像素宽度无关），
- * 负延迟由 JS 按层序写入：第 k 层在 k * step 出发，多路径同相位分裂。
- * 周期 3.6s，与 DESIGN.md 的「短、只解释状态」一致；不引入新色相，
- * 只用 primary 的同色浅档 --series-4，保证在已经着色的主边上仍看得见。
+ * 只有 Top N 条（默认 10）可用路径带这条 path（见 `selectPulseEdgeIds`），
+ * 其余边保持静态，避免上百条 SVG 动画同时跑。每条边一个短 dash
+ * （pathLength=100 归一化，长度与边的像素宽度无关），负延迟由 JS 按层序
+ * 写入：第 k 层在 k * step 出发，多路径同相位分裂。周期 3.6s，与
+ * DESIGN.md 的「短、只解释状态」一致；不引入新色相，只用 primary 的同色
+ * 浅档 --series-4，保证在已经着色的主边上仍看得见。
  *
- * prefers-reduced-motion 下彻底停掉动画，用静态半透明高亮代替：
+ * prefers-reduced-motion 下同一条 path 停掉动画、换成静态半透明描边：
  * 信息（哪条路径有流量）仍然可见，只是不再移动。
  */
 @keyframes template-pulse-flow {
   0% {
     stroke-dashoffset: 0;
-    opacity: 0;
+    stroke-opacity: 0;
   }
   2% {
-    opacity: 0.95;
+    stroke-opacity: 0.95;
   }
   18% {
     stroke-dashoffset: -92;
-    opacity: 0.95;
+    stroke-opacity: 0.95;
   }
   26% {
     stroke-dashoffset: -92;
-    opacity: 0;
+    stroke-opacity: 0;
   }
   100% {
     stroke-dashoffset: -92;
-    opacity: 0;
+    stroke-opacity: 0;
   }
 }
 
+/*
+ * 动画只改 stroke-opacity，元素自身的 opacity 留给 hover 变暗规则；
+ * 否则 keyframes 的 opacity 会盖掉 `[data-tree-dim] [data-tree-pulse]` 的 0.35，
+ * hover 时没被点亮的那几条脉冲还是全亮。
+ */
 .template-pulse {
-  opacity: 0;
+  stroke-opacity: 0;
   animation: template-pulse-flow 3.6s linear infinite;
 }
 
-.template-pulse-static {
-  opacity: 0;
-}
-
+/*
+ * reduced-motion：**同一条** pulse path 停止动画并保持静态可见。
+ *
+ * 早先是给每条边再渲染一条静态副本 path，109 条边就多 218 个 path；
+ * 现在只靠媒体查询把动画关掉、把 dash 换成整段描边，信息（哪条路径有
+ * 流量）仍然可见，只是不再移动。
+ */
 @media (prefers-reduced-motion: reduce) {
   .template-pulse {
     animation: none !important;
-    opacity: 0;
+    stroke-dasharray: none;
+    stroke-opacity: 0.42;
   }
+}
 
-  .template-pulse-static {
-    opacity: 0.42;
-  }
+/*
+ * 树图 hover 高亮：根节点挂 `data-tree-dim`，CSS 把非高亮节点 / 边 / 标签
+ * 压到 35%；高亮集合由组件编译成一条 `<style>` 规则（按 data-tree-index
+ * 命中），一次 hover 只写根属性 + 一段文本，不再重写 500+ 个 SVG 属性。
+ */
+[data-tree-chart][data-tree-dim] [data-tree-node],
+[data-tree-chart][data-tree-dim] [data-tree-node-dot],
+[data-tree-chart][data-tree-dim] [data-tree-label],
+[data-tree-chart][data-tree-dim] [data-tree-edge-group],
+[data-tree-chart][data-tree-dim] [data-tree-edge],
+[data-tree-chart][data-tree-dim] [data-tree-edge-label],
+[data-tree-chart][data-tree-dim] [data-tree-pulse] {
+  opacity: 0.35;
+  transition: opacity 150ms ease-out;
+}
+
+/*
+ * 键盘焦点：命中矩形 / 命中路径上画一圈 ring，不额外加 DOM。
+ * 命中路径平时是透明的，聚焦时描一圈 2px 的线即可看见。
+ */
+[data-tree-node]:focus-visible,
+[data-tree-edge-group]:focus-visible {
+  outline: none;
+  stroke: var(--ring);
+  stroke-width: 2;
+}
+
+/*
+ * 密集扇出（同一父节点 >6 条边）：P50 默认收起，只留边宽与颜色；
+ * hover / focus 到具体路径时由生成式 CSS 把它显出来。
+ */
+[data-tree-chart] [data-tree-edge-label][data-tree-dense="true"] {
+  opacity: 0;
 }
 
 /*

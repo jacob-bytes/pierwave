@@ -272,9 +272,11 @@ function ChainListRow({
           ? t("overview.chainLatency.nodeUnhealthyTitle")
           : chain.status.cause === "no_samples"
             ? t("overview.chainLatency.statusInsufficientTitle")
-            : chain.status.cause === "slow"
-              ? t("overview.chainLatency.slowTitle")
-              : t(stateMeta.titleKey ?? stateMeta.labelKey)
+            : chain.status.cause === "unmeasurable"
+              ? t("overview.chainLatency.unmeasurableTitle")
+              : chain.status.cause === "slow"
+                ? t("overview.chainLatency.slowTitle")
+                : t(stateMeta.titleKey ?? stateMeta.labelKey)
       : state === "blocked" && blockedReason
         ? blockedReason
         : degradedTitle || t(stateMeta.titleKey ?? stateMeta.labelKey);

@@ -18,7 +18,16 @@ interface ServerMultiSelectFieldProps {
   value: string[];
   onChange: (ids: string[]) => void;
   disabled?: boolean;
+  /**
+   * 已被别处占用、需要置灰的服务器：`server_id → 原因`。
+   * 项保留在列表里（不删除，避免布局跳动）；本组已选中的仍可取消勾选。
+   */
+  unavailable?: ReadonlyMap<string, string>;
+  /** 复选框 / label 的 id 前缀；同一个弹窗里有多组时必须不同。 */
+  idPrefix?: string;
 }
+
+const NO_UNAVAILABLE: ReadonlyMap<string, string> = new Map();
 
 /**
  * 服务器多选（套餐的「允许自助转发的服务器」）。
@@ -26,11 +35,16 @@ interface ServerMultiSelectFieldProps {
  * 列表数据复用管理端已有的 `useServers()`；勾选状态由表单持有，
  * 空数组表示一个都不允许。行样式与节点范围选择器保持一致，
  * 不再单独发明一套列表。
+ *
+ * 链模板的逐跳多选会通过 `unavailable` 传入「已被其它跳选走」的服务器：
+ * 这些项置灰、显示原因，但不能从列表里消失。
  */
 export function ServerMultiSelectField({
   value,
   onChange,
   disabled = false,
+  unavailable = NO_UNAVAILABLE,
+  idPrefix = "package-forward-server",
 }: ServerMultiSelectFieldProps) {
   const servers = useServers();
   const [query, setQuery] = useState("");
@@ -48,6 +62,8 @@ export function ServerMultiSelectField({
   }, [items, query]);
 
   function toggle(id: string, checked: boolean) {
+    // 防御性：置灰项即使被程序触发也不能选中；取消勾选始终允许。
+    if (checked && unavailable.has(id)) return;
     const next = new Set(value);
     if (checked) next.add(id);
     else next.delete(id);
@@ -56,7 +72,10 @@ export function ServerMultiSelectField({
 
   function selectVisible() {
     const next = new Set(value);
-    for (const server of visible) next.add(server.id);
+    for (const server of visible) {
+      if (unavailable.has(server.id)) continue;
+      next.add(server.id);
+    }
     onChange([...next]);
   }
 
@@ -169,26 +188,35 @@ export function ServerMultiSelectField({
           <div className="space-y-0.5 pr-3">
             {visible.map((server: Server) => {
               const checked = selected.has(server.id);
+              // 本组已选中的项永远可以取消勾选；其它跳占用的置灰并说明原因。
+              const reason = checked ? undefined : unavailable.get(server.id);
+              const locked = Boolean(reason);
+              const checkboxId = `${idPrefix}-${server.id}`;
               return (
                 <div
                   key={server.id}
+                  data-server-unavailable={locked ? "true" : undefined}
                   className={cn(
                     "flex items-start gap-2.5 rounded-md px-2 py-1.5 transition-colors duration-150 hover:bg-muted/40",
                     checked && "bg-primary/5",
+                    locked && "opacity-60 hover:bg-transparent",
                   )}
                 >
                   <Checkbox
-                    id={`package-forward-server-${server.id}`}
+                    id={checkboxId}
                     checked={checked}
-                    disabled={disabled}
+                    disabled={disabled || locked}
                     onCheckedChange={(next) =>
                       toggle(server.id, next === true)
                     }
                     className="mt-0.5"
                   />
                   <Label
-                    htmlFor={`package-forward-server-${server.id}`}
-                    className="min-w-0 flex-1 cursor-pointer font-normal"
+                    htmlFor={checkboxId}
+                    className={cn(
+                      "min-w-0 flex-1 font-normal",
+                      locked ? "cursor-not-allowed" : "cursor-pointer",
+                    )}
                   >
                     <span className="flex flex-wrap items-center gap-1.5">
                       <span className="truncate text-sm">{server.name}</span>
@@ -199,6 +227,11 @@ export function ServerMultiSelectField({
                         >
                           {server.group_name}
                         </Badge>
+                      ) : null}
+                      {reason ? (
+                        <span className="shrink-0 type-micro text-muted-foreground">
+                          {reason}
+                        </span>
                       ) : null}
                     </span>
                     <span className="mt-0.5 block truncate font-mono type-micro text-muted-foreground">

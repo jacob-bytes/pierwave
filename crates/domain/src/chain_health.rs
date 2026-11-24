@@ -24,6 +24,15 @@
 //!   `loss_partial`（全链无数据时 `loss_pct = null`、`loss_partial = false`）。
 //! * `series[].loss_pct` 是**该时间桶**的整链丢包，用同一 `ts` 桶的各段
 //!   探测计数连乘；桶内所有段都没探测时为 null（桶级不设 partial）。
+//! * **最后一跳可测性**：Agent 只为 `engine = native` 且 `protocol = tcp` 的
+//!   forward 启动目标探测（`target_health_loop`；realm / nftables / tunnel
+//!   从不探测，`udp` / `both` 也不探测）。这类链的最后一跳**永远**不会有
+//!   样本，不能参与 `series` 的「所有段齐全」判定、当前整体值、`missing_hops`
+//!   与 `loss_partial`，否则整条曲线会被一个不可测的段拖空。可测性是链级
+//!   属性（引擎 / 协议逐跳透传）：实现上只把**最后一跳**排除在齐全判定外，
+//!   中间段的历史样本仍参与曲线（`status` 则整体判 `unknown`，因为这条链
+//!   当前不可测）。`chains[].last_hop` 显式给出 `measurable` 与 `reason`，
+//!   前端据此显示「最后一跳不可测量」而不是「无历史数据」。
 //! * 多成员组（多路径）按段中位数求和，链级 `estimated = true`；丢包则把
 //!   各成员的探测计数相加后再算比值。
 //! * `entry` / `exit` 是链的展示起点/终点：首/末组里 `(priority, server_id)`
@@ -41,7 +50,8 @@
 //!   迁移。
 //! * `status` 是链级可用性状态：任一 `source` / `hop` 组的**任一成员**离线 →
 //!   `blocked`（`node_offline`，并点名该成员所在组与成员名）；否则任一成员
-//!   非在线 → `degraded`（`node_unhealthy`）；否则无当前样本 / 有断点 →
+//!   非在线 → `degraded`（`node_unhealthy`）；否则最后一跳不可测 →
+//!   `unknown`（`unmeasurable`，见上一条）；否则无当前样本 / 有断点 →
 //!   `degraded`（`no_samples`）；否则较基线变慢 → `degraded`（`slow`）；
 //!   否则 `ok`。成员状态优先于数据质量，所以掉线导致的缺样本不会被误判成
 //!   `no_samples`。链目标节点（`role = "target"`）没有成员，不参与判定。
@@ -84,6 +94,48 @@ impl Diagnosis {
         Self {
             kind: "unknown",
             seq: None,
+        }
+    }
+}
+
+/// 最后一跳（最后一组 → 链目标）的可测性。
+///
+/// Agent 只对 `engine = native` 且 `protocol = tcp` 的 forward 跑目标探测
+/// （`crates/agent/src/forward.rs` 的 `health_task` 条件是
+/// `wants_tcp && !wants_udp`）。realm / nftables / tunnel 的规则从不探测
+/// （心跳里 `probe_attempts` 一直是 `None`），`udp` / `both` 也明确不探测：
+/// TCP 握手证明不了 UDP 可达。这些链的最后一跳永远不会产生样本，必须显式
+/// 标注为「不可测」，而不是当成「缺失」。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LastHop {
+    /// `false` = Agent 不会探测这一跳（引擎或协议不支持）。
+    pub measurable: bool,
+    /// 不可测原因：`engine_unsupported`（realm / nftables / tunnel）或
+    /// `protocol_unsupported`（native + udp / both）。可测时为 `null`。
+    pub reason: Option<&'static str>,
+}
+
+impl LastHop {
+    /// 以 **Agent 实际探测条件**为准：`engine = native && protocol = tcp`。
+    ///
+    /// 引擎 / 协议都是链级字段（`derive_forwards` 逐跳透传），所以这一条同时
+    /// 决定了中间段是否可测：不可测链的所有段都没有探测。
+    pub fn of(engine: &str, protocol: &str) -> Self {
+        if !crate::engine::is_native(engine) {
+            return Self {
+                measurable: false,
+                reason: Some("engine_unsupported"),
+            };
+        }
+        if crate::protocol::from_db(protocol) != crate::protocol::TCP {
+            return Self {
+                measurable: false,
+                reason: Some("protocol_unsupported"),
+            };
+        }
+        Self {
+            measurable: true,
+            reason: None,
         }
     }
 }
@@ -221,19 +273,24 @@ pub struct StatusNode {
 ///    组内 `(priority, server_id)` 顺序）；
 /// 2. 任一 `source` / `hop` 组的任一成员 `status != "online"`（`abnormal` /
 ///    `no_data` / 空组没有成员可引用等）→ `degraded` + `node_unhealthy`；
-/// 3. 当前窗口没有整体样本，或 `missing_hops` 非空 → `degraded` + `no_samples`；
-/// 4. 整体较基线变慢（与 `summary.slow_chains` 同一个 [`SLOW_DELTA_MS`] 阈值）
+/// 3. 最后一跳不可测（见 [`LastHop`]；引擎 / 协议是链级字段，所以这条链的
+///    **所有段**都不可测）→ `unknown` + `unmeasurable`：这条链的探测数据
+///    永远不会齐全，报 `no_samples` 会让用户误以为「Agent 没上报 / 链路坏了」，
+///    而不是「这种引擎 / 协议本来就不测」；
+/// 4. 当前窗口没有整体样本，或 `missing_hops` 非空 → `degraded` + `no_samples`；
+/// 5. 整体较基线变慢（与 `summary.slow_chains` 同一个 [`SLOW_DELTA_MS`] 阈值）
 ///    → `degraded` + `slow`；
-/// 5. 其余 → `ok`，`cause` / `node` 都是 `null`。
+/// 6. 其余 → `ok`，`cause` / `node` 都是 `null`。
 ///
 /// `role = "target"` 的链目标节点不参与判定：它没有成员，`status` 恒为
 /// `null`。成员优先级高于数据质量，所以「成员掉线导致缺样本」会得到
 /// `blocked` / `node_offline`，不会被误判成 `no_samples`。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ChainStatus {
-    /// `ok` / `degraded` / `blocked`。
+    /// `ok` / `degraded` / `blocked` / `unknown`。
     pub kind: &'static str,
-    /// `node_offline` / `node_unhealthy` / `no_samples` / `slow`；`ok` 时为 `null`。
+    /// `node_offline` / `node_unhealthy` / `no_samples` / `slow` /
+    /// `unmeasurable`；`ok` 时为 `null`。
     pub cause: Option<&'static str>,
     /// 只有 `node_offline` 时给出第一台离线节点；其余情况为 `null`。
     pub node: Option<StatusNode>,
@@ -252,6 +309,16 @@ impl ChainStatus {
         Self {
             kind: "degraded",
             cause: Some(cause),
+            node: None,
+        }
+    }
+
+    /// 不可测链：Agent 不会为这条链产生探测样本，所以「没有数据」是预期
+    /// 状态，既不是健康也不是降级。
+    fn unmeasurable() -> Self {
+        Self {
+            kind: "unknown",
+            cause: Some("unmeasurable"),
             node: None,
         }
     }
@@ -285,6 +352,7 @@ fn chain_status(
     missing_hops: &[i64],
     current_overall: Option<f64>,
     baseline_overall: Option<f64>,
+    last_hop_measurable: bool,
 ) -> ChainStatus {
     let mut first_offline: Option<(&NodeView, &NodeMember)> = None;
     let mut unhealthy = false;
@@ -323,6 +391,11 @@ fn chain_status(
     }
     if unhealthy {
         return ChainStatus::degraded("node_unhealthy");
+    }
+    // 引擎 / 协议本来就不探测：没有数据是预期状态，不能报 no_samples。
+    // 放在节点状态之后：一条真正掉线的链仍然是 blocked，而不是 unknown。
+    if !last_hop_measurable {
+        return ChainStatus::unmeasurable();
     }
     // 当前窗口没有任何一个「所有段齐全」的桶，说明最近 2 小时测不出整链时延；
     // 有断点（空组 / 最后一跳完全没有样本）同样算样本不足。
@@ -377,11 +450,15 @@ pub struct ChainHealth {
     /// 存在多成员组（多路径），整体/逐段都是估算值。
     pub estimated: bool,
     /// 无法测量的跳：只有「最后一跳没有任何时延/探测样本」或「成员为空的组」
-    /// 才会列进来；有最后一跳样本时**不含**最后一跳。空数组只可能出现在
-    /// 没有任何组的脏数据上。
+    /// 才会列进来；有最后一跳样本时**不含**最后一跳。最后一跳不可测
+    /// （引擎 / 协议不支持探测，见 [`LastHop`]）时**也不含**它——那是
+    /// 「测不了」，不是「缺数据」。空数组只可能出现在没有任何组的脏数据上。
     pub missing_hops: Vec<i64>,
+    /// 最后一跳是否可被 Agent 探测；不可测时它不参与 `series` 齐全判定、
+    /// 当前整体值与 `missing_hops`。口径见 [`LastHop`]。
+    pub last_hop: LastHop,
     /// 链级可用性状态：节点掉线 → `blocked`，节点异常 / 样本不足 / 变慢 →
-    /// `degraded`，其余 `ok`。判定优先级见 [`ChainStatus`]。
+    /// `degraded`，不可测 → `unknown`，其余 `ok`。判定优先级见 [`ChainStatus`]。
     pub status: ChainStatus,
     /// 固定长度 = `hours * 3600 / bucket`；无样本桶是 `null`。
     pub series: Vec<Option<SeriesPoint>>,
@@ -571,7 +648,9 @@ pub fn aggregate(
             failures: row.failures.max(0),
         };
         // attempts = 0 的行不算「有样本」：它只是计数基线，没有真实探测。
+        // 不可测链的最后一跳永远没有探测，不必（也不该）标记「见过」。
         if layout.final_hop_seq.is_some()
+            && layout.last_hop.measurable
             && group_index + 1 == layout.groups.len()
             && counts.attempts > 0
         {
@@ -654,7 +733,10 @@ pub fn aggregate(
         if bucket_ts < since {
             continue;
         }
-        if final_hop {
+        // B6：最后一跳「有样本」只认 **series 窗口**（请求的 hours），不能
+        // 用 26h 基线窗口——基线里的旧样本会让一个最近没有数据的最后一跳
+        // 从 `missing_hops` 里消失。
+        if final_hop && layout.last_hop.measurable && bucket_ts >= series_start {
             final_hop_seen[chain_index] = true;
         }
         bucket_values
@@ -691,12 +773,21 @@ pub fn aggregate(
         // 段数 = 组数：组 i → 组 i+1（i < hops-1）再加最后一组 → 链目标。
         // 空组仍保留一个 p50 为 null 的段，与中间段同形。
         let segment_count = layout.hops.max(0) as usize;
+        // 不可测的最后一跳不参与「所有段齐全」判定：否则 realm / nftables /
+        // tunnel / udp / both 链的整条曲线会被一个永远没有样本的段拖空。
+        // 可测性由引擎 / 协议决定（链级），所以不可测链只保留中间段。
+        let measured_segments = if layout.last_hop.measurable {
+            segment_count
+        } else {
+            segment_count.saturating_sub(1)
+        };
 
         // 最后一跳只有「窗口内完全没有时延样本、也没有探测桶」时才进
         // missing_hops；成员为空的组造成的断点由 topology 预先给出。
+        // 不可测的最后一跳是「测不了」，不是「缺数据」，同样不进。
         let mut missing_hops = layout.missing_hops.clone();
         if let Some(seq) = layout.final_hop_seq {
-            if !final_hop_seen[chain_index] {
+            if layout.last_hop.measurable && !final_hop_seen[chain_index] {
                 missing_hops.push(seq);
             }
         }
@@ -708,8 +799,8 @@ pub fn aggregate(
         for index in 0..count {
             let ts = series_start + index * bucket;
             let mut total = StatsAccumulator::default();
-            let mut complete = segment_count > 0;
-            for segment_index in 0..segment_count {
+            let mut complete = measured_segments > 0;
+            for segment_index in 0..measured_segments {
                 match stats.get(&(chain_index, segment_index, ts)) {
                     Some(bucket_stats) => total.add(bucket_stats),
                     None => {
@@ -721,7 +812,7 @@ pub fn aggregate(
             // 桶级丢包与 p50 同桶：某段该桶无探测就跳过，全部段都无探测
             // 才是 null；桶级没有 partial 字段，缺失只由 null 表达。
             let loss_pct = if complete {
-                chain_loss_for_bucket(&segment_probe_buckets, chain_index, segment_count, ts)
+                chain_loss_for_bucket(&segment_probe_buckets, chain_index, measured_segments, ts)
             } else {
                 None
             };
@@ -729,10 +820,12 @@ pub fn aggregate(
         }
 
         // 当前窗口（最近 2h）与基线窗口（此前 24h）：逐桶 p50，再取中位数。
+        // 不可测的最后一跳不进入整体值；它自己的段级 p50 仍按历史样本原样给出。
         let current = window_segment_p50s(
             &stats,
             chain_index,
             segment_count,
+            measured_segments,
             current_start,
             end,
             bucket,
@@ -741,6 +834,7 @@ pub fn aggregate(
             &stats,
             chain_index,
             segment_count,
+            measured_segments,
             baseline_start,
             current_start,
             bucket,
@@ -799,7 +893,9 @@ pub fn aggregate(
                     loss_samples.attempts = loss_samples.attempts.saturating_add(counts.attempts);
                     loss_samples.failures = loss_samples.failures.saturating_add(counts.failures);
                 }
-                None => missing_segments += 1,
+                // 不可测的最后一跳本来就不会有探测，不能算「部分跳缺数据」。
+                None if segment_index < measured_segments => missing_segments += 1,
+                None => {}
             }
             let (from, to) = layout.representative(chain_index, segment_index, &pair_counts);
             segments.push(SegmentView {
@@ -819,6 +915,7 @@ pub fn aggregate(
         // 「不知道」当成 0 后声称整链完好。
         // partial 只在「有的段有数据、有的段没有」时为 true；全链都没有
         // 探测时 loss_pct 本身就是 null，再标 partial 会自相矛盾。
+        // 不可测的最后一跳不参与 partial 判定（它永远不会被探测）。
         let loss_partial = loss_segments > 0 && missing_segments > 0;
         let chain_loss_pct = (loss_segments > 0).then(|| round4((1.0 - survival) * 100.0));
 
@@ -845,6 +942,7 @@ pub fn aggregate(
             &missing_hops,
             current_overall,
             baseline_overall,
+            layout.last_hop.measurable,
         );
 
         views.push(ChainViewBuild {
@@ -857,6 +955,7 @@ pub fn aggregate(
                 nodes: layout.nodes.clone(),
                 estimated: layout.estimated,
                 missing_hops,
+                last_hop: layout.last_hop.clone(),
                 status,
                 series,
                 segments,
@@ -943,6 +1042,8 @@ struct Layout {
     /// 拓扑节点（每个组一个 + 末尾的链目标节点）。
     nodes: Vec<NodeView>,
     estimated: bool,
+    /// 最后一跳可测性（引擎 / 协议决定，整条链共享）。
+    last_hop: LastHop,
     /// 成员为空的组造成的断点（不含最后一跳；最后一跳是否缺失取决于样本）。
     missing_hops: Vec<i64>,
     /// 最后一跳的 `seq` = 最后一组的 seq + 1；没有任何组时 None。
@@ -1014,6 +1115,8 @@ impl Layout {
         let estimated = members.iter().any(|group| group.len() > 1);
         let hops = groups.len() as i64;
         let final_hop_seq = group_seq.last().map(|last| last + 1);
+        // 可测性只看链级字段，与 Agent 的 `target_health_loop` 条件一致。
+        let last_hop = LastHop::of(&chain.chain.engine, &chain.chain.protocol);
 
         // 空组造成的断点：相邻两组任一侧没有成员时，目标组的 seq 无法测量。
         // 最后一跳由 aggregate 按「窗口内有没有样本」单独决定，不能无条件写死。
@@ -1105,6 +1208,7 @@ impl Layout {
             exit,
             nodes,
             estimated,
+            last_hop,
             missing_hops,
             final_hop_seq,
             group_seq,
@@ -1260,10 +1364,16 @@ struct WindowStats {
     overall: Vec<f64>,
 }
 
+/// 一个窗口内逐段 p50 与「可测段齐全」的整链桶值。
+///
+/// `segment_count` 是段总数（决定 `segment_p50` 的长度，不可测的最后一跳也
+/// 保留自己的段值）；`measured_segments` 是参与整链判定的段数：不可测的
+/// 最后一跳不参与，所以它的空桶不会让整链变 null。
 fn window_segment_p50s(
     stats: &HashMap<(usize, usize, i64), BucketStats>,
     chain_index: usize,
     segment_count: usize,
+    measured_segments: usize,
     start: i64,
     end: i64,
     bucket: i64,
@@ -1280,16 +1390,22 @@ fn window_segment_p50s(
     let mut ts = start;
     while ts < end {
         let mut total = 0.0;
-        let mut complete = true;
+        let mut complete = measured_segments > 0;
         for (segment_index, values) in per_segment.iter_mut().enumerate() {
             match stats.get(&(chain_index, segment_index, ts)) {
                 Some(bucket_stats) => {
                     values.push(bucket_stats.p50);
-                    total += bucket_stats.p50;
+                    if segment_index < measured_segments {
+                        total += bucket_stats.p50;
+                    }
                 }
                 // 逐段 p50 互相独立：某段该桶缺样本只让「整体」桶不完整，
                 // 不能顺手跳过后面段，否则最后一跳会被前面的空段连坐。
-                None => complete = false,
+                None => {
+                    if segment_index < measured_segments {
+                        complete = false;
+                    }
+                }
             }
         }
         if complete {
@@ -1345,6 +1461,9 @@ fn summarize(views: &[ChainViewBuild]) -> Summary {
     // 兜底，保证同一份数据每次选同一条。`worst_hop` 仍是所有链里最慢的段。
     let focus = views
         .iter()
+        // 不可测链的样本只可能是历史残留（Agent 不会为它在当前配置下探测），
+        // 不能拿来做 headline，否则 summary 会和 `status = unknown` 打架。
+        .filter(|build| build.view.last_hop.measurable)
         .filter(|build| build.current_overall.is_some())
         .max_by(|a, b| {
             let a_delta = a
@@ -1370,8 +1489,12 @@ fn summarize(views: &[ChainViewBuild]) -> Summary {
             _ => None,
         },
     );
+    // 与逐链 `status.cause = "slow"` 同口径：不可测链永远不会得到 `slow`
+    // （§1.3 的优先级里 `unmeasurable` 在 `slow` 之前），所以这里也不能把它
+    // 计进 `slow_chains`，否则会出现「summary 说 1 条慢链、链上却是 unknown」。
     let slow_chains = views
         .iter()
+        .filter(|build| build.view.last_hop.measurable)
         .filter(|build| is_slow(build.current_overall, build.baseline_overall))
         .count() as i64;
 
@@ -2025,6 +2148,11 @@ mod tests {
         );
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 3);
+        assert!(
+            view.last_hop.measurable,
+            "native + tcp 的最后一跳必须仍可测（回归）"
+        );
+        assert_eq!(view.last_hop.reason, None);
         assert!(
             view.missing_hops.is_empty(),
             "有最后一跳样本时不能声明缺失：{:?}",
@@ -3271,6 +3399,169 @@ mod tests {
                 member_name: Some("大阪-01".into()),
             })
         );
+    }
+
+    /// 引擎 / 协议给链换一套运行时（native + tcp 是唯一可探测组合）。
+    fn with_runtime(mut chain: ChainWithGroups, engine: &str, protocol: &str) -> ChainWithGroups {
+        chain.chain.engine = engine.into();
+        chain.chain.protocol = protocol.into();
+        chain
+    }
+
+    /// B1：Agent 不探测最后一跳（realm / nftables / tunnel / udp / both）时，
+    /// 最后一跳不能把 `series`、`current_overall`、`status`、`missing_hops`
+    /// 拖空 / 拖成 degraded；它只是「不可测」，不是「缺数据」。
+    #[test]
+    fn an_unmeasurable_last_hop_does_not_empty_the_series() {
+        for (engine, protocol, reason) in [
+            ("realm", "tcp", "engine_unsupported"),
+            ("nftables", "tcp", "engine_unsupported"),
+            ("tunnel", "tcp", "engine_unsupported"),
+            ("native", "udp", "protocol_unsupported"),
+            ("native", "both", "protocol_unsupported"),
+        ] {
+            let chain = with_runtime(
+                chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]),
+                engine,
+                protocol,
+            );
+            let end = end_at(NOW, BUCKET);
+            // 只有中间段有数据：最后一跳由 Agent 实际行为决定，永远没有样本。
+            let samples = vec![sample(end - 60, "a", forward("c1", 0, "a", 1), "b", 20)];
+            let probes = probes(&[(forward("c1", 0, "a", 1), 200, 2)]);
+            let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+            let view = &aggregate.chains[0];
+            assert!(!view.last_hop.measurable, "{engine}/{protocol}");
+            assert_eq!(view.last_hop.reason, Some(reason), "{engine}/{protocol}");
+            assert_eq!(view.segments.len(), 2, "最后一跳保留段位");
+            assert_eq!(view.segments[1].p50, None, "没有样本就是 null");
+            let last = view.series.last().unwrap().as_ref().unwrap_or_else(|| {
+                panic!("{engine}/{protocol} 的 series 不能被不可测的最后一跳拖空")
+            });
+            assert_eq!(last.p50, 20.0, "整链 p50 只由可测的中间段求和");
+            assert_eq!(last.loss_pct, Some(1.0));
+            assert!(
+                view.missing_hops.is_empty(),
+                "{engine}/{protocol}：不可测不是缺失：{:?}",
+                view.missing_hops
+            );
+            assert_eq!(
+                view.status.kind, "unknown",
+                "{engine}/{protocol}：不可测链不能判成 degraded/no_samples"
+            );
+            assert_eq!(view.status.cause, Some("unmeasurable"));
+            assert_eq!(view.loss_pct, Some(1.0));
+            assert!(
+                !view.loss_partial,
+                "不可测的最后一跳不能让整链永远显示「部分跳缺少数据」"
+            );
+            assert_eq!(view.segments[1].attempts, 0);
+        }
+    }
+
+    /// B2：连「任何可测段」都没有（单组 + 不可测最后一跳）时，状态是
+    /// `unknown` / `unmeasurable`，不是 `degraded` / `no_samples`。
+    #[test]
+    fn a_chain_without_any_measurable_segment_is_unknown_not_no_samples() {
+        let chain = with_runtime(chain("c1", vec![(0, vec![("a", "A")])]), "realm", "tcp");
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert!(!view.last_hop.measurable);
+        assert!(view.missing_hops.is_empty(), "不可测不是缺失");
+        assert!(view.series.iter().all(Option::is_none));
+        assert_eq!(view.status.kind, "unknown");
+        assert_eq!(view.status.cause, Some("unmeasurable"));
+        assert_eq!(view.status.node, None);
+    }
+
+    /// 不可测链不能驱动 `summary` 的慢链 / headline：它的样本只可能是历史
+    /// 残留，逐链状态又是 `unknown`，否则会和 `status.cause = slow` 的口径
+    /// 自相矛盾（文档承诺 summary.slow_chains 与逐链 slow 同源）。
+    #[test]
+    fn an_unmeasurable_chain_never_drives_the_slow_summary() {
+        let chain = with_runtime(
+            topology(
+                "c1",
+                vec![
+                    (
+                        0,
+                        None,
+                        vec![status_member("a", "香港-01", "online", 21_001)],
+                    ),
+                    (
+                        1,
+                        None,
+                        vec![status_member("b", "东京-01", "online", 21_002)],
+                    ),
+                    (
+                        2,
+                        None,
+                        vec![status_member("c", "大阪-01", "online", 21_003)],
+                    ),
+                ],
+            ),
+            "realm",
+            "tcp",
+        );
+        let samples = slowed_samples("c1");
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.status.kind, "unknown");
+        assert_eq!(view.status.cause, Some("unmeasurable"));
+        assert_eq!(aggregate.summary.slow_chains, 0);
+        assert_eq!(aggregate.summary.hop_p50_ms, None);
+        assert_eq!(aggregate.summary.delta_ms, None);
+    }
+
+    /// B2：节点状态仍然优先于「不可测」——真正掉线的链还是 blocked。
+    #[test]
+    fn an_offline_member_outranks_an_unmeasurable_last_hop() {
+        let chain = with_runtime(
+            topology(
+                "c1",
+                vec![
+                    (
+                        0,
+                        None,
+                        vec![status_member("a", "香港-01", "online", 21_001)],
+                    ),
+                    (
+                        1,
+                        None,
+                        vec![status_member("b", "东京-01", "offline", 21_002)],
+                    ),
+                ],
+            ),
+            "realm",
+            "tcp",
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert!(!view.last_hop.measurable);
+        assert_eq!(view.status.kind, "blocked");
+        assert_eq!(view.status.cause, Some("node_offline"));
+    }
+
+    /// B6：最后一跳「有样本」只认 series 窗口（请求的 hours）；只在 24h
+    /// 基线窗口里出现的旧样本不能让 `missing_hops` 变空。
+    #[test]
+    fn a_final_hop_seen_only_in_the_baseline_window_is_still_missing() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let end = end_at(NOW, BUCKET);
+        // hours = 1：series 窗口只有 4 个桶，3 小时前的样本落在 24h 基线里。
+        let ts = end - 3 * 3600 + 60;
+        let samples = vec![
+            sample(ts, "a", forward("c1", 0, "a", 1), "b", 20),
+            sample(ts, "b", forward("c1", 1, "b", 1), "", 5),
+        ];
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(
+            view.missing_hops,
+            vec![2],
+            "基线窗口里的旧样本不算「最近有数据」"
+        );
+        assert!(view.series.iter().all(Option::is_none));
     }
 
     #[test]

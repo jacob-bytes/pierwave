@@ -82,19 +82,14 @@ pub(crate) struct ResolvedScope {
 }
 
 impl ResolvedScope {
-    /// 「服务器态势」缓存 key 用的规范化请求 id：命中的 + 未知的。
+    /// 「服务器态势 / 链路时延」缓存 key：`(命中的 id, 未知的 id)`。
     ///
-    /// 响应把 `warnings.unknown_ids` 与 `scope` 一起缓存，key 只带命中的 id
-    /// 会让 `[已知 A, 未知 B]` 复用 `[已知 A]` 的响应、吞掉 B 的警告；这里
-    /// 用完整的请求集合。两者都已排序去重，合并后再排一次即可。
-    pub(crate) fn cache_ids(&self) -> Option<Vec<String>> {
-        self.filter.as_ref().map(|filter| {
-            let mut ids = filter.ids().to_vec();
-            ids.extend(self.unknown_ids.iter().cloned());
-            ids.sort_unstable();
-            ids.dedup();
-            ids
-        })
+    /// 两组都保留而不是合并：同一个 id 从「未知」变成「存在」时合并集合完全
+    /// 相同，会拿到旧响应（`warnings.unknown_ids` 还挂着它、`scope` 里没有）。
+    pub(crate) fn cache_key(&self) -> Option<(Vec<String>, Vec<String>)> {
+        self.filter
+            .as_ref()
+            .map(|filter| (filter.ids().to_vec(), self.unknown_ids.clone()))
     }
 }
 
@@ -398,11 +393,11 @@ pub async fn server_health(
     let bucket = parse_health_bucket(last_query_value(&params, "bucket"), hours)?;
     let requested = parse_server_ids(&query_values(&params, "server_ids"))?;
     let scope = resolve_scope(&state.db.pool, requested).await?;
-    // 缓存 key 用「命中的 + 未知的」完整请求集合：warnings/scope 与 body
-    // 一起缓存，只按命中 id 做 key 会让不同未知 id 复用彼此的警告。
-    let cache_ids = scope.cache_ids();
+    // 缓存 key 分开存「命中的」与「未知的」：warnings/scope 与 body 一起
+    // 缓存，合并成一个集合会让「X 未知」与「X 存在」共用 key。
+    let cache_key = scope.cache_key();
 
-    let (body, cache_hit) = match state.server_health.get(hours, bucket, cache_ids.as_deref()) {
+    let (body, cache_hit) = match state.server_health.get(hours, bucket, cache_key.as_ref()) {
         Some(value) => (value, true),
         None => {
             let value = build_server_health(
@@ -416,7 +411,7 @@ pub async fn server_health(
             .await?;
             state
                 .server_health
-                .put(hours, bucket, cache_ids.as_deref(), value.clone());
+                .put(hours, bucket, cache_key.as_ref(), value.clone());
             (value, false)
         }
     };
@@ -2877,5 +2872,44 @@ mod tests {
         let (_, headers, body) = request_full(&app, Some(&admin), &a_uri).await;
         assert_eq!(cache_header(&headers).as_deref(), Some("hit"));
         assert_eq!(body["warnings"]["unknown_ids"], json!([]));
+    }
+
+    /// B7：缓存 key 分开存「命中的」与「未知的」。同一个 id 从存在变成未知
+    /// 必须 miss，否则会命中「它还存在」的旧响应（scope 里有它、没有警告）。
+    #[tokio::test]
+    async fn server_health_cache_distinguishes_matched_and_unknown_ids() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let (a, _) = servers::create(pool, "香港-01", "10.0.0.1", "external")
+            .await
+            .unwrap();
+        let uri = format!(
+            "/api/v1/overview/server-health?hours=24&bucket=3600&server_ids={}",
+            a.id
+        );
+
+        let (status, headers, body) = request_full(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(
+            headers
+                .get("x-server-health-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("miss")
+        );
+        assert_eq!(body["scope"]["server_ids"], json!([a.id]));
+        assert_eq!(body["warnings"]["unknown_ids"], json!([]));
+
+        assert!(repo::servers::delete(pool, &a.id).await.unwrap());
+        let (status, headers, body) = request_full(&app, Some(&admin), &uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(
+            headers
+                .get("x-server-health-cache")
+                .and_then(|value| value.to_str().ok()),
+            Some("miss"),
+            "「X 存在」与「X 未知」必须是不同 key"
+        );
+        assert_eq!(body["scope"]["server_ids"], json!([]));
+        assert_eq!(body["warnings"]["unknown_ids"], json!([a.id]));
     }
 }

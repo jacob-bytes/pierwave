@@ -1,0 +1,409 @@
+{
+  "generatedAt": "2026-11-24T16:15:13.388Z",
+  "shots": [
+    {
+      "name": "realm-dark-1440.png",
+      "bytes": 65127,
+      "fixture": "realm",
+      "theme": "暗色",
+      "width": 1440,
+      "badge": "未知 · 不可测量",
+      "reason": "（引擎不支持探测）"
+    },
+    {
+      "name": "realm-dark-390.png",
+      "bytes": 50093,
+      "fixture": "realm",
+      "theme": "暗色",
+      "width": 390,
+      "badge": "未知 · 不可测量",
+      "reason": "（引擎不支持探测）"
+    },
+    {
+      "name": "realm-dark-390-end.png",
+      "bytes": 50495,
+      "fixture": "realm",
+      "theme": "暗色",
+      "width": 390,
+      "scrolledToEnd": true
+    },
+    {
+      "name": "realm-light-1440.png",
+      "bytes": 69475,
+      "fixture": "realm",
+      "theme": "亮色",
+      "width": 1440,
+      "badge": "未知 · 不可测量",
+      "reason": "（引擎不支持探测）"
+    },
+    {
+      "name": "realm-light-390.png",
+      "bytes": 54129,
+      "fixture": "realm",
+      "theme": "亮色",
+      "width": 390,
+      "badge": "未知 · 不可测量",
+      "reason": "（引擎不支持探测）"
+    },
+    {
+      "name": "realm-light-390-end.png",
+      "bytes": 54452,
+      "fixture": "realm",
+      "theme": "亮色",
+      "width": 390,
+      "scrolledToEnd": true
+    },
+    {
+      "name": "udp-dark-1440.png",
+      "bytes": 64993,
+      "fixture": "udp",
+      "theme": "暗色",
+      "width": 1440,
+      "badge": "未知 · 不可测量",
+      "reason": "（协议不支持探测）"
+    },
+    {
+      "name": "udp-dark-390.png",
+      "bytes": 49991,
+      "fixture": "udp",
+      "theme": "暗色",
+      "width": 390,
+      "badge": "未知 · 不可测量",
+      "reason": "（协议不支持探测）"
+    },
+    {
+      "name": "udp-dark-390-end.png",
+      "bytes": 50353,
+      "fixture": "udp",
+      "theme": "暗色",
+      "width": 390,
+      "scrolledToEnd": true
+    },
+    {
+      "name": "udp-light-1440.png",
+      "bytes": 69354,
+      "fixture": "udp",
+      "theme": "亮色",
+      "width": 1440,
+      "badge": "未知 · 不可测量",
+      "reason": "（协议不支持探测）"
+    },
+    {
+      "name": "udp-light-390.png",
+      "bytes": 53964,
+      "fixture": "udp",
+      "theme": "亮色",
+      "width": 390,
+      "badge": "未知 · 不可测量",
+      "reason": "（协议不支持探测）"
+    },
+    {
+      "name": "udp-light-390-end.png",
+      "bytes": 54286,
+      "fixture": "udp",
+      "theme": "亮色",
+      "width": 390,
+      "scrolledToEnd": true
+    },
+    {
+      "name": "legacy-dark-1440.png",
+      "bytes": 64780,
+      "fixture": "legacy",
+      "theme": "暗色",
+      "width": 1440,
+      "badge": "正常",
+      "reason": ""
+    },
+    {
+      "name": "legacy-dark-390.png",
+      "bytes": 50178,
+      "fixture": "legacy",
+      "theme": "暗色",
+      "width": 390,
+      "badge": "正常",
+      "reason": ""
+    },
+    {
+      "name": "legacy-dark-390-end.png",
+      "bytes": 50574,
+      "fixture": "legacy",
+      "theme": "暗色",
+      "width": 390,
+      "scrolledToEnd": true
+    },
+    {
+      "name": "legacy-light-1440.png",
+      "bytes": 69126,
+      "fixture": "legacy",
+      "theme": "亮色",
+      "width": 1440,
+      "badge": "正常",
+      "reason": ""
+    },
+    {
+      "name": "legacy-light-390.png",
+      "bytes": 54164,
+      "fixture": "legacy",
+      "theme": "亮色",
+      "width": 390,
+      "badge": "正常",
+      "reason": ""
+    },
+    {
+      "name": "legacy-light-390-end.png",
+      "bytes": 54378,
+      "fixture": "legacy",
+      "theme": "亮色",
+      "width": 390,
+      "scrolledToEnd": true
+    },
+    {
+      "name": "degraded-dark-1440.png",
+      "bytes": 66592,
+      "fixture": "degraded",
+      "theme": "暗色",
+      "width": 1440,
+      "badge": "降级 · 东京-02 异常",
+      "reason": ""
+    },
+    {
+      "name": "degraded-dark-390.png",
+      "bytes": 51792,
+      "fixture": "degraded",
+      "theme": "暗色",
+      "width": 390,
+      "badge": "降级 · 东京-02 异常",
+      "reason": ""
+    },
+    {
+      "name": "degraded-dark-390-end.png",
+      "bytes": 52186,
+      "fixture": "degraded",
+      "theme": "暗色",
+      "width": 390,
+      "scrolledToEnd": true
+    },
+    {
+      "name": "degraded-light-1440.png",
+      "bytes": 71014,
+      "fixture": "degraded",
+      "theme": "亮色",
+      "width": 1440,
+      "badge": "降级 · 东京-02 异常",
+      "reason": ""
+    },
+    {
+      "name": "degraded-light-390.png",
+      "bytes": 55804,
+      "fixture": "degraded",
+      "theme": "亮色",
+      "width": 390,
+      "badge": "降级 · 东京-02 异常",
+      "reason": ""
+    },
+    {
+      "name": "degraded-light-390-end.png",
+      "bytes": 56087,
+      "fixture": "degraded",
+      "theme": "亮色",
+      "width": 390,
+      "scrolledToEnd": true
+    },
+    {
+      "name": "realm-en-1440-dark.png",
+      "bytes": 67285,
+      "fixture": "realm",
+      "theme": "en dark",
+      "width": 1440,
+      "badge": "Unknown · Unmeasurable",
+      "reason": "(engine probing unsupported)"
+    },
+    {
+      "name": "realm-en-390-dark.png",
+      "bytes": 51782,
+      "fixture": "realm",
+      "theme": "en dark",
+      "width": 390,
+      "badge": "Unknown · Unmeasurable",
+      "reason": "(engine probing unsupported)"
+    }
+  ],
+  "checks": [
+    {
+      "name": "realm/dark/1440",
+      "value": {
+        "badge": "未知 · 不可测量",
+        "state": "unknown",
+        "lastEdge": "不可测量",
+        "reason": "（引擎不支持探测）",
+        "segment": "不可测量（引擎不支持探测）",
+        "legacyWarning": false
+      }
+    },
+    {
+      "name": "realm/dark/390",
+      "value": {
+        "badge": "未知 · 不可测量",
+        "state": "unknown",
+        "lastEdge": "不可测量",
+        "reason": "（引擎不支持探测）",
+        "segment": "不可测量（引擎不支持探测）",
+        "legacyWarning": false
+      }
+    },
+    {
+      "name": "realm/light/1440",
+      "value": {
+        "badge": "未知 · 不可测量",
+        "state": "unknown",
+        "lastEdge": "不可测量",
+        "reason": "（引擎不支持探测）",
+        "segment": "不可测量（引擎不支持探测）",
+        "legacyWarning": false
+      }
+    },
+    {
+      "name": "realm/light/390",
+      "value": {
+        "badge": "未知 · 不可测量",
+        "state": "unknown",
+        "lastEdge": "不可测量",
+        "reason": "（引擎不支持探测）",
+        "segment": "不可测量（引擎不支持探测）",
+        "legacyWarning": false
+      }
+    },
+    {
+      "name": "udp/dark/1440",
+      "value": {
+        "badge": "未知 · 不可测量",
+        "state": "unknown",
+        "lastEdge": "不可测量",
+        "reason": "（协议不支持探测）",
+        "segment": "不可测量（协议不支持探测）",
+        "legacyWarning": false
+      }
+    },
+    {
+      "name": "udp/dark/390",
+      "value": {
+        "badge": "未知 · 不可测量",
+        "state": "unknown",
+        "lastEdge": "不可测量",
+        "reason": "（协议不支持探测）",
+        "segment": "不可测量（协议不支持探测）",
+        "legacyWarning": false
+      }
+    },
+    {
+      "name": "udp/light/1440",
+      "value": {
+        "badge": "未知 · 不可测量",
+        "state": "unknown",
+        "lastEdge": "不可测量",
+        "reason": "（协议不支持探测）",
+        "segment": "不可测量（协议不支持探测）",
+        "legacyWarning": false
+      }
+    },
+    {
+      "name": "udp/light/390",
+      "value": {
+        "badge": "未知 · 不可测量",
+        "state": "unknown",
+        "lastEdge": "不可测量",
+        "reason": "（协议不支持探测）",
+        "segment": "不可测量（协议不支持探测）",
+        "legacyWarning": false
+      }
+    },
+    {
+      "name": "legacy/dark/1440",
+      "value": {
+        "badge": "正常",
+        "state": "ok",
+        "lastEdge": "无历史数据",
+        "reason": "",
+        "segment": "",
+        "legacyWarning": true
+      }
+    },
+    {
+      "name": "legacy/dark/390",
+      "value": {
+        "badge": "正常",
+        "state": "ok",
+        "lastEdge": "无历史数据",
+        "reason": "",
+        "segment": "",
+        "legacyWarning": true
+      }
+    },
+    {
+      "name": "legacy/light/1440",
+      "value": {
+        "badge": "正常",
+        "state": "ok",
+        "lastEdge": "无历史数据",
+        "reason": "",
+        "segment": "",
+        "legacyWarning": true
+      }
+    },
+    {
+      "name": "legacy/light/390",
+      "value": {
+        "badge": "正常",
+        "state": "ok",
+        "lastEdge": "无历史数据",
+        "reason": "",
+        "segment": "",
+        "legacyWarning": true
+      }
+    },
+    {
+      "name": "degraded/dark/1440",
+      "value": {
+        "badge": "降级 · 东京-02 异常",
+        "state": "degraded",
+        "lastEdge": "无历史数据",
+        "reason": "",
+        "segment": "",
+        "legacyWarning": true
+      }
+    },
+    {
+      "name": "degraded/dark/390",
+      "value": {
+        "badge": "降级 · 东京-02 异常",
+        "state": "degraded",
+        "lastEdge": "无历史数据",
+        "reason": "",
+        "segment": "",
+        "legacyWarning": true
+      }
+    },
+    {
+      "name": "degraded/light/1440",
+      "value": {
+        "badge": "降级 · 东京-02 异常",
+        "state": "degraded",
+        "lastEdge": "无历史数据",
+        "reason": "",
+        "segment": "",
+        "legacyWarning": true
+      }
+    },
+    {
+      "name": "degraded/light/390",
+      "value": {
+        "badge": "降级 · 东京-02 异常",
+        "state": "degraded",
+        "lastEdge": "无历史数据",
+        "reason": "",
+        "segment": "",
+        "legacyWarning": true
+      }
+    }
+  ]
+}

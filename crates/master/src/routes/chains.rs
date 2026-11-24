@@ -79,14 +79,21 @@ struct ValidatedGroup {
     members: Vec<ValidatedMember>,
 }
 
-/// 组内成员的顺序：priority 小的优先（主备），同优先级保持输入顺序（轮询）。
+/// 组内成员的顺序：`(priority, server_id)` 升序——`priority` 小的优先（主备），
+/// 同优先级按 `server_id` 稳定排序。
 ///
-/// 仓储查询已经按 `priority ASC, rowid ASC` 排序；这里再排一次是为了让纯函数
-/// 在测试/其它调用方传入乱序成员时也得到确定结果。Rust 的排序是稳定的，
-/// 所以同优先级不会打乱原有顺序。
+/// 仓储查询按 `priority ASC, rowid ASC` 排序；`rowid` 是插入顺序，同一个
+/// `priority` 下会与 `chain-health` 的 `(priority, server_id)` 选出不同的
+/// 代表成员（入口 / 出口 / 期望态第一目标会互相矛盾）。这里显式按
+/// `(priority, server_id)` 再排一次，让 `/chains`、`derive_forwards` 与
+/// chain-health 三个视图对「代表成员」始终给出同一台。
 fn ordered_members(group: &ChainGroupWithMembers) -> Vec<&ChainGroupMember> {
     let mut members: Vec<&ChainGroupMember> = group.members.iter().collect();
-    members.sort_by_key(|member| member.priority);
+    members.sort_by(|a, b| {
+        a.priority
+            .cmp(&b.priority)
+            .then_with(|| a.server_id.cmp(&b.server_id))
+    });
     members
 }
 
@@ -394,7 +401,8 @@ pub struct CreateChain {
     /// 模板链的入口端口（可选）：只覆盖**第一组第一台成员**的对外监听端口，
     /// 其余入口成员与所有中间跳仍自动分配。省略 / null = 全部自动分配。
     ///
-    /// 只能和 `template_id` 一起使用；手工 `groups` 请把端口写在成员上。
+    /// 只能和 `template_id` 一起使用（否则 400
+    /// `chain.entry_port_requires_template`）；手工 `groups` 请把端口写在成员上。
     #[serde(default)]
     pub entry_port: Option<i64>,
 }
@@ -2600,7 +2608,16 @@ pub async fn create(
         .map(str::to_string);
 
     // 两套入参互斥：模板已经固定了 groups / 引擎 / 加密方式，手工字段同时出现
-    // 时「以哪个为准」不可预测；`entry_port` 只对模板展开有意义。
+    // 时「以哪个为准」不可预测；`entry_port` 只对模板展开有意义（手工建链要
+    // 把端口写入口成员自己的 `listen_port`）。
+    if template_id.is_none() && entry_port.is_some() {
+        return Err(AppError::coded(
+            "chain.entry_port_requires_template",
+            Some(json!({ "entry_port": entry_port })),
+            "entry_port 只能和 template_id 一起使用；手工建链请把端口写在入口成员上 / \
+             entry_port is only valid together with template_id; for manual chains set listen_port on the entry member",
+        ));
+    }
     let template_conflicts: Vec<&str> = match template_id.as_deref() {
         Some(_) => {
             let mut conflicts = Vec::new();
@@ -2624,19 +2641,14 @@ pub async fn create(
             }
             conflicts
         }
-        None if entry_port.is_some() => vec!["entry_port"],
         None => Vec::new(),
     };
     if !template_conflicts.is_empty() {
-        let message = if template_id.is_none() {
-            "entry_port 只能和 template_id 一起使用；手工建链请把端口写在入口成员上 / entry_port is only valid together with template_id; for manual chains set listen_port on the entry member".to_string()
-        } else {
-            format!(
-                "从模板创建时不能再提供 {}：groups / hops 与 template_id 互斥，engine / protocol / transport / tunnel_security 直接沿用模板 / creating from a template does not accept {}: groups/hops are mutually exclusive with template_id, and engine/protocol/transport/tunnel_security come from the template",
-                template_conflicts.join(" / "),
-                template_conflicts.join(", ")
-            )
-        };
+        let message = format!(
+            "从模板创建时不能再提供 {}：groups / hops 与 template_id 互斥，engine / protocol / transport / tunnel_security 直接沿用模板 / creating from a template does not accept {}: groups/hops are mutually exclusive with template_id, and engine/protocol/transport/tunnel_security come from the template",
+            template_conflicts.join(" / "),
+            template_conflicts.join(", ")
+        );
         return Err(AppError::coded(
             "chain.template_conflict",
             Some(json!({
@@ -7732,8 +7744,16 @@ mod tests {
         let chain = &body["items"][0];
         assert_eq!(chain["path_mode"], "hash");
         assert!(chain["total_latency_ms"].is_null());
-        assert_eq!(chain["groups"][0]["members"][0]["target_latency_ms"], 9);
-        assert_eq!(chain["groups"][0]["members"][1]["target_latency_ms"], 4);
+        // 组内顺序是 `(priority, server_id)`，同优先级时不能按插入顺序断言。
+        let members = chain["groups"][0]["members"].as_array().unwrap();
+        let by_id = |server_id: &str| {
+            members
+                .iter()
+                .find(|member| member["server_id"] == server_id)
+                .unwrap_or_else(|| panic!("缺少成员 {server_id}：{chain}"))
+        };
+        assert_eq!(by_id(&fixture.a)["target_latency_ms"], 9);
+        assert_eq!(by_id(&fixture.b)["target_latency_ms"], 4);
     }
 
     /// 完全没有探测数据（旧 Agent / 刚建链）：字段存在、值为 null、接口不报错。
@@ -10235,5 +10255,110 @@ mod tests {
             "必须写清楚整链阻断原因：{:?}",
             rendered.warnings
         );
+    }
+
+    /// B8：同一组里 `priority` 相等的两台成员，`/chains` 列表、期望态推导
+    /// （`derive_forwards`）与 chain-health 的入口 / 出口 / 第一目标必须选中
+    /// 同一台（`(priority, server_id)` 升序），不能一个按插入顺序、一个按 id。
+    #[tokio::test]
+    async fn equal_priority_representatives_agree_across_views() {
+        let f = setup().await;
+        let pool = &f.state.db.pool;
+        // 组 0 用 (c, d)，组 1 用 (a, b)；按 id **降序**插入，让 rowid 顺序
+        // 与 server_id 顺序相反，旧实现必定在这里选出不同的代表成员。
+        let mut entry_ids = [f.c.clone(), f.d.clone()];
+        entry_ids.sort();
+        entry_ids.reverse();
+        let mut exit_ids = [f.a.clone(), f.b.clone()];
+        exit_ids.sort();
+        exit_ids.reverse();
+        let expected_entry = entry_ids[1].clone();
+        let expected_exit = exit_ids[1].clone();
+
+        let body = groups_body(
+            "等优先级",
+            "target.example",
+            443,
+            &[
+                group(
+                    None,
+                    None,
+                    &[
+                        group_member(&entry_ids[0], 21_001, 0),
+                        group_member(&entry_ids[1], 21_002, 0),
+                    ],
+                ),
+                group(
+                    None,
+                    None,
+                    &[
+                        group_member(&exit_ids[0], 21_003, 0),
+                        group_member(&exit_ids[1], 21_004, 0),
+                    ],
+                ),
+            ],
+        );
+        let (status, chain) = request(
+            &f.app,
+            Some(&f.cookie),
+            Method::POST,
+            "/api/v1/chains",
+            Some(body),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {chain}");
+        let chain_id = chain["chain"]["id"].as_str().unwrap().to_string();
+
+        // 视图 1：/chains 列表（groups[].members 已按 (priority, server_id) 排序）。
+        let (status, list) =
+            request(&f.app, Some(&f.cookie), Method::GET, "/api/v1/chains", None).await;
+        assert_eq!(status, StatusCode::OK, "body: {list}");
+        let view = list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == chain_id)
+            .expect("新链必须在列表里");
+        assert_eq!(view["groups"][0]["members"][0]["server_id"], expected_entry);
+        assert_eq!(view["groups"][1]["members"][0]["server_id"], expected_exit);
+
+        // 视图 2：期望态推导（目标顺序与代表成员）。
+        let stored = repo::chains::find_by_id(pool, &chain_id)
+            .await
+            .unwrap()
+            .unwrap();
+        let derived = derive_forwards(&stored.chain, &stored.groups).unwrap();
+        let first = derived
+            .iter()
+            .find(|(server_id, _)| *server_id == expected_entry)
+            .expect("代表成员必须被推导");
+        assert_eq!(
+            first
+                .1
+                .targets
+                .first()
+                .map(|target| target.server_id.as_str()),
+            Some(expected_exit.as_str()),
+            "下一组的代表成员必须与 /chains 一致"
+        );
+
+        // 视图 3：chain-health 的入口 / 出口。
+        let (status, body) = request(
+            &f.app,
+            Some(&f.cookie),
+            Method::GET,
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let health = body["chains"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|chain| chain["id"] == chain_id)
+            .expect("新链必须在 chain-health 里");
+        assert_eq!(health["entry"]["server_id"], expected_entry);
+        assert_eq!(health["exit"]["server_id"], expected_exit);
     }
 }

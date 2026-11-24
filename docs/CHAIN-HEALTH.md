@@ -48,6 +48,7 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
     ],
     "estimated": false,
     "missing_hops": [],
+    "last_hop": { "measurable": true, "reason": null },
     "status": { "kind": "blocked", "cause": "node_offline",
                 "node": { "seq": 3, "name": "大阪-01", "member_name": "大阪-01" } },
     "series": [ null, "…", { "ts": 1795443300, "p50": 81.0, "p10": 74.6, "p90": 84.2,
@@ -84,7 +85,8 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 桶都是 `null`，链状态是 `blocked`。）
 
 `entry` / `exit` 是链的展示起点/终点（口径见 §1.1），保留不删；`nodes` 是
-完整的拓扑节点（口径见 §1.2）；`status` 是链级可用性状态（口径见 §1.3）。
+完整的拓扑节点（口径见 §1.2）；`status` 是链级可用性状态（口径见 §1.3）；
+`last_hop` 说明最后一跳能不能被 Agent 探测（口径见 §1.4）。
 链没有任何组或组内没有成员时 `entry` / `exit` 是 `null`。`series` 固定长度
 = `hours*3600/bucket`，从旧到新；没有样本的桶是 `null`，不是 0。
 `segments[].p50` / `delta_ms` / `segments[].series[]` 无数据时同样是 `null`。
@@ -97,6 +99,8 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 - **起点**：第一个组（`seq` 最小）里优先级最高的成员。优先级按
   `(priority ASC, server_id ASC)` 稳定排序，所以 `priority` 相同时取
   `server_id` 较小的一台，与成员插入顺序无关。
+  `/chains` 的组内成员顺序与 `derive_forwards` 的下一跳 target 顺序也用
+  同一条规则，三个视图对「代表成员」不会给出不同的服务器。
   - 端口优先用 `chain_groups.public_port`；该字段为空（`null`）时回退该成员的
     `chain_group_members.listen_port`。`public_port` 只用于展示，链下发仍只用
     `listen_port`。
@@ -157,8 +161,8 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 ## 1.3 链级可用性状态（`status`）
 
 ```jsonc
-"status": { "kind": "ok" | "degraded" | "blocked",
-            "cause": "node_offline" | "node_unhealthy" | "no_samples" | "slow" | null,
+"status": { "kind": "ok" | "degraded" | "blocked" | "unknown",
+            "cause": "node_offline" | "node_unhealthy" | "unmeasurable" | "no_samples" | "slow" | null,
             "node": { "seq": 3, "name": "大阪-01", "member_name": "大阪-01" } | null }
 ```
 
@@ -169,9 +173,10 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 |---|---|---|---|---|
 | 1 | 任一 `role ∈ {source, hop}` 组的**任一成员** `status == "offline"` | `blocked` | `node_offline` | 拓扑上先遇到的离线成员（`seq` 是该成员所在组） |
 | 2 | 任一 `role ∈ {source, hop}` 组的**任一成员** `status != "online"`（`abnormal` / `no_data` / 空组没有成员等） | `degraded` | `node_unhealthy` | `null` |
-| 3 | 当前 2h 窗口没有「所有段齐全」的整体样本，**或** `missing_hops` 非空 | `degraded` | `no_samples` | `null` |
-| 4 | 整体较基线变慢（与 `summary.slow_chains` 同一个 `SLOW_DELTA_MS` = 8ms 阈值） | `degraded` | `slow` | `null` |
-| 5 | 其余 | `ok` | `null` | `null` |
+| 3 | 最后一跳不可测（`last_hop.measurable = false`；引擎 / 协议是链级字段，所以这条链的所有段都不可测） | `unknown` | `unmeasurable` | `null` |
+| 4 | 当前 2h 窗口没有「所有段齐全」的整体样本，**或** `missing_hops` 非空 | `degraded` | `no_samples` | `null` |
+| 5 | 整体较基线变慢（与 `summary.slow_chains` 同一个 `SLOW_DELTA_MS` = 8ms 阈值） | `degraded` | `slow` | `null` |
+| 6 | 其余 | `ok` | `null` | `null` |
 
 - **逐成员判定**：不是只看组级 `status` 或代表成员，而是遍历 `nodes[].members`。
   所以多成员组里**非代表成员**离线同样会阻断整条链（组级 `status` 也会同步变差）；
@@ -188,6 +193,11 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
   `name` / `member_name` 都是该**成员名**（`name` 保留旧字段语义，`member_name`
   是显式的新字段，便于前端不区分组节点名与成员名）。多个成员离线时取组
   `seq` 最小、组内 `(priority, server_id)` 最早的那台；
+- **`unknown` / `unmeasurable`**：Agent 只为 `native + tcp` 的 forward 跑目标
+  探测（见 §1.4），所以 realm / nftables / tunnel / udp / both 链的探测数据
+  **永远不会齐全**。这类链报 `degraded` / `no_samples` 会让人以为「Agent
+  没上报」或「链路坏了」，因此单独给 `unknown` + `unmeasurable`。节点状态的
+  优先级仍然更高：真正掉线的不可测链还是 `blocked` / `node_offline`；
 - **既有字段不变**：`segments` / `series` / `loss_pct` / `loss_partial` /
   `diagnosis` / `summary.slow_chains` 等口径都与之前完全一致，`status` 只是
   新增的合成视图，不改变任何数值。
@@ -195,6 +205,29 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 `node_unhealthy` 的 `status` 直取 `servers.status`，所以 `abnormal` /
 `no_data` 这类「服务器行存在但不是 online」的值都会命中；预览库里没有造
 这类值，由领域层单测覆盖。
+
+## 1.4 最后一跳可测性（`last_hop`）
+
+```jsonc
+"last_hop": { "measurable": true,  "reason": null }        // native + tcp
+"last_hop": { "measurable": false, "reason": "engine_unsupported" }   // realm / nftables / tunnel
+"last_hop": { "measurable": false, "reason": "protocol_unsupported" } // native + udp / both
+```
+
+判定以 **Agent 的实际探测条件**为准：只有 `engine = native && protocol = tcp`
+的 forward 会启动 `target_health_loop`（`wants_tcp && !wants_udp`）；realm /
+nftables / tunnel 的规则从不探测，`udp` / `both` 也不探测（TCP 握手证明不了
+UDP 可达）。引擎 / 协议是链级字段（`derive_forwards` 逐跳透传），所以
+`measurable = false` 时**整条链**都没有探测数据。不可测时：
+
+- 最后一跳**不参与** `series` 的「所有段齐全」判定、`current_overall`；
+  中间段有历史样本时曲线仍然可见（`667eba6` 之后整条曲线被最后一跳拖空的
+  回归）；
+- 最后一跳**不进** `missing_hops`：那是「缺数据」，不是「测不了」（§2）；
+- 最后一跳**不参与** `loss_partial` 的「缺段」计数（§4.1）；
+- `status` 是 `unknown` / `unmeasurable`（§1.3）；
+- `segments[]` 仍保留最后一跳的位置（`p50` / `loss_pct` 为 `null`），
+  前端据 `last_hop` 显示「最后一跳不可测量」，而不是「无历史数据」。
 
 ## 2. 跳的映射
 
@@ -208,14 +241,18 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
   Agent 对最后一组的 forward 目标就是链目标，没有下一台服务器，所以
   `target_server_id` 是空串；`server_id ∈ 最后一组` 且目标为空的样本归到
   这一段。它的 `p50` / `series` / `attempts` / `failures` / `loss_pct` 与
-  中间段**完全同形**，段级 `to` 是 `链目标`；
+  中间段**完全同形**，段级 `to` 是 `链目标`；**只有可测链**（`last_hop.measurable
+  = true`，见 §1.4）才把它算进整体值，不可测链的最后一跳只保留段位；
 - 旧 Agent 对单成员下一跳走兼容字段，`target_server_id` 是空串；主控按
   「下一组唯一成员」补回。多成员下一组必须带真实 `server_id`，空目标无法
   判断走了哪条路径，计入 `warnings.unmapped_forwards`；
 - `missing_hops` 只在**确实没有样本**时才包含最后一跳：该链窗口内既没有
   最后一跳的时延样本、也没有 `forward_probe_samples` 探测桶时，才把
   `最后一组 seq + 1` 写进去；有任一数据就不写。任何情况下都**绝不补 0**。
-  如果中间某组没有成员，相邻段也写进 `missing_hops`；
+  这里的「窗口」是**请求的 `hours`（series 窗口）**，不是 26h 基线窗口：
+  只在 24h 基线里出现过的旧样本不能把最后一跳从 `missing_hops` 里抹掉。
+  最后一跳**不可测**时不写（§1.4）。如果中间某组没有成员，相邻段也写进
+  `missing_hops`；
 - **多成员组（多路径）**：段内取所有成员样本的中位数，链级
   `estimated: true`；最后一跳也按成员的 `server_id` 分别归属，不会把不同
   服务器的探测混成同一个来源。整体 = 各段中位数之和，是估算值，不是某一条
@@ -245,8 +282,10 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 `summary` 聚焦**退化最严重的链**：优先取正向 delta 最大的链（同 delta 取
 当前整体更大、再按 id 稳定排序），`hop_p50_ms` = 该链当前整体 p50，
 `delta_ms` = 该链当前整体 p50 - 基线整体 p50。这样一条链 +25ms、其它链
-+0ms 时，headline 是 +25ms 而不是中位数 0。`worst_hop` 仍是所有链里当前
-p50 最高的段。
++0ms 时，headline 是 +25ms 而不是中位数 0。**headline 与 `slow_chains` 只
+统计可测链**（`last_hop.measurable = true`）：不可测链的样本只可能是历史
+残留，逐链状态是 `unknown`，不能让它抢 headline 或和 `status.cause = "slow"`
+的口径打架。`worst_hop` 仍是所有链里当前 p50 最高的段。
 
 ## 4. 整体与诊断
 
@@ -261,8 +300,9 @@ p50 最高的段。
     `stable`）；
   - 某段 `contribution_pct ≥ 80` → `single_hop`，`seq` 是主导段；
   - 其余整体上升 → `overall`。
-- `summary.slow_chains`：整体 delta ≥ 8ms 的链数。8ms 是跨公网一跳的
-  常见抖动上限，也与设计稿「稳定 = 没有超过 8ms 的变化」一致。
+- `summary.slow_chains`：整体 delta ≥ 8ms 的**可测**链数（不可测链不计：
+  它们的逐链状态是 `unknown` / `unmeasurable`，永远不会有 `slow`）。8ms 是
+  跨公网一跳的常见抖动上限，也与设计稿「稳定 = 没有超过 8ms 的变化」一致。
 
 ### 4.1 丢包
 
@@ -283,6 +323,8 @@ p50 最高的段。
   全部段都缺数据时整链 `loss_pct = null`、
   `loss_samples = { "attempts": 0, "failures": 0 }`、**`loss_partial: false`**
   （否则会和「无探测数据」自相矛盾）；全部段都有数据时同样是 `false`；
+  **不可测的最后一跳不算「缺数据」**：它本来就不会有探测，不参与
+  `loss_partial`（否则不可测链会永远显示「部分跳缺少数据」）；
 - **`series[].loss_pct`（该时刻）**：每个时间桶各自算整链丢包，各段取
   **同一 `ts` 桶**的 attempts/failures 连乘（与 `p50` 同桶对齐）。某段该桶
   没探测就跳过；整桶所有段都没探测 → `loss_pct: null`。桶级**没有**
@@ -312,8 +354,10 @@ p50 最高的段。
 - **多成员段**：同一段的多个成员在同一个桶内的时延样本一起算 p50；探测
   attempts / failures 先相加再算比值（与段级当前值同一口径）。最后一跳也
   一样：`server_id ∈ 最后一组`、`target_server_id` 为空的样本属于它；
-- **最后一跳**：与中间段同长同形；有最后一跳时延样本的桶会参与链级
-  `series`「所有段齐全」的判定，所以链级整体 p50 也包含到链目标的那一跳；
+- **最后一跳**：与中间段同长同形；可测链（native + tcp）里，有最后一跳
+  时延样本的桶会参与链级 `series`「所有段齐全」的判定，所以链级整体 p50
+  也包含到链目标的那一跳；不可测链（realm / nftables / tunnel / udp / both）
+  的最后一跳不参与该判定，段级序列仍然全为 `null`（§1.4）；
 - **与链级序列的关系**：链级 `series[]` 只在**所有段**该桶都有样本时非 null，
   段级序列则是每段各自的可见性；两者不能互相推导；
 - **性能**：段级序列完全由同一批 `forward_latency_samples` /
@@ -381,10 +425,11 @@ USE TEMP B-TREE FOR ORDER BY
 与 `list_topology` 的全量读走同一批索引）。
 
 结果缓存 30 秒（`crates/master/src/state.rs::ChainHealthCache`），key =
-`(hours, bucket, 规范化后的请求 server_ids)`；命中的 + 未知的 id 都进 key，
-因为 `scope` / `warnings` 和 body 一起缓存。响应头
-`X-Chain-Health-Cache: hit|miss`。`None`（不筛选）与 `Some([])`（空集）
-是不同 key。缓存是 TTL 语义：最多陈旧 30 秒，不写穿透。
+`(hours, bucket, (命中的 server_ids, 未知的 server_ids))`：命中的与未知的
+**分开存**，因为 `scope` / `warnings` 和 body 一起缓存，合并成一个集合会让
+同一个 id 从「未知」变成「存在」后仍命中旧响应。响应头
+`X-Chain-Health-Cache: hit|miss`。`None`（不筛选）与 `Some(([], []))`
+（空集）是不同 key。缓存是 TTL 语义：最多陈旧 30 秒，不写穿透。
 
 ## 7. 造数
 
@@ -458,7 +503,10 @@ USE TEMP B-TREE FOR ORDER BY
   `null`；逐段序列与链级同长、缺桶 null、`attempts=0` → loss null、有时延
   无探测 → loss null、有探测无时延 → 整桶 null、多成员同桶合并；
 - 路由层（`crates/master/src/routes/chain_health.rs`）：单跳/多跳映射、
-  最后一跳的 p50 / loss / `missing_hops`、整体 p50 含最后一跳、`nodes` 的
+  最后一跳的 p50 / loss / `missing_hops`、整体 p50 含最后一跳、
+  realm / nftables / tunnel / udp / both 链的 `last_hop.measurable = false`、
+  `series` 不被最后一跳拖空、`status = unknown/unmeasurable`、`missing_hops`
+  不含它、native + tcp 回归、缓存 key 区分「X 存在」与「X 未知」、`nodes` 的
   role / 组级 status / 全部成员 JSON / 链目标空数组与 `entry`/`exit` 保留、
   第二台成员离线 → `blocked` 并点名 `member_name`、`status` 的
   blocked / degraded(no_samples) / ok 与节点点名、段/整链丢包与时延
@@ -477,10 +525,10 @@ USE TEMP B-TREE FOR ORDER BY
   链组映射足够；`nodes[].members[].status` 直接读 `servers.status`，组级
   `nodes[].status` 是最差成员，`chains[].status` 是成员状态 + 已有样本的纯
   内存合成，不新增列；
-- 不改 `crates/proto`、`crates/agent`：Agent 一直会探测最后一组到链目标的
-  TCP 握手（`derive_forwards` 对最后一组下发 `target_host/target_port`，
-  Agent 的 `target_health_loop` 探测它并按空 `server_id` 上报），本轮只是把
-  这批样本归到最后一跳，不需要新字段或协议版本；
+- 不改 `crates/proto`、`crates/agent`：Agent 只对 `engine = native &&
+  protocol = tcp` 的 forward 跑 `target_health_loop`（realm / nftables /
+  tunnel / udp / both 都不探测），主控用 `last_hop` 显式标注这个边界，
+  不需要新字段或协议版本；
 - 逐段序列只给 `p50` + `loss_pct`，不返回 `p10` / `p90` / `samples`，也不做
   段级 24h 基线；热力图需要更多分布字段时要再扩契约；
 - 丢包不单独提供曲线/基线：链级逐桶值随 `series[]`、段级逐桶值随
@@ -513,9 +561,15 @@ sample belongs to it when its `server_id` is in the last group and its
 `target_server_id` is empty (the agent's forward for the last group targets the
 chain target, so there is no next member id). Its `p50` / `series` / `attempts`
 / `failures` / `loss_pct` have exactly the same shape as an inter-group segment
-and the segment's `to` is `链目标`. `missing_hops` contains the final hop only
-when the window has neither a latency sample nor a probe bucket for it; it is
-never replaced with 0. Multi-member groups (including the final hop) are
+and the segment's `to` is `链目标`. `last_hop.measurable` says whether the
+agent can probe the final hop at all: only `engine = native && protocol = tcp`
+forwards run the agent's `target_health_loop` (realm / nftables / tunnel never
+probe, and `udp` / `both` do not either). When it is `false`, the final hop does
+not participate in the "all segments present" check, `current_overall`,
+`missing_hops` or `loss_partial` (see `last_hop` below). `missing_hops` contains
+the final hop only when the **requested `hours` window** (the series window, not
+the 26-hour baseline window) has neither a latency sample nor a probe bucket for
+it; it is never replaced with 0. Multi-member groups (including the final hop) are
 attributed per source `server_id`; the segment pools their samples, the chain
 value is the sum of the per-segment medians, and `estimated` is true — an
 estimate, not a real end-to-end path RTT.
@@ -526,7 +580,9 @@ compatibility.
 
 - **Entry**: the highest-priority member of the first group (smallest `seq`),
   ordered by `(priority ASC, server_id ASC)` so equal priorities are broken by
-  server id, not insertion order. Its port is `chain_groups.public_port` when
+  server id, not insertion order. The `/chains` member order and the
+  `derive_forwards` target order use the same rule, so all three views agree on
+  the representative member. Its port is `chain_groups.public_port` when
   set; when it is `null` the member's `chain_group_members.listen_port` is used.
   `public_port` is display-only; the desired state still uses `listen_port`.
 - **Exit**: the highest-priority member of the last group (same ordering). Its
@@ -562,12 +618,12 @@ fully expanded; the chain-level `estimated: true` still only means the segment
 value is an estimate. A chain with no groups returns an empty `nodes` array.
 
 `chains[].status` is the chain-level availability verdict combining member state
-with data quality: `kind` is `ok` / `degraded` / `blocked`, `cause` is
-`node_offline` / `node_unhealthy` / `no_samples` / `slow` (`null` for `ok`), and
-`node` is `{ seq, name, member_name }` for the first offline member, otherwise
-`null`. Every member of every `source` / `hop` group is checked (not just the
-group aggregate or the representative member). Rules are applied in order, first
-match wins:
+with data quality: `kind` is `ok` / `degraded` / `blocked` / `unknown`, `cause`
+is `node_offline` / `node_unhealthy` / `unmeasurable` / `no_samples` / `slow`
+(`null` for `ok`), and `node` is `{ seq, name, member_name }` for the first
+offline member, otherwise `null`. Every member of every `source` / `hop` group
+is checked (not just the group aggregate or the representative member). Rules
+are applied in order, first match wins:
 
 1. any member of a `source` / `hop` group with `status == "offline"` → `blocked`
    / `node_offline`, `node` = the member encountered first (`seq` is the group
@@ -575,11 +631,23 @@ match wins:
 2. any member of a `source` / `hop` group with `status != "online"` (`abnormal` /
    `no_data`, or an empty group with no members) → `degraded` /
    `node_unhealthy`;
-3. no "all segments present" overall sample in the current 2-hour window, or a
+3. the final hop is unmeasurable (`last_hop.measurable = false`; engine and
+   protocol are chain-wide, so no segment of the chain can be probed) →
+   `unknown` / `unmeasurable`. Reporting `no_samples` here would suggest the
+   agent is broken rather than that this engine / protocol is never probed;
+4. no "all segments present" overall sample in the current 2-hour window, or a
    non-empty `missing_hops` → `degraded` / `no_samples`;
-4. the overall delta is at least 8ms (`SLOW_DELTA_MS`, the same predicate used by
+5. the overall delta is at least 8ms (`SLOW_DELTA_MS`, the same predicate used by
    `summary.slow_chains`) → `degraded` / `slow`;
-5. otherwise → `ok`.
+6. otherwise → `ok`.
+
+`last_hop` is `{ "measurable": bool, "reason": null | "engine_unsupported" |
+"protocol_unsupported" }`: `engine_unsupported` for realm / nftables / tunnel,
+`protocol_unsupported` for native chains whose protocol is `udp` / `both`, and
+`measurable: true` with `reason: null` otherwise. When the final hop is
+unmeasurable, its `segments[]` entry is kept (with `p50` / `loss_pct: null`) so
+the UI can show "last hop not measurable" instead of "no history", while the
+chain-level curve / current value only use the measurable middle segments.
 
 The `target` node never participates: it has no members, its `status` is always
 `null`, and that `null` must not degrade the chain. Member state outranks data
@@ -601,15 +669,20 @@ Time windows: `series` covers the last `hours`; the current value uses the last
 median and would be invisible, while 2 hours still filters single-bucket noise.
 The summary focuses on the most degraded chain (largest positive delta, then
 largest current, then id), so one chain at +25ms is not hidden by a median of
-zero. `worst_hop` is the highest current segment p50 across chains.
+zero. Both the headline and `slow_chains` only consider **measurable** chains
+(`last_hop.measurable = true`): an unmeasurable chain's samples can only be
+stale leftovers and its status is `unknown`, so it must not take over the
+headline or contradict `status.cause = "slow"`. `worst_hop` is the highest
+current segment p50 across chains.
 
 Within a bucket, overall p50/p10/p90 are sums of the segment values; a bucket
 with any missing segment is `null`. Per-segment `delta_ms` is current minus
 baseline. `contribution_pct` is the segment's positive delta divided by the sum
 of all positive deltas. `diagnosis.kind` is `unknown` when data is insufficient
 or the overall delta is ≤ 0, `single_hop` when one segment contributes at least
-80%, and `overall` otherwise. `slow_chains` counts chains with an overall delta
-of at least 8ms.
+80%, and `overall` otherwise. `slow_chains` counts **measurable** chains with an
+overall delta of at least 8ms (unmeasurable chains are `unknown` and can never
+be `slow`).
 
 `server_ids` uses exactly the same semantics as `/api/v1/overview`: absent means
 all chains, an empty array means an empty result, unknown ids are ignored and
@@ -629,7 +702,9 @@ without probe data are skipped. `loss_partial` is `true` only when at least one
 segment has data and at least one does not; a chain with no probe data at all
 has `loss_pct: null`, `loss_samples: { "attempts": 0, "failures": 0 }` and
 `loss_partial: false` (never both "no data" and "partially probed"), and a fully
-probed chain also uses `false`. `loss_samples` sums the raw counts of the
+probed chain also uses `false`. An unmeasurable final hop does not count as a
+missing segment (it is never probed, so it must not keep the chain "partially
+probed" forever). `loss_samples` sums the raw counts of the
 segments that entered the product, so it is not generally equal to
 `failures / attempts`. The chain-level `loss_pct` uses the same current 2-hour
 window as the segment p50 (or the request window when `hours < 2`), aligned to
@@ -655,9 +730,11 @@ latency samples is also `null`. The point's `loss_pct` is that segment's
 gives `null`, never 0. A point with latency but no probes keeps its `p50` and
 has `loss_pct: null`. For multi-member segments, latency samples in a bucket are
 pooled before taking the p50 and probe attempts/failures are summed before
-dividing, matching the segment-level rules. The final hop is a segment too: a
-bucket with its latency samples participates in the chain-level "all segments
-present" check, so the chain-level overall p50 includes the hop to the target.
+dividing, matching the segment-level rules. The final hop is a segment too: on
+a measurable chain (native + tcp) a bucket with its latency samples participates
+in the chain-level "all segments present" check, so the chain-level overall p50
+includes the hop to the target. On an unmeasurable chain the final hop's
+per-segment series stays all `null` and does not participate.
 The chain-level `series[]` is non-null only when **all** segments have samples
 in that bucket; per-segment series are independent views and cannot be derived
 from each other. All of this
@@ -678,8 +755,9 @@ lookups on `chain_groups` and `servers`,
 `idx_forward_probe_samples_forward_ts (forward_id=? AND ts>? AND ts<?)` plus a
 temporary B-tree for the ordered result; there is no full table scan of either
 samples table. The response is cached for 30 seconds in `ChainHealthCache` keyed
-by `(hours, bucket, normalized request server_ids)` (unknown ids included
-because `scope` / `warnings` are cached with the body), with
+by `(hours, bucket, (matched server ids, unknown server ids))` — the two sets
+are kept apart because `scope` / `warnings` are cached with the body, so one id
+changing from unknown to matched must not reuse the old entry — with
 `X-Chain-Health-Cache: hit|miss`.
 
 `scripts/seed-preview.sh` adds 3 chains / 9 groups / 10 members. The middle
@@ -710,7 +788,15 @@ data, its `diagnosis` is `unknown`; the "single-segment slowdown → `single_hop
 rule is covered by unit and route tests rather than by the preview database. The
 script is idempotent and only writes `data/preview.db`.
 
-Tests cover single-hop, multi-hop, multi-path estimation, the final-hop rule
+Tests also cover the unmeasurable-final-hop regression: realm / nftables /
+tunnel / native+udp / native+both chains keep their `series` (the unmeasurable
+final hop no longer empties it), report `last_hop.measurable = false` with the
+right reason, keep the final hop out of `missing_hops`, and get `status =
+unknown/unmeasurable` instead of `degraded/no_samples`; native + tcp keeps the
+old behaviour; a final-hop sample that only exists in the 24-hour baseline
+window still leaves the hop in `missing_hops`; both health caches prove that an
+id switching from matched to unknown misses. The existing suite covers
+single-hop, multi-hop, multi-path estimation, the final-hop rule
 (an empty-target sample removes it from `missing_hops` and produces the segment
 p50; no sample keeps it in `missing_hops`; probe-only data is not "missing"),
 the same server appearing as both a middle-segment source and the final-hop
@@ -741,6 +827,7 @@ multi-member priority,
 multi-member buckets pooled), summary worst-loss selection, filtering
 (hit/unknown/empty/invalid/201 ids), entry/exit preserved under `server_ids`
 filtering, loss under `server_ids` filtering, latency regression, bad
-`hours`/`bucket`, cache-key isolation, query plans, and 401/403. No migration is
-added; `crates/proto` and `crates/agent` are unchanged (the agent already probes
-the final target), and no `web/` changes are made.
+`hours`/`bucket`, cache-key isolation, cross-view representative agreement plus
+query plans and 401/403. No migration is added; `crates/proto` and
+`crates/agent` are unchanged (the agent only probes native + tcp forwards, which
+is exactly the boundary `last_hop` reports), and no `web/` changes are made.

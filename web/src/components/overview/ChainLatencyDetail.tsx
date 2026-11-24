@@ -11,10 +11,15 @@ import { ChainLossValue } from "@/components/overview/ChainLossValue";
 import { ChainSegmentTrendChart } from "@/components/overview/ChainSegmentTrendChart";
 import { ChainStatusBadge } from "@/components/overview/ChainStatusBadge";
 import {
+  chainLastHopReasonLabel,
+  chainLastHopReasonText,
+} from "@/lib/chainStatusText";
+import {
   SLOW_CHAIN_DELTA_MS,
   CHAIN_TOPOLOGY_NODE_HEIGHT_PX,
   chainDiagnosis,
   chainDiagnosisReason,
+  chainLastHopUnmeasurable,
   chainLatestSeriesTs,
   chainLossTone,
   chainNodeStatusTone,
@@ -258,47 +263,71 @@ function TopologyNode({
 interface TopologyEdgeView extends ChainTopologyEdge {
   lossPct: number | null;
   estimated: boolean;
+  /** 最后一跳不可测时的完整文案；可测 / 旧契约 / 中间段为 null。 */
+  unmeasurable: string | null;
+  /** 不可测原因短标签；用于边的第二行。 */
+  unmeasurableReason: string | null;
 }
 
 function TopologyEdge({ edge }: { edge: TopologyEdgeView }) {
-  const missing = edge.missing || edge.p50 === null;
+  const unmeasurable = edge.unmeasurable !== null;
+  // 「测不了」不是「没数据」：不再走 missing 的黄色虚线 / 无历史数据文案。
+  const missing = !unmeasurable && (edge.missing || edge.p50 === null);
   const measured = missing
     ? t("overview.chainLatency.missingHop")
     : formatMs(edge.p50);
   // 多成员组之间的段是多条路径的汇总；后端标 estimated 时明确加 ≈。
   const latency = edge.estimated && !missing ? `${measured} ≈` : measured;
-  const loss = formatLossPct(edge.lossPct);
+  const loss = unmeasurable
+    ? edge.unmeasurableReason === null
+      ? ""
+      : t("overview.chainLatency.unmeasurableReasonDetail", {
+          reason: edge.unmeasurableReason,
+        })
+    : formatLossPct(edge.lossPct);
   const estimate = edge.estimated
     ? t("overview.chainLatency.multiPathEstimate")
     : null;
-  const title = [latency, loss, estimate]
-    .filter((part): part is string => part !== null)
+  const title = [edge.unmeasurable ?? latency, loss, estimate]
+    .filter((part): part is string => part !== null && part !== "")
     .join(" · ");
   return (
     <span
       data-chain-topology-edge
       data-seq={edge.seq}
       data-missing={missing ? "true" : "false"}
+      data-unmeasurable={unmeasurable ? "true" : "false"}
       data-estimated={edge.estimated ? "true" : "false"}
       title={title}
-      className="relative flex h-14 min-w-[80px] flex-1 flex-col items-center justify-center px-0.5"
+      className={cn(
+        "relative flex h-14 flex-1 flex-col items-center justify-center px-0.5",
+        unmeasurable ? "min-w-[104px]" : "min-w-[80px]",
+      )}
     >
       <span
         data-chain-topology-edge-latency
         className={cn(
           "absolute left-1/2 max-w-full -translate-x-1/2 -translate-y-full truncate whitespace-nowrap font-mono text-[10px] leading-none tabular-nums",
-          missing ? "text-warning" : "text-muted-foreground",
+          unmeasurable
+            ? "text-muted-foreground"
+            : missing
+              ? "text-warning"
+              : "text-muted-foreground",
         )}
         style={{ top: "calc(50% - 3px)" }}
       >
-        {latency}
+        {unmeasurable ? t("overview.chainLatency.unmeasurable") : latency}
       </span>
       <span
         data-chain-topology-edge-line
         aria-hidden="true"
         className={cn(
           "absolute top-1/2 right-0 left-0 h-0 -translate-y-1/2 border-t",
-          missing ? "border-dashed border-warning/40" : "border-border",
+          unmeasurable
+            ? "border-dashed border-border"
+            : missing
+              ? "border-dashed border-warning/40"
+              : "border-border",
         )}
       />
       <ChevronRightIcon
@@ -307,6 +336,7 @@ function TopologyEdge({ edge }: { edge: TopologyEdgeView }) {
       />
       <span
         data-chain-topology-edge-loss
+        data-kind={unmeasurable ? "unmeasurable-reason" : "loss"}
         className="absolute left-1/2 max-w-full -translate-x-1/2 truncate whitespace-nowrap font-mono text-[10px] leading-none tabular-nums text-muted-foreground"
         style={{ top: "calc(50% + 3px)" }}
       >
@@ -375,26 +405,37 @@ function ChainOverallStats({ chain }: { chain: ChainHealthChain }) {
 
 function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
   const topology = chainTopologyGraph(chain);
+  const lastHopUnmeasurable = chainLastHopUnmeasurable(chain);
+  const unmeasurableText = chainLastHopReasonText(chain);
+  const unmeasurableReason = chainLastHopReasonLabel(chain);
   const segmentsBySeq = new Map(
     chain.segments.map((segment) => [segment.seq, segment]),
   );
   /**
    * 把每段窗口丢包贴到对应的拓扑边上；目标跳没有探测，保持 null。
    * `estimated` 只看链级标记 + 该段两端是否多成员组：单节点链即使整体
-   * 估算（缺中间跳）也不该在时延后加 ≈。
+   * 估算（缺中间跳）也不该在时延后加 ≈。最后一跳不可测时换掉文案，
+   * 不再显示「无历史数据」。
    */
   const withLoss = (
     edge: ChainTopologyEdge,
     index: number,
-  ): TopologyEdgeView => ({
-    ...edge,
-    lossPct: segmentsBySeq.get(edge.seq)?.lossPct ?? null,
-    estimated: chainTopologyEdgeEstimated(
-      chain,
-      topology.nodes[index],
-      topology.nodes[index + 1],
-    ),
-  });
+  ): TopologyEdgeView => {
+    const isLastEdge = index === topology.edges.length - 1;
+    return {
+      ...edge,
+      lossPct: segmentsBySeq.get(edge.seq)?.lossPct ?? null,
+      estimated: chainTopologyEdgeEstimated(
+        chain,
+        topology.nodes[index],
+        topology.nodes[index + 1],
+      ),
+      unmeasurable:
+        isLastEdge && lastHopUnmeasurable ? unmeasurableText : null,
+      unmeasurableReason:
+        isLastEdge && lastHopUnmeasurable ? unmeasurableReason : null,
+    };
+  };
 
   return (
     <Card className="min-w-0 gap-0" data-chain-topology-card>
@@ -442,7 +483,8 @@ function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
             </p>
           </>
         )}
-        {topology.targetMissing ? (
+        {/* 不可测不是「缺数据」：原因已经标在最后一跳的边上，不再叠旧告警。 */}
+        {topology.targetMissing && !lastHopUnmeasurable ? (
           <p className="mt-2 flex items-start gap-1.5 text-[10px] leading-normal text-warning">
             <TriangleAlertIcon
               aria-hidden="true"
@@ -642,12 +684,18 @@ function segmentRoute(segment: ChainHealthSegment): string {
  * 丢包是「该时刻值」，两者不能混。无数据段仍保留一行，值显示 `—`。
  */
 function SegmentContributions({ chain }: { chain: ChainHealthChain }) {
+  const lastHopUnmeasurable = chainLastHopUnmeasurable(chain);
+  const unmeasurableText = chainLastHopReasonText(chain);
+  const lastSeq = chain.segments[chain.segments.length - 1]?.seq ?? null;
   return (
     <div
       data-chain-segment-contributions
       className="mt-3 flex flex-col gap-1.5 border-t border-border pt-3"
     >
       {chain.segments.map((segment) => {
+        // 最后一跳「测不了」时按原因标注；旧契约 / 中间段仍走 missing。
+        const unmeasurable =
+          lastHopUnmeasurable && segment.seq === lastSeq;
         const share =
           segment.contributionPct === null
             ? 0
@@ -681,7 +729,12 @@ function SegmentContributions({ chain }: { chain: ChainHealthChain }) {
             data-chain-segment
             data-seq={segment.seq}
             data-missing={segment.missing ? "true" : "false"}
-            aria-label={label}
+            data-unmeasurable={unmeasurable ? "true" : "false"}
+            aria-label={
+              unmeasurable && unmeasurableText !== null
+                ? `${label} · ${unmeasurableText}`
+                : label
+            }
             className="flex min-w-0 items-center gap-2 text-[10px]"
           >
             <span className="w-12 shrink-0 font-mono text-muted-foreground sm:w-14">
@@ -693,44 +746,61 @@ function SegmentContributions({ chain }: { chain: ChainHealthChain }) {
             >
               {route}
             </span>
-            <span
-              data-segment-current
-              className="shrink-0 whitespace-nowrap font-mono tabular-nums"
-            >
-              <span className="mr-1 text-[9px] text-muted-foreground">P50</span>
-              {formatMs(segment.p50)}
-            </span>
-            <span
-              data-segment-loss
-              data-loss-tone={chainLossTone(segment.lossPct) ?? "none"}
-              title={probesTitle}
-              className="shrink-0 whitespace-nowrap"
-            >
-              <span className="mr-1 text-[9px] text-muted-foreground">
-                {t("overview.chainLatency.windowLoss")}
-              </span>
-              <ChainLossValue value={segment.lossPct} className="text-[10px]" />
-            </span>
-            <span
-              data-segment-contribution
-              className="flex min-w-10 flex-1 items-center gap-1.5 sm:w-28 sm:flex-none"
-            >
+            {unmeasurable ? (
               <span
-                aria-hidden="true"
-                className="h-1.5 min-w-6 flex-1 overflow-hidden rounded-full bg-muted"
+                data-segment-unmeasurable
+                className="min-w-0 flex-1 truncate text-right text-muted-foreground"
+                title={unmeasurableText ?? undefined}
               >
+                {unmeasurableText}
+              </span>
+            ) : (
+              <>
                 <span
-                  className={cn(
-                    "block h-full rounded-full",
-                    slowed ? "bg-warning" : "bg-primary",
-                  )}
-                  style={{ width: `${share}%` }}
-                />
-              </span>
-              <span className="w-7 shrink-0 text-right text-[9px] text-muted-foreground tabular-nums">
-                {formatPercentValue(segment.contributionPct)}%
-              </span>
-            </span>
+                  data-segment-current
+                  className="shrink-0 whitespace-nowrap font-mono tabular-nums"
+                >
+                  <span className="mr-1 text-[9px] text-muted-foreground">
+                    P50
+                  </span>
+                  {formatMs(segment.p50)}
+                </span>
+                <span
+                  data-segment-loss
+                  data-loss-tone={chainLossTone(segment.lossPct) ?? "none"}
+                  title={probesTitle}
+                  className="shrink-0 whitespace-nowrap"
+                >
+                  <span className="mr-1 text-[9px] text-muted-foreground">
+                    {t("overview.chainLatency.windowLoss")}
+                  </span>
+                  <ChainLossValue
+                    value={segment.lossPct}
+                    className="text-[10px]"
+                  />
+                </span>
+                <span
+                  data-segment-contribution
+                  className="flex min-w-10 flex-1 items-center gap-1.5 sm:w-28 sm:flex-none"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="h-1.5 min-w-6 flex-1 overflow-hidden rounded-full bg-muted"
+                  >
+                    <span
+                      className={cn(
+                        "block h-full rounded-full",
+                        slowed ? "bg-warning" : "bg-primary",
+                      )}
+                      style={{ width: `${share}%` }}
+                    />
+                  </span>
+                  <span className="w-7 shrink-0 text-right text-[9px] text-muted-foreground tabular-nums">
+                    {formatPercentValue(segment.contributionPct)}%
+                  </span>
+                </span>
+              </>
+            )}
           </div>
         );
       })}
@@ -759,6 +829,9 @@ function SegmentsCard({
   trends: ReadonlyMap<number, ChainHealthPoint[]>;
   trendPending: boolean;
 }) {
+  const lastHopUnmeasurable = chainLastHopUnmeasurable(chain);
+  const unmeasurableText = chainLastHopReasonText(chain);
+  const lastSeq = chain.segments[chain.segments.length - 1]?.seq ?? null;
   return (
     <Card className="min-w-0 gap-0" data-chain-segments-card>
       <CardHeader className="border-b border-border pb-4">
@@ -801,6 +874,12 @@ function SegmentsCard({
               trends={trends}
               bucketSecs={bucket}
               trendPending={trendPending}
+              unmeasurableSeq={
+                lastHopUnmeasurable ? lastSeq : null
+              }
+              unmeasurableLabel={
+                lastHopUnmeasurable ? unmeasurableText : null
+              }
             />
             <SegmentContributions chain={chain} />
           </div>

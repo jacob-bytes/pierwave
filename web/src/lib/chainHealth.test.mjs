@@ -27,6 +27,7 @@ import {
   chainDeltaTone,
   chainHasTrend,
   chainHealthState,
+  chainLastHopUnmeasurable,
   chainNodeIssue,
   chainStatus,
   chainTimeTicks,
@@ -594,7 +595,7 @@ test("missing or malformed status falls back to the slow / sample logic", () => 
 
   // 字段在但 kind 不认识 / 不是对象 → 整体按缺失处理，不猜状态。
   for (const status of [
-    { kind: "unknown", cause: "node_offline", node: { seq: 1, name: "x" } },
+    { kind: "nope", cause: "node_offline", node: { seq: 1, name: "x" } },
     { kind: "", cause: null, node: null },
     "blocked",
     null,
@@ -618,8 +619,107 @@ test("missing or malformed status falls back to the slow / sample logic", () => 
   assert.equal(chainNodeIssue(parsed), null);
 });
 
-test("kind=ok keeps slow and sample fallback; config only fills a missing status", () => {
+test("last_hop is parsed only from the new contract; missing falls back to the old path", () => {
   const base = normalizeChainHealth(payload([chain()])).snapshot.chains[0];
+  assert.equal(base.lastHop, null, "old controller: no last_hop");
+  assert.equal(chainLastHopUnmeasurable(base), false);
+
+  const unmeasurable = (reason) =>
+    normalizeChainHealth(
+      payload([
+        chain({ last_hop: { measurable: false, reason } }),
+      ]),
+    ).snapshot.chains[0];
+
+  const engine = unmeasurable("engine_unsupported");
+  assert.deepEqual(engine.lastHop, {
+    measurable: false,
+    reason: "engine_unsupported",
+  });
+  assert.equal(chainLastHopUnmeasurable(engine), true);
+
+  const protocol = unmeasurable("protocol_unsupported");
+  assert.deepEqual(protocol.lastHop, {
+    measurable: false,
+    reason: "protocol_unsupported",
+  });
+
+  // 未知原因 / 缺原因：仍然是「测不了」，但不编造具体原因。
+  assert.deepEqual(unmeasurable("vendor_specific").lastHop, {
+    measurable: false,
+    reason: null,
+  });
+  assert.deepEqual(unmeasurable(null).lastHop, {
+    measurable: false,
+    reason: null,
+  });
+
+  // measurable 不是布尔值的半成品字段按缺失处理，不能猜「可测」。
+  for (const last_hop of [
+    { measurable: "false", reason: "engine_unsupported" },
+    { measurable: 0, reason: "engine_unsupported" },
+    { reason: "engine_unsupported" },
+    "nope",
+    null,
+  ]) {
+    const parsed = normalizeChainHealth(payload([chain({ last_hop })]))
+      .snapshot.chains[0];
+    assert.equal(parsed.lastHop, null, JSON.stringify(last_hop));
+    assert.equal(chainLastHopUnmeasurable(parsed), false);
+  }
+
+  // 可测链忽略残留 reason。
+  const measurable = normalizeChainHealth(
+    payload([
+      chain({ last_hop: { measurable: true, reason: "engine_unsupported" } }),
+    ]),
+  ).snapshot.chains[0];
+  assert.deepEqual(measurable.lastHop, { measurable: true, reason: null });
+});
+
+test("kind=unknown is its own muted state, not blocked / degraded", () => {
+  const parsed = normalizeChainHealth(
+    payload([
+      chain({
+        status: { kind: "unknown", cause: "unmeasurable", node: null },
+        last_hop: { measurable: false, reason: "engine_unsupported" },
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.deepEqual(parsed.status, {
+    kind: "unknown",
+    cause: "unmeasurable",
+    node: null,
+  });
+  // 中间段有健康样本也一样：这条链的最后一跳根本测不了。
+  assert.equal(parsed.hasSamples, true);
+  assert.equal(chainStatus(parsed), "unknown");
+  assert.equal(
+    chainHealthState(parsed, {
+      enabled: true,
+      degraded: true,
+      blocked_reason: "证书过期",
+    }),
+    "unknown",
+    "unknown is not overridden by the old config flags",
+  );
+  assert.notEqual(chainStatus(parsed), "degraded");
+  assert.notEqual(chainStatus(parsed), "blocked");
+
+  // 旧契约没有 status：配置级 degraded 仍然照旧。
+  const base = normalizeChainHealth(payload([chain()])).snapshot.chains[0];
+  assert.equal(
+    chainHealthState(base, {
+      enabled: true,
+      degraded: true,
+      blocked_reason: null,
+    }),
+    "degraded",
+  );
+});
+
+test("kind=ok keeps slow and sample fallback; config only fills a missing status", () => {  const base = normalizeChainHealth(payload([chain()])).snapshot.chains[0];
   const ok = { ...base, status: { kind: "ok", cause: "slow", node: null } };
   assert.equal(chainStatus(ok), "normal");
   assert.equal(

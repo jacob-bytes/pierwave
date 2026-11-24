@@ -436,6 +436,137 @@ export function collectGroupIssues(
   return issues;
 }
 
+export interface ChainServerUsage {
+  /** 占用它的那一跳（0 起）。 */
+  groupIndex: number;
+  /** 占用它的那台成员（0 起）；跨跳时用于说明「第 N 跳」。 */
+  memberIndex: number;
+}
+
+/**
+ * 某一台成员的服务器下拉里，哪些服务器已被别处占用。
+ *
+ * - 其它跳占用 → 后端 `chain.duplicate_server`；
+ * - 同一跳的其它成员占用 → 后端 `chain.duplicate_group_member`；
+ * - 当前成员自己选中的那台**不算**占用（否则下拉里看不到当前值）；
+ * - 空 `server_id`（还没选）不参与计算。
+ *
+ * 返回 `server_id → 占用位置`，同一台服务器以靠前的跳为准（原因更准确）。
+ * 调用方只把这些项渲染成 `disabled`，不从列表里删除，避免布局跳动。
+ */
+export function serverUsagesElsewhere(
+  groups: readonly ChainGroupLike[],
+  groupIndex: number,
+  memberIndex: number,
+): Map<string, ChainServerUsage> {
+  const usages = new Map<string, ChainServerUsage>();
+
+  // 先扫其它跳：同一台服务器同时出现在前跳和同跳成员里时，
+  // 「已在第 N 跳」比「已在第 N 跳第 M 台」更能解释冲突来源。
+  groups.forEach((group, index) => {
+    if (index === groupIndex) return;
+    group.members.forEach((member, position) => {
+      const id = member.server_id;
+      if (!id || usages.has(id)) return;
+      usages.set(id, { groupIndex: index, memberIndex: position });
+    });
+  });
+
+  // 再扫同一跳的其它成员：后端同样拒绝同组重复。
+  groups[groupIndex]?.members.forEach((member, position) => {
+    if (position === memberIndex) return;
+    const id = member.server_id;
+    if (!id || usages.has(id)) return;
+    usages.set(id, { groupIndex, memberIndex: position });
+  });
+
+  return usages;
+}
+
+export interface ChainTemplateGroupLike {
+  server_ids: readonly string[];
+}
+
+/**
+ * 链模板某一跳的服务器多选里，哪些服务器已被其它跳占用。
+ * 返回 `server_id → 最早占用它的跳下标`；本跳自己已选的不算占用，
+ * 否则用户无法取消勾选。
+ */
+export function templateServerUsagesElsewhere(
+  groups: readonly ChainTemplateGroupLike[],
+  groupIndex: number,
+): Map<string, number> {
+  const usages = new Map<string, number>();
+  groups.forEach((group, index) => {
+    if (index === groupIndex) return;
+    for (const raw of group.server_ids) {
+      const id = raw.trim();
+      if (!id || usages.has(id)) continue;
+      usages.set(id, index);
+    }
+  });
+  return usages;
+}
+
+export type ChainTemplateGroupIssue =
+  | {
+      kind: "member_duplicate";
+      groupIndex: number;
+    }
+  | {
+      kind: "server_duplicate";
+      groupIndex: number;
+      firstGroupIndex: number;
+    };
+
+/**
+ * 链模板的重复服务器规则：同一跳内不重复（`chain.duplicate_group_member`）、
+ * 跨跳不重复（`chain.duplicate_server`）。纯函数，提交前做防御性校验，
+ * 模板多选已经置灰的服务器正常不会走进来。
+ */
+export function collectTemplateGroupIssues(
+  groups: readonly ChainTemplateGroupLike[],
+): ChainTemplateGroupIssue[] {
+  const issues: ChainTemplateGroupIssue[] = [];
+  const seenInTemplate = new Map<string, number>();
+  // 文案只点名「哪一跳」，同一跳的重复只报一次。
+  const reportedMemberDuplicate = new Set<number>();
+  const reportedServerDuplicate = new Set<number>();
+
+  groups.forEach((group, groupIndex) => {
+    const seenInGroup = new Set<string>();
+    for (const raw of group.server_ids) {
+      const id = raw.trim();
+      if (!id) continue;
+
+      if (seenInGroup.has(id)) {
+        if (!reportedMemberDuplicate.has(groupIndex)) {
+          reportedMemberDuplicate.add(groupIndex);
+          issues.push({ kind: "member_duplicate", groupIndex });
+        }
+        continue;
+      }
+      seenInGroup.add(id);
+
+      const firstGroupIndex = seenInTemplate.get(id);
+      if (firstGroupIndex !== undefined) {
+        if (!reportedServerDuplicate.has(groupIndex)) {
+          reportedServerDuplicate.add(groupIndex);
+          issues.push({
+            kind: "server_duplicate",
+            groupIndex,
+            firstGroupIndex,
+          });
+        }
+      } else {
+        seenInTemplate.set(id, groupIndex);
+      }
+    }
+  });
+
+  return issues;
+}
+
 /** 旧逻辑：已判定降级的跳；列表用它标注坏在哪一跳。 */
 export function degradedHops<T extends ChainHopSnapshot>(
   hops: readonly T[],

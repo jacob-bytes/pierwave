@@ -7,6 +7,10 @@
  * 布局 O(n)：一次先序确定叶子的行号，父节点取首尾子节点的中点；列宽按
  * 该层最长标签估算，避免标签压到下一列。折叠只影响可见子节点，隐藏数量
  * 记在节点上（`+N`）。
+ *
+ * 行高 44 与节点命中区同档：再密下去 44×44 的触摸目标会上下重叠，点一个
+ * 节点会命中另一个。长标签截断到 24 字符 + `…`（完整名留给 aria / tooltip），
+ * 边透明度下限 0.7、最细 1.5px，保证亮暗主题下都 ≥3:1。
  */
 
 export interface TreeNode {
@@ -26,6 +30,12 @@ export interface TreeChartLink {
   value: number;
   label?: string;
   unavailable?: boolean;
+  /** 路径降级：链路还在，但成员异常 / 无数据；标黄、不脉冲。 */
+  degraded?: boolean;
+  /** 边不可用时的最近一次 P50；只用于「最近已知」，不当当前值展示。 */
+  lastP50Ms?: number | null;
+  /** 路径上的用户数（aria 附带信息）。 */
+  users?: number;
   pulse?: boolean;
 }
 
@@ -44,6 +54,8 @@ export interface TreeChartLayoutOptions {
 export interface TreeChartLayoutNode {
   id: string;
   node: TreeNode;
+  /** 画在圆点右侧的文本：长标签已截断，完整名仍在 `node.name`。 */
+  displayName: string;
   depth: number;
   parentId: string | null;
   childIds: string[];
@@ -76,6 +88,13 @@ export interface TreeChartLayoutEdge {
   tree: boolean;
   pulse: boolean;
   unavailable: boolean;
+  /** 成员异常 / 无数据：标黄、不脉冲，也不显示成「最近已知」。 */
+  degraded: boolean;
+  /** 同源扇出过密：P50 只在 hover / focus 时显示。 */
+  dense: boolean;
+  /** 不可用边的最近一次 P50；`unavailable` 为 false 时恒为 null。 */
+  lastP50Ms: number | null;
+  users: number;
   label: string | null;
   path: string;
   x1: number;
@@ -103,7 +122,8 @@ export interface TreeChartHighlight {
 }
 
 const DEFAULT_OPTIONS = {
-  rowHeight: 30,
+  // 44 = 节点最小命中区；行距小于 44 时命中矩形会上下重叠，触点会点错节点。
+  rowHeight: 44,
   minColumnWidth: 148,
   paddingX: 14,
   paddingY: 12,
@@ -111,6 +131,35 @@ const DEFAULT_OPTIONS = {
   labelGap: 10,
   dotRadius: 5,
 } as const;
+
+/** 节点圆点的最小命中区（触摸目标）。 */
+export const TREE_NODE_HIT_SIZE = 44;
+
+/** 标签相对圆点中心的水平偏移（命中矩形宽度也用它算）。 */
+export const TREE_LABEL_OFFSET = 11;
+
+/** 标签超过这个字符数就截断，完整名留给 tooltip / aria。 */
+export const TREE_LABEL_MAX_CHARS = 24;
+
+/** 同源边超过这个数量就算密集扇出：P50 只在 hover / focus 时显示。 */
+export const TREE_DENSE_FANOUT = 6;
+
+/** 同时跑脉冲动画的边数上限；其余边保持静态，避免上百条 SVG 动画。 */
+export const TREE_PULSE_LIMIT = 10;
+
+/**
+ * 标签截断：按字符（code point）计数，CJK / emoji 不会被切成半个。
+ * 布局宽度与渲染共用同一份文本，避免「算宽度用全名、画出来是截断名」。
+ */
+export function truncateTreeLabel(
+  name: string,
+  max = TREE_LABEL_MAX_CHARS,
+): string {
+  const limit = Math.max(1, Math.floor(max));
+  const chars = [...name];
+  if (chars.length <= limit) return name;
+  return `${chars.slice(0, limit).join("")}…`;
+}
 
 export type ResolvedTreeChartLayoutOptions = {
   -readonly [K in keyof typeof DEFAULT_OPTIONS]: number;
@@ -155,17 +204,19 @@ export function treeCurvePath(
 }
 
 export function treeEdgeWidth(value: number, maxValue: number): number {
-  if (!Number.isFinite(value) || !Number.isFinite(maxValue)) return 1;
-  if (value <= 0 || maxValue <= 0) return 1;
+  if (!Number.isFinite(value) || !Number.isFinite(maxValue)) return 1.5;
+  if (value <= 0 || maxValue <= 0) return 1.5;
   const ratio = Math.min(1, value / maxValue);
-  return Math.round((1 + 5 * ratio) * 100) / 100;
+  // 最细 1.5px：0.7 透明度配 1px 在亮色下仍低于 3:1，细线会直接消失。
+  return Math.round((1.5 + 4.5 * ratio) * 100) / 100;
 }
 
 export function treeEdgeOpacity(value: number, maxValue: number): number {
-  if (!Number.isFinite(value) || !Number.isFinite(maxValue)) return 0.45;
-  if (value <= 0 || maxValue <= 0) return 0.45;
+  if (!Number.isFinite(value) || !Number.isFinite(maxValue)) return 0.7;
+  if (value <= 0 || maxValue <= 0) return 0.7;
   const ratio = Math.min(1, value / maxValue);
-  return Math.round((0.45 + 0.55 * ratio) * 100) / 100;
+  // 下限 0.7：亮 / 暗主题下与卡片背景都保持 ≥3:1，弱化不等于看不见。
+  return Math.round((0.7 + 0.3 * ratio) * 100) / 100;
 }
 
 function countDescendants(
@@ -201,15 +252,17 @@ function visit(
     typeof node.id === "string" && node.id !== "" ? node.id : fallbackId;
   const children = node.children ?? [];
   const collapsed = children.length > 0 && context.collapsedIds.has(id);
+  const displayName = truncateTreeLabel(node.name);
   const layout: TreeChartLayoutNode = {
     id,
     node,
+    displayName,
     depth,
     parentId,
     childIds: [],
     x: 0,
     y: 0,
-    labelWidth: treeLabelWidth(node.name, context.options.fontSize),
+    labelWidth: treeLabelWidth(displayName, context.options.fontSize),
     totalChildren: children.length,
     descendantCount: countDescendants(node, context.descendants),
     hiddenCount: collapsed ? countDescendants(node, context.descendants) : 0,
@@ -281,6 +334,8 @@ function createEdge(
   const y1 = source.y;
   const x2 = Math.max(x1 + 24, target.x - options.dotRadius);
   const y2 = target.y;
+  const unavailable = link?.unavailable === true;
+  const degraded = link?.degraded === true;
   return {
     id: link?.id ?? fallbackId,
     source: source.id,
@@ -290,8 +345,17 @@ function createEdge(
     width: treeEdgeWidth(value, maxValue),
     opacity: treeEdgeOpacity(value, maxValue),
     tree,
-    pulse: link?.pulse ?? (tree && value > 0 && link?.unavailable !== true),
-    unavailable: link?.unavailable === true,
+    // 降级 / 不可用路径不再脉冲：脉冲只解释「活着的流量」。
+    pulse:
+      link?.pulse ?? (tree && value > 0 && !unavailable && !degraded),
+    unavailable,
+    degraded,
+    dense: false,
+    lastP50Ms:
+      unavailable && typeof link?.lastP50Ms === "number"
+        ? link.lastP50Ms
+        : null,
+    users: typeof link?.users === "number" ? link.users : 0,
     label: link?.label ?? null,
     path: treeCurvePath(x1, y1, x2, y2),
     x1,
@@ -451,6 +515,15 @@ export function buildTreeChartLayout(
     );
   }
   spreadEdgeLabels(edges);
+  // 密集扇出：同一个源出去的边太多时，P50 标签会互相压住；标记出来由
+  // 渲染层改成「只在 hover / focus 时显示」。
+  const fanout = new Map<string, number>();
+  for (const edge of edges) {
+    fanout.set(edge.source, (fanout.get(edge.source) ?? 0) + 1);
+  }
+  for (const edge of edges) {
+    edge.dense = (fanout.get(edge.source) ?? 0) > TREE_DENSE_FANOUT;
+  }
   const outgoing = new Set(edges.map((edge) => edge.source));
   for (const node of nodes) node.hasOutgoing = outgoing.has(node.id);
 
@@ -511,7 +584,17 @@ export function treeHighlightPath(
       current = layout.byId.get(current.parentId);
     }
   };
-  if (target.nodeId !== undefined) addNodePath(target.nodeId);
+  if (target.nodeId !== undefined) {
+    addNodePath(target.nodeId);
+    // 汇入该节点的交叉边也要亮：否则 hover 一个汇合点，看不到另一条
+    // 来源还在往这里送流量。source 同样补一条到根的路径；`addNodePath`
+    // 自带 visited 守卫，交叉边反向指回来也不会死循环。
+    for (const edge of layout.edges) {
+      if (edge.tree || edge.target !== target.nodeId) continue;
+      edgeIds.add(edge.id);
+      addNodePath(edge.source);
+    }
+  }
   if (target.edgeId !== undefined) {
     const edge = layout.edges.find((item) => item.id === target.edgeId);
     if (edge !== undefined) {
@@ -521,4 +604,147 @@ export function treeHighlightPath(
     }
   }
   return { nodeIds, edgeIds };
+}
+
+/* ------------------------------------------------------------------ */
+/* F3 tooltip 定位：实测尺寸 + 可见区夹紧                               */
+/* ------------------------------------------------------------------ */
+
+export interface TreeTooltipPlacementInput {
+  /** 锚点在图表内容坐标系里的位置（与 tooltip 同一坐标系）。 */
+  anchorX: number;
+  anchorY: number;
+  /** 锚点元素的高度：节点 44（命中区），边 0。翻到下方时要从锚点下沿再让开。 */
+  anchorHeight?: number;
+  /** tooltip 的实测尺寸（`getBoundingClientRect` / `offsetWidth/Height`）。 */
+  width: number;
+  height: number;
+  /** 滚动容器的可见窗口，同样是内容坐标系（= scrollLeft / clientWidth）。 */
+  visibleLeft: number;
+  visibleWidth: number;
+  visibleTop: number;
+  visibleHeight: number;
+  gap?: number;
+  margin?: number;
+}
+
+export interface TreeTooltipPlacement {
+  x: number;
+  y: number;
+  /** true = 翻到锚点下方（上方放不下）。 */
+  below: boolean;
+  clampedX: boolean;
+  clampedY: boolean;
+}
+
+export const TREE_TOOLTIP_GAP = 8;
+export const TREE_TOOLTIP_MARGIN = 8;
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function clampAxis(
+  value: number,
+  min: number,
+  max: number,
+): { value: number; clamped: boolean } {
+  if (max < min) return { value: min, clamped: true };
+  if (value < min) return { value: min, clamped: true };
+  if (value > max) return { value: max, clamped: true };
+  return { value, clamped: false };
+}
+
+/**
+ * tooltip 定位（纯函数，便于用真实尺寸回归 1440 / 390 两个极端）。
+ *
+ * 竖直方向优先放锚点上方；上方放不下（首行节点）就翻到下方，再用实测
+ * 高度夹紧到可见区。水平方向按可见窗口夹紧，而不是按整张图的宽度——
+ * 390 滚到末端时 iframe 的可见窗口比内容窄，按内容宽度夹紧会被裁掉。
+ */
+export function placeTreeTooltip(
+  input: TreeTooltipPlacementInput,
+): TreeTooltipPlacement {
+  const gap = input.gap ?? TREE_TOOLTIP_GAP;
+  const margin = input.margin ?? TREE_TOOLTIP_MARGIN;
+  const width = Math.max(0, input.width);
+  const height = Math.max(0, input.height);
+
+  const horizontal = clampAxis(
+    input.anchorX - width / 2,
+    input.visibleLeft + margin,
+    input.visibleLeft + input.visibleWidth - width - margin,
+  );
+
+  const anchorHeight = Math.max(0, input.anchorHeight ?? 0);
+  const above = input.anchorY - anchorHeight / 2 - gap - height;
+  const below = above < input.visibleTop + margin;
+  const vertical = clampAxis(
+    below ? input.anchorY + anchorHeight / 2 + gap : above,
+    input.visibleTop + margin,
+    input.visibleTop + input.visibleHeight - height - margin,
+  );
+
+  return {
+    x: round2(horizontal.value),
+    y: round2(vertical.value),
+    below,
+    clampedX: horizontal.clamped,
+    clampedY: vertical.clamped,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* F4 脉冲并发上限                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 只有 Top N 条（默认 10）可用路径跑 CSS 脉冲，其余边保持静态。
+ *
+ * 选择依据：链数降序（流量最大的路径最值得动），同链数时层级浅的优先，
+ * 让脉冲在靠近入口的地方更集中；不可用 / 降级路径本来就不参与。
+ */
+export function selectPulseEdgeIds(
+  edges: readonly {
+    id: string;
+    value: number;
+    pulse: boolean;
+    unavailable: boolean;
+    degraded: boolean;
+    depth?: number;
+  }[],
+  limit: number = TREE_PULSE_LIMIT,
+): Set<string> {
+  const candidates = edges.filter(
+    (edge) => edge.pulse && !edge.unavailable && !edge.degraded,
+  );
+  candidates.sort(
+    (a, b) =>
+      b.value - a.value ||
+      (a.depth ?? 0) - (b.depth ?? 0) ||
+      a.id.localeCompare(b.id),
+  );
+  const take = Math.max(0, Math.floor(limit));
+  return new Set(candidates.slice(0, take).map((edge) => edge.id));
+}
+
+/* ------------------------------------------------------------------ */
+/* F5 触点首点只选中                                                   */
+/* ------------------------------------------------------------------ */
+
+export type TreeChartActivation = "reveal" | "toggle";
+
+/**
+ * 点击节点要做什么：
+ * - 鼠标（hover 可用）：直接折叠 / 展开；
+ * - 触点：第一下只选中并显示 tooltip（否则一点就把子树收起来，用户
+ *   还没看到内容），再点同一个节点才折叠。
+ */
+export function treeNodeActivation(input: {
+  hoverCapable: boolean;
+  armedId: string | null;
+  nodeId: string;
+}): TreeChartActivation {
+  if (input.hoverCapable) return "toggle";
+  return input.armedId === input.nodeId ? "toggle" : "reveal";
 }

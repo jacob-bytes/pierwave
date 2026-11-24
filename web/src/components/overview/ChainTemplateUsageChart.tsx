@@ -324,6 +324,14 @@ export function ChainTemplateUsageChart({
             {t("overview.chainTemplateInsight.usageEmpty")}
           </div>
         )}
+        {detail.seriesBasis === "existing_chains" ? (
+          <p
+            data-template-usage-basis
+            className="mt-1.5 text-[10px] leading-normal text-muted-foreground"
+          >
+            {t("overview.chainTemplateInsight.usageExistingChainsBasis")}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

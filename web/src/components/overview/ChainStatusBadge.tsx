@@ -63,6 +63,13 @@ export const CHAIN_HEALTH_STATE_META: Record<
     text: "text-muted-foreground",
     badge: "border-border text-muted-foreground",
   },
+  unknown: {
+    labelKey: CHAIN_STATE_LABEL_KEYS.unknown,
+    titleKey: "overview.chainLatency.unmeasurableTitle",
+    dot: "bg-muted-foreground/40",
+    text: "text-muted-foreground",
+    badge: "border-border text-muted-foreground",
+  },
 };
 
 /** 行内小字：`节点 大阪-01 离线` / `节点 大阪-01 异常`。 */

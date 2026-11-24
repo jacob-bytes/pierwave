@@ -209,6 +209,35 @@ be used for the size limit.
 | `chain.proxy_protocol_requires_single_hop` | PROXY protocol v2 只能在单跳链上开启 | hops |
 | `me.chain_groups_missing` | 链的拓扑信息已丢失，请删除后重新创建 | chain_id |
 
+## 概览查询参数（中英对照）/ Overview query parameters
+
+概览页的只读接口在参数非法时统一返回 400 与稳定错误码；`params` 里的
+`min` / `max` / `step` / `default` / `allowed` 直接用于前端提示，不需要解析文案。
+
+The read-only overview endpoints return a stable 400 code for invalid
+parameters. `params.min` / `max` / `step` / `default` / `allowed` drive the UI
+messages; clients do not need to parse the text.
+
+| code | 中文 | English | params |
+|---|---|---|---|
+| `query.chain_health_hours_invalid` | hours 必须是 1-168 的整数（默认 24） | hours must be an integer between 1 and 168 (default 24) | min, max, default |
+| `query.chain_health_bucket_invalid` | bucket 必须是 300-86400 之间 300 的倍数，且能整除 hours*3600（默认 900） | bucket must be a multiple of 300 between 300 and 86400 that divides hours*3600 (default 900) | min, max, step, default |
+| `query.chain_templates_hours_invalid` | hours 只能是 24 或 168（默认 24） | hours must be 24 or 168 (default 24) | allowed, default |
+
+`query.chain_health_*` 来自 `/api/v1/overview/chain-health`（口径见
+[CHAIN-HEALTH.md](CHAIN-HEALTH.md)）；`query.chain_templates_hours_invalid` 来自
+`/api/v1/overview/chain-templates/{id}` 的详情（口径见
+[CHAIN-TEMPLATE-INSIGHT.md](CHAIN-TEMPLATE-INSIGHT.md)）。这三个 `errors.*` 词条
+由 Web lane 补；未补齐时前端回落到后端返回的双语文案。`/overview/server-health`
+的 `query.server_health_*` 见 [FX-AND-SERVER-HEALTH.md](FX-AND-SERVER-HEALTH.md)。
+
+The `query.chain_health_*` codes come from `/api/v1/overview/chain-health` and
+`query.chain_templates_hours_invalid` from the chain-template detail endpoint.
+Their `errors.*` entries are owned by the Web lane; until they land the UI falls
+back to the bilingual backend message. The `query.server_health_*` codes used by
+`/overview/server-health` are documented in
+[FX-AND-SERVER-HEALTH.md](FX-AND-SERVER-HEALTH.md).
+
 ## 请求体 JSON / Request body parsing
 
 所有 `Json<T>` 路由共享一层全局映射：请求体 JSON 合法但字段类型不匹配时，axum 原本
@@ -324,7 +353,9 @@ per server, and exhaustion is a hard 400 — never a silent range switch or rand
 
 `POST /api/v1/me/chains` 与 `POST /api/v1/chains`（`template_id` 形态）都接受可选
 `entry_port`：它只覆盖**第一跳**的对外监听端口，中间跳仍自动分配；多成员入口组里
-只作用于被选中的入口成员。端口必须是 1–65535，且受入口服务器的端口策略约束
+只作用于被选中的入口成员。手工 `POST /api/v1/chains`（没有 `template_id`）带
+`entry_port` 是 **400** `chain.entry_port_requires_template`——手工链请把端口写在
+入口成员自己的 `listen_port` 上。端口必须是 1–65535，且受入口服务器的端口策略约束
 （策略为空 = 不限制）；与同服务器上已有链 / 节点 / 转发冲突时 **409**，链不会创建
 （写事务回滚，不会悄悄换端口）。`POST /api/v1/chains` 的 `groups` / `hops` 与
 `template_id` 互斥；模板不存在是 **404** `chain_template.not_found`，已停用是
@@ -344,8 +375,15 @@ missing template is **404** `chain_template.not_found` and a disabled one is **4
 |---|---|---|---|
 | `chain.entry_port_taken` | 入口端口 {port} 已被服务器「{server_name}」上的链 / 节点 / 转发占用，请换一个端口 | Entry port {port} is already used by a chain / node / forward on server "{server_name}"; choose another port | holder, holder_id, holder_name, port, seq, server_id, server_name |
 | `chain.entry_port_out_of_range` | 入口端口必须在 {min}-{max} 之间（当前 {port}） | The entry port must be between {min} and {max} (got {port}) | max, min, port |
+| `chain.entry_port_requires_template` | entry_port 只能和 template_id 一起使用；手工建链请把端口写在入口成员上 | entry_port is only valid together with template_id; for manual chains set listen_port on the entry member | entry_port |
 | `chain.template_conflict` | 从模板创建时不能再提供 {conflicts}：groups / hops 与 template_id 互斥，engine / protocol / transport / tunnel_security 直接沿用模板 | Creating from a template cannot also pass {conflicts}: groups/hops are mutually exclusive with template_id, and engine/protocol/transport/tunnel_security come from the template | conflicts, template_id |
 | `chain_template.disabled` | 链模板「{template_name}」已停用，不能用于建链 | Chain template "{template_name}" is disabled and cannot be used to create a chain | template_id, template_name |
+
+`chain.entry_port_requires_template` 是新码：`web/src/i18n/{zh-CN,en}.ts` 的
+`errors.*` 词条由 Web lane 按上表补；在补齐之前前端回落到后端返回的双语文案。
+The new `chain.entry_port_requires_template` code still needs its `errors.*`
+entry in `web/src/i18n/{zh-CN,en}.ts` (owned by the Web lane); until then the UI
+falls back to the backend's bilingual message.
 
 `chain.entry_port_taken` 的 `holder` 取值 `chain` / `node` / `forward`，配合
 `holder_id` / `holder_name` 说明是谁占用；`chain_template.disabled` 用于管理端

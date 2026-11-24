@@ -7,9 +7,10 @@ import { ApiError } from "./apiError.ts";
  * `GET /api/v1/overview/chain-templates`
  * `GET /api/v1/overview/chain-templates/{id}?hours=24|168`
  *
- * 这里只负责把 snake_case 响应归一化、算拓扑布局、色阶 / 边宽、策略占比、
- * 使用量序列与热点排序；不依赖 React / DOM / i18n，便于 `node:test` 覆盖。
- * 旧主控 404 / 403 在查询层转成 `null`，页面显示「需要新版本主控」。
+ * 这里只负责把 snake_case 响应归一化、算拓扑布局、策略占比、使用量序列与
+ * 热点排序；不依赖 React / DOM / i18n，便于 `node:test` 覆盖。
+ * 旧主控 404 在查询层转成 `null`，页面显示「需要新版本主控」；403 是权限
+ * 问题，照常走错误态，不能当成「旧主控」降级。
  */
 
 export const TEMPLATE_STATUS_KINDS = ["ok", "degraded", "blocked", "unknown"] as const;
@@ -20,7 +21,20 @@ export interface ChainTemplateStatus {
   cause: string | null;
 }
 
-export const TEMPLATE_MEMBER_STATUSES = ["online", "offline", "unknown"] as const;
+/**
+ * 成员状态四档：`online` / `offline` / `degraded` / `unknown`。
+ *
+ * 后端 `servers.status` 是原样透传的库内值（online / offline / abnormal /
+ * no_data …），这里只做归一：`abnormal`、`no_data` 都是「还活着但数据不可信」
+ * → `degraded`，和链路详情的红点口径一致（非 online 即异常，但异常里区分
+ * 离线与降级）。
+ */
+export const TEMPLATE_MEMBER_STATUSES = [
+  "online",
+  "offline",
+  "degraded",
+  "unknown",
+] as const;
 export type ChainTemplateMemberStatus =
   (typeof TEMPLATE_MEMBER_STATUSES)[number];
 
@@ -95,23 +109,41 @@ export interface ChainTemplateListSnapshot {
   items: ChainTemplateListItem[];
 }
 
+/**
+ * 模板候选里没有被任何链用到的成员（新契约的 `unused_candidates`）。
+ *
+ * 旧主控没有该数组 → 空数组；不再从 `nodes` 反推（新契约的 `nodes` 只含
+ * 真实链成员，反推只会得到空列表，还会把「没数据」与「没用到」混在一起）。
+ */
+export interface ChainTemplateUnusedCandidate {
+  /** 成员在**模板**里的组号。 */
+  seq: number;
+  serverId: string | null;
+  name: string;
+  status: ChainTemplateMemberStatus;
+}
+
 export interface ChainTemplateDetail {
   template: {
     id: string;
     name: string;
     hops: number;
     createdAt: number | null;
+    /** 链的跳数 / 成员是否仍与模板当前定义一致；旧契约缺失时为 false。 */
+    stale: boolean;
+    /** 双语不一致说明；stale = false 或旧契约时为 null。 */
+    staleReason: string | null;
   };
   nodes: ChainTemplateNode[];
   edges: ChainTemplateEdge[];
   targets: ChainTemplateTarget[];
   users: ChainTemplateUser[];
   series: ChainTemplateSeriesPoint[];
+  /** `series` 的口径；旧契约 / 未知值时为 null。 */
+  seriesBasis: "existing_chains" | null;
+  unusedCandidates: ChainTemplateUnusedCandidate[];
   strategies: ChainTemplateStrategyShare[];
 }
-
-/** 热力色阶最多 4 档；0 链保持透明，不占档。 */
-export const MAX_TEMPLATE_HEAT_TIERS = 4;
 
 /** 策略分布的固定展示顺序：与后端 `chain_groups.strategy` 的枚举一致。 */
 export const TEMPLATE_STRATEGY_ORDER = [
@@ -207,11 +239,25 @@ export function chainTemplateStatus(value: unknown): ChainTemplateStatus {
   };
 }
 
-function memberStatus(value: unknown): ChainTemplateMemberStatus {
-  return typeof value === "string" &&
-    (TEMPLATE_MEMBER_STATUSES as readonly string[]).includes(value)
-    ? (value as ChainTemplateMemberStatus)
-    : "unknown";
+/** 后端 `servers.status` → 四档展示状态；未知值不造状态。 */
+export function chainTemplateMemberStatus(
+  value: unknown,
+): ChainTemplateMemberStatus {
+  if (typeof value !== "string") return "unknown";
+  switch (value.trim().toLowerCase()) {
+    case "online":
+      return "online";
+    case "offline":
+      return "offline";
+    // 库里 abnormal / no_data 都是「机器还在、数据不可信」。
+    case "degraded":
+    case "abnormal":
+    case "no_data":
+    case "nodata":
+      return "degraded";
+    default:
+      return "unknown";
+  }
 }
 
 function normalizeStrategy(value: unknown): ChainTemplateStrategyShare | null {
@@ -280,6 +326,39 @@ function normalizeStrategies(value: unknown): ChainTemplateStrategyShare[] {
     .filter((share): share is ChainTemplateStrategyShare => share !== null);
 }
 
+function normalizeUnusedCandidate(
+  value: unknown,
+): ChainTemplateUnusedCandidate | null {
+  if (!isRecord(value)) return null;
+  const name = text(value.name);
+  const serverId = text(value.server_id);
+  // 名字是唯一可展示文本；只有 server_id 的脏数据没有意义。
+  if (name === "") return null;
+  return {
+    seq: Math.max(0, Math.floor(finiteNumber(value.seq) ?? 0)),
+    serverId: serverId === "" ? null : serverId,
+    name,
+    status: chainTemplateMemberStatus(value.status),
+  };
+}
+
+function normalizeUnusedCandidates(
+  value: unknown,
+): ChainTemplateUnusedCandidate[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const rows: ChainTemplateUnusedCandidate[] = [];
+  for (const item of value) {
+    const candidate = normalizeUnusedCandidate(item);
+    if (candidate === null) continue;
+    const key = `${candidate.seq}::${candidate.serverId ?? candidate.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(candidate);
+  }
+  return rows.sort((a, b) => a.seq - b.seq || a.name.localeCompare(b.name));
+}
+
 function normalizeListItem(value: unknown): ChainTemplateListItem | null {
   if (!isRecord(value)) return null;
   const id = text(value.id);
@@ -344,7 +423,7 @@ function normalizeNode(value: unknown, fallbackHops: number): ChainTemplateNode 
           return {
             serverId: serverId === "" ? null : serverId,
             name,
-            status: memberStatus(member.status),
+            status: chainTemplateMemberStatus(member.status),
             chains: count(member.chains),
             users: count(member.users),
           };
@@ -523,8 +602,10 @@ export function normalizeChainTemplateDetail(
   );
   const hasTarget = [...bySeq.values()].some((node) => node.role === "target");
   if (!hasTarget) {
-    bySeq.set(maxSeq, {
-      seq: maxSeq,
+    // 插到 maxSeq + 1：直接写 maxSeq 会把最后一跳（最后一个 hop 成员）
+    // 覆盖成目标列，整条链少一跳、拓扑里目标跟最后一跳叠在一起。
+    bySeq.set(maxSeq + 1, {
+      seq: maxSeq + 1,
       role: "target",
       name: "",
       members: targets.map((target) => ({
@@ -541,6 +622,7 @@ export function normalizeChainTemplateDetail(
   const users = normalizeUsers(root.users);
   const series = normalizeSeries(root.series);
   const strategies = normalizeStrategies(root.strategies);
+  const staleReason = text(rawTemplate.stale_reason);
   const hops = Math.max(
     count(rawTemplate.hops),
     ...nodes.map((node) => node.seq),
@@ -553,44 +635,26 @@ export function normalizeChainTemplateDetail(
       name: text(rawTemplate.name),
       hops,
       createdAt: timestamp(rawTemplate.created_at),
+      // 旧主控没有 `stale`：一律 false，提示条不出现，不能猜「模板改过」。
+      stale: bool(rawTemplate.stale, false),
+      staleReason: staleReason === "" ? null : staleReason,
     },
     nodes,
     edges,
     targets,
     users,
     series,
+    // 只有契约显式声明 existing_chains 才加「按现有链回填」的图注。
+    seriesBasis:
+      text(root.series_basis) === "existing_chains" ? "existing_chains" : null,
+    unusedCandidates: normalizeUnusedCandidates(root.unused_candidates),
     strategies,
   };
 }
 
 export function isChainTemplateInsightUnsupported(error: unknown): boolean {
-  return (
-    error instanceof ApiError && (error.status === 404 || error.status === 403)
-  );
-}
-
-export function nodeHeatTier(chains: number, maxChains: number): number {
-  if (!Number.isFinite(chains) || !Number.isFinite(maxChains)) return 0;
-  if (chains <= 0 || maxChains <= 0) return 0;
-  const ratio = Math.min(1, chains / maxChains);
-  return Math.max(
-    1,
-    Math.min(MAX_TEMPLATE_HEAT_TIERS, Math.ceil(ratio * MAX_TEMPLATE_HEAT_TIERS)),
-  );
-}
-
-export function edgeStrokeWidth(chains: number, maxChains: number): number {
-  if (!Number.isFinite(chains) || !Number.isFinite(maxChains)) return 1;
-  if (chains <= 0 || maxChains <= 0) return 1;
-  const ratio = Math.min(1, chains / maxChains);
-  return Math.round((1 + 5 * ratio) * 100) / 100;
-}
-
-export function edgeStrokeOpacity(chains: number, maxChains: number): number {
-  if (!Number.isFinite(chains) || !Number.isFinite(maxChains)) return 0.1;
-  if (chains <= 0 || maxChains <= 0) return 0.1;
-  const ratio = Math.min(1, chains / maxChains);
-  return Math.round((0.1 + 0.28 * ratio) * 100) / 100;
+  // 只有 404 代表「旧主控没有这条路由」。403 是权限问题，必须暴露成错误。
+  return error instanceof ApiError && error.status === 404;
 }
 
 export interface StrategyShareView extends ChainTemplateStrategyShare {
@@ -777,8 +841,4 @@ export function targetLabel(target: ChainTemplateTarget): string {
   return target.host.includes(":")
     ? `[${target.host}]:${target.port}`
     : `${target.host}:${target.port}`;
-}
-
-export function templateTargetLabels(detail: ChainTemplateDetail): string[] {
-  return detail.targets.map(targetLabel);
 }

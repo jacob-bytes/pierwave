@@ -48,6 +48,22 @@ test("detail shows the same status badge with its node reason", () => {
   assert.match(statusText, /statusWithReason/);
 });
 
+test("last hop unmeasurable uses its own wording, never 无历史数据", () => {
+  // 拓扑最后一跳与逐段列表最后一段都按 last_hop 标注原因。
+  assert.match(detail, /chainLastHopUnmeasurable/);
+  assert.match(detail, /chainLastHopReasonText/);
+  assert.match(detail, /chainLastHopReasonLabel/);
+  assert.match(detail, /data-unmeasurable=/);
+  assert.match(detail, /data-segment-unmeasurable/);
+  assert.match(detail, /unmeasurableReason/);
+  // 旧契约（无 last_hop）仍保留「最后一跳无历史数据」的告警。
+  assert.match(detail, /topology\.targetMissing && !lastHopUnmeasurable/);
+  assert.match(detail, /missingLastHop/);
+  // unknown 是独立徽章，色不影响 blocked / degraded。
+  assert.match(badge, /unknown: \{/);
+  assert.match(badge, /CHAIN_STATE_LABEL_KEYS\.unknown/);
+});
+
 test("list suppresses the slow badge while blocked / degraded", () => {
   assert.match(list, /const showSlowBadge = latencyStatus === "slow" && state === "ok"/);
   assert.match(list, /showSlowBadge \?/);

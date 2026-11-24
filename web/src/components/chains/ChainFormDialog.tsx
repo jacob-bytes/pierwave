@@ -67,6 +67,7 @@ import {
   normalizeWeight,
   orderGroups,
   orderMembers,
+  serverUsagesElsewhere,
   weightFieldVisible,
   type ChainStrategy,
 } from "@/lib/chains";
@@ -195,6 +196,7 @@ function GroupCard({
   index,
   groupCount,
   form,
+  allGroups,
   pending,
   editing,
   servers,
@@ -213,6 +215,8 @@ function GroupCard({
   index: number;
   groupCount: number;
   form: UseFormReturn<ChainFormValues>;
+  /** 整条链的当前值：跨跳占用要随任何一跳的改动实时重算。 */
+  allGroups: ChainFormValues["groups"];
   pending: boolean;
   /** 编辑已保存的链：中间跳展示后端已分配的只读端口。 */
   editing: boolean;
@@ -713,6 +717,14 @@ function GroupCard({
             // 中间跳只在编辑已保存的链时展示后端已分配的端口；新建时没有可展示的值。
             const showSavedPort =
               editing && !showPortField && /^\d+$/.test(savedPort);
+            // 跨跳 / 同跳其它成员已占用的服务器：置灰并说明原因，
+            // 但当前成员自己选中的那台始终可选（否则打不开下拉看当前值）。
+            const takenServers = serverUsagesElsewhere(
+              allGroups,
+              index,
+              memberIndex,
+            );
+            const currentServerId = members[memberIndex]?.server_id ?? "";
 
             return (
               <div
@@ -822,15 +834,49 @@ function GroupCard({
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        {servers.map((server) => (
-                          <SelectItem
-                            key={server.id}
-                            value={server.id}
-                            title={server.address}
-                          >
-                            <span className="truncate">{server.name}</span>
-                          </SelectItem>
-                        ))}
+                        {servers.map((server) => {
+                          // 当前值永远可选；其它被占用的服务器保留在列表里置灰。
+                          const usage =
+                            server.id === currentServerId
+                              ? undefined
+                              : takenServers.get(server.id);
+                          const reason = usage
+                            ? usage.groupIndex === index
+                              ? t("chains.form.serverUsedInMember", {
+                                  seq,
+                                  member: usage.memberIndex + 1,
+                                })
+                              : t("chains.form.serverUsedInHop", {
+                                  seq: usage.groupIndex + 1,
+                                })
+                            : null;
+                          return (
+                            <SelectItem
+                              key={server.id}
+                              value={server.id}
+                              title={reason ?? server.address}
+                              disabled={Boolean(usage)}
+                              data-server-taken={usage ? "true" : undefined}
+                              data-server-taken-scope={
+                                usage
+                                  ? usage.groupIndex === index
+                                    ? "member"
+                                    : "hop"
+                                  : undefined
+                              }
+                              className="data-disabled:text-muted-foreground data-disabled:opacity-100"
+                            >
+                              <span className="flex w-full min-w-0 items-center justify-between gap-3">
+                                <span className="truncate">{server.name}</span>
+                                {reason ? (
+                                  <span className="shrink-0 type-micro text-muted-foreground">
+                                    {reason}
+                                  </span>
+                                ) : null}
+                              </span>
+                            </SelectItem>
+                          );
+                        })}
                       </SelectContent>
                     </Select>
                     {serverError ? (
@@ -1944,6 +1990,7 @@ export function ChainFormDialog({
                   index={index}
                   groupCount={fields.length}
                   form={form}
+                  allGroups={watchedGroups}
                   pending={pending}
                   editing={isEdit}
                   servers={servers}

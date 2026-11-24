@@ -80,16 +80,15 @@ targets. Items are ordered by `chains` desc, `name` asc, then `id` asc.
   "generated_at": 1795529469,
   "template": {
     "id": "c0ffee00-0007-4000-8000-000000000701",
-    "name": "港日双路", "hops": 3, "created_at": 1787753422
+    "name": "港日双路", "hops": 3, "created_at": 1787753422,
+    "stale": false, "stale_reason": null
   },
   "nodes": [
     {
       "seq": 0, "role": "source", "name": "入口",
       "members": [
         { "server_id": "…0001", "name": "香港-01", "status": "online",
-          "chains": 4, "users": 2 },
-        { "server_id": "…0002", "name": "香港-02", "status": "online",
-          "chains": 0, "users": 0 }
+          "chains": 4, "users": 2 }
       ]
     },
     {
@@ -144,25 +143,40 @@ targets. Items are ordered by `chains` desc, `name` asc, then `id` asc.
     { "id": "…0201", "name": "kenji", "chains": 1 }
   ],
   "series": [{ "ts": 1795442400, "chains": 4, "users": 2 }],
+  "series_basis": "existing_chains",
+  "unused_candidates": [
+    { "seq": 0, "server_id": "…0002", "name": "香港-02", "status": "online" }
+  ],
   "strategies": [{ "strategy": "ip_hashed", "chains": 4, "users": 2 }]
 }
 ```
 
 #### nodes
 
-- 来自**模板定义**（`groups_json`），不是某条链的实际拓扑：模板每个组一个
-  节点，`members` 是该组**全部候选成员**（顺序沿用 `groups_json` 的
-  `server_ids`），末尾补一个 `role = "target"` 的目标节点；
-- `seq`：组节点用模板组的 `seq`（规范化后 0..n-1），目标节点 =
-  `hops`（例如 3 跳 → 目标 `seq = 3`）；
-- `name`：入口 `入口`，其余 `第 N 跳`，目标 `目标`（模板组没有名称字段）；
-- 成员 `chains` / `users` = **实际链**在该组包含该成员的去重链 / 用户数；
-  候选成员没有链经过时是 0，但仍出现在 `nodes` 里；
+`nodes` **只来自真实链的实际拓扑**（`chain_groups` / `chain_group_members`），
+模板只提供候选清单。这样模板改过跳数 / 成员之后，详情仍然按链真实走法画图，
+不会出现「模板 3 跳、链 2 跳」时节点与边错位、计数大面积归零。
+
+- **组节点**：真实链出现过的每个组 `seq` 一个节点，`members` 是该组**实际
+  被链使用**的成员（按 `(priority, server_id)` 排序），不再是模板候选；
+  成员 `chains` / `users` = 在该组包含该成员的去重链 / 用户数；
+- **顺序 / seq**：组节点按真实 `seq` 升序；目标节点 `seq = 真实最后一组
+  seq + 1`。**没有链就没有 nodes**（模板从未被使用时不画假拓扑）；
+- **role**：真实第一组 `source`，其余组 `hop`，末尾 `target`；
+- **name**：优先用真实链的组名（`chain_groups.name`，多条链取第一个非空），
+  没有组名时回退 `入口` / `第 N 跳`；目标节点固定 `目标`；
 - 服务器成员的 `status` 是 `servers.status` 原样；服务器已被删除时
   `status = "unknown"`、`name` 回退服务器 id。目标成员只有 `name`
   （`host:port`，IPv6 带方括号）与 `chains` / `users`，没有 `server_id` /
   `status`；
-- 目标成员按 `chains` 降序 → `name` 升序。
+- 目标成员按 `chains` 降序 → `name` 升序；
+- **没有被任何链用到的候选成员**放在 `unused_candidates`：
+  `{ seq, server_id, name, status }`（`seq` 是它在**模板**里的组号），
+  不混进 `nodes`；
+- **`template.stale`**：存在链的跳数或成员与模板**当前定义**不一致时为
+  `true`，`template.stale_reason` 给出中英双语说明（跳数不一致 / 某跳有
+  成员不在当前候选里）。候选是「菜单」，链只选中其中几台是正常的，不算
+  stale。
 
 #### edges
 
@@ -192,29 +206,47 @@ targets. Items are ordered by `chains` desc, `name` asc, then `id` asc.
 - `strategies`：按每条链第一跳策略聚合，`chains` 是链数、`users` 是去重
   owner 数；
 - `series`：`hours` 窗口内按 **15 分钟** 桶的「累计链数 / 去重用户数」。
-  `ts` 是桶起点，从旧到新；用 `chains.created_at` 派生——创建即计入，
-  删除不扣减历史（没有删除时间可扣）。链在桶结束前创建就出现在该桶；
-  窗口内没有创建时仍返回补齐的 0 值数组，长度 = `hours * 4`（24h = 96，
-  168h = 672）。
+  `ts` 是桶起点，从旧到新；用 `chains.created_at` 派生。
+  **口径是「按当前存在的链回填」**（响应里的 `series_basis =
+  "existing_chains"`）：创建即计入，**删除链会让它在所有历史桶里一起消失**
+  ——没有删除时间，无法保留删除前的历史，文档旧版里「删除不扣减历史」的说法
+  是错的。链在桶结束前创建就出现在该桶；最后一个点是**当前未完成桶**
+  （`ts` 向下对齐 15 分钟，统计到 `now`）。窗口内没有创建时仍返回补齐的
+  0 值数组，长度 = `hours * 4`（24h = 96，168h = 672）。
 
-English: `nodes` come from the template definition and list **every candidate
-member** per group, not only the members a particular chain selected. `chains`
-and `users` on a member are the distinct actual chains / owners that include
-that member in that group; an unused candidate stays visible with zeroes. The
-target node has one member per actual `host:port`. `edges` aggregate real chain
-groups: every actual member pair between adjacent groups, plus each last-group
-member to the chain target; the same member pair across chains is merged.
-`seq` is the destination group's `seq` (the final hop is `last seq + 1`), the
-same convention as chain-health segments. `p50_ms` is the median of the
+English: `nodes` come **only from the actual topology of existing chains**
+(`chain_groups` / `chain_group_members`); the template only supplies the
+candidate list. After a template edit the detail still draws the real chain, so
+nodes and edges cannot drift out of place and counts do not collapse to zero.
+There is one node per group `seq` actually used by a chain, with that group's
+**actually used** members ordered by `(priority, server_id)`; `chains` / `users`
+on a member are the distinct actual chains / owners that include it in that
+group. The target node's `seq` is the real last group's `seq + 1`; a template
+that no chain uses has no `nodes` at all. Node names prefer the real
+`chain_groups.name`, then `入口` / `第 N 跳`; the target is `目标`.
+`template.stale` is `true` when any chain's hop count or members differ from the
+template's current definition, with a bilingual `template.stale_reason`
+(hop-count mismatch / a hop containing members outside the current candidates;
+picking only a subset of the candidates is normal and is **not** stale).
+Candidates that no chain uses are listed separately in `unused_candidates`
+(`{ seq, server_id, name, status }`, `seq` being the template group) instead of
+being mixed into `nodes`. `edges` aggregate real chain groups: every actual
+member pair between adjacent groups, plus each last-group member to the chain
+target; the same member pair across chains is merged. `seq` is the destination
+group's `seq` (the final hop is `last seq + 1`), the same convention as
+chain-health segments. `p50_ms` is the median of the
 `(forward_id, target_server_id)` samples in the current 2-hour window;
 `loss_pct` is `failures / attempts × 100` from the same window, `null` when
 `attempts = 0` (never 0). Multi-target probes cannot distinguish targets, so all
 outgoing edges of a source member share that forward's counts. `targets` and
 `users` carry the user id/name for tooltips. `strategies` counts each chain once
 by its first-hop strategy. `series` is a cumulative 15-minute-bucket curve
-derived from `chains.created_at`: creation counts immediately, deletion never
-rewinds history, and a window with no creations still returns the full array of
-zeroes (`hours * 4` points: 96 / 672).
+derived from **the chains that exist now**, declared by
+`series_basis: "existing_chains"`: creation counts immediately and deleting a
+chain removes it from every historical bucket (there is no deletion timestamp to
+preserve history). The last point is the current unfinished 15-minute bucket
+(`ts` floor-aligned, counting up to `now`); a window with no creations still
+returns the full array of zeroes (`hours * 4` points: 96 / 672).
 
 ## 2. 统计口径 / Semantics summary
 
@@ -222,12 +254,15 @@ zeroes (`hours * 4` points: 96 / 672).
 |---|---|
 | 列表 `chains` | `chains.template_id = id`，未删除，含用户链 / 管理员链 / 停用链 |
 | 列表 / 详情 `users` | 上述链的 `owner_user_id` 去重；NULL 不计 |
-| `nodes[].members[].chains` | 在该组包含该服务器成员的链数 |
+| `nodes[].members[].chains` | **真实链**在该组包含该服务器成员的链数（键是真实组 `seq`） |
 | `nodes[].members[].users` | 同上链的 owner 去重 |
+| `nodes` | 只来自真实链的 `chain_groups` / `chain_group_members`；没有链时为空 |
+| `unused_candidates` | 模板候选里没有被任何链用到的成员（`seq` 是模板组号） |
+| `template.stale` | 链的跳数 / 成员与模板当前定义不一致时为 true |
 | `edges[].chains` | 实际包含该 from→to 成员对的链数 |
 | `edges[].users` | 这些链的 owner 去重 |
 | 目标节点 / `targets` | 实际链的 `host:port` 聚合，不含模板里没被用到的目标 |
-| `series` | 截至桶末的累计链数 / 用户数，`created_at` 派生 |
+| `series` | 截至桶末的累计链数 / 用户数，`created_at` 派生；按当前存在的链回填（`series_basis = "existing_chains"`） |
 | `strategies` | 每条链第一跳 `chain_groups.strategy`，按链去重 |
 
 English: the table above is the complete counting contract. A chain is never
@@ -315,28 +350,37 @@ same user, and all three strategies.
 
 - 领域层（`crates/domain/src/chain_template_insight.rs`）：列表链数 / 用户
   去重 / 管理员链不计 users / 状态 disabled / member_offline / degraded /
-  无成员 / 服务器已删除；排序 `chains` 降序 → 名称升序；详情候选成员全部
-  出现（含 0 链成员）、目标节点、同目标 / 不同目标、边合并、边 p50 与
-  丢包、管理员链不产生用户、series 累计与 0 值补齐、168h 长度、IPv6 目标；
+  无成员 / 服务器已删除；排序 `chains` 降序 → 名称升序；详情节点跟随真实链
+  （模板 2 跳→1 跳后仍是 2 组、计数不归零；模板 1 跳→2 跳不会凭空多节点）、
+  `stale` / `stale_reason`（跳数 / 候选成员变化）、`unused_candidates`、
+  目标节点、同目标 / 不同目标、边合并、边 p50 与丢包、管理员链不产生用户、
+  `series` 按现有链回填（删链后历史一起回退）、最后一个点是当前未完成桶
+  （now 不对齐 900）、168h 长度、IPv6 目标；
 - 路由层（`crates/master/src/routes/chain_template_insight.rs`）：列表 /
   详情真实 JSON、模板无链、单链、多链多用户、多模板共享服务器不串、
-  停用模板、目标相同 / 不同 / 无目标、404 / 400 / 403 / 401、缓存
-  `hit/miss` 与 hours 隔离；
+  停用模板、**模板编辑后详情仍画真实链 + `stale` + `unused_candidates` +
+  `series_basis` + 最后桶 `ts`**、目标相同 / 不同 / 无目标、404 / 400 /
+  403 / 401、缓存 `hit/miss` 与 hours 隔离；
 - 缓存层（`crates/master/src/state.rs`）：`(id, hours)` key 隔离、TTL、
   禁用；
 - 查询计划（`crates/domain/tests/query_plan.rs`）：模板列表必须走
   `idx_chain_templates_created`，用户名字必须走 `users` 主键。
 
-English: domain tests cover counts/status/edges/series/formatting; route tests
-cover the real JSON contract and every requested boundary (no chain, single
-chain, multi-user, shared server across templates, disabled, same/different/no
-targets, 404/400/403, cache hit/miss); state tests cover key isolation and TTL;
-the query-plan test locks the template index and the users primary key.
+English: domain tests cover counts/status/edges/series/formatting, nodes
+following the real chain after template edits (`stale` / `stale_reason` /
+`unused_candidates`, counts never collapsing), `series` backfilled from the
+existing chains (deleting one rewinds history) and the current unfinished
+bucket; route tests cover the real JSON contract and every requested boundary
+(no chain, single chain, multi-user, shared server across templates, disabled,
+template edited after the chain was created, same/different/no targets,
+404/400/403, cache hit/miss); state tests cover key isolation and TTL; the
+query-plan test locks the template index and the users primary key.
 
 ## 6. 未做 / Not in this iteration
 
 - 不新增表 / 列：只追加一个模板排序索引（迁移 0068）；
-- 不记录删除历史：`series` 的累计值只增不减，删除链不会让过去的点变低；
+- `series` 按**当前存在的链**回填：删除链会让它从所有历史桶一起消失（没有删除
+  时间可保留删除前历史），响应用 `series_basis = "existing_chains"` 显式声明；
 - 边级 `p50_ms` / `loss_pct` 固定最近 2h，不随 `hours` 放大到 24h / 168h
   （`hours` 只影响 `series`）；这是为了与 chain-health 的段值同口径，避免
   长窗口把最近的事故稀释掉；

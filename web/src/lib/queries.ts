@@ -544,7 +544,7 @@ export function useChainHealth(
  * 转发链模板洞察（列表）：链路时延 tab 底部的「转发链模板」区块。
  *
  * 旧主控没有该接口时返回 404；与 chain-health 一样转成 `null`（查询成功），
- * 区块显示「需要新版本主控」，不做无意义的重试。其它错误仍按错误态处理。
+ * 区块显示「需要新版本主控」，不做无意义的重试。403 是权限问题，照常报错。
  */
 export function useChainTemplateInsights(enabled = true) {
   return useQuery<ChainTemplateListSnapshot | null>({
@@ -569,7 +569,7 @@ export function useChainTemplateInsights(enabled = true) {
   });
 }
 
-/** 单个模板的详情；404 / 403 同样降级成「需要新版本主控」。 */
+/** 单个模板的详情；只有 404 降级成「需要新版本主控」，403 照常报错。 */
 export function useChainTemplateInsight(
   id: string | null,
   hours = 24,

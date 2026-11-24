@@ -318,6 +318,8 @@ recreating the chain.
 
 - `name` 可省略：缺省用「模板名 · target_host:target_port」（超过 64 字符时截断）。
 - `entry_port` 可选，语义与用户自助建链完全一致（只覆盖第一跳、冲突 409）。
+  它只对模板展开有意义：手工链（没有 `template_id`）带 `entry_port` →
+  400 `chain.entry_port_requires_template`，端口请写在入口成员的 `listen_port`。
 - `template_id` 与 `groups` / `hops` / `engine` / `protocol` / `transport` /
   `tunnel_security` 同时出现 → 400 `chain.template_conflict`（不静默取其一）。
 - 模板不存在 → 404 `chain_template.not_found`；已停用 → 400
@@ -333,6 +335,9 @@ optional `entry_port` + `target_host` + `target_port`. `name` is optional and
 defaults to `template name · host:port`. Engine / protocol / security come from
 the template; sending `groups`/`hops`/`engine`/`protocol`/`transport`/
 `tunnel_security` together with `template_id` is a 400 `chain.template_conflict`.
+`entry_port` only makes sense for template expansion: a manual chain (no
+`template_id`) that sends it gets 400 `chain.entry_port_requires_template`;
+put the port on the entry member's `listen_port` instead.
 A missing template is 404 `chain_template.not_found`; a disabled one is 400
 `chain_template.disabled`. The created chain keeps `owner_user_id = null` and
 records `template_id`; the expansion is equivalent to a manual chain with the

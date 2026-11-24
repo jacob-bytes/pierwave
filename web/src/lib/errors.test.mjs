@@ -391,9 +391,10 @@ test("server-health 参数错误在中英里都带边界", () => {
   });
 });
 
-test("入口端口范围 / 模板冲突 / 停用模板三个错误码中英都有译文", () => {
+test("入口端口范围 / 模板冲突 / 手建带 entry_port / 停用模板四个错误码中英都有译文", () => {
   const codes = [
     "chain.entry_port_out_of_range",
+    "chain.entry_port_requires_template",
     "chain.template_conflict",
     "chain_template.disabled",
   ];
@@ -416,6 +417,15 @@ test("入口端口范围 / 模板冲突 / 停用模板三个错误码中英都�
         "fallback",
       ),
       "入口端口必须在 1-65535 之间（当前 70000）",
+    );
+    assert.equal(
+      errorText(
+        new ApiError("手建带 entry_port", 400, "chain.entry_port_requires_template", {
+          entry_port: 23456,
+        }),
+        "fallback",
+      ),
+      "entry_port 只能和 template_id 一起使用；手工建链请把端口写在入口成员上",
     );
     assert.equal(
       errorText(
@@ -450,6 +460,15 @@ test("入口端口范围 / 模板冲突 / 停用模板三个错误码中英都�
         "fallback",
       ),
       "The entry port must be between 1 and 65535 (got 70000)",
+    );
+    assert.equal(
+      errorText(
+        new ApiError("manual entry_port", 400, "chain.entry_port_requires_template", {
+          entry_port: 23456,
+        }),
+        "fallback",
+      ),
+      "entry_port is only valid together with template_id; for manual chains set listen_port on the entry member",
     );
     assert.equal(
       errorText(

@@ -1,0 +1,28 @@
+{
+  "label": "after",
+  "fixture": "perf",
+  "base": "http://localhost:5174",
+  "dom": {
+    "chartElements": 675,
+    "nodes": 110,
+    "edges": 218,
+    "labels": 109,
+    "pulsePaths": 10,
+    "staticPulsePaths": 0,
+    "titles": 0,
+    "nodeCount": "110",
+    "edgeCount": "109"
+  },
+  "fps": {
+    "frames": 133,
+    "fps": 54,
+    "p95FrameMs": 16.8,
+    "longFrames": 1
+  },
+  "hoverWrites": {
+    "attributes": 8,
+    "characterData": 0,
+    "childList": 5
+  },
+  "hoverTotal": 13
+}

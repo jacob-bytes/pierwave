@@ -74,17 +74,30 @@ function statusTitle(status: ChainTemplateStatus): string {
 
 function StatusCell({
   status,
+  muted = false,
   className,
 }: {
   status: ChainTemplateStatus;
+  /** 停用的模板：整个状态降为 muted，不跟着 blocked 变红。 */
+  muted?: boolean;
   className?: string;
 }) {
-  const meta = STATUS_META[status.kind];
+  // 停用只是降噪：文案仍是真实状态（如「阻断」），颜色退到 muted。
+  const base = STATUS_META[status.kind];
+  const meta = muted
+    ? {
+        labelKey: base.labelKey,
+        dot: "bg-muted-foreground/40",
+        text: "text-muted-foreground",
+        titleKey: base.titleKey,
+      }
+    : base;
   return (
     <span
       data-template-status
       data-status={status.kind}
-      title={statusTitle(status)}
+      data-muted={muted ? "true" : undefined}
+      title={muted ? t("chainTemplates.disabled") : statusTitle(status)}
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 text-xs font-medium whitespace-nowrap",
         meta.text,
@@ -151,6 +164,7 @@ function TemplateRow({
 
         <StatusCell
           status={item.status}
+          muted={!item.enabled}
           className="col-start-2 row-start-1 justify-self-end lg:col-start-5 lg:row-start-1 lg:justify-self-start"
         />
 
@@ -200,8 +214,8 @@ function TemplateRow({
  * 链路时延 tab 底部的「转发链模板」区块。
  *
  * 五列：模板名 / 跳数 / 使用它的转发链数 / 使用它的用户数 / 状态。
- * 数据来自模板洞察列表接口；旧主控 404 / 403 时整块降级成
- * 「需要新版本主控」，不会留下骨架或空白卡片。
+ * 数据来自模板洞察列表接口；旧主控 404 时整块降级成「需要新版本主控」，
+ * 403（权限）照常走错误态，不会留下骨架或空白卡片。
  */
 export function ChainTemplateInsightList() {
   useI18n();

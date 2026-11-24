@@ -1,0 +1,139 @@
+{
+  "note": "同一 fixture、同一台机器 headless Chrome 1440x1000，交替 4 轮（before/after 各 4 次、每轮 3 秒 rAF 采样）。修复前 = git HEAD 的 web 代码（/tmp 隔离树，端口 5183），修复后 = 当前工作区（端口 5174）。FPS 在 headless 下波动较大，看 median 与 longFrames；DOM / pulse / hover 写入是确定性指标。",
+  "before": {
+    "label": "before",
+    "runs": 4,
+    "fixture": "perf (110 nodes / 109 edges, 1440x1000, dark)",
+    "chartElements": {
+      "samples": [
+        1209,
+        1209,
+        1209,
+        1209
+      ],
+      "median": 1209.0
+    },
+    "pulsePaths": {
+      "samples": [
+        109,
+        109,
+        109,
+        109
+      ],
+      "median": 109.0
+    },
+    "staticPulsePaths": {
+      "samples": [
+        109,
+        109,
+        109,
+        109
+      ],
+      "median": 109.0
+    },
+    "hoverAttributeWrites": {
+      "samples": [
+        540,
+        540,
+        540,
+        540
+      ],
+      "median": 540.0
+    },
+    "hoverMutationsTotal": {
+      "samples": [
+        544,
+        544,
+        544,
+        544
+      ],
+      "median": 544.0
+    },
+    "idleFps": {
+      "samples": [
+        24,
+        31,
+        39,
+        28
+      ],
+      "median": 29.5
+    },
+    "longFramesOver20ms": {
+      "samples": [
+        5,
+        4,
+        4,
+        4
+      ],
+      "median": 4.0
+    }
+  },
+  "after": {
+    "label": "after",
+    "runs": 4,
+    "fixture": "perf (110 nodes / 109 edges, 1440x1000, dark)",
+    "chartElements": {
+      "samples": [
+        675,
+        675,
+        675,
+        675
+      ],
+      "median": 675.0
+    },
+    "pulsePaths": {
+      "samples": [
+        10,
+        10,
+        10,
+        10
+      ],
+      "median": 10.0
+    },
+    "staticPulsePaths": {
+      "samples": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "median": 0.0
+    },
+    "hoverAttributeWrites": {
+      "samples": [
+        8,
+        8,
+        8,
+        8
+      ],
+      "median": 8.0
+    },
+    "hoverMutationsTotal": {
+      "samples": [
+        13,
+        13,
+        13,
+        13
+      ],
+      "median": 13.0
+    },
+    "idleFps": {
+      "samples": [
+        53,
+        46,
+        34,
+        54
+      ],
+      "median": 49.5
+    },
+    "longFramesOver20ms": {
+      "samples": [
+        2,
+        2,
+        2,
+        1
+      ],
+      "median": 2.0
+    }
+  }
+}

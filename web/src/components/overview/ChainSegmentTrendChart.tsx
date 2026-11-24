@@ -264,11 +264,16 @@ function SegmentLegend({
   entries,
   hidden,
   onToggle,
+  unmeasurableSeq = null,
+  unmeasurableLabel = null,
 }: {
   segments: readonly ChainHealthSegment[];
   entries: readonly SegmentTrendEntry[];
   hidden: ReadonlySet<number>;
   onToggle: (seq: number) => void;
+  /** 最后一跳不可测的段号；图例显示原因，而不是「无历史数据」。 */
+  unmeasurableSeq?: number | null;
+  unmeasurableLabel?: string | null;
 }) {
   const bySeq = new Map(entries.map((entry) => [entry.segment.seq, entry]));
   return (
@@ -282,6 +287,8 @@ function SegmentLegend({
         const entry = bySeq.get(segment.seq);
         const usable = entry !== undefined && hasTrend(entry.points);
         const hiddenHere = usable && hidden.has(segment.seq);
+        const unmeasurable =
+          !usable && unmeasurableSeq === segment.seq && unmeasurableLabel !== null;
         const visual = segmentVisual(index);
         return (
           <button
@@ -293,6 +300,7 @@ function SegmentLegend({
             data-seq={segment.seq}
             data-has-data={usable ? "true" : "false"}
             data-hidden={hiddenHere ? "true" : "false"}
+            data-unmeasurable={unmeasurable ? "true" : "false"}
             onClick={() => {
               if (usable) onToggle(segment.seq);
             }}
@@ -310,8 +318,13 @@ function SegmentLegend({
               {t("overview.chainLatency.segment", { seq: segment.seq })}
             </span>
             {usable ? null : (
-              <span className="shrink-0 text-muted-foreground">
-                {t("overview.chainLatency.missingHop")}
+              <span
+                data-segment-legend-note
+                className="shrink-0 text-muted-foreground"
+              >
+                {unmeasurable
+                  ? unmeasurableLabel
+                  : t("overview.chainLatency.missingHop")}
               </span>
             )}
           </button>
@@ -334,12 +347,17 @@ export function ChainSegmentTrendChart({
   trends,
   bucketSecs,
   trendPending = false,
+  unmeasurableSeq = null,
+  unmeasurableLabel = null,
 }: {
   segments: readonly ChainHealthSegment[];
   trends: ReadonlyMap<number, ChainHealthPoint[]>;
   bucketSecs: number;
   /** 逐段延迟接口仍在请求中：此时空态是「加载中」而不是「无历史数据」。 */
   trendPending?: boolean;
+  /** 最后一跳不可测的段号；图例与空态显示原因，而不是「无历史数据」。 */
+  unmeasurableSeq?: number | null;
+  unmeasurableLabel?: string | null;
 }) {
   useI18n();
   const [hidden, setHidden] = useState<Set<number>>(() => new Set());
@@ -413,6 +431,8 @@ export function ChainSegmentTrendChart({
         entries={entries}
         hidden={hidden}
         onToggle={toggle}
+        unmeasurableSeq={unmeasurableSeq}
+        unmeasurableLabel={unmeasurableLabel}
       />
       {usable.length > 0 ? (
         <div className="flex justify-end pb-1">
@@ -440,7 +460,9 @@ export function ChainSegmentTrendChart({
         >
           {trendPending
             ? t("overview.chainLatency.segmentTrendLoading")
-            : t("overview.chainLatency.missingHop")}
+            : unmeasurableLabel !== null
+              ? unmeasurableLabel
+              : t("overview.chainLatency.missingHop")}
         </div>
       ) : visible.length === 0 ? (
         <div className="flex h-[240px] items-center justify-center text-[11px] text-muted-foreground sm:h-[260px]">

@@ -2282,6 +2282,14 @@ export interface OverviewChainHealthNode {
   role?: string | null;
   /** `online` / `offline` …；目标节点为 null。 */
   status?: string | null;
+  /** 该组全部成员；目标节点为空数组。 */
+  members?: {
+    server_id?: string | null;
+    name?: string | null;
+    status?: string | null;
+  }[] | null;
+  /** 组成员数；契约与 `members.length` 一致。 */
+  member_count?: number | null;
 }
 
 export interface OverviewChainHealthDiagnosis {
@@ -2296,6 +2304,22 @@ export interface OverviewChainHealthLossSamples {
   failures?: number | null;
 }
 
+/** 最后一跳可测性；旧主控不返回。 */
+export interface OverviewChainHealthLastHop {
+  measurable?: boolean | null;
+  /** `engine_unsupported` / `protocol_unsupported`；可测时为 null。 */
+  reason?: string | null;
+}
+
+/** 链级可用性状态；旧主控不返回。 */
+export interface OverviewChainHealthStatus {
+  /** `ok` / `degraded` / `blocked` / `unknown`；未知值按缺失处理。 */
+  kind?: string | null;
+  /** `node_offline` / `node_unhealthy` / `unmeasurable` / `no_samples` / `slow`。 */
+  cause?: string | null;
+  node?: { seq?: number | null; name?: string | null } | null;
+}
+
 export interface OverviewChainHealthChain {
   id?: string;
   name?: string;
@@ -2305,6 +2329,13 @@ export interface OverviewChainHealthChain {
   missing_hops?: number[] | null;
   /** 合计是否由缺失跳估算。 */
   estimated?: boolean | null;
+  /** 链级可用性状态；旧主控缺失。 */
+  status?: OverviewChainHealthStatus | null;
+  /**
+   * 最后一跳可测性；旧主控缺失。
+   * `measurable = false` 时最后一跳是「测不了」，不是「没数据」。
+   */
+  last_hop?: OverviewChainHealthLastHop | null;
   /** 链入口；旧主控缺失。 */
   entry?: OverviewChainHealthEndpoint | null;
   /** 链出口；旧主控缺失。 */
@@ -2445,18 +2476,35 @@ export interface OverviewChainTemplateSeriesPoint {
   users?: number | null;
 }
 
+/** 没有被任何链用到的模板候选成员；旧主控不返回。 */
+export interface OverviewChainTemplateUnusedCandidate {
+  /** 成员在模板里的组号。 */
+  seq?: number | null;
+  server_id?: string | null;
+  name?: string | null;
+  status?: string | null;
+}
+
 export interface OverviewChainTemplateDetailResponse {
   template?: {
     id?: string | null;
     name?: string | null;
     hops?: number | null;
     created_at?: number | null;
+    /** 链的跳数 / 成员是否与模板当前定义不一致；旧主控缺失。 */
+    stale?: boolean | null;
+    /** 双语不一致说明；stale = false 时为 null。 */
+    stale_reason?: string | null;
   } | null;
   nodes?: (OverviewChainTemplateNode | null)[] | null;
   edges?: (OverviewChainTemplateEdge | null)[] | null;
   targets?: (OverviewChainTemplateTarget | null)[] | null;
   users?: (OverviewChainTemplateUser | null)[] | null;
   series?: (OverviewChainTemplateSeriesPoint | null)[] | null;
+  /** `series` 的口径；新契约固定 `existing_chains`，旧主控缺失。 */
+  series_basis?: string | null;
+  /** 未被任何链使用的候选成员；旧主控缺失。 */
+  unused_candidates?: (OverviewChainTemplateUnusedCandidate | null)[] | null;
   strategies?: (OverviewChainTemplateStrategy | null)[] | null;
 }
 

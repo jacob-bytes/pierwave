@@ -350,13 +350,14 @@ fn overview_cache_ttl_from_env() -> Duration {
 /// 管理员「服务器态势」快照的短缓存：30 秒。
 ///
 /// 采样本身 5 分钟才写一行，30 秒缓存不会让页面明显滞后，却能把「多个管理员
-/// 同时刷新」从 N 次 7 天窗口聚合压成 1 次。key 是 `(hours, bucket, server_ids)`：
-/// 不同窗口/桶宽/筛选集合的结果不能互相复用。
+/// 同时刷新」从 N 次 7 天窗口聚合压成 1 次。key 是
+/// `(hours, bucket, (命中的 id, 未知的 id))`：不同窗口 / 桶宽 / 筛选集合的
+/// 结果不能互相复用。
 ///
-/// `server_ids` 存**规范化后的请求 id**（命中的 + 未知的，已排序去重）：
-/// `warnings.unknown_ids` 与 `scope` 一起缓存在 body 里，若只按命中的 id 做
-/// key，`[已知 A, 未知 B]` 会复用 `[已知 A]` 的响应，把 B 的警告吞掉。
-/// `None`（不筛选）与 `Some(vec![])`（筛选到空集）是不同 key。
+/// 命中的与未知的分开存（见 [`ScopeCacheKey`]）：`warnings.unknown_ids` 与
+/// `scope` 一起缓存在 body 里，合并成一个集合会让「X 未知」与「X 存在」共用
+/// 同一个 key，在 X 出现后继续返回旧响应。
+/// `None`（不筛选）与 `Some(([], []))`（筛选到空集）是不同 key。
 ///
 /// **不做写穿透**：新采样最多晚 30 秒出现在响应里；`generated_at` 也随快照
 /// 一起缓存（同一份数据的时间戳必须一致）。轮询频率远高于 30 秒时命中率接近 1。
@@ -365,7 +366,15 @@ pub const SERVER_HEALTH_CACHE_TTL: Duration = Duration::from_secs(30);
 /// 筛选组合可能很多：条目上限与概览缓存一致，超过时先清过期、再淘汰最早写入。
 const SERVER_HEALTH_CACHE_MAX_ENTRIES: usize = 64;
 
-type ServerHealthKey = (i64, i64, Option<Vec<String>>);
+/// 服务器筛选的缓存 key：`(命中的 id, 未知的 id)`，两组都已排序去重。
+///
+/// 必须分成两组而不是合并成一个集合：同一个 id 从「未知」变成「存在」时，
+/// 合并后的集合完全相同，缓存会返回旧响应（`scope` 里没有它、`warnings`
+/// 里却还挂着「未知」）。`None`（不筛选）与 `Some(([], []))`（筛选到空集）
+/// 也是不同 key。
+pub type ScopeCacheKey = (Vec<String>, Vec<String>);
+
+type ServerHealthKey = (i64, i64, Option<ScopeCacheKey>);
 type ServerHealthEntry = (Instant, Value);
 
 #[derive(Debug, Default)]
@@ -399,10 +408,10 @@ impl ServerHealthCache {
         }
     }
 
-    /// 命中返回整份响应；`hours` / `bucket` / 规范化后的 `server_ids` 任一不同
-    /// 都是不同的 key。`None` = 不筛选，`Some([])` = 筛选到空集。
-    pub fn get(&self, hours: i64, bucket: i64, server_ids: Option<&[String]>) -> Option<Value> {
-        let key = (hours, bucket, server_ids.map(<[String]>::to_vec));
+    /// 命中返回整份响应；`hours` / `bucket` / 筛选 key 任一不同都是不同的
+    /// key。`None` = 不筛选，`Some(([], []))` = 筛选到空集。
+    pub fn get(&self, hours: i64, bucket: i64, scope: Option<&ScopeCacheKey>) -> Option<Value> {
+        let key = (hours, bucket, scope.cloned());
         let guard = self
             .inner
             .lock()
@@ -423,11 +432,11 @@ impl ServerHealthCache {
     ///
     /// 筛选组合可能很多（每台服务器一种），超过上限时先清过期条目，仍超就
     /// 淘汰最早写入的一条：30 秒 TTL 下不值得引入 LRU。
-    pub fn put(&self, hours: i64, bucket: i64, server_ids: Option<&[String]>, value: Value) {
+    pub fn put(&self, hours: i64, bucket: i64, scope: Option<&ScopeCacheKey>, value: Value) {
         if self.ttl.is_zero() {
             return;
         }
-        let key = (hours, bucket, server_ids.map(<[String]>::to_vec));
+        let key = (hours, bucket, scope.cloned());
         let mut guard = self
             .inner
             .lock()
@@ -475,15 +484,15 @@ impl ServerHealthCache {
 /// 至少 5 分钟，30 秒陈旧不会让页面明显滞后，却能把多个管理员的重复刷新
 /// 压成一次跨链聚合。
 ///
-/// `server_ids` 存「命中的 + 未知的」完整请求集合（已排序去重）：`scope` 与
-/// `warnings.unknown_ids` 和 body 一起缓存，只按命中 id 做 key 会让不同的
-/// 未知 id 复用彼此的警告。`None`（不筛选）与 `Some(vec![])`（筛选到空集）
-/// 是不同 key。
+/// key 里的筛选部分是 `(命中的 id, 未知的 id)`两组（见 [`ScopeCacheKey`]）：
+/// `scope` 与 `warnings.unknown_ids` 和 body 一起缓存，必须能区分「X 存在」
+/// 与「X 未知」，否则 X 出现后仍会返回旧响应。`None`（不筛选）与
+/// `Some(([], []))`（筛选到空集）是不同 key。
 pub const CHAIN_HEALTH_CACHE_TTL: Duration = Duration::from_secs(30);
 
 const CHAIN_HEALTH_CACHE_MAX_ENTRIES: usize = 64;
 
-type ChainHealthKey = (i64, i64, Option<Vec<String>>);
+type ChainHealthKey = (i64, i64, Option<ScopeCacheKey>);
 type ChainHealthEntry = (Instant, Value);
 
 #[derive(Debug, Default)]
@@ -516,8 +525,8 @@ impl ChainHealthCache {
     }
 
     /// 命中返回整份响应；任一 key 维度不同都必须 miss。
-    pub fn get(&self, hours: i64, bucket: i64, server_ids: Option<&[String]>) -> Option<Value> {
-        let key = (hours, bucket, server_ids.map(<[String]>::to_vec));
+    pub fn get(&self, hours: i64, bucket: i64, scope: Option<&ScopeCacheKey>) -> Option<Value> {
+        let key = (hours, bucket, scope.cloned());
         let guard = self
             .inner
             .lock()
@@ -534,11 +543,11 @@ impl ChainHealthCache {
         hit
     }
 
-    pub fn put(&self, hours: i64, bucket: i64, server_ids: Option<&[String]>, value: Value) {
+    pub fn put(&self, hours: i64, bucket: i64, scope: Option<&ScopeCacheKey>, value: Value) {
         if self.ttl.is_zero() {
             return;
         }
-        let key = (hours, bucket, server_ids.map(<[String]>::to_vec));
+        let key = (hours, bucket, scope.cloned());
         let mut guard = self
             .inner
             .lock()
@@ -1486,26 +1495,34 @@ mod tests {
     #[tokio::test]
     async fn chain_health_cache_is_keyed_by_hours_bucket_and_filter() {
         let cache = ChainHealthCache::with_ttl(Duration::from_secs(30));
-        let a = vec!["a".to_string()];
-        let ab = vec!["a".to_string(), "b".to_string()];
+        let a = (vec!["a".to_string()], Vec::<String>::new());
+        let ab = (vec!["a".to_string(), "b".to_string()], Vec::<String>::new());
+        let empty = (Vec::<String>::new(), Vec::<String>::new());
 
         cache.put(24, 900, None, serde_json::json!({ "v": 1 }));
         cache.put(24, 900, Some(&a), serde_json::json!({ "v": 2 }));
-        cache.put(24, 900, Some(&[]), serde_json::json!({ "v": 3 }));
+        cache.put(24, 900, Some(&empty), serde_json::json!({ "v": 3 }));
 
         assert_eq!(cache.get(24, 900, None).unwrap()["v"], 1);
         assert_eq!(cache.get(24, 900, Some(&a)).unwrap()["v"], 2);
-        assert_eq!(cache.get(24, 900, Some(&[])).unwrap()["v"], 3);
+        assert_eq!(cache.get(24, 900, Some(&empty)).unwrap()["v"], 3);
         assert!(cache.get(1, 900, None).is_none(), "hours 不同必须 miss");
         assert!(cache.get(24, 300, None).is_none(), "bucket 不同必须 miss");
         assert!(
             cache.get(24, 900, Some(&ab)).is_none(),
             "没缓存过的筛选组合必须 miss"
         );
+        // B7：同一个 id 从「存在」变成「未知」必须 miss——合并成一个集合时
+        // 这两种情况完全一样，会拿到旧响应。
+        let now_unknown = (Vec::<String>::new(), vec!["a".to_string()]);
+        assert!(
+            cache.get(24, 900, Some(&now_unknown)).is_none(),
+            "「X 存在」与「X 未知」必须是不同 key"
+        );
 
         let (hits, misses) = cache.stats();
         assert_eq!(hits, 3);
-        assert_eq!(misses, 3);
+        assert_eq!(misses, 4);
     }
 
     /// 30 秒 TTL：过期后不再命中；`0` 关闭缓存。

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  TEMPLATE_MEMBER_STATUSES,
   TEMPLATE_STRATEGY_ORDER,
   chainTemplateDetailTotals,
   chainTemplateHotspots,
   aggregateChainTemplateEdges,
+  chainTemplateMemberStatus,
   chainTemplateStrategyLabelKey,
   chainTemplateStatus,
   chainTemplateStatusKind,
@@ -15,7 +17,7 @@ import {
   normalizeChainTemplateDetail,
   normalizeChainTemplateList,
   strategyShares,
-  templateTargetLabels,
+  targetLabel,
 } from "./chainTemplateInsight.ts";
 import { ApiError } from "./apiError.ts";
 
@@ -333,22 +335,203 @@ test("详情合计：优先源成员汇总，缺失时回退最大值", () => {
 
 test("目标文案：host:port 与链数，缺失端口不编造", () => {
   const normalized = normalizeChainTemplateDetail(detail());
-  assert.deepEqual(templateTargetLabels(normalized), [
+  assert.deepEqual(normalized.targets.map(targetLabel), [
     "1.2.3.4:443",
     "5.6.7.8:8443",
   ]);
   const noPort = normalizeChainTemplateDetail(
     detail({ targets: [{ host: "example.com", chains: 1 }] }),
   );
-  assert.deepEqual(templateTargetLabels(noPort), ["example.com"]);
+  assert.deepEqual(noPort.targets.map(targetLabel), ["example.com"]);
+  assert.equal(
+    targetLabel({ host: "2001:db8::1", port: 443, chains: 1, users: [] }),
+    "[2001:db8::1]:443",
+  );
 });
 
-test("404 / 403 视为旧主控能力缺失，其它错误照常抛出", () => {
+test("404 才降级为旧主控；403 是权限问题，照常走错误态", () => {
   assert.equal(isChainTemplateInsightUnsupported(new ApiError("nf", 404)), true);
-  assert.equal(isChainTemplateInsightUnsupported(new ApiError("forbidden", 403)), true);
+  assert.equal(
+    isChainTemplateInsightUnsupported(new ApiError("forbidden", 403)),
+    false,
+  );
   assert.equal(isChainTemplateInsightUnsupported(new ApiError("boom", 500)), false);
   assert.equal(isChainTemplateInsightUnsupported(new Error("network")), false);
   assert.equal(isChainTemplateInsightUnsupported(null), false);
+});
+
+/* ------------------------------------------------------------------ */
+/* F7 状态口径：online / offline / degraded(abnormal,no_data) / unknown  */
+/* ------------------------------------------------------------------ */
+
+test("成员状态四档归一：abnormal / no_data 都是 degraded，不当 unknown", () => {
+  assert.deepEqual([...TEMPLATE_MEMBER_STATUSES], [
+    "online",
+    "offline",
+    "degraded",
+    "unknown",
+  ]);
+  const cases = [
+    ["online", "online"],
+    ["ONLINE ", "online"],
+    ["offline", "offline"],
+    ["degraded", "degraded"],
+    ["abnormal", "degraded"],
+    ["no_data", "degraded"],
+    ["", "unknown"],
+    ["pending", "unknown"],
+    [undefined, "unknown"],
+  ];
+  for (const [raw, expected] of cases) {
+    assert.equal(chainTemplateMemberStatus(raw), expected, String(raw));
+  }
+
+  const normalized = normalizeChainTemplateDetail(
+    detail({
+      nodes: [
+        {
+          seq: 0,
+          role: "source",
+          name: "入口",
+          members: [
+            { name: "a", status: "abnormal", chains: 1, users: 0 },
+            { name: "b", status: "no_data", chains: 1, users: 0 },
+            { name: "c", status: "offline", chains: 1, users: 0 },
+            { name: "d", status: "weird", chains: 1, users: 0 },
+          ],
+        },
+        { seq: 1, role: "target", name: "目标", members: [] },
+      ],
+      edges: [],
+      targets: [],
+    }),
+  );
+  assert.deepEqual(
+    normalized.nodes[0].members.map((item) => item.status),
+    ["degraded", "degraded", "offline", "unknown"],
+  );
+});
+
+/* ------------------------------------------------------------------ */
+/* 新契约：stale / unused_candidates / series_basis                    */
+/* ------------------------------------------------------------------ */
+
+test("stale 与 stale_reason 跟随模板摘要，旧契约降级为 false / null", () => {
+  const stale = normalizeChainTemplateDetail(
+    detail({
+      template: {
+        id: "tpl-1",
+        name: "香港 → 东京",
+        hops: 1,
+        created_at: 1_799_000_000,
+        stale: true,
+        stale_reason:
+          "链的跳数（3）与模板（1）不一致 / chain hop count (3) differs from the template (1)",
+      },
+      series_basis: "existing_chains",
+    }),
+  );
+  assert.equal(stale.template.stale, true);
+  assert.match(stale.template.staleReason, /链的跳数/);
+  assert.match(stale.template.staleReason, /chain hop count/);
+  assert.equal(stale.seriesBasis, "existing_chains");
+
+  // 旧主控没有这三个字段：不提示 stale、不加图注、不报错。
+  const legacy = normalizeChainTemplateDetail(detail());
+  assert.equal(legacy.template.stale, false);
+  assert.equal(legacy.template.staleReason, null);
+  assert.equal(legacy.seriesBasis, null);
+  assert.deepEqual(legacy.unusedCandidates, []);
+
+  // 未知 series_basis 不猜口径。
+  assert.equal(
+    normalizeChainTemplateDetail(detail({ series_basis: "all_chains" }))
+      .seriesBasis,
+    null,
+  );
+});
+
+test("unused_candidates 单独归一化，不混进 nodes", () => {
+  const normalized = normalizeChainTemplateDetail(
+    detail({
+      unused_candidates: [
+        { seq: 1, server_id: "srv-9", name: "东京-备用", status: "offline" },
+        { seq: 0, server_id: "srv-2", name: "香港-02", status: "online" },
+        // 重复候选按 (seq, server_id) 去重。
+        { seq: 1, server_id: "srv-9", name: "东京-备用", status: "offline" },
+        // 没有名字的脏数据丢弃。
+        { seq: 1, server_id: "srv-x" },
+        "nope",
+      ],
+    }),
+  );
+  assert.deepEqual(
+    normalized.unusedCandidates.map((row) => [row.seq, row.name, row.status]),
+    [
+      [0, "香港-02", "online"],
+      [1, "东京-备用", "offline"],
+    ],
+  );
+  // 候选不进入真实拓扑节点。
+  const nodeNames = normalized.nodes.flatMap((node) =>
+    node.members.map((item) => item.name),
+  );
+  assert.equal(nodeNames.includes("东京-备用"), false);
+  assert.equal(nodeNames.includes("香港-02"), false);
+});
+
+/* ------------------------------------------------------------------ */
+/* F9 缺 target node：补在 maxSeq+1，不覆盖最后一跳                     */
+/* ------------------------------------------------------------------ */
+
+test("缺 target node 时插入 maxSeq+1，最后一跳保持 hop 不被覆盖", () => {
+  const normalized = normalizeChainTemplateDetail({
+    template: { id: "tpl-no-target", name: "缺目标节点", hops: 2 },
+    nodes: [
+      { seq: 0, role: "source", name: "入口", members: [member("入口-01", 3, 1)] },
+      { seq: 1, role: "hop", name: "第一跳", members: [member("东京-01", 3, 1)] },
+      { seq: 2, role: "hop", name: "第二跳", members: [member("洛杉矶-01", 3, 1)] },
+    ],
+    edges: [
+      {
+        seq: 1,
+        from: { seq: 0, member: "入口-01" },
+        to: { seq: 1, member: "东京-01" },
+        chains: 3,
+        users: 1,
+        p50_ms: 10,
+        loss_pct: 0,
+      },
+      {
+        seq: 2,
+        from: { seq: 1, member: "东京-01" },
+        to: { seq: 2, member: "洛杉矶-01" },
+        chains: 3,
+        users: 1,
+        p50_ms: 20,
+        loss_pct: 0,
+      },
+    ],
+    targets: [{ host: "1.2.3.4", port: 443, chains: 3, users: [] }],
+    users: [],
+    series: [],
+    strategies: [],
+  });
+  const bySeq = new Map(normalized.nodes.map((node) => [node.seq, node]));
+  // 最后一跳（seq 2）保持 hop 与名字，没有被合成目标覆盖。
+  assert.equal(bySeq.get(2).role, "hop");
+  assert.equal(bySeq.get(2).name, "第二跳");
+  assert.deepEqual(bySeq.get(2).members.map((item) => item.name), ["洛杉矶-01"]);
+  // 合成目标插在 maxSeq + 1。
+  assert.equal(bySeq.get(3).role, "target");
+  assert.deepEqual(
+    bySeq.get(3).members.map((item) => item.name),
+    ["1.2.3.4:443"],
+  );
+  assert.equal(normalized.template.hops, 3);
+  // 拓扑里目标列是独立的一列，不会跟最后一跳叠在一起。
+  const targetSeq = normalized.nodes.find((node) => node.role === "target").seq;
+  assert.equal(targetSeq, 3);
 });
 
 test("重复路径聚合：链数求和、用户取最大、P50 按链数加权，O(E) 一趟", () => {

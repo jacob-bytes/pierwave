@@ -2,8 +2,10 @@
 //! `/api/v1/overview/chain-templates/{id}?hours=24`（仅管理员）。
 //!
 //! 列表页回答「每个模板被多少条链 / 多少个用户在用、当前能不能用、走什么
-//! 策略 / 目标」，详情页回答「这一跳有哪些候选成员、实际路径的边有多快 /
-//! 丢多少包、用户增长曲线」。聚合规则全部在
+//! 策略 / 目标」，详情页回答「真实链怎么走、实际路径的边有多快 / 丢多少包、
+//! 哪些候选没被用到、用户增长曲线」。详情的 `nodes` / `edges` 只来自真实链的
+//! 拓扑，模板只提供候选与名称；模板与链不一致时 `template.stale` 标记。
+//! 聚合规则全部在
 //! [`pierwave_domain::chain_template_insight`]；这里只做鉴权、参数校验、
 //! 固定次数取数、30 秒缓存与 JSON 包装。
 //!
@@ -603,11 +605,16 @@ mod tests {
         assert_eq!(body["template"]["hops"], 2);
         assert_eq!(body["template"]["id"], tpl);
 
-        // 模板的两个候选成员都要出现，即使没有链经过 s2。
+        // 真实链用到的两个入口成员都要出现（顺序 = (priority, server_id)，
+        // 不能按模板候选顺序或插入顺序断言）。
         assert_eq!(body["nodes"][0]["role"], "source");
-        assert_eq!(body["nodes"][0]["members"].as_array().unwrap().len(), 2);
-        assert_eq!(body["nodes"][0]["members"][1]["name"], "东京-01");
-        assert_eq!(body["nodes"][0]["members"][1]["chains"], 2);
+        let source_members = body["nodes"][0]["members"].as_array().unwrap();
+        assert_eq!(source_members.len(), 2);
+        let tokyo = source_members
+            .iter()
+            .find(|member| member["name"] == "东京-01")
+            .expect("东京-01 是真实链的入口成员");
+        assert_eq!(tokyo["chains"], 2);
         assert_eq!(body["nodes"][1]["role"], "hop");
         assert_eq!(body["nodes"][2]["role"], "target");
         assert_eq!(body["nodes"][2]["seq"], 2);
@@ -894,5 +901,104 @@ mod tests {
         assert_eq!(body["strategies"][0]["users"], 0);
         // 管理员 id 只用于确认 fixture 本身可用，不泄漏到用户统计里。
         assert!(!f.admin_id.is_empty());
+    }
+
+    /// B3 + B4 + B5：模板改成 1 跳后，详情仍按**真实链**画 2 跳；`stale`
+    /// 为 true 且给出原因；新增候选进 `unused_candidates`；`series` 声明按
+    /// 当前存在的链回填，最后一个点是当前未完成桶。
+    #[tokio::test]
+    async fn detail_follows_the_real_chain_after_the_template_is_edited() {
+        let f = setup().await;
+        let s1 = make_server(&f, "香港-01", true).await;
+        let s2 = make_server(&f, "东京-01", true).await;
+        let s3 = make_server(&f, "大阪-01", true).await;
+        // 旧模板 2 跳；链按 2 跳创建。
+        let tpl = make_template(
+            &f,
+            "港日双路",
+            true,
+            &[("round_robin", &[&s1]), ("round_robin", &[&s2])],
+        )
+        .await;
+        make_chain(
+            &f,
+            &tpl,
+            None,
+            ("1.1.1.1", 443),
+            &[("round_robin", &[&s1]), ("round_robin", &[&s2])],
+        )
+        .await;
+
+        // 模板改成 1 跳，并把 s3 加成新候选。
+        let edited: Vec<ChainTemplateGroup> =
+            pierwave_domain::chain_templates::normalize_groups(vec![ChainTemplateGroup {
+                seq: 0,
+                strategy: "round_robin".into(),
+                server_ids: vec![s1.clone(), s3.clone()],
+            }])
+            .unwrap();
+        repo::chain_templates::update(
+            &f.state.db.pool,
+            &tpl,
+            repo::chain_templates::UpdateChainTemplate {
+                groups_json: Some(serde_json::to_string(&edited).unwrap()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+        .expect("模板必须存在");
+
+        let (status, _, body) = request(
+            &f.app,
+            Some(&f.admin_cookie),
+            &format!("/api/v1/overview/chain-templates/{tpl}?hours=24"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(body["template"]["hops"], 1, "模板定义仍然是 1 跳");
+        assert_eq!(body["template"]["stale"], true);
+        let reason = body["template"]["stale_reason"].as_str().unwrap();
+        assert!(reason.contains("跳数"), "reason={reason}");
+
+        // nodes 跟随真实链：0 / 1 两个组 + target(seq 2)，计数不归零。
+        let nodes = body["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 3, "nodes 不能被模板跳数截断：{nodes:?}");
+        assert_eq!(nodes[0]["seq"], 0);
+        assert_eq!(nodes[0]["role"], "source");
+        assert_eq!(nodes[0]["members"][0]["server_id"], s1);
+        assert_eq!(nodes[0]["members"][0]["chains"], 1);
+        assert_eq!(nodes[1]["seq"], 1);
+        assert_eq!(nodes[1]["role"], "hop");
+        assert_eq!(nodes[1]["members"][0]["server_id"], s2);
+        assert_eq!(nodes[1]["members"][0]["chains"], 1);
+        assert_eq!(nodes[2]["seq"], 2);
+        assert_eq!(nodes[2]["role"], "target");
+
+        // 新增候选 s3 没有被任何链用到：单独列出，不混进 nodes。
+        assert_eq!(
+            body["unused_candidates"],
+            json!([{ "seq": 0, "server_id": s3, "name": "大阪-01", "status": "online" }])
+        );
+        assert!(nodes
+            .iter()
+            .flat_map(|node| node["members"].as_array().unwrap())
+            .all(|member| member["server_id"] != s3));
+
+        // B4：口径显式声明「按当前存在的链回填」。
+        assert_eq!(body["series_basis"], "existing_chains");
+
+        // B5：最后一个点 = 当前未完成桶（ts 向下对齐 15 分钟）。
+        let generated_at = body["generated_at"].as_i64().unwrap();
+        let series = body["series"].as_array().unwrap();
+        assert_eq!(
+            series.last().unwrap()["ts"].as_i64().unwrap(),
+            generated_at - generated_at.rem_euclid(900)
+        );
+        assert_eq!(
+            series.last().unwrap()["chains"],
+            1,
+            "刚创建的链必须计入当前桶"
+        );
     }
 }
