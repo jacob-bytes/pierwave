@@ -165,6 +165,11 @@ export interface ChainHealthChain {
   nodes: ChainHealthNode[];
   /** 归一化后缺失的跳（含契约没列出的中间缺口）。 */
   missingHops: number[];
+  /**
+   * 契约的链级估算标记：只表示「多成员组的段是多路径中位数求和」。
+   * 旧主控没有该字段时为 false（不显示徽章）；不再用 `missingHops` 兜底，
+   * 缺跳有 `missingHops` / `lastHopMissing` 自己的提示，两者不混用。
+   */
   estimated: boolean;
   series: ChainHealthPoint[];
   segments: ChainHealthSegment[];
@@ -664,7 +669,8 @@ function readChain(
     exit: readEndpoint(raw.exit),
     nodes: readNodes(raw.nodes),
     missingHops: built.missingHops,
-    estimated: estimatedRaw ?? built.missingHops.length > 0,
+    // 多路径估算只由契约显式给出；缺失时保持 false，绝不由缺跳推导。
+    estimated: estimatedRaw ?? false,
     series,
     segments,
     diagnosis,
@@ -1093,7 +1099,20 @@ export interface ChainTopology {
 export type ChainNodeRole = "source" | "hop" | "target";
 
 /**
- * 新契约的 `chains[].nodes[]`：真实路径节点。
+ * 组内一台成员：`chains[].nodes[].members[]`。
+ *
+ * 多路径链的一个「跳」其实是若干台服务器组成的组，`nodes[].name` 是组名，
+ * 这里才是组内可展示的成员。`serverId` 只用来做 React key，不参与展示。
+ */
+export interface ChainNodeMember {
+  serverId: string | null;
+  name: string;
+  /** 小写状态（`online` / `offline` …）；契约没给时为 null。 */
+  status: string | null;
+}
+
+/**
+ * 新契约的 `chains[].nodes[]`：真实路径节点（一个节点代表一个组）。
  *
  * 旧主控不返回该数组 → 归一化为空数组，组件回退到按 `segments.from/to`
  * 拼出来的节点；两种情况都不能伪造状态。
@@ -1106,14 +1125,28 @@ export interface ChainHealthNode {
   role: ChainNodeRole | null;
   /** 小写状态（`online` / `offline` …）；契约没给时为 null。 */
   status: string | null;
+  /**
+   * 组内成员；契约缺失 / 目标节点时为空数组，组件回退到单节点显示。
+   * 即使 `memberCount` 更大，也只渲染这个数组里真实存在的成员。
+   */
+  members: ChainNodeMember[];
+  /**
+   * 组成员数：`member_count` 与 `members.length` 取较大值（后端可能只回前
+   * 几台）。两者都没有时为 null，表示「不知道是不是组」，不显示 `2 台`。
+   */
+  memberCount: number | null;
 }
 
-/** 拓扑图节点：角色与位置已确定，供组件直接渲染标签与状态点。 */
+/** 拓扑图节点：角色与位置已确定，供组件直接渲染标签、成员与状态点。 */
 export interface ChainTopologyNode {
   seq: number;
   name: string;
   role: ChainNodeRole;
   status: string | null;
+  /** 组内成员；目标节点为空数组。 */
+  members: ChainNodeMember[];
+  /** 组成员数；单节点 / 旧契约 / 目标节点为 null。 */
+  memberCount: number | null;
 }
 
 export interface ChainTopologyGraph {
@@ -1135,6 +1168,131 @@ export function chainNodeStatusTone(
   return status.trim().toLowerCase() === "online" ? "online" : "fault";
 }
 
+/** 「最差」的排序：fault > unknown > online；缺数据不能盖过已知故障。 */
+const NODE_TONE_RANK: Record<ChainNodeStatusTone, number> = {
+  online: 0,
+  unknown: 1,
+  fault: 2,
+};
+
+/**
+ * 组级状态点：取最差成员状态。
+ *
+ * 空数组是 unknown；只要有一台非 online 就是故障红点。`unknown` 排在
+ * `online` 之后，因为「不知道」比「确定在线」更差，但不是故障。
+ */
+export function chainWorstNodeTone(
+  statuses: readonly (string | null | undefined)[],
+): ChainNodeStatusTone {
+  if (statuses.length === 0) return "unknown";
+  let worst: ChainNodeStatusTone = "online";
+  for (const status of statuses) {
+    const tone = chainNodeStatusTone(status);
+    if (NODE_TONE_RANK[tone] > NODE_TONE_RANK[worst]) worst = tone;
+  }
+  return worst;
+}
+
+/**
+ * 节点的状态点：有成员时取最差成员，同时把契约给的组级 `status` 也纳入
+ * （后端可能只回前几台成员，组级结论仍应生效）；没有成员时沿用单节点状态。
+ */
+export function chainTopologyNodeTone(
+  node: Pick<ChainTopologyNode, "status" | "members">,
+): ChainNodeStatusTone {
+  if (node.members.length === 0) return chainNodeStatusTone(node.status);
+  const statuses: (string | null)[] = node.members.map(
+    (member) => member.status,
+  );
+  if (typeof node.status === "string" && node.status.trim() !== "") {
+    statuses.push(node.status);
+  }
+  return chainWorstNodeTone(statuses);
+}
+
+/** 节点里最多渲染几行成员；更多时折叠成 `+N`。 */
+export const CHAIN_TOPOLOGY_MEMBER_ROWS = 2;
+
+export interface ChainTopologyMemberRows {
+  /** 实际渲染的成员（最多 `max` 行）。 */
+  rows: ChainNodeMember[];
+  /** 被折叠的成员数；0 表示不显示 `+N`。 */
+  hidden: number;
+}
+
+/**
+ * 组内成员折叠：一台时不渲染列表（保持单节点现状），多台时最多两行，
+ * 其余用 `hidden` 交给组件渲染 `+N`。`member_count` 大于 `members.length`
+ * 时按真实数组渲染，被截断的部分只体现在 `+N` 上，不伪造成员名。
+ * 只有 `member_count` 没有 `members` 时按「缺失」处理：不画一个没有名字的
+ * `+N`，直接回退到单节点显示。
+ */
+export function chainTopologyMemberRows(
+  node: Pick<ChainTopologyNode, "members" | "memberCount">,
+  max = CHAIN_TOPOLOGY_MEMBER_ROWS,
+): ChainTopologyMemberRows {
+  const total = node.memberCount ?? node.members.length;
+  if (total <= 1) return { rows: [], hidden: 0 };
+  const limit = Math.max(0, Math.floor(max));
+  const rows = node.members.slice(0, limit);
+  if (rows.length === 0) return { rows: [], hidden: 0 };
+  return { rows, hidden: Math.max(0, total - rows.length) };
+}
+
+/** 节点高度档位：1 台 56px、2 台 72px、3+ 台 88px。 */
+export type ChainTopologyNodeTier = "single" | "double" | "many";
+
+export const CHAIN_TOPOLOGY_NODE_HEIGHT_PX: Record<
+  ChainTopologyNodeTier,
+  number
+> = { single: 56, double: 72, many: 88 };
+
+export function chainTopologyNodeTier(
+  memberCount: number | null | undefined,
+): ChainTopologyNodeTier {
+  const count =
+    typeof memberCount === "number" && Number.isFinite(memberCount)
+      ? Math.max(0, Math.floor(memberCount))
+      : 0;
+  if (count >= 3) return "many";
+  if (count === 2) return "double";
+  return "single";
+}
+
+/** 拓扑某一段是否来自多成员组：只有组级 `estimated` 时才算「多路径估算」。 */
+export function chainTopologyEdgeEstimated(
+  chain: Pick<ChainHealthChain, "estimated">,
+  from: Pick<ChainTopologyNode, "memberCount"> | undefined,
+  to: Pick<ChainTopologyNode, "memberCount"> | undefined,
+): boolean {
+  if (!chain.estimated) return false;
+  return (from?.memberCount ?? 0) > 1 || (to?.memberCount ?? 0) > 1;
+}
+
+function readMember(raw: unknown): ChainNodeMember | null {
+  if (!isRecord(raw)) return null;
+  // 契约要求 `name`；只有 server_id 的脏数据没有可展示文本，整体跳过。
+  const name = trimmedString(raw.name);
+  if (name === null) return null;
+  const rawStatus = trimmedString(raw.status);
+  return {
+    serverId: trimmedString(raw.server_id),
+    name,
+    status: rawStatus === null ? null : rawStatus.toLowerCase(),
+  };
+}
+
+/** 成员列表最多读 64 台；契约最多 8 组，超出部分只可能是脏数据。 */
+function readMembers(raw: unknown): ChainNodeMember[] {
+  if (!Array.isArray(raw)) return [];
+  const members: ChainNodeMember[] = [];
+  for (const entry of raw) {
+    const member = readMember(entry);
+    if (member) members.push(member);
+  }
+  return members.slice(0, 64);
+}
+
 function readNode(raw: unknown, index: number): ChainHealthNode | null {
   if (!isRecord(raw)) return null;
   const name = trimmedString(raw.name);
@@ -1146,11 +1304,20 @@ function readNode(raw: unknown, index: number): ChainHealthNode | null {
       ? rawRole
       : null;
   const rawStatus = trimmedString(raw.status);
+  const members = readMembers(raw.members);
+  const declaredCount = positiveInt(raw.member_count);
+  // 契约可能只回前几台成员：取较大值，`+N` 才能标出被截断的部分。
+  const memberCount =
+    members.length > 0
+      ? Math.max(members.length, declaredCount ?? 0)
+      : declaredCount;
   return {
     seq: seq ?? index,
     name,
     role,
     status: rawStatus === null ? null : rawStatus.toLowerCase(),
+    members,
+    memberCount,
   };
 }
 
@@ -1218,17 +1385,25 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
   const segments = new Map(chain.segments.map((segment) => [segment.seq, segment]));
 
   if (chain.nodes.length > 0) {
-    const nodes: ChainTopologyNode[] = chain.nodes.map((node, index) => ({
-      seq: node.seq,
-      name: node.name,
-      role:
+    const nodes: ChainTopologyNode[] = chain.nodes.map((node, index) => {
+      const role: ChainNodeRole =
         index === 0
           ? "source"
           : index === chain.nodes.length - 1
             ? "target"
-            : "hop",
-      status: node.status,
-    }));
+            : "hop";
+      // 目标节点不是服务器组：契约即使给了 members 也不渲染，避免把
+      // 「链目标」画成一台可点的成员。
+      const isTarget = role === "target";
+      return {
+        seq: node.seq,
+        name: node.name,
+        role,
+        status: node.status,
+        members: isTarget ? [] : node.members,
+        memberCount: isTarget ? null : node.memberCount,
+      };
+    });
     const edges: ChainTopologyEdge[] = [];
     for (let index = 0; index < nodes.length - 1; index += 1) {
       // 段的 seq 取**目标节点**的 seq：中间段是目标组 seq，最后一跳是
@@ -1237,7 +1412,14 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
     }
     // 只有 source 的残缺契约：补一个目标节点，避免画一条没有落点的线。
     if (nodes.length === 1) {
-      nodes.push({ seq: 1, name: "", role: "target", status: null });
+      nodes.push({
+        seq: 1,
+        name: "",
+        role: "target",
+        status: null,
+        members: [],
+        memberCount: null,
+      });
       edges.push(topologyEdge(1, segments));
     }
     return {
@@ -1261,12 +1443,21 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
           ? "target"
           : "hop",
     status: null,
+    members: [],
+    memberCount: null,
   }));
   const edges = [...fallback.edges];
   if (fallback.targetMissing) {
     const seq =
       edges.length > 0 ? edges[edges.length - 1].seq + 1 : chain.hops;
-    nodes.push({ seq, name: "", role: "target", status: null });
+    nodes.push({
+      seq,
+      name: "",
+      role: "target",
+      status: null,
+      members: [],
+      memberCount: null,
+    });
     edges.push({ seq, p50: null, missing: true });
   }
   return { nodes, edges, targetMissing: fallback.targetMissing };

@@ -12,6 +12,7 @@ import { ChainSegmentTrendChart } from "@/components/overview/ChainSegmentTrendC
 import { ChainStatusBadge } from "@/components/overview/ChainStatusBadge";
 import {
   SLOW_CHAIN_DELTA_MS,
+  CHAIN_TOPOLOGY_NODE_HEIGHT_PX,
   chainDiagnosis,
   chainDiagnosisReason,
   chainLatestSeriesTs,
@@ -19,7 +20,11 @@ import {
   chainNodeStatusTone,
   chainPointX,
   chainTimeTicks,
+  chainTopologyEdgeEstimated,
   chainTopologyGraph,
+  chainTopologyMemberRows,
+  chainTopologyNodeTier,
+  chainTopologyNodeTone,
   formatChainClock,
   formatLossPct,
   formatLossProbes,
@@ -99,6 +104,34 @@ function topologyNodeLabel(index: number, total: number): string {
   return `HOP ${index}`;
 }
 
+/** 组内成员的状态点：绿呼吸 / 红 / 灰（未知），始终不抢标签的注意力。 */
+function MemberDot({ status }: { status: string | null }) {
+  const tone = chainNodeStatusTone(status);
+  return (
+    <span
+      data-chain-topology-member-dot
+      data-tone={tone}
+      aria-hidden="true"
+      className={cn(
+        "size-[6px] shrink-0 rounded-full",
+        tone === "online"
+          ? "bg-success status-breathe"
+          : tone === "fault"
+            ? "bg-destructive"
+            : "bg-muted-foreground",
+      )}
+    />
+  );
+}
+
+/**
+ * 拓扑节点：一个节点代表一个「组」。
+ *
+ * 顶部 `SOURCE` / `HOP n` / `TARGET` + 组级状态点（取最差成员）+ `2 台`；
+ * 主文本是组名；多成员组在下面列出成员（最多两行，其余折叠成 `+N`），
+ * 一台成员时不显示列表，保持旧契约的单节点外观。目标节点不是服务器组，
+ * 仍是虚线框、无状态点、无成员。
+ */
 function TopologyNode({
   node,
   index,
@@ -109,30 +142,50 @@ function TopologyNode({
   total: number;
 }) {
   const target = node.role === "target";
-  const tone = chainNodeStatusTone(node.status);
+  const members = target ? [] : node.members;
+  const memberCount = target ? null : node.memberCount;
+  const tone = chainTopologyNodeTone({ status: node.status, members });
+  const { rows, hidden } = chainTopologyMemberRows({ members, memberCount });
+  // 只有拿到真实成员才按「组」渲染；只有 member_count 没有 members 的脏
+  // 数据回退到单节点外观，避免画一个没有名字的空列表。
+  const multi = rows.length > 0;
   // 目标节点不是服务器，没有状态点；旧主控缺状态时也不画点，避免把
-  // 「不知道」画成「正常」。非 online 的已知状态固定红点、不呼吸。
+  // 「不知道」画成「正常」。多成员组的成员行会逐个画出灰点，组级点仍按
+  // 「未知不画」的既有规则。
   const showDot = !target && tone !== "unknown";
+  const representative = members[0]?.name.trim() ?? "";
   const name =
-    node.name.trim() === ""
-      ? t("overview.chainLatency.chainTarget")
-      : node.name;
+    node.name.trim() !== ""
+      ? node.name
+      : representative !== ""
+        ? representative
+        : t("overview.chainLatency.chainTarget");
+  const tier = chainTopologyNodeTier(multi ? memberCount : null);
+  const title = multi
+    ? t("overview.chainLatency.memberGroupTitle", {
+        name,
+        n: memberCount ?? rows.length,
+      })
+    : name;
   return (
     <span
       data-chain-topology-node
       data-role={node.role}
       data-status={node.status ?? "none"}
+      data-member-count={memberCount ?? 0}
+      title={title}
+      style={{ height: CHAIN_TOPOLOGY_NODE_HEIGHT_PX[tier] }}
       className={cn(
-        "relative flex h-14 min-w-[112px] flex-1 items-center justify-center whitespace-nowrap rounded-md border px-2.5 text-center text-xs font-medium",
+        "relative flex min-w-[112px] flex-1 flex-col items-center justify-center rounded-md border px-2.5 text-center text-xs font-medium",
+        multi ? "gap-1 pt-4 pb-1.5" : "",
         target
           ? "border-dashed border-border text-muted-foreground"
           : "border-border bg-card text-foreground",
       )}
-      title={name}
     >
       <span
         data-chain-topology-node-label
-        className="absolute inset-x-0 top-1 flex items-center justify-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground"
+        className="absolute inset-x-0 top-1 flex items-center justify-center gap-1 px-1 text-[10px] uppercase tracking-wide text-muted-foreground"
       >
         <span>{topologyNodeLabel(index, total)}</span>
         {showDot ? (
@@ -144,33 +197,90 @@ function TopologyNode({
               "size-[7px] shrink-0 rounded-full",
               tone === "online"
                 ? "bg-success status-breathe"
-                : "bg-destructive",
+                : tone === "fault"
+                  ? "bg-destructive"
+                  : "bg-muted-foreground",
             )}
           />
         ) : null}
+        {multi ? (
+          <span
+            data-chain-topology-node-count
+            className="normal-case tracking-normal"
+          >
+            {t("overview.chainLatency.memberCountLabel", {
+              n: memberCount ?? rows.length,
+            })}
+          </span>
+        ) : null}
       </span>
-      <span className="max-w-full truncate leading-none">{name}</span>
+      <span
+        data-chain-topology-node-name
+        className="max-w-full truncate leading-none"
+      >
+        {name}
+      </span>
+      {rows.length > 0 ? (
+        <span
+          data-chain-topology-node-members
+          className="flex w-full min-w-0 flex-col gap-0.5"
+        >
+          {rows.map((member, memberIndex) => (
+            <span
+              key={`${member.serverId ?? member.name}-${memberIndex}`}
+              data-chain-topology-member
+              data-status={member.status ?? "none"}
+              data-tone={chainNodeStatusTone(member.status)}
+              title={member.name}
+              className="flex min-w-0 items-center gap-1"
+            >
+              <MemberDot status={member.status} />
+              <span className="min-w-0 flex-1 truncate text-left text-[10px] leading-tight text-muted-foreground">
+                {member.name}
+              </span>
+            </span>
+          ))}
+          {hidden > 0 ? (
+            <span
+              data-chain-topology-member-more
+              className="text-[9px] leading-tight text-muted-foreground"
+            >
+              {t("overview.chainLatency.memberMore", { n: hidden })}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
     </span>
   );
 }
 
-/** 拓扑边：链级边 + 该段窗口丢包（没有探测为 null）。 */
+/** 拓扑边：链级边 + 该段窗口丢包（没有探测为 null）+ 是否多路径估算。 */
 interface TopologyEdgeView extends ChainTopologyEdge {
   lossPct: number | null;
+  estimated: boolean;
 }
 
 function TopologyEdge({ edge }: { edge: TopologyEdgeView }) {
   const missing = edge.missing || edge.p50 === null;
-  const latency = missing
+  const measured = missing
     ? t("overview.chainLatency.missingHop")
     : formatMs(edge.p50);
+  // 多成员组之间的段是多条路径的汇总；后端标 estimated 时明确加 ≈。
+  const latency = edge.estimated && !missing ? `${measured} ≈` : measured;
   const loss = formatLossPct(edge.lossPct);
+  const estimate = edge.estimated
+    ? t("overview.chainLatency.multiPathEstimate")
+    : null;
+  const title = [latency, loss, estimate]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
   return (
     <span
       data-chain-topology-edge
       data-seq={edge.seq}
       data-missing={missing ? "true" : "false"}
-      title={`${latency} · ${loss}`}
+      data-estimated={edge.estimated ? "true" : "false"}
+      title={title}
       className="relative flex h-14 min-w-[80px] flex-1 flex-col items-center justify-center px-0.5"
     >
       <span
@@ -268,10 +378,22 @@ function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
   const segmentsBySeq = new Map(
     chain.segments.map((segment) => [segment.seq, segment]),
   );
-  /** 把每段窗口丢包贴到对应的拓扑边上；目标跳没有探测，保持 null。 */
-  const withLoss = (edge: ChainTopologyEdge): TopologyEdgeView => ({
+  /**
+   * 把每段窗口丢包贴到对应的拓扑边上；目标跳没有探测，保持 null。
+   * `estimated` 只看链级标记 + 该段两端是否多成员组：单节点链即使整体
+   * 估算（缺中间跳）也不该在时延后加 ≈。
+   */
+  const withLoss = (
+    edge: ChainTopologyEdge,
+    index: number,
+  ): TopologyEdgeView => ({
     ...edge,
     lossPct: segmentsBySeq.get(edge.seq)?.lossPct ?? null,
+    estimated: chainTopologyEdgeEstimated(
+      chain,
+      topology.nodes[index],
+      topology.nodes[index + 1],
+    ),
   });
 
   return (
@@ -296,7 +418,7 @@ function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
               data-chain-topology-scroll
             >
               <div
-                className="flex w-full min-w-max items-stretch"
+                className="flex w-full min-w-max items-center"
                 data-chain-topology
               >
                 {topology.nodes.map((node, index) => (
@@ -307,7 +429,9 @@ function ChainTopologyCard({ chain }: { chain: ChainHealthChain }) {
                       total={topology.nodes.length}
                     />
                     {topology.edges[index] ? (
-                      <TopologyEdge edge={withLoss(topology.edges[index])} />
+                      <TopologyEdge
+                        edge={withLoss(topology.edges[index], index)}
+                      />
                     ) : null}
                   </Fragment>
                 ))}
@@ -647,6 +771,7 @@ function SegmentsCard({
           <div className="flex min-w-0 items-center gap-1.5">
             {chain.estimated ? (
               <Badge
+                data-chain-estimated-badge
                 variant="outline"
                 className="shrink-0 font-normal text-muted-foreground"
                 title={t("overview.chainLatency.estimatedHint")}

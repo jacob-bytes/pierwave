@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   ANOMALY_MIN_DELTA_MS,
   CHAIN_HEALTH_POLL_MS,
+  CHAIN_TOPOLOGY_NODE_HEIGHT_PX,
   SLOW_CHAIN_DELTA_MS,
   chainAnomalyWindows,
   chainDiagnosis,
@@ -30,7 +31,12 @@ import {
   chainStatus,
   chainTimeTicks,
   chainTopology,
+  chainTopologyEdgeEstimated,
   chainTopologyGraph,
+  chainTopologyMemberRows,
+  chainTopologyNodeTier,
+  chainTopologyNodeTone,
+  chainWorstNodeTone,
   summaryDeltaTone,
   worstHopDeltaMs,
   worstHopTone,
@@ -232,6 +238,29 @@ test("a chain with a declared missing hop but no segments still has a row per ho
   assert.equal(item.lastHopMissing, true);
   assert.equal(item.hasSamples, false);
   assert.equal(item.estimated, true);
+});
+
+test("estimated comes from the contract only, never from missing_hops", () => {
+  // 旧主控没有 estimated 字段：即使有缺跳也不显示「估算」徽章。
+  const legacyRaw = chain({ hops: 2, missing_hops: [2], segments: [] });
+  delete legacyRaw.estimated;
+  const legacy = normalizeChainHealth(payload([legacyRaw])).snapshot.chains[0];
+  assert.equal(legacy.estimated, false, "missing field is not an estimate");
+  assert.ok(legacy.missingHops.includes(2), "missing hops stay reported");
+  assert.equal(legacy.lastHopMissing, true);
+
+  // 显式 false 同样不显示；缺跳提示由 missingHops / lastHopMissing 承担。
+  const explicitFalse = normalizeChainHealth(
+    payload([chain({ hops: 2, missing_hops: [2], estimated: false, segments: [] })]),
+  ).snapshot.chains[0];
+  assert.equal(explicitFalse.estimated, false);
+
+  // 后端显式标 true 才是多路径估算，和缺跳无关。
+  const multiPath = normalizeChainHealth(
+    payload([chain({ hops: 2, missing_hops: [], estimated: true })]),
+  ).snapshot.chains[0];
+  assert.equal(multiPath.estimated, true);
+  assert.deepEqual(multiPath.missingHops, []);
 });
 
 test("legacy sparse series is sorted and de-duplicated", () => {
@@ -1056,6 +1085,274 @@ test("node status tone: online breathes green, any other known state is a still 
   assert.equal(chainNodeStatusTone(undefined), "unknown");
   assert.equal(chainNodeStatusTone(""), "unknown");
   assert.equal(chainNodeStatusTone("   "), "unknown");
+});
+
+/* ------------------------------------------------------------------ *
+ * 多成员组：members[] / member_count → 拓扑节点
+ * ------------------------------------------------------------------ */
+
+test("nodes[].members and member_count normalize into one group node", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [],
+        series: [],
+        nodes: [
+          {
+            seq: 0,
+            name: "香港-01",
+            role: "source",
+            status: "online",
+            member_count: 1,
+            members: [{ server_id: "s-a", name: "香港-01", status: "ONLINE" }],
+          },
+          {
+            seq: 1,
+            name: "东京中转",
+            role: "hop",
+            status: "offline",
+            member_count: 2,
+            members: [
+              { server_id: "s-b", name: " 东京-01 ", status: "online" },
+              { server_id: "s-c", name: "东京-02", status: "OFFLINE" },
+            ],
+          },
+          { seq: 2, name: "链目标", role: "target", status: null },
+        ],
+        segments: [],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.deepEqual(item.nodes[1].members, [
+    { serverId: "s-b", name: "东京-01", status: "online" },
+    { serverId: "s-c", name: "东京-02", status: "offline" },
+  ]);
+  assert.equal(item.nodes[1].memberCount, 2);
+  assert.equal(item.nodes[0].memberCount, 1);
+
+  const graph = chainTopologyGraph(item);
+  assert.equal(graph.nodes[1].name, "东京中转");
+  assert.equal(graph.nodes[1].memberCount, 2);
+  assert.equal(graph.nodes[1].members.length, 2);
+});
+
+test("member_count without members keeps the count but renders no rows", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        nodes: [
+          { seq: 0, name: "香港-01", role: "source", status: "online" },
+          {
+            seq: 1,
+            name: "东京中转",
+            role: "hop",
+            status: "online",
+            member_count: 3,
+          },
+          { seq: 2, name: "链目标", role: "target", status: null },
+        ],
+        segments: [],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.equal(item.nodes[1].memberCount, 3);
+  assert.deepEqual(item.nodes[1].members, []);
+  const rows = chainTopologyMemberRows(item.nodes[1]);
+  assert.deepEqual(rows, { rows: [], hidden: 0 });
+});
+
+test("member_count larger than the returned members only widens the +N fold", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        nodes: [
+          {
+            seq: 0,
+            name: "香港中转",
+            role: "source",
+            status: "online",
+            member_count: 5,
+            members: [
+              { server_id: "s-a", name: "香港-01", status: "online" },
+              { server_id: "s-b", name: "香港-02", status: "offline" },
+            ],
+          },
+          { seq: 1, name: "链目标", role: "target", status: null },
+        ],
+        segments: [],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.equal(item.nodes[0].memberCount, 5, "declared count wins over a truncated array");
+  assert.deepEqual(chainTopologyMemberRows(item.nodes[0]), {
+    rows: [
+      { serverId: "s-a", name: "香港-01", status: "online" },
+      { serverId: "s-b", name: "香港-02", status: "offline" },
+    ],
+    hidden: 3,
+  });
+});
+
+test("target node never carries members even if the contract sends them", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        nodes: [
+          { seq: 0, name: "香港-01", role: "source", status: "online" },
+          {
+            seq: 1,
+            name: "链目标",
+            role: "target",
+            status: null,
+            member_count: 2,
+            members: [
+              { server_id: "s-a", name: "目标-01", status: "online" },
+              { server_id: "s-b", name: "目标-02", status: "offline" },
+            ],
+          },
+        ],
+        segments: [],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  const target = chainTopologyGraph(item).nodes.at(-1);
+  assert.equal(target.role, "target");
+  assert.deepEqual(target.members, []);
+  assert.equal(target.memberCount, null);
+});
+
+test("malformed members are dropped instead of rendering nameless rows", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        nodes: [
+          {
+            seq: 0,
+            name: "香港中转",
+            role: "source",
+            status: "online",
+            member_count: 3,
+            members: [
+              { server_id: "s-a", name: "香港-01", status: "online" },
+              { server_id: "s-b" },
+              { name: "   " },
+              "nope",
+              { server_id: "s-c", name: "香港-03", status: "offline" },
+            ],
+          },
+          { seq: 1, name: "链目标", role: "target", status: null },
+        ],
+        segments: [],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.deepEqual(
+    item.nodes[0].members.map((member) => member.name),
+    ["香港-01", "香港-03"],
+  );
+  // 契约声明 3 台、只有 2 台可展示：保留 3，`+1` 提示有成员没回。
+  assert.equal(item.nodes[0].memberCount, 3);
+  assert.equal(chainTopologyMemberRows(item.nodes[0]).hidden, 1);
+});
+
+test("chainWorstNodeTone takes the worst member: fault > unknown > online", () => {
+  assert.equal(chainWorstNodeTone([]), "unknown");
+  assert.equal(chainWorstNodeTone(["online", "online"]), "online");
+  assert.equal(chainWorstNodeTone(["online", "offline"]), "fault");
+  assert.equal(chainWorstNodeTone(["offline", "online", "degraded"]), "fault");
+  assert.equal(chainWorstNodeTone(["online", null]), "unknown");
+  assert.equal(chainWorstNodeTone([null, "offline"]), "fault");
+  assert.equal(chainWorstNodeTone([" ONLINE ", "offline"]), "fault");
+});
+
+test("chainTopologyNodeTone folds the group status in, and keeps single nodes as-is", () => {
+  const member = (name, status) => ({ serverId: name, name, status });
+  // 单成员 / 无成员：沿用节点状态（旧契约行为）。
+  assert.equal(
+    chainTopologyNodeTone({ status: "online", members: [] }),
+    "online",
+  );
+  assert.equal(
+    chainTopologyNodeTone({ status: null, members: [] }),
+    "unknown",
+  );
+  // 有成员：最差成员优先。
+  assert.equal(
+    chainTopologyNodeTone({
+      status: "online",
+      members: [member("a", "online"), member("b", "offline")],
+    }),
+    "fault",
+  );
+  // 组级结论（后端可能只回了部分成员）也要生效。
+  assert.equal(
+    chainTopologyNodeTone({
+      status: "offline",
+      members: [member("a", "online"), member("b", "online")],
+    }),
+    "fault",
+  );
+  // 组级 status 缺失时，全部在线仍是绿点，不能因为缺 status 变灰。
+  assert.equal(
+    chainTopologyNodeTone({
+      status: null,
+      members: [member("a", "online"), member("b", "online")],
+    }),
+    "online",
+  );
+});
+
+test("chainTopologyMemberRows shows one-line for singles and folds extras at two", () => {
+  const member = (name, status = "online") => ({ serverId: name, name, status });
+  const rowsFor = (members, memberCount) =>
+    chainTopologyMemberRows({ members, memberCount });
+
+  assert.deepEqual(rowsFor([member("a")], 1), { rows: [], hidden: 0 });
+  assert.deepEqual(rowsFor([], null), { rows: [], hidden: 0 });
+  assert.deepEqual(rowsFor([member("a")], 2), {
+    rows: [member("a")],
+    hidden: 1,
+  });
+  const two = rowsFor([member("a"), member("b")], 2);
+  assert.deepEqual(two, { rows: [member("a"), member("b")], hidden: 0 });
+  const three = rowsFor([member("a"), member("b"), member("c")], 3);
+  assert.deepEqual(three, {
+    rows: [member("a"), member("b")],
+    hidden: 1,
+  });
+});
+
+test("node tier: 1 member 56px, 2 members 72px, 3+ members 88px", () => {
+  assert.equal(chainTopologyNodeTier(null), "single");
+  assert.equal(chainTopologyNodeTier(0), "single");
+  assert.equal(chainTopologyNodeTier(1), "single");
+  assert.equal(chainTopologyNodeTier(2), "double");
+  assert.equal(chainTopologyNodeTier(3), "many");
+  assert.equal(chainTopologyNodeTier(8), "many");
+  assert.equal(chainTopologyNodeTier(Number.NaN), "single");
+  assert.deepEqual(CHAIN_TOPOLOGY_NODE_HEIGHT_PX, {
+    single: 56,
+    double: 72,
+    many: 88,
+  });
+});
+
+test("only multi-member segments of an estimated chain get the ≈ mark", () => {
+  const multi = { memberCount: 2 };
+  const single = { memberCount: null };
+  assert.equal(chainTopologyEdgeEstimated({ estimated: true }, multi, single), true);
+  assert.equal(chainTopologyEdgeEstimated({ estimated: true }, single, multi), true);
+  assert.equal(chainTopologyEdgeEstimated({ estimated: true }, single, single), false);
+  assert.equal(chainTopologyEdgeEstimated({ estimated: false }, multi, multi), false);
+  assert.equal(chainTopologyEdgeEstimated({ estimated: false }, multi, single), false);
+  assert.equal(chainTopologyEdgeEstimated({ estimated: true }, undefined, multi), true);
+  assert.equal(chainTopologyEdgeEstimated({ estimated: true }, undefined, undefined), false);
 });
 
 test("chainLatestSeriesTs ignores trailing empty buckets and finds the real sample", () => {

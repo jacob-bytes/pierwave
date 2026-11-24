@@ -141,7 +141,9 @@ test("chainHealth no longer exports the dead chainLatestP50 alias", () => {
 
 test("topology fills the card and labels latency/loss around a centered line", () => {
   const source = read("components/overview/ChainLatencyDetail.tsx");
-  assert.match(source, /flex w-full min-w-max items-stretch/);
+  // 节点高度随成员数变化（56 / 72 / 88），所以行用 items-center 让连接线
+  // 与每个节点的高度中心对齐，而不是把矮节点顶到行首。
+  assert.match(source, /flex w-full min-w-max items-center/);
   assert.match(source, /data-chain-topology-node/);
   assert.match(source, /data-chain-topology-edge/);
   assert.match(source, /data-chain-topology-edge-latency/);
@@ -178,6 +180,69 @@ test("topology nodes carry SOURCE/HOP/TARGET labels and a breathing status dot",
   assert.match(source, /bg-success status-breathe/);
   assert.match(source, /bg-destructive/);
   assert.match(source, /const showDot = !target && tone !== "unknown"/);
+});
+
+test("topology nodes render group members, a +N fold and the member_count label", async () => {
+  const source = read("components/overview/ChainLatencyDetail.tsx");
+  // 节点 = 组：组名主文本 + 成员列表 + 组级状态点取最差成员。
+  assert.match(source, /chainTopologyNodeTone/);
+  assert.match(source, /chainTopologyMemberRows/);
+  assert.match(source, /chainTopologyNodeTier/);
+  assert.match(source, /CHAIN_TOPOLOGY_NODE_HEIGHT_PX/);
+  assert.match(source, /data-chain-topology-node-members/);
+  assert.match(source, /data-chain-topology-member\b/);
+  assert.match(source, /data-chain-topology-member-dot/);
+  assert.match(source, /data-chain-topology-member-more/);
+  assert.match(source, /data-chain-topology-node-count/);
+  // 成员行状态点：绿呼吸 / 红 / 灰（未知），不写死颜色。
+  assert.match(source, /bg-muted-foreground/);
+  // 多成员组的段在 estimated 时加 ≈ 与 tooltip。
+  assert.match(source, /chainTopologyEdgeEstimated/);
+  assert.match(source, /multiPathEstimate/);
+  assert.match(source, /≈/);
+
+  const [{ default: zh }, { default: en }] = await Promise.all([
+    import("../i18n/zh-CN.ts"),
+    import("../i18n/en.ts"),
+  ]);
+  assert.equal(zh.overview.chainLatency.memberCountLabel, "{n} 台");
+  assert.equal(zh.overview.chainLatency.memberMore, "+{n}");
+  assert.equal(zh.overview.chainLatency.memberGroupTitle, "{name}，共 {n} 台成员");
+  assert.equal(zh.overview.chainLatency.multiPathEstimate, "多路径估算");
+  assert.equal(en.overview.chainLatency.memberCountLabel, "×{n}");
+  assert.equal(en.overview.chainLatency.memberMore, "+{n} more");
+  assert.equal(en.overview.chainLatency.memberGroupTitle, "{name}, {n} members");
+  assert.equal(en.overview.chainLatency.multiPathEstimate, "Multi-path estimate");
+});
+
+test("the estimated badge explains multi-path medians, not missing hops", async () => {
+  const detail = read("components/overview/ChainLatencyDetail.tsx");
+  // 徽章只在契约 estimated 为 true 时渲染；缺跳提示是另一条文案。
+  assert.match(detail, /\{chain\.estimated \? \(/);
+  assert.match(detail, /data-chain-estimated-badge/);
+  assert.match(detail, /estimatedHint/);
+  assert.match(detail, /missingLastHop/);
+
+  const [{ default: zh }, { default: en }] = await Promise.all([
+    import("../i18n/zh-CN.ts"),
+    import("../i18n/en.ts"),
+  ]);
+  assert.equal(
+    zh.overview.chainLatency.estimatedHint,
+    "多路径链路，按各跳中位数求和，为估算值",
+  );
+  assert.equal(
+    en.overview.chainLatency.estimatedHint,
+    "Multi-path chain, summed from per-hop medians; approximate",
+  );
+  // 旧语义「含缺失跳」不能再混进估算徽章。
+  assert.doesNotMatch(zh.overview.chainLatency.estimatedHint, /缺失跳/);
+  assert.doesNotMatch(en.overview.chainLatency.estimatedHint, /missing hop/i);
+  // 缺跳有独立措辞，且不声称整链是估算值。
+  assert.match(zh.overview.chainLatency.missingLastHop, /最后一跳/);
+  assert.doesNotMatch(zh.overview.chainLatency.missingLastHop, /估算/);
+  assert.match(en.overview.chainLatency.missingLastHop, /last hop/i);
+  assert.doesNotMatch(en.overview.chainLatency.missingLastHop, /estimat/i);
 });
 
 test("overall axis draws time gridlines and ends at the last sample, not Now", () => {

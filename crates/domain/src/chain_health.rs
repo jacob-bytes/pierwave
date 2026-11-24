@@ -33,17 +33,18 @@
 //! * `segments[].series` 与链级 `series` 同桶宽、同长度：每桶 p50 来自该段
 //!   时延样本，loss_pct 来自该段探测桶（attempts = 0 → null），无样本桶为
 //!   null。它与 entry/exit 一样只做内存归并，不新增 SQL。
-//! * `nodes` 是链的拓扑节点：每个组一个（`server_id` 取该组
-//!   `(priority, server_id)` 最小的成员，与 entry/exit 同口径），末尾再补一个
-//!   `role = target` 的链目标节点（`server_id` / `status` 都是 null）。多成员组
-//!   的节点只代表该组的代表成员，链级 `estimated = true` 表示段值是估算。
-//!   `entry` / `exit` 保留，前端可渐进迁移。
-//! * `status` 是链级可用性状态：任一 `source` / `hop` 节点离线 → `blocked`
-//!   （`node_offline`，并点名第一台离线节点）；否则节点非在线 → `degraded`
-//!   （`node_unhealthy`）；否则无当前样本 / 有断点 → `degraded`（`no_samples`）；
-//!   否则较基线变慢 → `degraded`（`slow`）；否则 `ok`。节点状态优先于数据
-//!   质量，所以掉线导致的缺样本不会被误判成 `no_samples`。链目标节点
-//!   （`role = "target"`，`status` 恒为 null）不参与判定。
+//! * `nodes` 是链的拓扑节点：每个组一个（组级 `status` 取最差成员，
+//!   `members` 按 `(priority, server_id)` 给出该组全部成员），末尾再补一个
+//!   `role = target` 的链目标节点（`members` 是空数组、
+//!   `server_id` / `status` 都是 null）。多成员组的成员全部可见，链级
+//!   `estimated = true` 只表示段值是估算。`entry` / `exit` 保留，前端可渐进
+//!   迁移。
+//! * `status` 是链级可用性状态：任一 `source` / `hop` 组的**任一成员**离线 →
+//!   `blocked`（`node_offline`，并点名该成员所在组与成员名）；否则任一成员
+//!   非在线 → `degraded`（`node_unhealthy`）；否则无当前样本 / 有断点 →
+//!   `degraded`（`no_samples`）；否则较基线变慢 → `degraded`（`slow`）；
+//!   否则 `ok`。成员状态优先于数据质量，所以掉线导致的缺样本不会被误判成
+//!   `no_samples`。链目标节点（`role = "target"`）没有成员，不参与判定。
 
 use std::collections::HashMap;
 
@@ -153,50 +154,80 @@ pub struct LossSamples {
     pub failures: i64,
 }
 
+/// 组内一个成员（服务器）的展示视图。
+///
+/// `status` 是 `servers.status` 的原样透传（online / offline / abnormal /
+/// no_data …），不做二次推断；组级状态由 [`NodeView::status`] 取最差成员得到。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NodeMember {
+    /// `chain_group_members.server_id`，即 `servers.id`。
+    pub server_id: String,
+    /// `servers.name`。
+    pub name: String,
+    /// 成员服务器的 `servers.status`。
+    pub status: String,
+}
+
 /// 链上的一个拓扑节点：一个组一个，末端的链目标再补一个。
 ///
-/// 口径见 `docs/CHAIN-HEALTH.md`：组节点取该组 `(priority, server_id)` 最小的
-/// 成员（与 `entry` / `exit` 同口径），多成员组的其他成员不在 `nodes` 里，由
-/// 链级 `estimated = true` 说明这段是估算；链目标节点没有 `server_id`，
-/// 因此 `status` 也是 null。
+/// 口径见 `docs/CHAIN-HEALTH.md`：组节点带该组**全部**成员（`members` 按
+/// `(priority, server_id)` 排序，`member_count` 是成员数），组级 `status` 取
+/// 最差成员（offline > 其它非 online > online；空组为 null）；`server_id` /
+/// `name` 仍是该组代表成员（`(priority, server_id)` 最小）的兼容字段，
+/// `name` 优先用组名（组名为空才回退代表成员名）。链目标节点没有服务器行，
+/// `server_id` / `status` 为 null，`members` 是空数组、`member_count = 0`。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct NodeView {
     /// 组节点的 `seq` 取组的 seq；链目标节点取「最后一组 seq + 1」。
     pub seq: i64,
-    /// 链目标节点与没有成员的组为 null。
+    /// 该组代表成员的 `server_id`（`(priority, server_id)` 最小，与
+    /// `entry` / `exit` 同口径）；链目标节点与没有成员的组为 null。
     pub server_id: Option<String>,
-    /// 服务器名；链目标节点是 `"链目标"`。
+    /// 组名优先；组名不可用时用代表成员名（空组回退 `第 N 跳`）；
+    /// 链目标节点是 `"链目标"`。
     pub name: String,
     /// `source`（第一组）/ `hop`（其余组）/ `target`（链目标）。
     pub role: &'static str,
-    /// 成员服务器的 `servers.status`（online / offline / …）；
-    /// 链目标与没有成员的组为 null。
+    /// 组级聚合状态：取该组最差成员（offline > abnormal/no_data > online）。
+    /// 空组与链目标节点为 null。
     pub status: Option<String>,
+    /// `members` 的长度；链目标节点与空组为 0。
+    pub member_count: usize,
+    /// 该组全部成员，顺序同 `(priority, server_id)`；链目标节点是空数组。
+    pub members: Vec<NodeMember>,
 }
 
-/// 链级可用性状态里被点名的节点。
+/// 链级可用性状态里被点名的节点（具体到成员）。
 ///
-/// 只带展示需要的 `seq` / `name`；具体原因由上层 `cause` 表达，不在这里重复。
+/// 只带展示需要的 `seq` / `name` / `member_name`；具体原因由上层 `cause`
+/// 表达，不在这里重复。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StatusNode {
+    /// 离线成员所在组的 `seq`。
     pub seq: i64,
+    /// 离线成员的展示名（保留旧字段语义，与 `member_name` 相同）。
     pub name: String,
+    /// 离线成员名；`node_offline` 时总有值，显式给出便于前端不区分组节点名
+    /// 与成员名。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_name: Option<String>,
 }
 
 /// 链级可用性状态：把节点状态与链路数据合成为一个用户能直接看的状态。
 ///
-/// 判定优先级（高 → 低）：
-/// 1. 任一 `source` / `hop` 节点 `status == "offline"` → `blocked` + `node_offline`，
-///    `node` 指向 `seq` 最小的那台离线节点；
-/// 2. 任一 `source` / `hop` 节点 `status != "online"`（`abnormal` / `no_data` /
-///    空组导致的 `null` 等）→ `degraded` + `node_unhealthy`；
+/// 判定优先级（高 → 低），节点状态按**组内每个成员**检查：
+/// 1. 任一 `source` / `hop` 组的任一成员 `status == "offline"` → `blocked` +
+///    `node_offline`，`node` 指向先遇到的那台离线成员（组 `seq` 升序、
+///    组内 `(priority, server_id)` 顺序）；
+/// 2. 任一 `source` / `hop` 组的任一成员 `status != "online"`（`abnormal` /
+///    `no_data` / 空组没有成员可引用等）→ `degraded` + `node_unhealthy`；
 /// 3. 当前窗口没有整体样本，或 `missing_hops` 非空 → `degraded` + `no_samples`；
 /// 4. 整体较基线变慢（与 `summary.slow_chains` 同一个 [`SLOW_DELTA_MS`] 阈值）
 ///    → `degraded` + `slow`；
 /// 5. 其余 → `ok`，`cause` / `node` 都是 `null`。
 ///
-/// `role = "target"` 的链目标节点不参与判定：它没有服务器行，`status` 恒为
-/// `null`。节点优先级高于数据质量，所以「节点掉线导致缺样本」会得到
+/// `role = "target"` 的链目标节点不参与判定：它没有成员，`status` 恒为
+/// `null`。成员优先级高于数据质量，所以「成员掉线导致缺样本」会得到
 /// `blocked` / `node_offline`，不会被误判成 `no_samples`。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ChainStatus {
@@ -226,35 +257,67 @@ impl ChainStatus {
     }
 }
 
-/// 根据节点状态与数据质量判定链级可用性；优先级见 [`ChainStatus`]。
+/// 组级状态取最差成员：`offline` > 其它非 `online`（`abnormal` / `no_data` …）
+/// > `online`；空组没有成员可引用，返回 `null`。
+///
+/// 多个成员同档时取 `(priority, server_id)` 顺序里的第一台，结果稳定。
+fn group_status(members: &[NodeMember]) -> Option<String> {
+    let mut worst: Option<(u8, &str)> = None;
+    for member in members {
+        let rank = match member.status.as_str() {
+            "online" => 1,
+            // 库里可能存在 abnormal / no_data 等值：都归到「非在线」一档，
+            // 同档时保留先遇到的那个原始值。
+            "offline" => 3,
+            _ => 2,
+        };
+        if worst.is_none_or(|(worst_rank, _)| rank > worst_rank) {
+            worst = Some((rank, member.status.as_str()));
+        }
+    }
+    worst.map(|(_, status)| status.to_string())
+}
+
+/// 根据节点（组内全部成员）状态与数据质量判定链级可用性；优先级见
+/// [`ChainStatus`]。
 fn chain_status(
     nodes: &[NodeView],
     missing_hops: &[i64],
     current_overall: Option<f64>,
     baseline_overall: Option<f64>,
 ) -> ChainStatus {
-    let mut first_offline: Option<&NodeView> = None;
+    let mut first_offline: Option<(&NodeView, &NodeMember)> = None;
     let mut unhealthy = false;
     for node in nodes.iter().filter(|node| node.role != "target") {
-        match node.status.as_deref() {
-            Some("online") => {}
-            Some("offline") => {
-                if first_offline.is_none() {
-                    first_offline = Some(node);
+        // 空组没有服务器可引用：不能当作「全部在线」。
+        if node.members.is_empty() {
+            unhealthy = true;
+            continue;
+        }
+        for member in &node.members {
+            match member.status.as_str() {
+                "online" => {}
+                "offline" => {
+                    // nodes 按组 seq 升序、members 按 (priority, server_id) 升序，
+                    // 所以第一台命中的就是「拓扑上最先遇到」的离线成员。
+                    if first_offline.is_none() {
+                        first_offline = Some((node, member));
+                    }
                 }
+                // `abnormal` / `no_data` 等库内值都算「非在线」：链路上有一台
+                // 状态不明就不能说这条链健康。
+                _ => unhealthy = true,
             }
-            // `abnormal` / `no_data` 等库内值，以及空组没有服务器可引用时的
-            // `null`，都算「非在线」：链路上有一台状态不明就不能说这条链健康。
-            _ => unhealthy = true,
         }
     }
-    if let Some(node) = first_offline {
+    if let Some((node, member)) = first_offline {
         return ChainStatus {
             kind: "blocked",
             cause: Some("node_offline"),
             node: Some(StatusNode {
                 seq: node.seq,
-                name: node.name.clone(),
+                name: member.name.clone(),
+                member_name: Some(member.name.clone()),
             }),
         };
     }
@@ -308,8 +371,8 @@ pub struct ChainHealth {
     pub entry: Option<Endpoint>,
     /// 链的终点：最后一个组里优先级最高的成员。没有任何成员时 null。
     pub exit: Option<Endpoint>,
-    /// 拓扑节点：每个组一个 + 末尾的链目标节点（`role = "target"`）。
-    /// 没有任何组的脏数据是空数组。
+    /// 拓扑节点：每个组一个（带全部成员与组级最差状态）+ 末尾的链目标节点
+    /// （`role = "target"`，成员为空）。没有任何组的脏数据是空数组。
     pub nodes: Vec<NodeView>,
     /// 存在多成员组（多路径），整体/逐段都是估算值。
     pub estimated: bool,
@@ -990,32 +1053,37 @@ impl Layout {
             });
         }
 
-        // 节点：每组取 (priority, server_id) 最小的成员，与 entry/exit 同口径；
-        // 多成员组的其他成员不展开，链级 estimated 说明这是估算。
+        // 节点：每个组一个，成员全部展开。组级 status 取最差成员；name 优先
+        // 用组名，组名为空回退代表成员名（与 entry/exit 同口径）。
         let mut nodes = Vec::with_capacity(groups.len() + 1);
-        for (index, members) in members.iter().enumerate() {
+        for (index, group_members) in members.iter().enumerate() {
             let role = if index == 0 { "source" } else { "hop" };
-            match members.first() {
-                Some(member) => nodes.push(NodeView {
-                    seq: group_seq[index],
-                    server_id: Some(member.id.clone()),
+            let node_members: Vec<NodeMember> = group_members
+                .iter()
+                .map(|member| NodeMember {
+                    server_id: member.id.clone(),
                     name: member.name.clone(),
-                    role,
-                    status: Some(member.status.clone()),
-                }),
-                // 空组没有服务器可引用：保留节点位置，状态未知。
-                None => nodes.push(NodeView {
-                    seq: group_seq[index],
-                    server_id: None,
-                    name: groups[index]
-                        .group
-                        .name
-                        .clone()
-                        .unwrap_or_else(|| format!("第 {} 跳", index + 1)),
-                    role,
-                    status: None,
-                }),
-            }
+                    status: member.status.clone(),
+                })
+                .collect();
+            let name = groups[index]
+                .group
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .map(str::to_string)
+                .or_else(|| group_members.first().map(|member| member.name.clone()))
+                .unwrap_or_else(|| format!("第 {} 跳", index + 1));
+            nodes.push(NodeView {
+                seq: group_seq[index],
+                server_id: group_members.first().map(|member| member.id.clone()),
+                name,
+                role,
+                status: group_status(&node_members),
+                member_count: node_members.len(),
+                members: node_members,
+            });
         }
         if let Some(seq) = final_hop_seq {
             nodes.push(NodeView {
@@ -1024,6 +1092,8 @@ impl Layout {
                 name: CHAIN_TARGET_NAME.to_string(),
                 role: "target",
                 status: None,
+                member_count: 0,
+                members: Vec::new(),
             });
         }
 
@@ -2724,7 +2794,8 @@ mod tests {
         assert_eq!(view.loss_pct, None);
     }
 
-    /// 拓扑节点：首组 source、中间/末组 hop、末尾 target；状态直取 servers.status。
+    /// 拓扑节点：首组 source、中间/末组 hop、末尾 target；组节点的状态是
+    /// 组内最差成员，成员全部展开。
     #[test]
     fn topology_nodes_carry_roles_and_server_status() {
         let mut hk = full_member("a", "香港-01", "203.0.113.11", None, 21_001, 0);
@@ -2752,6 +2823,8 @@ mod tests {
                     name: "香港-01".into(),
                     role: "source",
                     status: Some("online".into()),
+                    member_count: 1,
+                    members: vec![node_member("a", "香港-01", "online")],
                 },
                 NodeView {
                     seq: 1,
@@ -2759,6 +2832,8 @@ mod tests {
                     name: "东京-01".into(),
                     role: "hop",
                     status: Some("offline".into()),
+                    member_count: 1,
+                    members: vec![node_member("b", "东京-01", "offline")],
                 },
                 NodeView {
                     seq: 2,
@@ -2766,6 +2841,8 @@ mod tests {
                     name: "大阪-01".into(),
                     role: "hop",
                     status: Some("abnormal".into()),
+                    member_count: 1,
+                    members: vec![node_member("c", "大阪-01", "abnormal")],
                 },
                 NodeView {
                     seq: 3,
@@ -2773,6 +2850,8 @@ mod tests {
                     name: CHAIN_TARGET_NAME.into(),
                     role: "target",
                     status: None,
+                    member_count: 0,
+                    members: Vec::new(),
                 },
             ]
         );
@@ -2781,9 +2860,10 @@ mod tests {
         assert_eq!(view.exit.as_ref().unwrap().server_id, "c");
     }
 
-    /// 多成员组的节点取 `(priority, server_id)` 最小的成员（与 entry/exit 同口径）。
+    /// 多成员组的节点展开**全部**成员：顺序沿用 `(priority, server_id)`，
+    /// `member_count` 是成员数，`server_id` / `name` 仍取代表成员。
     #[test]
-    fn multi_member_nodes_pick_the_entry_exit_order_and_mark_estimated() {
+    fn multi_member_nodes_expand_every_member_in_priority_order() {
         let chain = topology(
             "c1",
             vec![
@@ -2793,12 +2873,13 @@ mod tests {
                     vec![
                         full_member("z", "Z", "10.0.0.1", None, 21_001, 0),
                         full_member("a", "A", "10.0.0.2", None, 21_002, 0),
+                        full_member("m", "M", "10.0.0.3", None, 21_003, 5),
                     ],
                 ),
                 (
                     1,
                     None,
-                    vec![full_member("b", "B", "10.0.0.3", None, 21_003, 0)],
+                    vec![full_member("b", "B", "10.0.0.4", None, 21_004, 0)],
                 ),
             ],
         );
@@ -2806,10 +2887,75 @@ mod tests {
         let view = &aggregate.chains[0];
         assert!(view.estimated);
         assert_eq!(view.nodes.len(), 3);
-        assert_eq!(view.nodes[0].server_id.as_deref(), Some("a"));
-        assert_eq!(view.nodes[0].role, "source");
-        assert_eq!(view.nodes[1].role, "hop");
+        let source = &view.nodes[0];
+        assert_eq!(source.server_id.as_deref(), Some("a"), "代表成员不变");
+        assert_eq!(source.name, "A", "组名不可用时回退代表成员名");
+        assert_eq!(source.role, "source");
+        assert_eq!(source.member_count, 3);
+        assert_eq!(
+            source.members,
+            vec![
+                node_member("a", "A", "online"),
+                node_member("z", "Z", "online"),
+                node_member("m", "M", "online"),
+            ],
+            "成员完整、按 (priority, server_id) 排序"
+        );
+        assert_eq!(view.nodes[1].member_count, 1);
         assert_eq!(view.nodes[2].role, "target");
+        assert_eq!(view.nodes[2].members, Vec::new());
+        assert_eq!(view.nodes[2].member_count, 0);
+    }
+
+    /// 组级状态取最差成员：offline > abnormal/no_data > online。
+    #[test]
+    fn a_group_status_is_the_worst_member_status() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![
+                        status_member("a", "A", "online", 21_001),
+                        status_member("b", "B", "abnormal", 21_002),
+                    ],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        status_member("c", "C", "no_data", 21_003),
+                        status_member("d", "D", "offline", 21_004),
+                    ],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(
+            view.nodes[0].status.as_deref(),
+            Some("abnormal"),
+            "online + abnormal → 取更差的 abnormal"
+        );
+        assert_eq!(
+            view.nodes[1].status.as_deref(),
+            Some("offline"),
+            "no_data + offline → offline 最差"
+        );
+        assert_eq!(
+            view.nodes[0].members[1].status, "abnormal",
+            "成员状态原样保留，不被组级状态覆盖"
+        );
+    }
+
+    /// 期望的成员节点：`(server_id, name, status)`。
+    fn node_member(server_id: &str, name: &str, status: &str) -> NodeMember {
+        NodeMember {
+            server_id: server_id.into(),
+            name: name.into(),
+            status: status.into(),
+        }
     }
 
     /// 指定服务器状态的成员：用于链级可用性判定。
@@ -2972,9 +3118,59 @@ mod tests {
             Some(StatusNode {
                 seq: 1,
                 name: "东京-01".into(),
+                member_name: Some("东京-01".into()),
             }),
             "两台都离线时取 seq 最小的第一台"
         );
+    }
+
+    /// 多成员组里第二台成员离线：链必须 blocked，并点名那台成员（不是代表成员）。
+    #[test]
+    fn an_offline_second_member_blocks_the_chain_and_names_that_member() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        status_member("b1", "东京-01", "online", 21_002),
+                        status_member("b2", "东京-02", "offline", 21_003),
+                    ],
+                ),
+            ],
+        );
+        let ts = end_at(NOW, BUCKET) - 60;
+        // 在线成员的样本齐全：不能是因为缺样本才判 degraded。
+        let samples = vec![
+            sample(ts, "a", forward("c1", 0, "a", 1), "b1", 10),
+            sample(ts, "b1", forward("c1", 1, "b1", 2), "", 5),
+        ];
+        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert!(view.missing_hops.is_empty(), "在线成员的样本足够完整");
+        assert_eq!(view.status.kind, "blocked");
+        assert_eq!(view.status.cause, Some("node_offline"));
+        assert_eq!(
+            view.status.node,
+            Some(StatusNode {
+                seq: 1,
+                name: "东京-02".into(),
+                member_name: Some("东京-02".into()),
+            }),
+            "点名第二台成员，而不是代表成员 b1"
+        );
+        assert_eq!(
+            view.nodes[1].status.as_deref(),
+            Some("offline"),
+            "组级状态取最差成员"
+        );
+        assert_eq!(view.nodes[1].member_count, 2);
     }
 
     /// 节点在线、但当前窗口没有任何完整整体样本，且有断点 → `degraded` / `no_samples`。
@@ -3072,6 +3268,7 @@ mod tests {
             Some(StatusNode {
                 seq: 2,
                 name: "大阪-01".into(),
+                member_name: Some("大阪-01".into()),
             })
         );
     }

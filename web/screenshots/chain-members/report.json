@@ -1,0 +1,980 @@
+{
+  "generatedAt": "2026-11-24T13:46:44.169Z",
+  "base": "http://127.0.0.1:5173",
+  "chains": {
+    "mixed": "c0ffee00-0006-4000-8000-000000000601",
+    "estimated": "c0ffee00-0006-4000-8000-000000000603"
+  },
+  "injections": {
+    "nodes": "两组节点的 members[] / member_count / 成员状态（覆盖双成员一在线一离线与 3+ 折叠）",
+    "legacy": "第三条链剥掉 members / member_count，模拟旧契约的单节点回退",
+    "untouched": "series / 段时延 / 窗口丢包 / entry / exit / 链状态徽章 / estimated 均来自真实接口"
+  },
+  "viewports": [
+    1440,
+    390
+  ],
+  "themes": [
+    "dark",
+    "light"
+  ],
+  "results": [
+    {
+      "name": "mixed 1440 dark: node labels / heights / member rows",
+      "ok": false,
+      "detail": "mixed 1440 dark: node 0 height\n\n53 !== 56\n"
+    },
+    {
+      "name": "mixed 1440 dark: member row count matches member_count (<=2 rows)",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "mixed 1440 dark: member dot colors (green breathing / red / grey)",
+      "ok": true,
+      "detail": {
+        "dual": [
+          {
+            "name": "东京-01",
+            "status": "online",
+            "tone": "online",
+            "dot": {
+              "background": "oklch(0.73 0.16 152)",
+              "animation": "status-breathe"
+            }
+          },
+          {
+            "name": "东京-02",
+            "status": "offline",
+            "tone": "fault",
+            "dot": {
+              "background": "oklch(0.62 0.2 25)",
+              "animation": "none"
+            }
+          }
+        ],
+        "triple": [
+          {
+            "name": "新加坡-01",
+            "status": "online",
+            "tone": "online",
+            "dot": {
+              "background": "oklch(0.73 0.16 152)",
+              "animation": "status-breathe"
+            }
+          },
+          {
+            "name": "新加坡-02",
+            "status": "none",
+            "tone": "unknown",
+            "dot": {
+              "background": "oklch(0.7 0.015 285)",
+              "animation": "none"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed 1440 dark: group dot uses the worst member",
+      "ok": true,
+      "detail": [
+        "online",
+        "fault",
+        "fault",
+        "fault",
+        null
+      ]
+    },
+    {
+      "name": "mixed 1440 dark: chain status badge shows blocked",
+      "ok": true,
+      "detail": {
+        "state": "blocked",
+        "text": "阻断 · 大阪-01 离线"
+      }
+    },
+    {
+      "name": "mixed 1440 dark: no estimated badge when the contract does not say so",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "mixed 1440 dark: single-member segments are not marked estimated",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "missing": false,
+          "estimated": false,
+          "latency": "16 ms",
+          "loss": "0.1%",
+          "title": "16 ms · 0.1%"
+        },
+        {
+          "seq": 2,
+          "missing": false,
+          "estimated": false,
+          "latency": "22 ms",
+          "loss": "2.9%",
+          "title": "22 ms · 2.9%"
+        },
+        {
+          "seq": 3,
+          "missing": false,
+          "estimated": false,
+          "latency": "33 ms",
+          "loss": "—",
+          "title": "33 ms · —"
+        },
+        {
+          "seq": 4,
+          "missing": false,
+          "estimated": false,
+          "latency": "8 ms",
+          "loss": "—",
+          "title": "8 ms · —"
+        }
+      ]
+    },
+    {
+      "name": "mixed 1440 dark: no horizontal overflow",
+      "ok": true,
+      "detail": {
+        "topologyOverflow": 0,
+        "pageOverflow": 0
+      }
+    },
+    {
+      "name": "estimated 1440 dark: only segments touching a multi-member group get ≈",
+      "ok": true,
+      "detail": {
+        "first": {
+          "seq": 1,
+          "missing": false,
+          "estimated": true,
+          "latency": "15 ms ≈",
+          "loss": "0.1%",
+          "title": "15 ms ≈ · 0.1% · 多路径估算"
+        },
+        "second": {
+          "seq": 2,
+          "missing": false,
+          "estimated": true,
+          "latency": "23.5 ms ≈",
+          "loss": "—",
+          "title": "23.5 ms ≈ · — · 多路径估算"
+        },
+        "last": {
+          "seq": 3,
+          "missing": false,
+          "estimated": false,
+          "latency": "6 ms",
+          "loss": "—",
+          "title": "6 ms · —"
+        }
+      }
+    },
+    {
+      "name": "estimated 1440 dark: estimated badge explains multi-path medians",
+      "ok": true,
+      "detail": {
+        "text": "估算",
+        "title": "多路径链路，按各跳中位数求和，为估算值"
+      }
+    },
+    {
+      "name": "estimated 1440 dark: dual-member group is red, target is dashed",
+      "ok": true,
+      "detail": {
+        "hop": "HOP 1",
+        "target": "TARGET"
+      }
+    },
+    {
+      "name": "legacy 1440 dark: nodes without members look like single nodes",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "name": "香港入口",
+          "height": 56,
+          "rows": 0
+        },
+        {
+          "label": "HOP 1",
+          "name": "新加坡出口",
+          "height": 56,
+          "rows": 0
+        },
+        {
+          "label": "TARGET",
+          "name": "链目标",
+          "height": 56,
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "name": "legacy 1440 dark: topology and page fit the viewport",
+      "ok": true,
+      "detail": {
+        "topologyOverflow": 0,
+        "pageOverflow": 0
+      }
+    },
+    {
+      "name": "mixed 1440 light: node labels / heights / member rows",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "name": "香港入口",
+          "height": 56,
+          "memberCount": 1,
+          "rows": 0,
+          "count": null,
+          "more": null
+        },
+        {
+          "label": "HOP 1",
+          "name": "东京中转",
+          "height": 72,
+          "memberCount": 2,
+          "rows": 2,
+          "count": "2 台",
+          "more": null
+        },
+        {
+          "label": "HOP 2",
+          "name": "新加坡中转",
+          "height": 88,
+          "memberCount": 3,
+          "rows": 2,
+          "count": "3 台",
+          "more": "+1"
+        },
+        {
+          "label": "HOP 3",
+          "name": "大阪出口",
+          "height": 56,
+          "memberCount": 1,
+          "rows": 0,
+          "count": null,
+          "more": null
+        },
+        {
+          "label": "TARGET",
+          "name": "链目标",
+          "height": 56,
+          "memberCount": 0,
+          "rows": 0,
+          "count": null,
+          "more": null
+        }
+      ]
+    },
+    {
+      "name": "mixed 1440 light: member row count matches member_count (<=2 rows)",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "mixed 1440 light: member dot colors (green breathing / red / grey)",
+      "ok": true,
+      "detail": {
+        "dual": [
+          {
+            "name": "东京-01",
+            "status": "online",
+            "tone": "online",
+            "dot": {
+              "background": "oklch(0.52 0.14 152)",
+              "animation": "status-breathe"
+            }
+          },
+          {
+            "name": "东京-02",
+            "status": "offline",
+            "tone": "fault",
+            "dot": {
+              "background": "oklch(0.57 0.208 25.3)",
+              "animation": "none"
+            }
+          }
+        ],
+        "triple": [
+          {
+            "name": "新加坡-01",
+            "status": "online",
+            "tone": "online",
+            "dot": {
+              "background": "oklch(0.52 0.14 152)",
+              "animation": "status-breathe"
+            }
+          },
+          {
+            "name": "新加坡-02",
+            "status": "none",
+            "tone": "unknown",
+            "dot": {
+              "background": "oklch(0.52 0.035 265.1)",
+              "animation": "none"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed 1440 light: group dot uses the worst member",
+      "ok": true,
+      "detail": [
+        "online",
+        "fault",
+        "fault",
+        "fault",
+        null
+      ]
+    },
+    {
+      "name": "mixed 1440 light: chain status badge shows blocked",
+      "ok": true,
+      "detail": {
+        "state": "blocked",
+        "text": "阻断 · 大阪-01 离线"
+      }
+    },
+    {
+      "name": "mixed 1440 light: no estimated badge when the contract does not say so",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "mixed 1440 light: single-member segments are not marked estimated",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "missing": false,
+          "estimated": false,
+          "latency": "16 ms",
+          "loss": "0.1%",
+          "title": "16 ms · 0.1%"
+        },
+        {
+          "seq": 2,
+          "missing": false,
+          "estimated": false,
+          "latency": "22 ms",
+          "loss": "2.9%",
+          "title": "22 ms · 2.9%"
+        },
+        {
+          "seq": 3,
+          "missing": false,
+          "estimated": false,
+          "latency": "33 ms",
+          "loss": "—",
+          "title": "33 ms · —"
+        },
+        {
+          "seq": 4,
+          "missing": false,
+          "estimated": false,
+          "latency": "8 ms",
+          "loss": "—",
+          "title": "8 ms · —"
+        }
+      ]
+    },
+    {
+      "name": "mixed 1440 light: no horizontal overflow",
+      "ok": true,
+      "detail": {
+        "topologyOverflow": 0,
+        "pageOverflow": 0
+      }
+    },
+    {
+      "name": "estimated 1440 light: only segments touching a multi-member group get ≈",
+      "ok": true,
+      "detail": {
+        "first": {
+          "seq": 1,
+          "missing": false,
+          "estimated": true,
+          "latency": "15 ms ≈",
+          "loss": "0.1%",
+          "title": "15 ms ≈ · 0.1% · 多路径估算"
+        },
+        "second": {
+          "seq": 2,
+          "missing": false,
+          "estimated": true,
+          "latency": "23.5 ms ≈",
+          "loss": "—",
+          "title": "23.5 ms ≈ · — · 多路径估算"
+        },
+        "last": {
+          "seq": 3,
+          "missing": false,
+          "estimated": false,
+          "latency": "6 ms",
+          "loss": "—",
+          "title": "6 ms · —"
+        }
+      }
+    },
+    {
+      "name": "estimated 1440 light: estimated badge explains multi-path medians",
+      "ok": true,
+      "detail": {
+        "text": "估算",
+        "title": "多路径链路，按各跳中位数求和，为估算值"
+      }
+    },
+    {
+      "name": "estimated 1440 light: dual-member group is red, target is dashed",
+      "ok": true,
+      "detail": {
+        "hop": "HOP 1",
+        "target": "TARGET"
+      }
+    },
+    {
+      "name": "legacy 1440 light: nodes without members look like single nodes",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "name": "香港入口",
+          "height": 56,
+          "rows": 0
+        },
+        {
+          "label": "HOP 1",
+          "name": "新加坡出口",
+          "height": 56,
+          "rows": 0
+        },
+        {
+          "label": "TARGET",
+          "name": "链目标",
+          "height": 56,
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "name": "legacy 1440 light: topology and page fit the viewport",
+      "ok": true,
+      "detail": {
+        "topologyOverflow": 0,
+        "pageOverflow": 0
+      }
+    },
+    {
+      "name": "mixed 390 dark: node labels / heights / member rows",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "name": "香港入口",
+          "height": 56,
+          "memberCount": 1,
+          "rows": 0,
+          "count": null,
+          "more": null
+        },
+        {
+          "label": "HOP 1",
+          "name": "东京中转",
+          "height": 72,
+          "memberCount": 2,
+          "rows": 2,
+          "count": "2 台",
+          "more": null
+        },
+        {
+          "label": "HOP 2",
+          "name": "新加坡中转",
+          "height": 88,
+          "memberCount": 3,
+          "rows": 2,
+          "count": "3 台",
+          "more": "+1"
+        },
+        {
+          "label": "HOP 3",
+          "name": "大阪出口",
+          "height": 56,
+          "memberCount": 1,
+          "rows": 0,
+          "count": null,
+          "more": null
+        },
+        {
+          "label": "TARGET",
+          "name": "链目标",
+          "height": 56,
+          "memberCount": 0,
+          "rows": 0,
+          "count": null,
+          "more": null
+        }
+      ]
+    },
+    {
+      "name": "mixed 390 dark: member row count matches member_count (<=2 rows)",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "mixed 390 dark: member dot colors (green breathing / red / grey)",
+      "ok": true,
+      "detail": {
+        "dual": [
+          {
+            "name": "东京-01",
+            "status": "online",
+            "tone": "online",
+            "dot": {
+              "background": "oklch(0.73 0.16 152)",
+              "animation": "status-breathe"
+            }
+          },
+          {
+            "name": "东京-02",
+            "status": "offline",
+            "tone": "fault",
+            "dot": {
+              "background": "oklch(0.62 0.2 25)",
+              "animation": "none"
+            }
+          }
+        ],
+        "triple": [
+          {
+            "name": "新加坡-01",
+            "status": "online",
+            "tone": "online",
+            "dot": {
+              "background": "oklch(0.73 0.16 152)",
+              "animation": "status-breathe"
+            }
+          },
+          {
+            "name": "新加坡-02",
+            "status": "none",
+            "tone": "unknown",
+            "dot": {
+              "background": "oklch(0.7 0.015 285)",
+              "animation": "none"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed 390 dark: group dot uses the worst member",
+      "ok": true,
+      "detail": [
+        "online",
+        "fault",
+        "fault",
+        "fault",
+        null
+      ]
+    },
+    {
+      "name": "mixed 390 dark: chain status badge shows blocked",
+      "ok": true,
+      "detail": {
+        "state": "blocked",
+        "text": "阻断 · 大阪-01 离线"
+      }
+    },
+    {
+      "name": "mixed 390 dark: no estimated badge when the contract does not say so",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "mixed 390 dark: single-member segments are not marked estimated",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "missing": false,
+          "estimated": false,
+          "latency": "16 ms",
+          "loss": "0.1%",
+          "title": "16 ms · 0.1%"
+        },
+        {
+          "seq": 2,
+          "missing": false,
+          "estimated": false,
+          "latency": "22 ms",
+          "loss": "2.9%",
+          "title": "22 ms · 2.9%"
+        },
+        {
+          "seq": 3,
+          "missing": false,
+          "estimated": false,
+          "latency": "33 ms",
+          "loss": "—",
+          "title": "33 ms · —"
+        },
+        {
+          "seq": 4,
+          "missing": false,
+          "estimated": false,
+          "latency": "8 ms",
+          "loss": "—",
+          "title": "8 ms · —"
+        }
+      ]
+    },
+    {
+      "name": "mixed 390 dark: no horizontal overflow",
+      "ok": true,
+      "detail": {
+        "topologyOverflow": 538,
+        "pageOverflow": 0
+      }
+    },
+    {
+      "name": "estimated 390 dark: only segments touching a multi-member group get ≈",
+      "ok": true,
+      "detail": {
+        "first": {
+          "seq": 1,
+          "missing": false,
+          "estimated": true,
+          "latency": "15 ms ≈",
+          "loss": "0.1%",
+          "title": "15 ms ≈ · 0.1% · 多路径估算"
+        },
+        "second": {
+          "seq": 2,
+          "missing": false,
+          "estimated": true,
+          "latency": "23.5 ms ≈",
+          "loss": "—",
+          "title": "23.5 ms ≈ · — · 多路径估算"
+        },
+        "last": {
+          "seq": 3,
+          "missing": false,
+          "estimated": false,
+          "latency": "6 ms",
+          "loss": "—",
+          "title": "6 ms · —"
+        }
+      }
+    },
+    {
+      "name": "estimated 390 dark: estimated badge explains multi-path medians",
+      "ok": true,
+      "detail": {
+        "text": "估算",
+        "title": "多路径链路，按各跳中位数求和，为估算值"
+      }
+    },
+    {
+      "name": "estimated 390 dark: dual-member group is red, target is dashed",
+      "ok": true,
+      "detail": {
+        "hop": "HOP 1",
+        "target": "TARGET"
+      }
+    },
+    {
+      "name": "legacy 390 dark: nodes without members look like single nodes",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "name": "香港入口",
+          "height": 56,
+          "rows": 0
+        },
+        {
+          "label": "HOP 1",
+          "name": "新加坡出口",
+          "height": 56,
+          "rows": 0
+        },
+        {
+          "label": "TARGET",
+          "name": "链目标",
+          "height": 56,
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "name": "legacy 390 dark: topology and page fit the viewport",
+      "ok": true,
+      "detail": {
+        "topologyOverflow": 154,
+        "pageOverflow": 0
+      }
+    },
+    {
+      "name": "mixed 390 light: node labels / heights / member rows",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "name": "香港入口",
+          "height": 56,
+          "memberCount": 1,
+          "rows": 0,
+          "count": null,
+          "more": null
+        },
+        {
+          "label": "HOP 1",
+          "name": "东京中转",
+          "height": 72,
+          "memberCount": 2,
+          "rows": 2,
+          "count": "2 台",
+          "more": null
+        },
+        {
+          "label": "HOP 2",
+          "name": "新加坡中转",
+          "height": 88,
+          "memberCount": 3,
+          "rows": 2,
+          "count": "3 台",
+          "more": "+1"
+        },
+        {
+          "label": "HOP 3",
+          "name": "大阪出口",
+          "height": 56,
+          "memberCount": 1,
+          "rows": 0,
+          "count": null,
+          "more": null
+        },
+        {
+          "label": "TARGET",
+          "name": "链目标",
+          "height": 56,
+          "memberCount": 0,
+          "rows": 0,
+          "count": null,
+          "more": null
+        }
+      ]
+    },
+    {
+      "name": "mixed 390 light: member row count matches member_count (<=2 rows)",
+      "ok": true,
+      "detail": "ok"
+    },
+    {
+      "name": "mixed 390 light: member dot colors (green breathing / red / grey)",
+      "ok": true,
+      "detail": {
+        "dual": [
+          {
+            "name": "东京-01",
+            "status": "online",
+            "tone": "online",
+            "dot": {
+              "background": "oklch(0.52 0.14 152)",
+              "animation": "status-breathe"
+            }
+          },
+          {
+            "name": "东京-02",
+            "status": "offline",
+            "tone": "fault",
+            "dot": {
+              "background": "oklch(0.57 0.208 25.3)",
+              "animation": "none"
+            }
+          }
+        ],
+        "triple": [
+          {
+            "name": "新加坡-01",
+            "status": "online",
+            "tone": "online",
+            "dot": {
+              "background": "oklch(0.52 0.14 152)",
+              "animation": "status-breathe"
+            }
+          },
+          {
+            "name": "新加坡-02",
+            "status": "none",
+            "tone": "unknown",
+            "dot": {
+              "background": "oklch(0.52 0.035 265.1)",
+              "animation": "none"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "mixed 390 light: group dot uses the worst member",
+      "ok": true,
+      "detail": [
+        "online",
+        "fault",
+        "fault",
+        "fault",
+        null
+      ]
+    },
+    {
+      "name": "mixed 390 light: chain status badge shows blocked",
+      "ok": true,
+      "detail": {
+        "state": "blocked",
+        "text": "阻断 · 大阪-01 离线"
+      }
+    },
+    {
+      "name": "mixed 390 light: no estimated badge when the contract does not say so",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "mixed 390 light: single-member segments are not marked estimated",
+      "ok": true,
+      "detail": [
+        {
+          "seq": 1,
+          "missing": false,
+          "estimated": false,
+          "latency": "16 ms",
+          "loss": "0.1%",
+          "title": "16 ms · 0.1%"
+        },
+        {
+          "seq": 2,
+          "missing": false,
+          "estimated": false,
+          "latency": "22 ms",
+          "loss": "2.9%",
+          "title": "22 ms · 2.9%"
+        },
+        {
+          "seq": 3,
+          "missing": false,
+          "estimated": false,
+          "latency": "33 ms",
+          "loss": "—",
+          "title": "33 ms · —"
+        },
+        {
+          "seq": 4,
+          "missing": false,
+          "estimated": false,
+          "latency": "8 ms",
+          "loss": "—",
+          "title": "8 ms · —"
+        }
+      ]
+    },
+    {
+      "name": "mixed 390 light: no horizontal overflow",
+      "ok": true,
+      "detail": {
+        "topologyOverflow": 538,
+        "pageOverflow": 0
+      }
+    },
+    {
+      "name": "estimated 390 light: only segments touching a multi-member group get ≈",
+      "ok": true,
+      "detail": {
+        "first": {
+          "seq": 1,
+          "missing": false,
+          "estimated": true,
+          "latency": "15 ms ≈",
+          "loss": "0.1%",
+          "title": "15 ms ≈ · 0.1% · 多路径估算"
+        },
+        "second": {
+          "seq": 2,
+          "missing": false,
+          "estimated": true,
+          "latency": "23.5 ms ≈",
+          "loss": "—",
+          "title": "23.5 ms ≈ · — · 多路径估算"
+        },
+        "last": {
+          "seq": 3,
+          "missing": false,
+          "estimated": false,
+          "latency": "6 ms",
+          "loss": "—",
+          "title": "6 ms · —"
+        }
+      }
+    },
+    {
+      "name": "estimated 390 light: estimated badge explains multi-path medians",
+      "ok": true,
+      "detail": {
+        "text": "估算",
+        "title": "多路径链路，按各跳中位数求和，为估算值"
+      }
+    },
+    {
+      "name": "estimated 390 light: dual-member group is red, target is dashed",
+      "ok": true,
+      "detail": {
+        "hop": "HOP 1",
+        "target": "TARGET"
+      }
+    },
+    {
+      "name": "legacy 390 light: nodes without members look like single nodes",
+      "ok": true,
+      "detail": [
+        {
+          "label": "SOURCE",
+          "name": "香港入口",
+          "height": 56,
+          "rows": 0
+        },
+        {
+          "label": "HOP 1",
+          "name": "新加坡出口",
+          "height": 56,
+          "rows": 0
+        },
+        {
+          "label": "TARGET",
+          "name": "链目标",
+          "height": 56,
+          "rows": 0
+        }
+      ]
+    },
+    {
+      "name": "legacy 390 light: topology and page fit the viewport",
+      "ok": true,
+      "detail": {
+        "topologyOverflow": 154,
+        "pageOverflow": 0
+      }
+    }
+  ],
+  "failures": [
+    "mixed 1440 dark: node labels / heights / member rows: mixed 1440 dark: node 0 height\n\n53 !== 56\n"
+  ]
+}

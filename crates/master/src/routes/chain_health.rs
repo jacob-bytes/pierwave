@@ -17,9 +17,10 @@
 //! 最后一跳（最后一组 → 链目标）与中间段同形：Agent 对最后一组的 forward
 //! 目标就是链目标，探测样本的 `target_server_id` 为空；主控按「源成员 ∈ 最后
 //! 一组」把它归到 `seq = 最后一组 seq + 1` 的段，`missing_hops` 只在确实没有
-//! 样本时才列这一跳。`chains[].nodes` 额外给出拓扑节点（组 → 成员 +
-//! 链目标），`entry` / `exit` 保留；`chains[].status` 把节点状态与数据质量
-//! 合成为 `ok` / `degraded` / `blocked`（优先级见领域层 `ChainStatus`）。
+//! 样本时才列这一跳。`chains[].nodes` 额外给出拓扑节点（每个组的**全部**
+//! 成员 + 链目标，组级 `status` 取最差成员），`entry` / `exit` 保留；
+//! `chains[].status` 把**每个成员**的状态与数据质量合成为
+//! `ok` / `degraded` / `blocked`（优先级见领域层 `ChainStatus`）。
 //!
 //! `server_ids` 与 `/api/v1/overview`、`/overview/server-health` **完全同语义**：
 //! 不传 = 全部；空数组 = 空结果；未知 id 忽略并进 `warnings.unknown_ids`；
@@ -530,22 +531,37 @@ mod tests {
             "整体 p50 含最后一跳"
         );
         // nodes：首组 source、末组 hop、链目标 target（server_id/status 为 null）。
+        // 组节点带全部成员与组级最差状态；`name` 优先用组名（这里由 helper 设成
+        // hop-N），`server_id` 仍是代表成员。
         let nodes = body["chains"][0]["nodes"].as_array().unwrap();
         assert_eq!(nodes.len(), 3);
         assert_eq!(nodes[0]["seq"], 0);
         assert_eq!(nodes[0]["server_id"], a);
-        assert_eq!(nodes[0]["name"], "香港-01");
+        assert_eq!(nodes[0]["name"], "hop-0");
         assert_eq!(nodes[0]["role"], "source");
         assert_eq!(nodes[0]["status"], "online");
+        assert_eq!(nodes[0]["member_count"], 1);
+        assert_eq!(
+            nodes[0]["members"],
+            json!([{ "server_id": a, "name": "香港-01", "status": "online" }])
+        );
         assert_eq!(nodes[1]["seq"], 1);
         assert_eq!(nodes[1]["server_id"], b);
+        assert_eq!(nodes[1]["name"], "hop-1");
         assert_eq!(nodes[1]["role"], "hop");
         assert_eq!(nodes[1]["status"], "offline");
+        assert_eq!(nodes[1]["member_count"], 1);
+        assert_eq!(
+            nodes[1]["members"],
+            json!([{ "server_id": b, "name": "东京-01", "status": "offline" }])
+        );
         assert_eq!(nodes[2]["seq"], 2);
         assert_eq!(nodes[2]["server_id"], Value::Null);
         assert_eq!(nodes[2]["name"], "链目标");
         assert_eq!(nodes[2]["role"], "target");
         assert_eq!(nodes[2]["status"], Value::Null);
+        assert_eq!(nodes[2]["member_count"], 0);
+        assert_eq!(nodes[2]["members"], json!([]));
         // 既有 entry / exit 字段保留。
         assert_eq!(body["chains"][0]["entry"]["server_id"], a);
         assert_eq!(body["chains"][0]["exit"]["server_id"], b);
@@ -597,6 +613,7 @@ mod tests {
         assert_eq!(blocked["status"]["cause"], "node_offline");
         assert_eq!(blocked["status"]["node"]["seq"], 1);
         assert_eq!(blocked["status"]["node"]["name"], "东京-01");
+        assert_eq!(blocked["status"]["node"]["member_name"], "东京-01");
 
         let degraded = find("港新链");
         assert_eq!(degraded["status"]["kind"], "degraded");
@@ -761,16 +778,70 @@ mod tests {
             view["exit"]["address"],
             format!("198.51.100.21:{exit_port}")
         );
-        // nodes：多成员组取 priority 最小的 b，其他成员不展开；末尾是链目标。
+        // nodes：多成员组展开全部成员（顺序 = priority 0 的 b、1 的 c），
+        // `server_id` 仍是代表成员；组级 status 取最差成员。
         let nodes = view["nodes"].as_array().unwrap();
         assert_eq!(nodes.len(), 3);
         assert_eq!(nodes[1]["server_id"], b);
         assert_eq!(nodes[1]["role"], "hop");
+        assert_eq!(nodes[1]["member_count"], 2);
+        assert_eq!(
+            nodes[1]["members"],
+            json!([
+                { "server_id": b, "name": "东京-01", "status": "offline" },
+                { "server_id": c, "name": "东京-02", "status": "offline" },
+            ])
+        );
+        assert_eq!(nodes[1]["status"], "offline", "两台都离线 → 组级 offline");
         assert_eq!(nodes[2]["role"], "target");
         assert_eq!(nodes[2]["server_id"], Value::Null);
         assert_eq!(nodes[2]["status"], Value::Null);
+        assert_eq!(nodes[2]["member_count"], 0);
+        assert_eq!(nodes[2]["members"], json!([]));
         assert_eq!(view["missing_hops"], json!([2]));
         assert_eq!(view["segments"].as_array().unwrap().len(), 2);
+    }
+
+    /// 多成员组的第二台成员离线：链必须 blocked，并点名该成员（不是代表成员）。
+    #[tokio::test]
+    async fn chain_health_blocks_when_the_second_member_of_a_group_is_offline() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "203.0.113.11").await;
+        let b = server(pool, "东京-01", "198.51.100.21").await;
+        let c = server(pool, "东京-02", "198.51.100.22").await;
+        servers::mark_online(pool, &a).await.unwrap();
+        servers::mark_online(pool, &b).await.unwrap();
+        // c 不标记在线：默认 offline。
+        let chain_id = chain(pool, "港日多路径", vec![vec![&a], vec![&b, &c]]).await;
+        let ts = end_at(repo::now(), 900) - 60;
+        // 在线成员的样本完整：blocked 不能是因为缺样本。
+        latency::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), &b, 10)
+            .await
+            .unwrap();
+        latency::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 2), "", 5)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let view = &body["chains"][0];
+        assert_eq!(view["missing_hops"], json!([]), "在线成员的数据完整");
+        assert_eq!(view["status"]["kind"], "blocked");
+        assert_eq!(view["status"]["cause"], "node_offline");
+        assert_eq!(view["status"]["node"]["seq"], 1);
+        assert_eq!(view["status"]["node"]["name"], "东京-02");
+        assert_eq!(view["status"]["node"]["member_name"], "东京-02");
+        let nodes = view["nodes"].as_array().unwrap();
+        assert_eq!(nodes[1]["status"], "offline", "组级状态取最差成员");
+        assert_eq!(nodes[1]["member_count"], 2);
+        assert_eq!(nodes[1]["members"][0]["status"], "online");
+        assert_eq!(nodes[1]["members"][1]["status"], "offline");
     }
 
     /// 筛选命中中转服务器时链被保留，但起点/终点仍是原链的第一/最后一组。

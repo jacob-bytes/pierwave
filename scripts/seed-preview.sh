@@ -6,9 +6,11 @@
 #
 # 数据形态（10 台主机，故意混合状态，让探针页与后台都像真实使用）：
 #   4 台在线（Agent + Xray 都正常）
-#   2 台异常（Agent 在线、Xray 未运行）
-#   3 台离线（其中 1 台 2 小时前掉线、1 台 3 小时前掉线、1 台已离线两天）
+#   1 台异常（Agent 在线、Xray 未运行）
+#   4 台离线（其中 2 台 2 小时前掉线、1 台 3 小时前掉线、1 台已离线两天）
 #   1 台从未上报（无采集数据，探针卡片显示「从未上报 / 暂无采样」）
+# 2 台 2 小时前掉线的是大阪-01 与东京-02：前者演示「出口掉线」，
+# 后者是港日多路径中间组的**第二台成员**，演示「多成员组里非代表成员离线」。
 # 每台 1–3 个节点，另有用户、套餐实例、订阅、转发与 7 天流量/可用率采样。
 #
 # 幂等：主机与转发用固定 id + 事务内先删后插；用户/套餐/订阅用固定 id +
@@ -146,8 +148,8 @@ WITH seed(
    6048000, 52, 'Ubuntu', '24.04', 'kvm', 'x86_64', 'JP', '日本',
    2726297.6, 838860.8, 412345678901, 123456789012, 'ok', NULL, 1, 1, 1,
    'eth0', '10.0.0.21', '[{"name":"eth0","addresses":["198.51.100.21"]}]'),
-  -- 东京 02：Agent 在线，Xray 启动失败（异常 / 降级）
-  ('c0ffee00-0000-4000-8000-000000000005', '东京-02', '198.51.100.22', 'preview-token-jp-02', 'online', -86458, 9, 25,
+  -- 东京 02：2 小时前掉线（港日多路径中间组的第二台成员，演示多成员 + 阻断）
+  ('c0ffee00-0000-4000-8000-000000000005', '东京-02', '198.51.100.22', 'preview-token-jp-02', 'offline', 7200, 9, 25,
    '0.9.3', 0, 1, 0.93, 6549825126, 17179869184, 128849018880, 343597383680,
    1728000, 49, 'Debian GNU/Linux', '12', 'kvm', 'x86_64', 'JP', '日本',
    0.0, 0.0, 198765432109, 45678901234, 'failed', 'xray.service 启动失败：exit status 1', 1, 1, 1,
@@ -465,9 +467,13 @@ WHERE id LIKE 'c0ffee00-0005-%';
 --   港日中转链   4 组 / 4 段：香港-01 → 东京-01 → 新加坡-01 → 大阪-01 → 链目标
 --   港新直达链   2 组 / 2 段：香港-02 → 新加坡-02 → 链目标
 --   港日多路径   3 组 / 3 段：香港-01 → (东京-01 / 东京-02) → 大阪-01 → 链目标
+--                 中间组（seq 1）有两台成员：东京-01 在线、东京-02 离线。
+--                 这是「组级状态取最差成员、非代表成员离线也要 blocked」的
+--                 预览证据；链级 status 会点名 seq 1 的东京-02。
 --
--- 大阪-01 在 2 小时前掉线（servers.status = offline），所以「离线后不再有
--- 数据」必须是真的：只为它写掉线之前的时延 / 探测样本，掉线之后一行都不写。
+-- 大阪-01 与东京-02 都在 2 小时前掉线（servers.status = offline），所以
+-- 「离线后不再有数据」必须是真的：只为它们写掉线之前的时延 / 探测样本，
+-- 掉线之后一行都不写。
 -- 具体到港日中转链：
 --   * 第 3 段（新加坡-01 → 大阪-01，源是新加坡-01）与最后一跳
 --     （大阪-01 → 链目标，源是大阪-01）都只写到 ~2h 前，最近 2 小时的当前
@@ -550,7 +556,8 @@ SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS IN
        35 + (slots.n % 4)
 FROM slots
 UNION ALL
--- 港日多路径：入口单成员 → 东京两台，Agent 会上报真实目标 id
+-- 港日多路径：入口单成员 → 东京两台，Agent 会上报真实目标 id。
+-- 东京-01 在线，造满 24h；东京-02 在 2h 前掉线，目标为它的样本只写到掉线前。
 SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS INTEGER) % 300) - slots.n * 300), 'c0ffee00-0000-4000-8000-000000000001',
        'chain-c0ffee00-0006-4000-8000-000000000603-0',
        'c0ffee00-0000-4000-8000-000000000004',
@@ -562,6 +569,7 @@ SELECT ((CAST(strftime('%s','now') AS INTEGER) - CAST(strftime('%s','now') AS IN
        'c0ffee00-0000-4000-8000-000000000005',
        15 + (slots.n % 4)
 FROM slots
+WHERE slots.n >= 24
 UNION ALL
 -- 多路径第 2 段：东京两台各自上报，target 是单成员大阪 → 空目标。
 -- 大阪-01 已离线，所以只写到掉线之前（n >= 24），不再探测一台离线的机器。
@@ -736,6 +744,8 @@ SELECT
       THEN CASE WHEN slots.n BETWEEN 480 AND 492 THEN 0 ELSE 1 END
     WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000003'
       THEN CASE WHEN slots.n < 12 THEN 0 ELSE 1 END
+    WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000005'
+      THEN CASE WHEN slots.n < 8 THEN 0 ELSE 1 END
     WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000006'
       THEN CASE WHEN slots.n < 8 THEN 0 ELSE 1 END
     WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000008'
@@ -750,6 +760,8 @@ SELECT
         THEN CASE WHEN slots.n BETWEEN 480 AND 492 THEN 0 ELSE 1 END
       WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000003'
         THEN CASE WHEN slots.n < 12 THEN 0 ELSE 1 END
+      WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000005'
+        THEN CASE WHEN slots.n < 8 THEN 0 ELSE 1 END
       WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000006'
         THEN CASE WHEN slots.n < 8 THEN 0 ELSE 1 END
       WHEN servers.id = 'c0ffee00-0000-4000-8000-000000000008'
