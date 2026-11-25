@@ -249,7 +249,7 @@ export function ChainTemplateUsageChart({
       </CardHeader>
       <CardContent className="min-w-0 p-2 sm:p-4">
         {hasData ? (
-          <div className="h-[220px] w-full sm:h-[240px]">
+          <div className="h-[260px] w-full sm:h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart
                 data={data}
@@ -320,7 +320,7 @@ export function ChainTemplateUsageChart({
           <div
             data-template-usage-empty
             className={cn(
-              "flex h-[220px] items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground sm:h-[240px]",
+              "flex h-[260px] items-center justify-center rounded-md border border-dashed border-border text-xs text-muted-foreground sm:h-[280px]",
             )}
           >
             {t("overview.chainTemplateInsight.usageEmpty")}

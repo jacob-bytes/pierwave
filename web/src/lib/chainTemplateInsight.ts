@@ -755,6 +755,41 @@ export function strategyShares(
     }));
 }
 
+export interface ChainTemplateStrategySummary {
+  /** 链数最多的策略；同链数按策略枚举顺序取靠前者。 */
+  top: StrategyShareView;
+  /** 实际出现的策略种类数（零链不算）。 */
+  kinds: number;
+  /** 各策略链数之和。 */
+  chains: number;
+  /** 各策略用户数之和；同一用户可能出现在多种策略里，只作规模参考。 */
+  users: number;
+}
+
+/**
+ * 策略摘要：给「策略分布」卡补一行有信息量的注脚。
+ *
+ * 策略种类少时卡片会被旁边的节点热度卡衬托得很短，摘要用现有
+ * `strategies` 字段说明「最常用的是哪种、覆盖多少链、一共几种」，
+ * 不新增接口，也不用空白把卡片撑高。
+ */
+export function chainTemplateStrategySummary(
+  raw: readonly ChainTemplateStrategyShare[],
+): ChainTemplateStrategySummary | null {
+  const shares = strategyShares(raw);
+  if (shares.length === 0) return null;
+  // 严格大于：并列第一时保留枚举顺序靠前的那个，结果稳定可测。
+  const top = shares.reduce((best, item) =>
+    item.chains > best.chains ? item : best,
+  );
+  return {
+    top,
+    kinds: shares.length,
+    chains: shares.reduce((sum, item) => sum + item.chains, 0),
+    users: shares.reduce((sum, item) => sum + item.users, 0),
+  };
+}
+
 export interface ChainTemplateUsageView {
   points: ChainTemplateSeriesPoint[];
   maxChains: number;

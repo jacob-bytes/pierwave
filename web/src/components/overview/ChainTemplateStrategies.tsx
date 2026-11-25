@@ -3,16 +3,19 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatPercentValue } from "@/lib/chainHealth";
 import {
   chainTemplateStrategyLabelKey,
+  chainTemplateStrategySummary,
   strategyShares,
   type ChainTemplateDetail,
 } from "@/lib/chainTemplateInsight";
 import { t, useI18n } from "@/i18n";
 
 /**
- * 策略分布：每类策略一条横向条，显示占比 + 链数。
+ * 策略分布：每类策略一条横向条，显示占比 + 链数，底部一行摘要。
  *
  * 只画真实出现的策略（零链不占行），所以条形数量恒等于策略种类数；
  * 颜色只用 primary，不按策略换色相——这里回答的是「占比」而不是分类。
+ * 策略种类少时卡片比旁边的节点热度卡短，摘要用同一条数据补出「最常用
+ * 哪种、覆盖多少链、一共几种」，不靠空白把卡片撑高。
  */
 export function ChainTemplateStrategies({
   detail,
@@ -24,6 +27,14 @@ export function ChainTemplateStrategies({
     () => strategyShares(detail.strategies),
     [detail.strategies],
   );
+  const summary = useMemo(
+    () => chainTemplateStrategySummary(detail.strategies),
+    [detail.strategies],
+  );
+  // 摘要文案随语言切换，所以不缓存（比 useMemo 省一次陈旧依赖的坑）。
+  const topLabelKey =
+    summary === null ? null : chainTemplateStrategyLabelKey(summary.top.strategy);
+  const topLabel = topLabelKey ? t(topLabelKey) : (summary?.top.strategy ?? "");
 
   return (
     <Card className="min-w-0 gap-0" data-template-strategies-card>
@@ -86,6 +97,22 @@ export function ChainTemplateStrategies({
             })}
           </ul>
         )}
+        {summary !== null ? (
+          <p
+            data-template-strategies-summary
+            className="mt-3 text-[11px] leading-normal text-muted-foreground"
+          >
+            {t("overview.chainTemplateInsight.strategiesSummary", {
+              name: topLabel,
+              chains: summary.top.chains,
+            })}
+            {summary.kinds > 1
+              ? ` · ${t("overview.chainTemplateInsight.strategiesSummaryKinds", {
+                  n: summary.kinds,
+                })}`
+              : ""}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );

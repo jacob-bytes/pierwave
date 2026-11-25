@@ -121,8 +121,9 @@ test("详情弹窗由选中列表项驱动，四块内容都在", () => {
       "<ChainTemplateStrategies detail={detail} />",
       "<ChainTemplateNodeHeat detail={detail} />",
       "data-template-detail-grid",
-      "items-stretch",
-      "lg:grid-cols-3",
+      "items-start",
+      "md:grid-cols-2",
+      "md:col-span-2",
       "data-template-dialog",
       "data-template-dialog-meta",
       "metaHops",
@@ -595,6 +596,39 @@ test("使用量 tooltip 列出当前用户，策略只画真实种类", () => {
   );
 });
 
+test("策略摘要：最常用策略 + 链数（+ 种类数），数据只来自 strategies", () => {
+  assertIncludes(
+    strategies,
+    [
+      "chainTemplateStrategySummary(detail.strategies)",
+      "data-template-strategies-summary",
+      "strategiesSummary",
+      "strategiesSummaryKinds",
+      "summary.kinds > 1",
+      "chainTemplateStrategyLabelKey(summary.top.strategy)",
+      "summary.top.chains",
+      't("overview.chainTemplateInsight.strategiesSummary"',
+    ],
+    "strategies summary",
+  );
+  // 摘要不能新增接口字段；只用现有 strategies。
+  assertExcludes(
+    strategies,
+    ["useQuery(", "fetch(", "detail.summary"],
+    "strategies summary data source",
+  );
+  const insight = read("../lib/chainTemplateInsight.ts");
+  assertIncludes(
+    insight,
+    [
+      "export function chainTemplateStrategySummary(",
+      "kinds: shares.length",
+      "item.chains > best.chains ? item : best",
+    ],
+    "summary logic",
+  );
+});
+
 test("节点热度：横向条形图而非表格 / 饼图，Top5 + 条宽 + 状态 + 空态", () => {
   assertIncludes(
     nodeHeat,
@@ -607,8 +641,6 @@ test("节点热度：横向条形图而非表格 / 饼图，Top5 + 条宽 + 状�
       "style={{ width: `${barPct}%` }}",
       "chainTemplateNodeHeat(detail)",
       "data-template-node-heat-tooltip",
-      "group-hover:block",
-      "group-focus:block",
       'translate("overview.chainTemplateInsight.nodeHeatShare")',
       "data-template-node-heat-empty",
       "data-template-heat-status",
@@ -633,6 +665,81 @@ test("节点热度：横向条形图而非表格 / 饼图，Top5 + 条宽 + 状�
     ],
     "node heat logic",
   );
+});
+
+test("节点热度浮层：绝对定位、不进文档流、翻转夹紧、键盘与 Esc", () => {
+  assertIncludes(
+    nodeHeat,
+    [
+      'from "@/lib/nodeHeatTooltip"',
+      "placeNodeHeatTooltip({",
+      'className="relative',
+      "absolute",
+      "pointer-events-none",
+      'role="tooltip"',
+      "aria-describedby={",
+      "activeKey === row.key ? tooltipId : undefined",
+      'const tooltipId = useId()',
+      'visibility: placement === null ? "hidden" : "visible"',
+      "offsetWidth",
+      "offsetHeight",
+      "useLayoutEffect",
+      "ResizeObserver",
+      'window.addEventListener("resize", measure)',
+      "onFocus={",
+      "onMouseEnter={",
+      "onMouseLeave={",
+      '"Escape"',
+      "onKeyDownCapture",
+      'window.addEventListener("keydown", onKeyDownCapture, true)',
+      "event.preventDefault()",
+      "event.stopPropagation()",
+      "setActiveKey(null)",
+      "tabIndex={0}",
+    ],
+    "node heat overlay",
+  );
+  // 旧实现用 `hidden` / `group-hover:block` 在文档流里展开，会拉高整张卡片。
+  assertExcludes(
+    nodeHeat,
+    ["group-hover:block", "group-focus:block", "hidden rounded-md border"],
+    "in-flow tooltip",
+  );
+  // 浮层必须挂在 `<ul>` 之外，否则多出一个非 `<li>` 子节点，也更容易被行高带走。
+  const ulStart = nodeHeat.indexOf("data-template-node-heat\n");
+  const ulEnd = nodeHeat.indexOf("</ul>", ulStart);
+  const tooltipAt = nodeHeat.lastIndexOf("data-template-node-heat-tooltip");
+  assert.ok(ulStart >= 0 && ulEnd > ulStart, "node heat list");
+  assert.ok(tooltipAt > ulEnd, "tooltip must render outside the list");
+});
+
+test("布局：使用量独占一行，策略分布 | 节点热度同排自然高度，390 单列", () => {
+  assertIncludes(
+    dialog,
+    [
+      'className="grid grid-cols-1 items-start gap-4 md:grid-cols-2"',
+      'className="md:col-span-2"',
+    ],
+    "two-row grid",
+  );
+  // 不再为了对齐底边把策略卡拉到与节点热度等高：多出来的只能是大片空白。
+  assertExcludes(dialog, ["items-stretch"], "stretch alignment");
+  assertExcludes(dialog, ["lg:grid-cols-3", "md:grid-cols-3"], "three-column grid");
+  // 顺序必须是使用量 → 策略分布 → 节点热度，390 才可以只靠单列堆叠。
+  const usageAt = dialog.indexOf("<ChainTemplateUsageChart");
+  const strategiesAt = dialog.indexOf("<ChainTemplateStrategies");
+  const heatAt = dialog.indexOf("<ChainTemplateNodeHeat");
+  assert.ok(
+    usageAt >= 0 && usageAt < strategiesAt && strategiesAt < heatAt,
+    "card order must be usage → strategies → node heat",
+  );
+  // 折线需要横向空间：图高 260–300，不再用 220/240。
+  assertIncludes(
+    usage,
+    ['className="h-[260px] w-full sm:h-[280px]"', "h-[260px]", "sm:h-[280px]"],
+    "usage chart height",
+  );
+  assertExcludes(usage, ["h-[220px]", "h-[240px]"], "old usage height");
 });
 
 test("接口路径与 404 降级集中在查询层", () => {
@@ -677,6 +784,8 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     "usageTitle",
     "usageCurrentUsers",
     "strategiesTitle",
+    "strategiesSummary",
+    "strategiesSummaryKinds",
     "nodeHeatTitle",
     "nodeHeatEmpty",
     "nodeHeatShare",

@@ -30,8 +30,8 @@ function DetailSkeleton() {
   return (
     <div className="space-y-4" data-template-detail-skeleton aria-hidden="true">
       <Skeleton className="h-[320px] w-full rounded-xl" />
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-        <Skeleton className="h-[300px] w-full rounded-xl md:col-span-2 lg:col-span-1" />
+      <Skeleton className="h-[360px] w-full rounded-xl" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <Skeleton className="h-[300px] w-full rounded-xl" />
         <Skeleton className="h-[300px] w-full rounded-xl" />
       </div>
@@ -40,11 +40,12 @@ function DetailSkeleton() {
 }
 
 /**
- * 四块内容：横向树拓扑（整宽）、使用量折线、策略分布、节点热度。
+ * 四块内容：横向树拓扑（整宽）、使用量折线（独占整行）、策略分布 | 节点热度。
  *
- * 拓扑回答「流量怎么走」，下面三张等宽卡回答「用得多不多」「为什么这么走」
- * 与「哪些节点最吃链」。拓扑单独整宽，因为它需要横向空间；三张卡在桌面
- * 三列、平板两列（使用量占整行）、390 单列堆叠。
+ * 拓扑回答「流量怎么走」，使用量折线需要宽度（7d 有 672 个数据点），所以独占
+ * 整行；第二行放两张 Top N 列表卡，各自按内容取自然高度（`items-start`），
+ * 不为了对齐底边把策略卡撑出空白。390 三张卡按使用量 → 策略分布 → 节点热度
+ * 单列堆叠。
  */
 function TemplateDetailBody({
   detail,
@@ -60,11 +61,11 @@ function TemplateDetailBody({
       <ChainTemplateStaleNotice detail={detail} />
       <ChainTemplateTopology key={detail.template.id} detail={detail} />
       <div
-        className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 lg:grid-cols-3"
+        className="grid grid-cols-1 items-start gap-4 md:grid-cols-2"
         data-template-detail-grid
       >
         <ChainTemplateUsageChart
-          className="md:col-span-2 lg:col-span-1"
+          className="md:col-span-2"
           detail={detail}
           range={range}
           onRangeChange={onRangeChange}

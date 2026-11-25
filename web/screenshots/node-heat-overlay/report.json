@@ -1,0 +1,1128 @@
+{
+  "generatedAt": "2026-11-25T12:09:00.779Z",
+  "base": "http://127.0.0.1:8787",
+  "template": {
+    "id": "c0ffee00-0007-4000-8000-000000000704",
+    "name": "港日新四跳",
+    "heatRows": 5
+  },
+  "viewports": [
+    1440,
+    390
+  ],
+  "themes": [
+    "dark",
+    "light"
+  ],
+  "results": [
+    {
+      "name": "layout 1440-dark: 三卡两行（使用量整行，策略 | 热度同排）",
+      "ok": true,
+      "detail": {
+        "usage": {
+          "w": 1008,
+          "h": 446.19,
+          "top": 64.28
+        },
+        "strategies": {
+          "w": 496,
+          "h": 157.08,
+          "top": 526.47
+        },
+        "heat": {
+          "w": 496,
+          "h": 418.11,
+          "top": 526.47
+        },
+        "rows": 5
+      }
+    },
+    {
+      "name": "layout 1440-dark: 策略卡自然高度，不被拉出大片空白",
+      "ok": true,
+      "detail": {
+        "strategiesH": 157.08,
+        "heatH": 418.11,
+        "diff": 261.03,
+        "trailing": 32
+      }
+    },
+    {
+      "name": "layout 1440-dark: 策略摘要说明最常用策略与链数",
+      "ok": true,
+      "detail": "最常用：轮询 · 4 条链"
+    },
+    {
+      "name": "layout 1440-dark: 使用量图高 260–300",
+      "ok": true,
+      "detail": 280
+    },
+    {
+      "name": "layout 1440-dark: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "docOverflow": 0,
+        "scrollOverflow": 0
+      }
+    },
+    {
+      "name": "layout 1440-dark: 弹窗滚动区底部空白 ≤24px",
+      "ok": true,
+      "detail": 15.81
+    },
+    {
+      "name": "hover 1440-dark: hover 前无浮层（基线高度）",
+      "ok": true,
+      "detail": {
+        "before": {
+          "usage": 446.1875,
+          "strategies": 157.078125,
+          "heat": 418.109375,
+          "grid": 880.296875,
+          "scrollClient": 839,
+          "scrollContent": 1276
+        }
+      }
+    },
+    {
+      "name": "hover 1440-dark row 0: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 661.19,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-dark row 1: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 726.05,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-dark row 2: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 790.88,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-dark row 3: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 680.88,
+          "w": 224,
+          "h": 100.38,
+          "placement": "above",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-dark row 4: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 745.73,
+          "w": 224,
+          "h": 100.38,
+          "placement": "above",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-dark: 末行浮层翻到行上方",
+      "ok": true,
+      "detail": {
+        "placement": "above",
+        "tooltipBottom": 846.11,
+        "rowTop": 853.73
+      }
+    },
+    {
+      "name": "hover 1440-dark: 移开后浮层移除，高度回到基线",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11
+      }
+    },
+    {
+      "name": "keyboard 1440-dark: focus 显示浮层",
+      "ok": true,
+      "detail": {
+        "x": 864,
+        "y": 790.88
+      }
+    },
+    {
+      "name": "keyboard 1440-dark: Esc 收起浮层、弹窗还在",
+      "ok": true,
+      "detail": {
+        "dialogOpen": true,
+        "tooltip": null
+      }
+    },
+    {
+      "name": "heights 1440-dark",
+      "ok": true,
+      "detail": {
+        "before": {
+          "heat": 418.11,
+          "grid": 880.3,
+          "strategies": 157.08,
+          "strategiesTrailing": 32,
+          "summary": "最常用：轮询 · 4 条链",
+          "usage": 446.19,
+          "scrollContent": 1276
+        },
+        "duringHover": [
+          {
+            "row": 0,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          },
+          {
+            "row": 1,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          },
+          {
+            "row": 2,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          },
+          {
+            "row": 3,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          },
+          {
+            "row": 4,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          }
+        ],
+        "afterHover": {
+          "heat": 418.11,
+          "grid": 880.3,
+          "strategies": 157.08,
+          "scrollContent": 1276
+        }
+      }
+    },
+    {
+      "name": "screenshots 1440-dark",
+      "ok": true,
+      "detail": {
+        "before": "hover-before-1440-dark.png",
+        "hover": "hover-after-1440-dark.png",
+        "flip": "hover-flip-1440-dark.png",
+        "focus": "focus-1440-dark.png",
+        "layoutRow1": "layout-row1-1440-dark.png",
+        "layoutRow2": "layout-row2-1440-dark.png"
+      }
+    },
+    {
+      "name": "layout 1440-light: 三卡两行（使用量整行，策略 | 热度同排）",
+      "ok": true,
+      "detail": {
+        "usage": {
+          "w": 1008,
+          "h": 446.19,
+          "top": 64.28
+        },
+        "strategies": {
+          "w": 496,
+          "h": 157.08,
+          "top": 526.47
+        },
+        "heat": {
+          "w": 496,
+          "h": 418.11,
+          "top": 526.47
+        },
+        "rows": 5
+      }
+    },
+    {
+      "name": "layout 1440-light: 策略卡自然高度，不被拉出大片空白",
+      "ok": true,
+      "detail": {
+        "strategiesH": 157.08,
+        "heatH": 418.11,
+        "diff": 261.03,
+        "trailing": 32
+      }
+    },
+    {
+      "name": "layout 1440-light: 策略摘要说明最常用策略与链数",
+      "ok": true,
+      "detail": "最常用：轮询 · 4 条链"
+    },
+    {
+      "name": "layout 1440-light: 使用量图高 260–300",
+      "ok": true,
+      "detail": 280
+    },
+    {
+      "name": "layout 1440-light: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "docOverflow": 0,
+        "scrollOverflow": 0
+      }
+    },
+    {
+      "name": "layout 1440-light: 弹窗滚动区底部空白 ≤24px",
+      "ok": true,
+      "detail": 15.81
+    },
+    {
+      "name": "hover 1440-light: hover 前无浮层（基线高度）",
+      "ok": true,
+      "detail": {
+        "before": {
+          "usage": 446.1875,
+          "strategies": 157.078125,
+          "heat": 418.109375,
+          "grid": 880.296875,
+          "scrollClient": 839,
+          "scrollContent": 1276
+        }
+      }
+    },
+    {
+      "name": "hover 1440-light row 0: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 661.19,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-light row 1: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 726.05,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-light row 2: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 790.88,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-light row 3: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 680.88,
+          "w": 224,
+          "h": 100.38,
+          "placement": "above",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-light row 4: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11,
+        "gridH": 880.3,
+        "strategiesH": 157.08,
+        "scrollContent": 1276,
+        "tooltip": {
+          "x": 864,
+          "y": 745.73,
+          "w": 224,
+          "h": 100.38,
+          "placement": "above",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 1440-light: 末行浮层翻到行上方",
+      "ok": true,
+      "detail": {
+        "placement": "above",
+        "tooltipBottom": 846.11,
+        "rowTop": 853.73
+      }
+    },
+    {
+      "name": "hover 1440-light: 移开后浮层移除，高度回到基线",
+      "ok": true,
+      "detail": {
+        "heatH": 418.11
+      }
+    },
+    {
+      "name": "keyboard 1440-light: focus 显示浮层",
+      "ok": true,
+      "detail": {
+        "x": 864,
+        "y": 790.88
+      }
+    },
+    {
+      "name": "keyboard 1440-light: Esc 收起浮层、弹窗还在",
+      "ok": true,
+      "detail": {
+        "dialogOpen": true,
+        "tooltip": null
+      }
+    },
+    {
+      "name": "heights 1440-light",
+      "ok": true,
+      "detail": {
+        "before": {
+          "heat": 418.11,
+          "grid": 880.3,
+          "strategies": 157.08,
+          "strategiesTrailing": 32,
+          "summary": "最常用：轮询 · 4 条链",
+          "usage": 446.19,
+          "scrollContent": 1276
+        },
+        "duringHover": [
+          {
+            "row": 0,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          },
+          {
+            "row": 1,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          },
+          {
+            "row": 2,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          },
+          {
+            "row": 3,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          },
+          {
+            "row": 4,
+            "heat": 418.11,
+            "grid": 880.3,
+            "strategies": 157.08,
+            "scrollContent": 1276
+          }
+        ],
+        "afterHover": {
+          "heat": 418.11,
+          "grid": 880.3,
+          "strategies": 157.08,
+          "scrollContent": 1276
+        }
+      }
+    },
+    {
+      "name": "screenshots 1440-light",
+      "ok": true,
+      "detail": {
+        "before": "hover-before-1440-light.png",
+        "hover": "hover-after-1440-light.png",
+        "flip": "hover-flip-1440-light.png",
+        "focus": "focus-1440-light.png",
+        "layoutRow1": "layout-row1-1440-light.png",
+        "layoutRow2": "layout-row2-1440-light.png"
+      }
+    },
+    {
+      "name": "layout 390-dark: 三卡两行（使用量整行，策略 | 热度同排）",
+      "ok": true,
+      "detail": {
+        "usage": {
+          "w": 358,
+          "h": 426.19,
+          "top": -218.95
+        },
+        "strategies": {
+          "w": 358,
+          "h": 149.08,
+          "top": 223.23
+        },
+        "heat": {
+          "w": 358,
+          "h": 410.11,
+          "top": 388.31
+        },
+        "rows": 5
+      }
+    },
+    {
+      "name": "layout 390-dark: 策略卡自然高度，不被拉出大片空白",
+      "ok": true,
+      "detail": {
+        "strategiesH": 149.08,
+        "heatH": 410.11,
+        "diff": 261.03,
+        "trailing": 28
+      }
+    },
+    {
+      "name": "layout 390-dark: 策略摘要说明最常用策略与链数",
+      "ok": true,
+      "detail": "最常用：轮询 · 4 条链"
+    },
+    {
+      "name": "layout 390-dark: 使用量图高 260–300",
+      "ok": true,
+      "detail": 260
+    },
+    {
+      "name": "layout 390-dark: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "docOverflow": 0,
+        "scrollOverflow": 0
+      }
+    },
+    {
+      "name": "layout 390-dark: 弹窗滚动区底部空白 ≤24px",
+      "ok": true,
+      "detail": 11.73
+    },
+    {
+      "name": "hover 390-dark: hover 前无浮层（基线高度）",
+      "ok": true,
+      "detail": {
+        "before": {
+          "usage": 426.1875,
+          "strategies": 149.078125,
+          "heat": 410.109375,
+          "grid": 1017.375,
+          "scrollClient": 695,
+          "scrollContent": 1389
+        }
+      }
+    },
+    {
+      "name": "hover 390-dark row 0: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 519.03,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-dark row 1: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 583.89,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-dark row 2: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 648.72,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-dark row 3: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 538.72,
+          "w": 224,
+          "h": 100.38,
+          "placement": "above",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-dark row 4: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 603.58,
+          "w": 224,
+          "h": 100.38,
+          "placement": "above",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-dark: 末行浮层翻到行上方",
+      "ok": true,
+      "detail": {
+        "placement": "above",
+        "tooltipBottom": 703.95,
+        "rowTop": 711.58
+      }
+    },
+    {
+      "name": "hover 390-dark: 移开后浮层移除，高度回到基线",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11
+      }
+    },
+    {
+      "name": "keyboard 390-dark: focus 显示浮层",
+      "ok": true,
+      "detail": {
+        "x": 83,
+        "y": 648.72
+      }
+    },
+    {
+      "name": "keyboard 390-dark: Esc 收起浮层、弹窗还在",
+      "ok": true,
+      "detail": {
+        "dialogOpen": true,
+        "tooltip": null
+      }
+    },
+    {
+      "name": "heights 390-dark",
+      "ok": true,
+      "detail": {
+        "before": {
+          "heat": 410.11,
+          "grid": 1017.38,
+          "strategies": 149.08,
+          "strategiesTrailing": 28,
+          "summary": "最常用：轮询 · 4 条链",
+          "usage": 426.19,
+          "scrollContent": 1389
+        },
+        "duringHover": [
+          {
+            "row": 0,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          },
+          {
+            "row": 1,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          },
+          {
+            "row": 2,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          },
+          {
+            "row": 3,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          },
+          {
+            "row": 4,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          }
+        ],
+        "afterHover": {
+          "heat": 410.11,
+          "grid": 1017.38,
+          "strategies": 149.08,
+          "scrollContent": 1389
+        }
+      }
+    },
+    {
+      "name": "screenshots 390-dark",
+      "ok": true,
+      "detail": {
+        "before": "hover-before-390-dark.png",
+        "hover": "hover-after-390-dark.png",
+        "flip": "hover-flip-390-dark.png",
+        "focus": "focus-390-dark.png",
+        "layoutRow1": "layout-row1-390-dark.png",
+        "layoutRow2": "layout-row2-390-dark.png"
+      }
+    },
+    {
+      "name": "layout 390-light: 三卡两行（使用量整行，策略 | 热度同排）",
+      "ok": true,
+      "detail": {
+        "usage": {
+          "w": 358,
+          "h": 426.19,
+          "top": -218.95
+        },
+        "strategies": {
+          "w": 358,
+          "h": 149.08,
+          "top": 223.23
+        },
+        "heat": {
+          "w": 358,
+          "h": 410.11,
+          "top": 388.31
+        },
+        "rows": 5
+      }
+    },
+    {
+      "name": "layout 390-light: 策略卡自然高度，不被拉出大片空白",
+      "ok": true,
+      "detail": {
+        "strategiesH": 149.08,
+        "heatH": 410.11,
+        "diff": 261.03,
+        "trailing": 28
+      }
+    },
+    {
+      "name": "layout 390-light: 策略摘要说明最常用策略与链数",
+      "ok": true,
+      "detail": "最常用：轮询 · 4 条链"
+    },
+    {
+      "name": "layout 390-light: 使用量图高 260–300",
+      "ok": true,
+      "detail": 260
+    },
+    {
+      "name": "layout 390-light: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "docOverflow": 0,
+        "scrollOverflow": 0
+      }
+    },
+    {
+      "name": "layout 390-light: 弹窗滚动区底部空白 ≤24px",
+      "ok": true,
+      "detail": 11.73
+    },
+    {
+      "name": "hover 390-light: hover 前无浮层（基线高度）",
+      "ok": true,
+      "detail": {
+        "before": {
+          "usage": 426.1875,
+          "strategies": 149.078125,
+          "heat": 410.109375,
+          "grid": 1017.375,
+          "scrollClient": 695,
+          "scrollContent": 1389
+        }
+      }
+    },
+    {
+      "name": "hover 390-light row 0: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 519.03,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-light row 1: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 583.89,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-light row 2: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 648.72,
+          "w": 224,
+          "h": 100.38,
+          "placement": "below",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-light row 3: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 538.72,
+          "w": 224,
+          "h": 100.38,
+          "placement": "above",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-light row 4: 卡片高度不变且浮层在弹窗内",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11,
+        "gridH": 1017.38,
+        "strategiesH": 149.08,
+        "scrollContent": 1389,
+        "tooltip": {
+          "x": 83,
+          "y": 603.58,
+          "w": 224,
+          "h": 100.38,
+          "placement": "above",
+          "clampedX": false,
+          "clampedY": false
+        }
+      }
+    },
+    {
+      "name": "hover 390-light: 末行浮层翻到行上方",
+      "ok": true,
+      "detail": {
+        "placement": "above",
+        "tooltipBottom": 703.95,
+        "rowTop": 711.58
+      }
+    },
+    {
+      "name": "hover 390-light: 移开后浮层移除，高度回到基线",
+      "ok": true,
+      "detail": {
+        "heatH": 410.11
+      }
+    },
+    {
+      "name": "keyboard 390-light: focus 显示浮层",
+      "ok": true,
+      "detail": {
+        "x": 83,
+        "y": 648.72
+      }
+    },
+    {
+      "name": "keyboard 390-light: Esc 收起浮层、弹窗还在",
+      "ok": true,
+      "detail": {
+        "dialogOpen": true,
+        "tooltip": null
+      }
+    },
+    {
+      "name": "heights 390-light",
+      "ok": true,
+      "detail": {
+        "before": {
+          "heat": 410.11,
+          "grid": 1017.38,
+          "strategies": 149.08,
+          "strategiesTrailing": 28,
+          "summary": "最常用：轮询 · 4 条链",
+          "usage": 426.19,
+          "scrollContent": 1389
+        },
+        "duringHover": [
+          {
+            "row": 0,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          },
+          {
+            "row": 1,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          },
+          {
+            "row": 2,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          },
+          {
+            "row": 3,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          },
+          {
+            "row": 4,
+            "heat": 410.11,
+            "grid": 1017.38,
+            "strategies": 149.08,
+            "scrollContent": 1389
+          }
+        ],
+        "afterHover": {
+          "heat": 410.11,
+          "grid": 1017.38,
+          "strategies": 149.08,
+          "scrollContent": 1389
+        }
+      }
+    },
+    {
+      "name": "screenshots 390-light",
+      "ok": true,
+      "detail": {
+        "before": "hover-before-390-light.png",
+        "hover": "hover-after-390-light.png",
+        "flip": "hover-flip-390-light.png",
+        "focus": "focus-390-light.png",
+        "layoutRow1": "layout-row1-390-light.png",
+        "layoutRow2": "layout-row2-390-light.png"
+      }
+    },
+    {
+      "name": "summary 1440-dark: 多种策略追加「N 种策略」",
+      "ok": true,
+      "detail": "最常用：轮询 · 2 条链 · 3 种策略"
+    },
+    {
+      "name": "page 390: 页底空白 ≤24px，无横向溢出",
+      "ok": true,
+      "detail": {
+        "scrollHeight": 1219,
+        "lastBottom": 1194.828125,
+        "trailing": 24.17,
+        "paddingBottom": 24,
+        "docOverflow": 0
+      }
+    }
+  ],
+  "screenshots": [
+    "hover-before-1440-dark.png",
+    "hover-after-1440-dark.png",
+    "hover-flip-1440-dark.png",
+    "focus-1440-dark.png",
+    "layout-row1-1440-dark.png",
+    "layout-row2-1440-dark.png",
+    "hover-before-1440-light.png",
+    "hover-after-1440-light.png",
+    "hover-flip-1440-light.png",
+    "focus-1440-light.png",
+    "layout-row1-1440-light.png",
+    "layout-row2-1440-light.png",
+    "hover-before-390-dark.png",
+    "hover-after-390-dark.png",
+    "hover-flip-390-dark.png",
+    "focus-390-dark.png",
+    "layout-row1-390-dark.png",
+    "layout-row2-390-dark.png",
+    "hover-before-390-light.png",
+    "hover-after-390-light.png",
+    "hover-flip-390-light.png",
+    "focus-390-light.png",
+    "layout-row1-390-light.png",
+    "layout-row2-390-light.png",
+    "summary-multi-1440-dark.png",
+    "page-bottom-390-dark.png"
+  ],
+  "failures": []
+}

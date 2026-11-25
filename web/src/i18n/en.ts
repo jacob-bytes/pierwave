@@ -867,6 +867,8 @@ const en = {
       strategiesTitle: "Strategy split",
       strategiesEmpty: "No strategy data",
       strategyValue: "{pct}% · {chains} chains",
+      strategiesSummary: "Most used: {name} · {chains} chains",
+      strategiesSummaryKinds: "{n} strategies",
       nodeHeatTitle: "Node heat",
       nodeHeatEmpty: "No node usage data",
       nodeHeatShare: "Share",

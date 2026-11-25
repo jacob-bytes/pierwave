@@ -838,6 +838,8 @@ const zhCN = {
       strategiesTitle: "策略分布",
       strategiesEmpty: "暂无策略数据",
       strategyValue: "{pct}% · {chains} 链",
+      strategiesSummary: "最常用：{name} · {chains} 条链",
+      strategiesSummaryKinds: "{n} 种策略",
       nodeHeatTitle: "节点热度",
       nodeHeatEmpty: "暂无节点使用数据",
       nodeHeatShare: "占比",

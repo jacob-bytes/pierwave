@@ -17,6 +17,7 @@ import {
   isChainTemplateInsightUnsupported,
   normalizeChainTemplateDetail,
   normalizeChainTemplateList,
+  chainTemplateStrategySummary,
   strategyShares,
   targetLabel,
 } from "./chainTemplateInsight.ts";
@@ -244,6 +245,53 @@ test("策略分布：同类合并、按固定顺序、百分比合计 100、零�
     ),
     ["custom"],
   );
+});
+
+test("策略摘要：最常用策略 + 种类数 + 总链数，空数据返回 null", () => {
+  // 没有策略 / 全是 0 链：摘要不出现，避免「最常用：」后面空着。
+  assert.equal(chainTemplateStrategySummary([]), null);
+  assert.equal(
+    chainTemplateStrategySummary([
+      { strategy: "failover", chains: 0, users: 0 },
+    ]),
+    null,
+  );
+
+  const single = chainTemplateStrategySummary([
+    { strategy: "ip_hash", chains: 5, users: 3 },
+  ]);
+  assert.equal(single.top.strategy, "ip_hashed");
+  assert.equal(single.top.chains, 5);
+  assert.equal(single.kinds, 1);
+  assert.equal(single.chains, 5);
+
+  // 多条同名策略先合并；总链数 = 各策略链数之和。
+  const many = chainTemplateStrategySummary([
+    { strategy: "round_robin", chains: 2, users: 1 },
+    { strategy: "ip_hash", chains: 3, users: 2 },
+    { strategy: "ip_hash", chains: 1, users: 0 },
+    { strategy: "weighted", chains: 5, users: 3 },
+    { strategy: "failover", chains: 0, users: 0 },
+  ]);
+  assert.equal(many.top.strategy, "weighted");
+  assert.equal(many.top.chains, 5);
+  assert.equal(many.kinds, 3);
+  assert.equal(many.chains, 11);
+
+  // 并列第一按策略枚举顺序取靠前者（ip_hashed 在 weighted 之前）。
+  const tie = chainTemplateStrategySummary([
+    { strategy: "weighted", chains: 4, users: 1 },
+    { strategy: "ip_hashed", chains: 4, users: 1 },
+  ]);
+  assert.equal(tie.top.strategy, "ip_hashed");
+  assert.equal(tie.kinds, 2);
+
+  // 未知策略原样统计，不因没有文案键而丢数据。
+  const custom = chainTemplateStrategySummary([
+    { strategy: "custom", chains: 2, users: 1 },
+  ]);
+  assert.equal(custom.top.strategy, "custom");
+  assert.equal(chainTemplateStrategyLabelKey("custom"), null);
 });
 
 test("使用量序列：24h/7d 过滤、按时间升序、同 ts 去重、毫秒转秒", () => {
