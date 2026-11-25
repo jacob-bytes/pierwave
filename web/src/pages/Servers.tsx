@@ -1114,7 +1114,10 @@ export default function ServersPage() {
       .join(" · ");
 
     return (
-      <div className="flex items-center gap-2">
+      // 名称单元格自身有固定宽度（w-52 / max-w-52），这里再收一道 overflow：
+      // truncate 的 flex 子项必须各自 min-w-0 才能真的收缩，否则长分组名
+      // （如「马来西亚 · 端口 …」）会画出单元格、压到地址列下面。
+      <div className="flex min-w-0 items-center gap-2 overflow-hidden">
         <span
           aria-hidden="true"
           className={cn(
@@ -1124,7 +1127,11 @@ export default function ServersPage() {
         />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate font-medium" title={server.name}>
+            <span
+              data-slot="server-name"
+              className="min-w-0 truncate font-medium"
+              title={server.name}
+            >
               {server.name}
             </span>
             {/* 应用结果与在线/离线分列：它在身份列，不占状态列。ok / null 不渲染。 */}
@@ -1133,7 +1140,11 @@ export default function ServersPage() {
           {metaText || nicNeedsAttention ? (
             <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[13px] text-muted-foreground">
               {metaText ? (
-                <span className="truncate" title={metaTitle}>
+                <span
+                  data-slot="server-meta"
+                  className="min-w-0 truncate"
+                  title={metaTitle}
+                >
                   {metaText}
                 </span>
               ) : null}
@@ -1318,7 +1329,9 @@ export default function ServersPage() {
         <TableCell
           sticky="left"
           className={cn(
-            "w-10 px-2",
+            // min-w-10 把复选框列钉死在 40px：sticky 名称列用 left-10 紧随其后，
+            // 列宽一旦被 auto layout 压到 24px，名称列就会右移 16px 盖住地址列。
+            "w-10 min-w-10 px-2",
             highlighted && "border-l border-primary/40",
           )}
         >
@@ -1326,12 +1339,12 @@ export default function ServersPage() {
         </TableCell>
         <TableCell
           sticky="left"
-          className="pw-sticky-name left-10 max-w-56 px-2"
+          className="pw-sticky-name left-10 w-52 max-w-52 px-2"
         >
           {renderServerName(server)}
         </TableCell>
         <TableCell
-          className="hidden px-2 font-mono text-[13px] text-muted-foreground lg:table-cell"
+          className="hidden min-w-40 px-2 font-mono text-[13px] text-muted-foreground lg:table-cell"
           title={server.address}
         >
           {server.address}

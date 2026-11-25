@@ -25,21 +25,57 @@ const table = read("components/ui/table.tsx");
 const mobileCard = read("components/common/MobileDataCard.tsx");
 const css = read("index.css");
 
-test("名称列与复选框列一起 sticky，并带右侧阴影", () => {
+test("名称列与复选框列一起 sticky，右侧是 1px 分隔线", () => {
   const columns = serverTableColumns((key) => key);
+  const select = columns.find((column) => column.key === "select");
+  assert.match(select.headClassName, /w-10/);
+  // 复选框列必须真的 40px：auto layout 会把它压到 24px，名称列的
+  // left-10 就会右移 16px 盖住地址列。
+  assert.match(select.headClassName, /min-w-10/);
+
   const name = columns.find((column) => column.key === "name");
   assert.equal(name?.sticky, "left");
   // 复选框列 40px（w-10），名称列紧贴它的右侧。
   assert.match(name.headClassName, /left-10/);
   assert.match(name.headClassName, /pw-sticky-name/);
+  // 固定 208px：w-52 给目标宽度，max-w-52 防 auto layout 按内容撑宽。
+  assert.match(name.headClassName, /w-52/);
+  assert.match(name.headClassName, /max-w-52/);
+
+  const address = columns.find((column) => column.key === "address");
+  assert.match(address.headClassName, /min-w-40/);
 
   assert.match(
     servers,
-    /<TableCell\s+sticky="left"\s+className="pw-sticky-name left-10 max-w-56 px-2"/,
+    /<TableCell\s+sticky="left"\s+className="pw-sticky-name left-10 w-52 max-w-52 px-2"/,
   );
+  assert.match(servers, /w-10 min-w-10 px-2/);
+  assert.match(servers, /hidden min-w-40 px-2[^"]*lg:table-cell/);
   assert.match(servers, /sticky="right"/);
   assert.match(css, /\[data-slot="table-cell"\]\.pw-sticky-name/);
-  assert.match(css, /box-shadow/);
+
+  // 右边界只是一条 1px 分隔线：宽渐变（尤其是 12px / 20% 前景色）在连续
+  // 行上会叠成粗竖条，把地址列衬得像被截断。
+  assert.match(css, /width:\s*1px/);
+  assert.match(css, /background:\s*var\(--border\)/);
+  assert.doesNotMatch(css, /right:\s*-12px/);
+  assert.doesNotMatch(css, /--foreground\) 20%/);
+});
+
+test("名称 / 元信息都在单元格内收口：min-w-0 + truncate，完整内容进 title", () => {
+  // 名称行与元信息行的 span 必须自己 min-w-0，否则作为 flex 子项会以
+  // 内容宽度为下限，truncate 不生效、文字画到地址列下面。
+  assert.match(
+    servers,
+    /<span\s+data-slot="server-name"\s+className="min-w-0 truncate font-medium"\s+title=\{server\.name\}\s*>/,
+  );
+  assert.match(
+    servers,
+    /<span\s+data-slot="server-meta"\s+className="min-w-0 truncate"\s+title=\{metaTitle\}\s*>/,
+  );
+  // 外层还兜一道 overflow-hidden，badge 等 shrink-0 子项也不会画出单元格。
+  assert.match(servers, /flex min-w-0 items-center gap-2 overflow-hidden/);
+  assert.match(servers, /metaParts\.join\(" · "\)/);
 });
 
 test("滑动提示固定在表格右上角，不会被长表格或 sticky 操作列盖住", () => {
@@ -51,6 +87,16 @@ test("滑动提示固定在表格右上角，不会被长表格或 sticky 操作
   assert.match(hintBlock, /border-b/);
   assert.match(hintBlock, /relative z-10/);
   assert.doesNotMatch(hintBlock, /absolute right-2 bottom-2/);
+});
+
+test("Shift+滚轮横向滚动表格，只在没有 deltaX 且确实溢出时接管", () => {
+  assert.match(table, /addEventListener\("wheel", onWheel, \{ passive: false \}\)/);
+  assert.match(table, /if \(!event\.shiftKey \|\| event\.deltaX !== 0 \|\| event\.deltaY === 0\) return/);
+  assert.match(table, /scrollWidth <= container\.clientWidth \+ 1/);
+  assert.match(table, /scrollLeft \+= event\.deltaY/);
+  assert.match(table, /event\.preventDefault\(\)/);
+  // 卸载时移除，避免 StrictMode / 路由切换后叠加多个监听。
+  assert.match(table, /removeEventListener\("wheel", onWheel\)/);
 });
 
 test("服务器行高固定 64px，配置信息收成一条 13px 弱化文字", () => {

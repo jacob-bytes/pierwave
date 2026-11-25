@@ -546,10 +546,13 @@
 }
 
 /*
- * 服务器列表的名称列：紧贴复选框列固定，右侧用一道渐变阴影和滚动内容
- * 分隔。用伪元素而不是 box-shadow —— 表格是 border-collapse: collapse，
- * td 的 box-shadow 会被单元格边界裁掉，看起来像没有分隔。
- * 颜色由 foreground 混出，不写死；亮暗主题都成立。
+ * 服务器列表的名称列：紧贴复选框列固定，右侧用一道 1px 分隔线与滚动内容
+ * 分开。用伪元素而不是 border / box-shadow —— 表格是 border-collapse:
+ * collapse，td 的 box-shadow 会被单元格边界裁掉，border 又会参与合并边框。
+ *
+ * 不要在这里做宽渐变或高对比阴影：连续行叠起来会变成一根粗竖条，用户会
+ * 误以为那是表格边界、地址列被截断。1px var(--border) 在亮暗主题下都只是
+ * 一条分隔线。
  */
 [data-slot="table-head"].pw-sticky-name,
 [data-slot="table-cell"].pw-sticky-name {
@@ -573,14 +576,10 @@
   content: "";
   position: absolute;
   inset-block: 0;
-  right: -12px;
-  width: 12px;
+  right: 0;
+  width: 1px;
   pointer-events: none;
-  background: linear-gradient(
-    to right,
-    color-mix(in oklab, var(--foreground) 20%, transparent),
-    transparent
-  );
+  background: var(--border);
 }
 
 /* 骨架屏 shimmer：1.2s 循环，只在列表加载态使用 */

@@ -46,8 +46,10 @@ export function serverTableColumns(t: TFunction): ServerTableColumn[] {
     {
       key: "select",
       label: "",
-      headClassName: "w-10 pr-0",
-      skeletonClassName: "w-10",
+      // 真实列宽必须就是 40px：名称列用 left-10 贴住它，列宽被压窄会让
+      // sticky 名称列右移、盖住地址列。
+      headClassName: "w-10 min-w-10 pr-0",
+      skeletonClassName: "w-10 min-w-10",
       skeletonWidth: "w-4",
       sticky: "left",
     },
@@ -55,17 +57,20 @@ export function serverTableColumns(t: TFunction): ServerTableColumn[] {
       key: "name",
       label: t("common.name"),
       // 紧贴复选框列固定：复选框列 40px（w-10），所以 left-10。
-      // 右侧阴影由 index.css 的 .pw-sticky-name 画，滚动内容不会和名称混在一起。
-      headClassName: "left-10 w-48 pw-sticky-name",
-      skeletonClassName: "w-48",
+      // w-52 给出目标宽度、max-w-52 防止 auto layout 按内容把列撑宽；
+      // 右侧 1px 分隔线由 index.css 的 .pw-sticky-name 画。
+      headClassName: "left-10 w-52 max-w-52 pw-sticky-name",
+      skeletonClassName: "w-52 max-w-52",
       skeletonWidth: "w-28",
       sticky: "left",
     },
     {
       key: "address",
       label: t("common.address"),
-      headClassName: "hidden lg:table-cell",
-      skeletonClassName: "hidden lg:table-cell w-40",
+      // 地址列至少 160px，IPv6 可以继续撑宽；名称列收窄后地址是唯一
+      // 需要「完整可读」的标识列。
+      headClassName: "hidden lg:table-cell min-w-40",
+      skeletonClassName: "hidden lg:table-cell w-40 min-w-40",
       skeletonWidth: "w-28",
     },
     {

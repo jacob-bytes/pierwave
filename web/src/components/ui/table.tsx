@@ -31,6 +31,17 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
     update()
     container.addEventListener("scroll", update, { passive: true })
 
+    // Shift + 滚轮横向滚动表格。部分浏览器/触控板只把 Shift+滚轮当成
+    // 页面纵向滚动，表格本身动不了；这里显式接管（仅在没有 deltaX、
+    // 且表格确实溢出时），让「表格能左右滑」这件事在鼠标上也成立。
+    const onWheel = (event: WheelEvent) => {
+      if (!event.shiftKey || event.deltaX !== 0 || event.deltaY === 0) return
+      if (container.scrollWidth <= container.clientWidth + 1) return
+      container.scrollLeft += event.deltaY
+      event.preventDefault()
+    }
+    container.addEventListener("wheel", onWheel, { passive: false })
+
     const resizeObserver = new ResizeObserver(update)
     resizeObserver.observe(container)
     const table = container.querySelector("table")
@@ -46,6 +57,7 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
 
     return () => {
       container.removeEventListener("scroll", update)
+      container.removeEventListener("wheel", onWheel)
       resizeObserver.disconnect()
       mutationObserver.disconnect()
     }
