@@ -19,15 +19,8 @@
             "clientWidth": 736,
             "scrollWidth": 780,
             "scrollLeft": 0,
-            "maxScrollLeft": 44
-          },
-          "row": {
-            "left": 264,
-            "right": 1044,
-            "top": 321.3,
-            "bottom": 385.3,
-            "width": 780,
-            "height": 64
+            "maxScrollLeft": 44,
+            "scrolled": null
           },
           "select": {
             "left": 264,
@@ -47,9 +40,6 @@
             "position": "sticky",
             "stickyLeft": "40px",
             "cssWidth": "208px",
-            "cssMaxWidth": "208px",
-            "backgroundColor": "oklch(0.175 0.005 285)",
-            "zIndex": "20",
             "clientWidth": 208,
             "scrollWidth": 208
           },
@@ -64,7 +54,6 @@
             "scrollWidth": 49,
             "overflow": "hidden",
             "textOverflow": "ellipsis",
-            "whiteSpace": "nowrap",
             "text": "首尔-01",
             "title": "首尔-01"
           },
@@ -103,12 +92,49 @@
             "scrollWidth": 166,
             "text": "198.51.100.52"
           },
-          "separator": {
-            "width": "1px",
-            "right": "0px",
-            "backgroundColor": "oklch(1 0 0 / 0.08)",
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.6) 6px 0px 10px -6px",
             "backgroundImage": "none",
-            "borderColor": "oklch(1 0 0 / 0.08)"
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.6) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 888.2,
+              "right": 1000,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
           },
           "hint": {
             "exists": true,
@@ -121,13 +147,7 @@
             "hit": true
           }
         },
-        "scrollInteraction": {
-          "wheelLeft": 44,
-          "shiftLeft": 44,
-          "dragLeft": 0,
-          "dragNote": "overlay-scrollbar-not-hit-testable-in-headless"
-        },
-        "scrolled": {
+        "scrolling": {
           "viewport": {
             "width": 1024,
             "height": 900
@@ -141,16 +161,9 @@
             "height": 1000.5,
             "clientWidth": 736,
             "scrollWidth": 780,
-            "scrollLeft": 44,
-            "maxScrollLeft": 44
-          },
-          "row": {
-            "left": 220,
-            "right": 1000,
-            "top": 321.3,
-            "bottom": 385.3,
-            "width": 780,
-            "height": 64
+            "scrollLeft": 22,
+            "maxScrollLeft": 44,
+            "scrolled": "true"
           },
           "select": {
             "left": 264,
@@ -170,9 +183,6 @@
             "position": "sticky",
             "stickyLeft": "40px",
             "cssWidth": "208px",
-            "cssMaxWidth": "208px",
-            "backgroundColor": "oklch(0.175 0.005 285)",
-            "zIndex": "20",
             "clientWidth": 208,
             "scrollWidth": 208
           },
@@ -187,7 +197,6 @@
             "scrollWidth": 49,
             "overflow": "hidden",
             "textOverflow": "ellipsis",
-            "whiteSpace": "nowrap",
             "text": "首尔-01",
             "title": "首尔-01"
           },
@@ -216,8 +225,8 @@
             "scrollWidth": 182
           },
           "address": {
-            "left": 468,
-            "right": 633.6,
+            "left": 490,
+            "right": 655.6,
             "top": 321.3,
             "bottom": 385.3,
             "width": 165.6,
@@ -226,12 +235,49 @@
             "scrollWidth": 166,
             "text": "198.51.100.52"
           },
-          "separator": {
-            "width": "1px",
-            "right": "0px",
-            "backgroundColor": "oklch(1 0 0 / 0.08)",
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "1",
+            "boxShadow": "rgba(0, 0, 0, 0.6) 6px 0px 10px -6px",
             "backgroundImage": "none",
-            "borderColor": "oklch(1 0 0 / 0.08)"
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "1",
+            "boxShadow": "rgba(0, 0, 0, 0.6) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 888.2,
+              "right": 1000,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
           },
           "hint": {
             "exists": true,
@@ -243,33 +289,24 @@
             },
             "hit": true
           }
-        }
-      },
-      "1440": {
-        "initial": {
+        },
+        "back": {
           "viewport": {
-            "width": 1440,
-            "height": 1000
+            "width": 1024,
+            "height": 900
           },
           "container": {
             "left": 264,
-            "right": 1416,
+            "right": 1000,
             "top": 280.8,
             "bottom": 1281.3,
-            "width": 1152,
+            "width": 736,
             "height": 1000.5,
-            "clientWidth": 1152,
-            "scrollWidth": 1217,
+            "clientWidth": 736,
+            "scrollWidth": 780,
             "scrollLeft": 0,
-            "maxScrollLeft": 65
-          },
-          "row": {
-            "left": 264,
-            "right": 1480.7,
-            "top": 321.3,
-            "bottom": 385.3,
-            "width": 1216.7,
-            "height": 64
+            "maxScrollLeft": 44,
+            "scrolled": null
           },
           "select": {
             "left": 264,
@@ -289,9 +326,6 @@
             "position": "sticky",
             "stickyLeft": "40px",
             "cssWidth": "208px",
-            "cssMaxWidth": "208px",
-            "backgroundColor": "oklch(0.175 0.005 285)",
-            "zIndex": "20",
             "clientWidth": 208,
             "scrollWidth": 208
           },
@@ -306,7 +340,157 @@
             "scrollWidth": 49,
             "overflow": "hidden",
             "textOverflow": "ellipsis",
-            "whiteSpace": "nowrap",
+            "text": "首尔-01",
+            "title": "首尔-01"
+          },
+          "meta": {
+            "left": 322,
+            "right": 504,
+            "top": 354.8,
+            "bottom": 375.6,
+            "width": 182,
+            "height": 20.8,
+            "clientWidth": 182,
+            "scrollWidth": 189,
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "text": "韩国 · 端口 10000-60000 · eth0",
+            "title": "韩国 · 允许端口 10000-60000 · eth0"
+          },
+          "metaRow": {
+            "left": 322,
+            "right": 504,
+            "top": 354.8,
+            "bottom": 375.6,
+            "width": 182,
+            "height": 20.8,
+            "clientWidth": 182,
+            "scrollWidth": 182
+          },
+          "address": {
+            "left": 512,
+            "right": 677.6,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 165.6,
+            "height": 64,
+            "clientWidth": 166,
+            "scrollWidth": 166,
+            "text": "198.51.100.52"
+          },
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.6) 6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.6) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 888.2,
+              "right": 1000,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "hint": {
+            "exists": true,
+            "rect": {
+              "x": 264,
+              "y": 246,
+              "width": 736,
+              "height": 35
+            },
+            "hit": true
+          }
+        },
+        "shadowState": {
+          "initialOpacity": "0",
+          "scrollingOpacity": "1",
+          "backOpacity": "0",
+          "colour": "rgba(0, 0, 0, 0.6)"
+        }
+      },
+      "1440": {
+        "initial": {
+          "viewport": {
+            "width": 1440,
+            "height": 1000
+          },
+          "container": {
+            "left": 264,
+            "right": 1416,
+            "top": 280.8,
+            "bottom": 1281.3,
+            "width": 1152,
+            "height": 1000.5,
+            "clientWidth": 1152,
+            "scrollWidth": 1217,
+            "scrollLeft": 0,
+            "maxScrollLeft": 65,
+            "scrolled": null
+          },
+          "select": {
+            "left": 264,
+            "right": 304,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 40,
+            "height": 64
+          },
+          "name": {
+            "left": 304,
+            "right": 512,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 208,
+            "height": 64,
+            "position": "sticky",
+            "stickyLeft": "40px",
+            "cssWidth": "208px",
+            "clientWidth": 208,
+            "scrollWidth": 208
+          },
+          "nameSpan": {
+            "left": 322,
+            "right": 370.8,
+            "top": 330.4,
+            "bottom": 352.8,
+            "width": 48.8,
+            "height": 22.4,
+            "clientWidth": 49,
+            "scrollWidth": 49,
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
             "text": "首尔-01",
             "title": "首尔-01"
           },
@@ -345,12 +529,49 @@
             "scrollWidth": 160,
             "text": "198.51.100.52"
           },
-          "separator": {
-            "width": "1px",
-            "right": "0px",
-            "backgroundColor": "oklch(1 0 0 / 0.08)",
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.6) 6px 0px 10px -6px",
             "backgroundImage": "none",
-            "borderColor": "oklch(1 0 0 / 0.08)"
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.6) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 1340,
+              "right": 1416,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
           },
           "hint": {
             "exists": true,
@@ -363,13 +584,7 @@
             "hit": true
           }
         },
-        "scrollInteraction": {
-          "wheelLeft": 65,
-          "shiftLeft": 65,
-          "dragLeft": 0,
-          "dragNote": "overlay-scrollbar-not-hit-testable-in-headless"
-        },
-        "scrolled": {
+        "scrolling": {
           "viewport": {
             "width": 1440,
             "height": 1000
@@ -383,16 +598,9 @@
             "height": 1000.5,
             "clientWidth": 1152,
             "scrollWidth": 1217,
-            "scrollLeft": 65,
-            "maxScrollLeft": 65
-          },
-          "row": {
-            "left": 199,
-            "right": 1415.7,
-            "top": 321.3,
-            "bottom": 385.3,
-            "width": 1216.7,
-            "height": 64
+            "scrollLeft": 33,
+            "maxScrollLeft": 65,
+            "scrolled": "true"
           },
           "select": {
             "left": 264,
@@ -412,9 +620,6 @@
             "position": "sticky",
             "stickyLeft": "40px",
             "cssWidth": "208px",
-            "cssMaxWidth": "208px",
-            "backgroundColor": "oklch(0.175 0.005 285)",
-            "zIndex": "20",
             "clientWidth": 208,
             "scrollWidth": 208
           },
@@ -429,7 +634,6 @@
             "scrollWidth": 49,
             "overflow": "hidden",
             "textOverflow": "ellipsis",
-            "whiteSpace": "nowrap",
             "text": "首尔-01",
             "title": "首尔-01"
           },
@@ -458,8 +662,8 @@
             "scrollWidth": 182
           },
           "address": {
-            "left": 447,
-            "right": 607,
+            "left": 479,
+            "right": 639,
             "top": 321.3,
             "bottom": 385.3,
             "width": 160,
@@ -468,12 +672,49 @@
             "scrollWidth": 160,
             "text": "198.51.100.52"
           },
-          "separator": {
-            "width": "1px",
-            "right": "0px",
-            "backgroundColor": "oklch(1 0 0 / 0.08)",
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "1",
+            "boxShadow": "rgba(0, 0, 0, 0.6) 6px 0px 10px -6px",
             "backgroundImage": "none",
-            "borderColor": "oklch(1 0 0 / 0.08)"
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "1",
+            "boxShadow": "rgba(0, 0, 0, 0.6) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 1340,
+              "right": 1416,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
           },
           "hint": {
             "exists": true,
@@ -485,10 +726,160 @@
             },
             "hit": true
           }
+        },
+        "back": {
+          "viewport": {
+            "width": 1440,
+            "height": 1000
+          },
+          "container": {
+            "left": 264,
+            "right": 1416,
+            "top": 280.8,
+            "bottom": 1281.3,
+            "width": 1152,
+            "height": 1000.5,
+            "clientWidth": 1152,
+            "scrollWidth": 1217,
+            "scrollLeft": 0,
+            "maxScrollLeft": 65,
+            "scrolled": null
+          },
+          "select": {
+            "left": 264,
+            "right": 304,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 40,
+            "height": 64
+          },
+          "name": {
+            "left": 304,
+            "right": 512,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 208,
+            "height": 64,
+            "position": "sticky",
+            "stickyLeft": "40px",
+            "cssWidth": "208px",
+            "clientWidth": 208,
+            "scrollWidth": 208
+          },
+          "nameSpan": {
+            "left": 322,
+            "right": 370.8,
+            "top": 330.4,
+            "bottom": 352.8,
+            "width": 48.8,
+            "height": 22.4,
+            "clientWidth": 49,
+            "scrollWidth": 49,
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "text": "首尔-01",
+            "title": "首尔-01"
+          },
+          "meta": {
+            "left": 322,
+            "right": 504,
+            "top": 354.8,
+            "bottom": 375.6,
+            "width": 182,
+            "height": 20.8,
+            "clientWidth": 182,
+            "scrollWidth": 189,
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "text": "韩国 · 端口 10000-60000 · eth0",
+            "title": "韩国 · 允许端口 10000-60000 · eth0"
+          },
+          "metaRow": {
+            "left": 322,
+            "right": 504,
+            "top": 354.8,
+            "bottom": 375.6,
+            "width": 182,
+            "height": 20.8,
+            "clientWidth": 182,
+            "scrollWidth": 182
+          },
+          "address": {
+            "left": 512,
+            "right": 672,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 160,
+            "height": 64,
+            "clientWidth": 160,
+            "scrollWidth": 160,
+            "text": "198.51.100.52"
+          },
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.6) 6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.6) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 1340,
+              "right": 1416,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "hint": {
+            "exists": true,
+            "rect": {
+              "x": 264,
+              "y": 246,
+              "width": 1152,
+              "height": 35
+            },
+            "hit": true
+          }
+        },
+        "shadowState": {
+          "initialOpacity": "0",
+          "scrollingOpacity": "1",
+          "backOpacity": "0",
+          "colour": "rgba(0, 0, 0, 0.6)"
         }
       },
       "mobile390": {
         "tables": 0,
+        "shadows": 0,
         "cards": 15
       }
     },
@@ -509,15 +900,8 @@
             "clientWidth": 736,
             "scrollWidth": 780,
             "scrollLeft": 0,
-            "maxScrollLeft": 44
-          },
-          "row": {
-            "left": 264,
-            "right": 1044,
-            "top": 321.3,
-            "bottom": 385.3,
-            "width": 780,
-            "height": 64
+            "maxScrollLeft": 44,
+            "scrolled": null
           },
           "select": {
             "left": 264,
@@ -537,9 +921,6 @@
             "position": "sticky",
             "stickyLeft": "40px",
             "cssWidth": "208px",
-            "cssMaxWidth": "208px",
-            "backgroundColor": "oklch(1 0 0)",
-            "zIndex": "20",
             "clientWidth": 208,
             "scrollWidth": 208
           },
@@ -554,7 +935,6 @@
             "scrollWidth": 49,
             "overflow": "hidden",
             "textOverflow": "ellipsis",
-            "whiteSpace": "nowrap",
             "text": "首尔-01",
             "title": "首尔-01"
           },
@@ -593,12 +973,49 @@
             "scrollWidth": 166,
             "text": "198.51.100.52"
           },
-          "separator": {
-            "width": "1px",
-            "right": "0px",
-            "backgroundColor": "oklch(0.94 0.009 264.5)",
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.16) 6px 0px 10px -6px",
             "backgroundImage": "none",
-            "borderColor": "oklch(0.94 0.009 264.5)"
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.16) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 888.2,
+              "right": 1000,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
           },
           "hint": {
             "exists": true,
@@ -611,13 +1028,7 @@
             "hit": true
           }
         },
-        "scrollInteraction": {
-          "wheelLeft": 44,
-          "shiftLeft": 44,
-          "dragLeft": 0,
-          "dragNote": "overlay-scrollbar-not-hit-testable-in-headless"
-        },
-        "scrolled": {
+        "scrolling": {
           "viewport": {
             "width": 1024,
             "height": 900
@@ -631,16 +1042,9 @@
             "height": 1000.5,
             "clientWidth": 736,
             "scrollWidth": 780,
-            "scrollLeft": 44,
-            "maxScrollLeft": 44
-          },
-          "row": {
-            "left": 220,
-            "right": 1000,
-            "top": 321.3,
-            "bottom": 385.3,
-            "width": 780,
-            "height": 64
+            "scrollLeft": 22,
+            "maxScrollLeft": 44,
+            "scrolled": "true"
           },
           "select": {
             "left": 264,
@@ -660,9 +1064,6 @@
             "position": "sticky",
             "stickyLeft": "40px",
             "cssWidth": "208px",
-            "cssMaxWidth": "208px",
-            "backgroundColor": "oklch(1 0 0)",
-            "zIndex": "20",
             "clientWidth": 208,
             "scrollWidth": 208
           },
@@ -677,7 +1078,6 @@
             "scrollWidth": 49,
             "overflow": "hidden",
             "textOverflow": "ellipsis",
-            "whiteSpace": "nowrap",
             "text": "首尔-01",
             "title": "首尔-01"
           },
@@ -706,8 +1106,8 @@
             "scrollWidth": 182
           },
           "address": {
-            "left": 468,
-            "right": 633.6,
+            "left": 490,
+            "right": 655.6,
             "top": 321.3,
             "bottom": 385.3,
             "width": 165.6,
@@ -716,12 +1116,49 @@
             "scrollWidth": 166,
             "text": "198.51.100.52"
           },
-          "separator": {
-            "width": "1px",
-            "right": "0px",
-            "backgroundColor": "oklch(0.94 0.009 264.5)",
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "1",
+            "boxShadow": "rgba(0, 0, 0, 0.16) 6px 0px 10px -6px",
             "backgroundImage": "none",
-            "borderColor": "oklch(0.94 0.009 264.5)"
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "1",
+            "boxShadow": "rgba(0, 0, 0, 0.16) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 888.2,
+              "right": 1000,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
           },
           "hint": {
             "exists": true,
@@ -733,33 +1170,24 @@
             },
             "hit": true
           }
-        }
-      },
-      "1440": {
-        "initial": {
+        },
+        "back": {
           "viewport": {
-            "width": 1440,
-            "height": 1000
+            "width": 1024,
+            "height": 900
           },
           "container": {
             "left": 264,
-            "right": 1416,
+            "right": 1000,
             "top": 280.8,
             "bottom": 1281.3,
-            "width": 1152,
+            "width": 736,
             "height": 1000.5,
-            "clientWidth": 1152,
-            "scrollWidth": 1217,
+            "clientWidth": 736,
+            "scrollWidth": 780,
             "scrollLeft": 0,
-            "maxScrollLeft": 65
-          },
-          "row": {
-            "left": 264,
-            "right": 1480.7,
-            "top": 321.3,
-            "bottom": 385.3,
-            "width": 1216.7,
-            "height": 64
+            "maxScrollLeft": 44,
+            "scrolled": null
           },
           "select": {
             "left": 264,
@@ -779,9 +1207,6 @@
             "position": "sticky",
             "stickyLeft": "40px",
             "cssWidth": "208px",
-            "cssMaxWidth": "208px",
-            "backgroundColor": "oklch(1 0 0)",
-            "zIndex": "20",
             "clientWidth": 208,
             "scrollWidth": 208
           },
@@ -796,7 +1221,157 @@
             "scrollWidth": 49,
             "overflow": "hidden",
             "textOverflow": "ellipsis",
-            "whiteSpace": "nowrap",
+            "text": "首尔-01",
+            "title": "首尔-01"
+          },
+          "meta": {
+            "left": 322,
+            "right": 504,
+            "top": 354.8,
+            "bottom": 375.6,
+            "width": 182,
+            "height": 20.8,
+            "clientWidth": 182,
+            "scrollWidth": 189,
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "text": "韩国 · 端口 10000-60000 · eth0",
+            "title": "韩国 · 允许端口 10000-60000 · eth0"
+          },
+          "metaRow": {
+            "left": 322,
+            "right": 504,
+            "top": 354.8,
+            "bottom": 375.6,
+            "width": 182,
+            "height": 20.8,
+            "clientWidth": 182,
+            "scrollWidth": 182
+          },
+          "address": {
+            "left": 512,
+            "right": 677.6,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 165.6,
+            "height": 64,
+            "clientWidth": 166,
+            "scrollWidth": 166,
+            "text": "198.51.100.52"
+          },
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.16) 6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.16) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 888.2,
+              "right": 1000,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "hint": {
+            "exists": true,
+            "rect": {
+              "x": 264,
+              "y": 246,
+              "width": 736,
+              "height": 35
+            },
+            "hit": true
+          }
+        },
+        "shadowState": {
+          "initialOpacity": "0",
+          "scrollingOpacity": "1",
+          "backOpacity": "0",
+          "colour": "rgba(0, 0, 0, 0.16)"
+        }
+      },
+      "1440": {
+        "initial": {
+          "viewport": {
+            "width": 1440,
+            "height": 1000
+          },
+          "container": {
+            "left": 264,
+            "right": 1416,
+            "top": 280.8,
+            "bottom": 1281.3,
+            "width": 1152,
+            "height": 1000.5,
+            "clientWidth": 1152,
+            "scrollWidth": 1217,
+            "scrollLeft": 0,
+            "maxScrollLeft": 65,
+            "scrolled": null
+          },
+          "select": {
+            "left": 264,
+            "right": 304,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 40,
+            "height": 64
+          },
+          "name": {
+            "left": 304,
+            "right": 512,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 208,
+            "height": 64,
+            "position": "sticky",
+            "stickyLeft": "40px",
+            "cssWidth": "208px",
+            "clientWidth": 208,
+            "scrollWidth": 208
+          },
+          "nameSpan": {
+            "left": 322,
+            "right": 370.8,
+            "top": 330.4,
+            "bottom": 352.8,
+            "width": 48.8,
+            "height": 22.4,
+            "clientWidth": 49,
+            "scrollWidth": 49,
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
             "text": "首尔-01",
             "title": "首尔-01"
           },
@@ -835,12 +1410,49 @@
             "scrollWidth": 160,
             "text": "198.51.100.52"
           },
-          "separator": {
-            "width": "1px",
-            "right": "0px",
-            "backgroundColor": "oklch(0.94 0.009 264.5)",
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.16) 6px 0px 10px -6px",
             "backgroundImage": "none",
-            "borderColor": "oklch(0.94 0.009 264.5)"
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.16) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 1340,
+              "right": 1416,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
           },
           "hint": {
             "exists": true,
@@ -853,13 +1465,7 @@
             "hit": true
           }
         },
-        "scrollInteraction": {
-          "wheelLeft": 65,
-          "shiftLeft": 65,
-          "dragLeft": 0,
-          "dragNote": "overlay-scrollbar-not-hit-testable-in-headless"
-        },
-        "scrolled": {
+        "scrolling": {
           "viewport": {
             "width": 1440,
             "height": 1000
@@ -873,16 +1479,9 @@
             "height": 1000.5,
             "clientWidth": 1152,
             "scrollWidth": 1217,
-            "scrollLeft": 65,
-            "maxScrollLeft": 65
-          },
-          "row": {
-            "left": 199,
-            "right": 1415.7,
-            "top": 321.3,
-            "bottom": 385.3,
-            "width": 1216.7,
-            "height": 64
+            "scrollLeft": 33,
+            "maxScrollLeft": 65,
+            "scrolled": "true"
           },
           "select": {
             "left": 264,
@@ -902,9 +1501,6 @@
             "position": "sticky",
             "stickyLeft": "40px",
             "cssWidth": "208px",
-            "cssMaxWidth": "208px",
-            "backgroundColor": "oklch(1 0 0)",
-            "zIndex": "20",
             "clientWidth": 208,
             "scrollWidth": 208
           },
@@ -919,7 +1515,6 @@
             "scrollWidth": 49,
             "overflow": "hidden",
             "textOverflow": "ellipsis",
-            "whiteSpace": "nowrap",
             "text": "首尔-01",
             "title": "首尔-01"
           },
@@ -948,8 +1543,8 @@
             "scrollWidth": 182
           },
           "address": {
-            "left": 447,
-            "right": 607,
+            "left": 479,
+            "right": 639,
             "top": 321.3,
             "bottom": 385.3,
             "width": 160,
@@ -958,12 +1553,49 @@
             "scrollWidth": 160,
             "text": "198.51.100.52"
           },
-          "separator": {
-            "width": "1px",
-            "right": "0px",
-            "backgroundColor": "oklch(0.94 0.009 264.5)",
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "1",
+            "boxShadow": "rgba(0, 0, 0, 0.16) 6px 0px 10px -6px",
             "backgroundImage": "none",
-            "borderColor": "oklch(0.94 0.009 264.5)"
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "1",
+            "boxShadow": "rgba(0, 0, 0, 0.16) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 1340,
+              "right": 1416,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
           },
           "hint": {
             "exists": true,
@@ -975,164 +1607,234 @@
             },
             "hit": true
           }
+        },
+        "back": {
+          "viewport": {
+            "width": 1440,
+            "height": 1000
+          },
+          "container": {
+            "left": 264,
+            "right": 1416,
+            "top": 280.8,
+            "bottom": 1281.3,
+            "width": 1152,
+            "height": 1000.5,
+            "clientWidth": 1152,
+            "scrollWidth": 1217,
+            "scrollLeft": 0,
+            "maxScrollLeft": 65,
+            "scrolled": null
+          },
+          "select": {
+            "left": 264,
+            "right": 304,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 40,
+            "height": 64
+          },
+          "name": {
+            "left": 304,
+            "right": 512,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 208,
+            "height": 64,
+            "position": "sticky",
+            "stickyLeft": "40px",
+            "cssWidth": "208px",
+            "clientWidth": 208,
+            "scrollWidth": 208
+          },
+          "nameSpan": {
+            "left": 322,
+            "right": 370.8,
+            "top": 330.4,
+            "bottom": 352.8,
+            "width": 48.8,
+            "height": 22.4,
+            "clientWidth": 49,
+            "scrollWidth": 49,
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "text": "首尔-01",
+            "title": "首尔-01"
+          },
+          "meta": {
+            "left": 322,
+            "right": 504,
+            "top": 354.8,
+            "bottom": 375.6,
+            "width": 182,
+            "height": 20.8,
+            "clientWidth": 182,
+            "scrollWidth": 189,
+            "overflow": "hidden",
+            "textOverflow": "ellipsis",
+            "text": "韩国 · 端口 10000-60000 · eth0",
+            "title": "韩国 · 允许端口 10000-60000 · eth0"
+          },
+          "metaRow": {
+            "left": 322,
+            "right": 504,
+            "top": 354.8,
+            "bottom": 375.6,
+            "width": 182,
+            "height": 20.8,
+            "clientWidth": 182,
+            "scrollWidth": 182
+          },
+          "address": {
+            "left": 512,
+            "right": 672,
+            "top": 321.3,
+            "bottom": 385.3,
+            "width": 160,
+            "height": 64,
+            "clientWidth": 160,
+            "scrollWidth": 160,
+            "text": "198.51.100.52"
+          },
+          "shadowName": {
+            "exists": true,
+            "side": "left",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.16) 6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 304,
+              "right": 512,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "shadowAction": {
+            "exists": true,
+            "side": "right",
+            "opacity": "0",
+            "boxShadow": "rgba(0, 0, 0, 0.16) -6px 0px 10px -6px",
+            "backgroundImage": "none",
+            "backgroundColor": "rgba(0, 0, 0, 0)",
+            "pointerEvents": "none",
+            "rect": {
+              "left": 1340,
+              "right": 1416,
+              "top": 321.3,
+              "bottom": 384.8
+            },
+            "cellBoxShadow": "none",
+            "borderRightWidth": "0px",
+            "after": {
+              "content": "none",
+              "width": "auto",
+              "backgroundImage": "none"
+            }
+          },
+          "hint": {
+            "exists": true,
+            "rect": {
+              "x": 264,
+              "y": 246,
+              "width": 1152,
+              "height": 35
+            },
+            "hit": true
+          }
+        },
+        "shadowState": {
+          "initialOpacity": "0",
+          "scrollingOpacity": "1",
+          "backOpacity": "0",
+          "colour": "rgba(0, 0, 0, 0.16)"
         }
       },
       "mobile390": {
         "tables": 0,
+        "shadows": 0,
         "cards": 15
       }
     }
   },
   "assertions": [
     {
-      "name": "dark 1440: 地址列完整",
+      "name": "dark 1440: 未滚动无阴影 / 无实线",
       "ok": true,
-      "detail": "198.51.100.52 @ 160px"
+      "detail": "opacity=0, td box-shadow=none, ::after=none"
     },
     {
-      "name": "dark 1440: 名称/元信息不溢出",
+      "name": "dark 1440: 滚动时两侧柔和阴影",
       "ok": true,
-      "detail": "cell 208/208px, meta row 182/182px, meta 189/182px"
+      "detail": "name rgba(0, 0, 0, 0.6) 6px 0px 10px -6px; action rgba(0, 0, 0, 0.6) -6px 0px 10px -6px"
     },
     {
-      "name": "dark 1440: 分隔线 1px",
+      "name": "dark 1440: 未滚动无阴影 / 无实线",
       "ok": true,
-      "detail": "1px oklch(1 0 0 / 0.08)"
+      "detail": "opacity=0, td box-shadow=none, ::after=none"
     },
     {
-      "name": "dark 1440: 滑动提示可见",
+      "name": "dark 1024: 未滚动无阴影 / 无实线",
       "ok": true,
-      "detail": "{\"x\":264,\"y\":246,\"width\":1152,\"height\":35}"
+      "detail": "opacity=0, td box-shadow=none, ::after=none"
     },
     {
-      "name": "dark 1440: 滚轮 / Shift+滚轮横向滚动",
+      "name": "dark 1024: 滚动时两侧柔和阴影",
       "ok": true,
-      "detail": "wheel=65px, shift+wheel=65px"
+      "detail": "name rgba(0, 0, 0, 0.6) 6px 0px 10px -6px; action rgba(0, 0, 0, 0.6) -6px 0px 10px -6px"
     },
     {
-      "name": "dark 1440: 滚动后名称列仍固定",
+      "name": "dark 1024: 未滚动无阴影 / 无实线",
       "ok": true,
-      "detail": "name 304–512px, address left=447px, scrollLeft=65"
-    },
-    {
-      "name": "dark 1440: 内容从 sticky 列下滑过",
-      "ok": true,
-      "detail": "hit=TD, bg=oklch(0.175 0.005 285), z=20"
-    },
-    {
-      "name": "dark 1024: 地址列完整",
-      "ok": true,
-      "detail": "198.51.100.52 @ 165.6px"
-    },
-    {
-      "name": "dark 1024: 名称/元信息不溢出",
-      "ok": true,
-      "detail": "cell 208/208px, meta row 182/182px, meta 189/182px"
-    },
-    {
-      "name": "dark 1024: 分隔线 1px",
-      "ok": true,
-      "detail": "1px oklch(1 0 0 / 0.08)"
-    },
-    {
-      "name": "dark 1024: 滑动提示可见",
-      "ok": true,
-      "detail": "{\"x\":264,\"y\":246,\"width\":736,\"height\":35}"
-    },
-    {
-      "name": "dark 1024: 滚轮 / Shift+滚轮横向滚动",
-      "ok": true,
-      "detail": "wheel=44px, shift+wheel=44px"
-    },
-    {
-      "name": "dark 1024: 滚动后名称列仍固定",
-      "ok": true,
-      "detail": "name 304–512px, address left=468px, scrollLeft=44"
-    },
-    {
-      "name": "dark 1024: 内容从 sticky 列下滑过",
-      "ok": true,
-      "detail": "hit=TD, bg=oklch(0.175 0.005 285), z=20"
+      "detail": "opacity=0, td box-shadow=none, ::after=none"
     },
     {
       "name": "dark 390: 卡片视图",
       "ok": true,
-      "detail": "15 cards, 0 tables"
+      "detail": "15 cards, 0 tables / 0 shadows"
     },
     {
-      "name": "light 1440: 地址列完整",
+      "name": "light 1440: 未滚动无阴影 / 无实线",
       "ok": true,
-      "detail": "198.51.100.52 @ 160px"
+      "detail": "opacity=0, td box-shadow=none, ::after=none"
     },
     {
-      "name": "light 1440: 名称/元信息不溢出",
+      "name": "light 1440: 滚动时两侧柔和阴影",
       "ok": true,
-      "detail": "cell 208/208px, meta row 182/182px, meta 189/182px"
+      "detail": "name rgba(0, 0, 0, 0.16) 6px 0px 10px -6px; action rgba(0, 0, 0, 0.16) -6px 0px 10px -6px"
     },
     {
-      "name": "light 1440: 分隔线 1px",
+      "name": "light 1440: 未滚动无阴影 / 无实线",
       "ok": true,
-      "detail": "1px oklch(0.94 0.009 264.5)"
+      "detail": "opacity=0, td box-shadow=none, ::after=none"
     },
     {
-      "name": "light 1440: 滑动提示可见",
+      "name": "light 1024: 未滚动无阴影 / 无实线",
       "ok": true,
-      "detail": "{\"x\":264,\"y\":246,\"width\":1152,\"height\":35}"
+      "detail": "opacity=0, td box-shadow=none, ::after=none"
     },
     {
-      "name": "light 1440: 滚轮 / Shift+滚轮横向滚动",
+      "name": "light 1024: 滚动时两侧柔和阴影",
       "ok": true,
-      "detail": "wheel=65px, shift+wheel=65px"
+      "detail": "name rgba(0, 0, 0, 0.16) 6px 0px 10px -6px; action rgba(0, 0, 0, 0.16) -6px 0px 10px -6px"
     },
     {
-      "name": "light 1440: 滚动后名称列仍固定",
+      "name": "light 1024: 未滚动无阴影 / 无实线",
       "ok": true,
-      "detail": "name 304–512px, address left=447px, scrollLeft=65"
-    },
-    {
-      "name": "light 1440: 内容从 sticky 列下滑过",
-      "ok": true,
-      "detail": "hit=TD, bg=oklch(1 0 0), z=20"
-    },
-    {
-      "name": "light 1024: 地址列完整",
-      "ok": true,
-      "detail": "198.51.100.52 @ 165.6px"
-    },
-    {
-      "name": "light 1024: 名称/元信息不溢出",
-      "ok": true,
-      "detail": "cell 208/208px, meta row 182/182px, meta 189/182px"
-    },
-    {
-      "name": "light 1024: 分隔线 1px",
-      "ok": true,
-      "detail": "1px oklch(0.94 0.009 264.5)"
-    },
-    {
-      "name": "light 1024: 滑动提示可见",
-      "ok": true,
-      "detail": "{\"x\":264,\"y\":246,\"width\":736,\"height\":35}"
-    },
-    {
-      "name": "light 1024: 滚轮 / Shift+滚轮横向滚动",
-      "ok": true,
-      "detail": "wheel=44px, shift+wheel=44px"
-    },
-    {
-      "name": "light 1024: 滚动后名称列仍固定",
-      "ok": true,
-      "detail": "name 304–512px, address left=468px, scrollLeft=44"
-    },
-    {
-      "name": "light 1024: 内容从 sticky 列下滑过",
-      "ok": true,
-      "detail": "hit=TD, bg=oklch(1 0 0), z=20"
+      "detail": "opacity=0, td box-shadow=none, ::after=none"
     },
     {
       "name": "light 390: 卡片视图",
       "ok": true,
-      "detail": "15 cards, 0 tables"
+      "detail": "15 cards, 0 tables / 0 shadows"
     }
   ],
   "ok": true

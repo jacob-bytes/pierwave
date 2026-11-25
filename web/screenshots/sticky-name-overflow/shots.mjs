@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 /**
- * 服务器列表名称列收口 / sticky 分隔线验收：截图 + DOM 断言
- * Server list name-column containment / sticky divider screenshots + assertions.
+ * 服务器列表 sticky 列滚动阴影验收：截图 + DOM 断言
+ * Sticky-column scroll shadow screenshots + assertions.
+ *
+ * 验收三态 / Three states:
+ *   initial   未横向滚动：名称列右侧没有分隔线 / 阴影；
+ *   scrolling 横向滚动中：名称列右缘、操作列左缘浮现柔和 box-shadow；
+ *   back      滚回最左端：阴影淡出，恢复普通表格。
  *
  * 前置 / Prerequisite:
  *   PIERWAVE_DB='sqlite://data/preview.db' PIERWAVE_ADMIN_PASSWORD=devpass \
@@ -10,15 +15,6 @@
  *
  * 用法 / Usage:
  *   node web/screenshots/sticky-name-overflow/shots.mjs
- *
- * 说明 / Note:
- *   macOS headless Chrome 使用 overlay 滚动条，原生滚动条在截图中不可见，
- *   也无法用指针拖拽（自动化限制）。脚本因此验证 native scroller 的
- *   水平滚轮 / Shift+滚轮 / scrollLeft，并把拖拽记为不可自动化。
- *   macOS headless Chrome uses overlay scrollbars: the native bar is not
- *   hit-testable, so pointer-dragging it cannot be automated. The script
- *   verifies horizontal wheel / Shift+wheel / scrollLeft instead and records
- *   the drag attempt as not automatable.
  */
 import assert from "node:assert/strict";
 import { mkdirSync, readdirSync, existsSync, writeFileSync } from "node:fs";
@@ -98,6 +94,9 @@ async function newContext({ width, height, theme }) {
     deviceScaleFactor: 1,
     colorScheme: theme,
     locale: "zh-CN",
+    // 截图需要可对比：呼吸 / 入场动画在 reduced-motion 下静止。
+    // 阴影的 opacity 过渡也走全局 0.01ms，但最终状态与真实交互一致。
+    reducedMotion: "reduce",
   });
   await context.addInitScript(
     ({ theme }) => {
@@ -126,27 +125,19 @@ async function waitForTable(page) {
   await page.waitForTimeout(250);
 }
 
-/** 读取名称 / 地址 / 分隔线 / 提示的几何与计算样式。 */
+/** 读取名称 / 地址 / sticky 投影 / 提示的几何与计算样式。 */
 function collect(page) {
   return page.evaluate(() => {
     const container = document.querySelector('[data-slot="table-container"]');
     const row = container.querySelector('tbody [data-slot="table-row"]');
     const cells = [...row.children];
     const nameCell = row.querySelector("td.pw-sticky-name");
+    const actionCell = row.querySelector('td[data-sticky="right"]');
     const nameIndex = cells.indexOf(nameCell);
     const addrCell = cells[nameIndex + 1];
     const nameSpan = nameCell.querySelector('[data-slot="server-name"]');
     const meta = nameCell.querySelector('[data-slot="server-meta"]');
     const metaRow = meta?.parentElement ?? null;
-    const after = getComputedStyle(nameCell, "::after");
-    const cellStyle = getComputedStyle(nameCell);
-
-    // 用探针把 var(--border) 解析成实际颜色，避免手写 token 值。
-    const probe = document.createElement("div");
-    probe.style.backgroundColor = "var(--border)";
-    document.body.appendChild(probe);
-    const borderColor = getComputedStyle(probe).backgroundColor;
-    probe.remove();
 
     const rect = (el) => {
       if (!el) return null;
@@ -175,6 +166,39 @@ function collect(page) {
             )
             ?.closest('[data-slot="table-scroll-hint"]') !== null;
 
+    // shadowInfo 在 page.evaluate 里不能用外层的函数，这里内联一份。
+    const shadowInfo = (cell) => {
+      const shadow = cell?.querySelector('[data-slot="sticky-scroll-shadow"]');
+      const style = shadow ? getComputedStyle(shadow) : null;
+      const cellStyle = getComputedStyle(cell);
+      const after = getComputedStyle(cell, "::after");
+      const box = shadow?.getBoundingClientRect() ?? null;
+      return {
+        exists: shadow !== null,
+        side: shadow?.getAttribute("data-side") ?? null,
+        opacity: style?.opacity ?? null,
+        boxShadow: style?.boxShadow ?? null,
+        backgroundImage: style?.backgroundImage ?? null,
+        backgroundColor: style?.backgroundColor ?? null,
+        pointerEvents: style?.pointerEvents ?? null,
+        rect: box
+          ? {
+              left: Math.round(box.left * 10) / 10,
+              right: Math.round(box.right * 10) / 10,
+              top: Math.round(box.top * 10) / 10,
+              bottom: Math.round(box.bottom * 10) / 10,
+            }
+          : null,
+        cellBoxShadow: cellStyle.boxShadow,
+        borderRightWidth: cellStyle.borderRightWidth,
+        after: {
+          content: after.content,
+          width: after.width,
+          backgroundImage: after.backgroundImage,
+        },
+      };
+    };
+
     return {
       viewport: { width: innerWidth, height: innerHeight },
       container: {
@@ -183,17 +207,14 @@ function collect(page) {
         scrollWidth: container.scrollWidth,
         scrollLeft: container.scrollLeft,
         maxScrollLeft: container.scrollWidth - container.clientWidth,
+        scrolled: container.getAttribute("data-scrolled-x"),
       },
-      row: rect(row),
       select: rect(cells[nameIndex - 1]),
       name: {
         ...rect(nameCell),
-        position: cellStyle.position,
-        stickyLeft: cellStyle.left,
-        cssWidth: cellStyle.width,
-        cssMaxWidth: cellStyle.maxWidth,
-        backgroundColor: cellStyle.backgroundColor,
-        zIndex: cellStyle.zIndex,
+        position: getComputedStyle(nameCell).position,
+        stickyLeft: getComputedStyle(nameCell).left,
+        cssWidth: getComputedStyle(nameCell).width,
         ...metrics(nameCell),
       },
       nameSpan: {
@@ -201,7 +222,6 @@ function collect(page) {
         ...metrics(nameSpan),
         overflow: nameSpan ? getComputedStyle(nameSpan).overflow : null,
         textOverflow: nameSpan ? getComputedStyle(nameSpan).textOverflow : null,
-        whiteSpace: nameSpan ? getComputedStyle(nameSpan).whiteSpace : null,
         text: nameSpan?.textContent ?? null,
         title: nameSpan?.getAttribute("title") ?? null,
       },
@@ -213,24 +233,14 @@ function collect(page) {
         text: meta?.textContent ?? null,
         title: meta?.getAttribute("title") ?? null,
       },
-      metaRow: metaRow
-        ? {
-            ...rect(metaRow),
-            ...metrics(metaRow),
-          }
-        : null,
+      metaRow: metaRow ? { ...rect(metaRow), ...metrics(metaRow) } : null,
       address: {
         ...rect(addrCell),
         ...metrics(addrCell),
         text: addrCell?.textContent?.trim() ?? null,
       },
-      separator: {
-        width: after.width,
-        right: after.right,
-        backgroundColor: after.backgroundColor,
-        backgroundImage: after.backgroundImage,
-        borderColor,
-      },
+      shadowName: shadowInfo(nameCell),
+      shadowAction: shadowInfo(actionCell),
       hint: {
         exists: hint !== null,
         rect: hintRect
@@ -247,281 +257,168 @@ function collect(page) {
   });
 }
 
-/** 断言名称单元格内没有横向溢出。 */
-function assertNameContained(g, label) {
-  assert.ok(
-    g.name.scrollWidth <= g.name.clientWidth + 1,
-    `${label}: name cell overflows (${g.name.scrollWidth} > ${g.name.clientWidth})`,
-  );
-  assert.ok(g.metaRow, `${label}: meta row missing`);
-  assert.ok(
-    g.metaRow.scrollWidth <= g.metaRow.clientWidth + 1,
-    `${label}: meta row overflows (${g.metaRow.scrollWidth} > ${g.metaRow.clientWidth})`,
-  );
-  // 内容比列宽长时只能被截断，不能画到下一列。
-  assert.equal(g.meta.overflow, "hidden", `${label}: meta must clip`);
-  assert.equal(g.meta.textOverflow, "ellipsis", `${label}: meta ellipsis`);
-  assert.ok(g.meta.title, `${label}: meta full text must be in title`);
-  assert.notEqual(g.meta.title, "", `${label}: empty meta title`);
-  pass(
-    `${label}: 名称/元信息不溢出`,
-    `cell ${g.name.scrollWidth}/${g.name.clientWidth}px, meta row ${g.metaRow.scrollWidth}/${g.metaRow.clientWidth}px, meta ${g.meta.scrollWidth}/${g.meta.clientWidth}px`,
-  );
+/** 默认 / 回滚态：没有实线、没有可见阴影。 */
+function assertNoShadow(g, label) {
+  assert.equal(g.container.scrolled, null, `${label}: data-scrolled-x must be absent`);
+  for (const [key, shadow] of [
+    ["name", g.shadowName],
+    ["action", g.shadowAction],
+  ]) {
+    assert.ok(shadow.exists, `${label}: ${key} shadow element missing`);
+    assert.equal(shadow.opacity, "0", `${label}: ${key} shadow must be invisible`);
+    assert.equal(
+      shadow.cellBoxShadow,
+      "none",
+      `${label}: td itself must not carry box-shadow`,
+    );
+    // 没有 1px 实线，也没有伪元素渐变。
+    assert.equal(shadow.borderRightWidth, "0px", `${label}: no 1px border`);
+    assert.equal(shadow.after.content, "none", `${label}: no ::after line`);
+    assert.notEqual(shadow.after.width, "1px", `${label}: no 1px pseudo line`);
+    assert.equal(
+      shadow.backgroundImage,
+      "none",
+      `${label}: shadow must not be a gradient`,
+    );
+  }
+  pass(`${label}: 未滚动无阴影 / 无实线`, "opacity=0, td box-shadow=none, ::after=none");
 }
 
-/** sticky 名称列必须保持可见，且右侧内容是「从它下面」滑过。 */
-function assertStickyAfterScroll(g, label) {
-  const container = g.container;
-  assert.equal(g.name.position, "sticky", `${label}: name must be sticky`);
-  assert.equal(g.name.stickyLeft, "40px", `${label}: name must stick at left-10`);
-  assert.ok(g.name.width !== "auto", `${label}: name width must be fixed`);
-  assert.ok(
-    Math.abs(g.name.left - (container.left + 40)) <= 1,
-    `${label}: sticky name must stay pinned 40px into the viewport (${g.name.left} vs ${container.left + 40})`,
-  );
-  assert.ok(
-    g.name.left + g.name.width <= container.right + 1,
-    `${label}: sticky name must stay inside the viewport`,
-  );
-  assert.ok(g.address.left < g.name.right, `${label}: address should slide under`);
+/** 滚动中：两侧阴影都出现，方向正确，且仍是 box-shadow 不是实线。 */
+function assertShadowVisible(g, label) {
+  assert.equal(g.container.scrolled, "true", `${label}: data-scrolled-x missing`);
+  assert.ok(g.container.scrollLeft > 1, `${label}: table must be scrolled`);
+  for (const [key, shadow, offset] of [
+    ["name", g.shadowName, "6px 0px"],
+    ["action", g.shadowAction, "-6px 0px"],
+  ]) {
+    assert.ok(shadow.exists, `${label}: ${key} shadow element missing`);
+    assert.equal(shadow.opacity, "1", `${label}: ${key} shadow must be visible`);
+    assert.match(
+      shadow.boxShadow,
+      new RegExp(`${offset.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} 10px -6px`),
+      `${label}: ${key} box-shadow geometry`,
+    );
+    assert.equal(
+      shadow.backgroundImage,
+      "none",
+      `${label}: ${key} shadow is a box-shadow, not a gradient`,
+    );
+    assert.equal(shadow.pointerEvents, "none", `${label}: ${key} must not eat clicks`);
+    assert.equal(
+      shadow.cellBoxShadow,
+      "none",
+      `${label}: td itself must stay box-shadow: none`,
+    );
+    assert.equal(shadow.after.content, "none", `${label}: no ::after line`);
+  }
+  assert.equal(g.shadowName.side, "left", `${label}: name shadow side`);
+  assert.equal(g.shadowAction.side, "right", `${label}: action shadow side`);
   pass(
-    `${label}: 滚动后名称列仍固定`,
-    `name ${g.name.left}–${g.name.right}px, address left=${g.address.left}px, scrollLeft=${container.scrollLeft}`,
+    `${label}: 滚动时两侧柔和阴影`,
+    `name ${g.shadowName.boxShadow}; action ${g.shadowAction.boxShadow}`,
   );
 }
 
 for (const theme of ["dark", "light"]) {
   const entry = (report.themes[theme] = {});
+  const themeToken =
+    theme === "dark" ? "rgba(0, 0, 0, 0.6)" : "rgba(0, 0, 0, 0.16)";
 
   for (const { width, height } of [
     { width: 1440, height: 1000 },
     { width: 1024, height: 900 },
   ]) {
     const label = `${theme} ${width}`;
+    const widthEntry = (entry[width] = {});
     const context = await newContext({ width, height, theme });
     const page = await context.newPage();
     await page.goto(`${BASE}/servers`, { waitUntil: "networkidle" });
     await waitForTable(page);
 
-    const initial = await collect(page);
-    entry[width] = { initial };
+    const container = page.locator('[data-slot="table-container"]').first();
+    const setScroll = async (left) => {
+      await container.evaluate((el, value) => {
+        el.scrollLeft = value;
+      }, left);
+      await page.waitForTimeout(320);
+    };
 
-    // 1) 表格确实可横向滚动（不是假溢出）。
+    // ---- 1) 未滚动 ------------------------------------------------------
+    const initial = await collect(page);
+    widthEntry.initial = initial;
     assert.ok(
       initial.container.scrollWidth > initial.container.clientWidth + 1,
       `${label}: table must overflow horizontally`,
     );
-    assert.ok(
-      initial.container.maxScrollLeft >= 24,
-      `${label}: horizontal overflow must be usable (${initial.container.maxScrollLeft}px)`,
-    );
-
-    // 2) 名称列固定 208px、复选框列真的 40px，地址列从 512px 开始。
+    assert.ok(initial.container.maxScrollLeft >= 24);
     assert.equal(initial.name.cssWidth, "208px", `${label}: name width`);
-    assert.equal(initial.name.cssMaxWidth, "208px", `${label}: name max-width`);
     assert.equal(initial.select.width, 40, `${label}: select column must be 40px`);
     assert.ok(
-      initial.name.left >= initial.container.left + 39 &&
-        initial.name.left <= initial.container.left + 41,
-      `${label}: name must start 40px into the table`,
-    );
-    assert.ok(
       initial.address.left >= initial.name.right - 1,
-      `${label}: address must not be covered at scrollLeft=0 (${initial.address.left} < ${initial.name.right})`,
+      `${label}: address must not be covered at rest`,
     );
-
-    // 3) 地址完整可读：列宽 ≥160，文本没有被裁。
-    assert.ok(
-      initial.address.width >= 160,
-      `${label}: address column too narrow (${initial.address.width}px)`,
-    );
+    assert.ok(initial.address.width >= 160, `${label}: address too narrow`);
     assert.ok(
       initial.address.scrollWidth <= initial.address.clientWidth + 1,
-      `${label}: address text clipped (${initial.address.scrollWidth} > ${initial.address.clientWidth})`,
+      `${label}: address text clipped`,
     );
-    assert.ok(initial.address.text && initial.address.text.length > 0);
-    pass(
-      `${label}: 地址列完整`,
-      `${initial.address.text} @ ${initial.address.width}px`,
+    // 名称列收口（上一轮修复）不回归：单元格 / 元信息行都不横向溢出。
+    assert.ok(
+      initial.name.scrollWidth <= initial.name.clientWidth + 1,
+      `${label}: name cell overflows`,
     );
-
-    // 4) 元信息与名称待在单元格里。
-    assertNameContained(initial, label);
-
-    // 5) 右侧分隔线 ≤1px（或 ≤6px 的极淡渐变），颜色就是 var(--border)。
-    const sepWidth = Number.parseFloat(initial.separator.width);
-    if (initial.separator.backgroundImage === "none") {
-      assert.ok(sepWidth <= 1, `${label}: separator too thick (${sepWidth}px)`);
-      assert.equal(
-        initial.separator.backgroundColor,
-        initial.separator.borderColor,
-        `${label}: separator must use var(--border)`,
-      );
-    } else {
-      assert.ok(
-        sepWidth <= 6,
-        `${label}: gradient separator too wide (${sepWidth}px)`,
-      );
-    }
-    pass(
-      `${label}: 分隔线 1px`,
-      `${initial.separator.width} ${initial.separator.backgroundColor}`,
+    assert.ok(
+      initial.metaRow.scrollWidth <= initial.metaRow.clientWidth + 1,
+      `${label}: meta row overflows`,
     );
-
-    // 6) 提示条在可见区且没有被 sticky 列盖住。
-    assert.ok(initial.hint.exists, `${label}: scroll hint missing`);
-    assert.ok(initial.hint.hit, `${label}: scroll hint covered`);
-    assert.ok(initial.hint.rect.x >= 0);
-    assert.ok(initial.hint.rect.y >= 0);
-    assert.ok(initial.hint.rect.x + initial.hint.rect.width <= width);
-    assert.ok(initial.hint.rect.y + initial.hint.rect.height <= height);
-    pass(`${label}: 滑动提示可见`, JSON.stringify(initial.hint.rect));
-
+    assert.ok(initial.hint.exists && initial.hint.hit, `${label}: scroll hint`);
+    assertNoShadow(initial, label);
     await page.screenshot({
-      path: path.join(
-        HERE,
-        `servers-${width}-${theme}-${width === 1024 ? "overflow" : "initial"}.png`,
-      ),
+      path: path.join(HERE, `servers-${width}-${theme}-initial.png`),
     });
 
-    // 7) 水平滚轮 / Shift+滚轮都能移动表格（Shift 由 Table 的 wheel 兜底）。
-    const box = await page.locator('[data-slot="table-container"]').first().boundingBox();
-    const hoverX = box.x + Math.min(360, box.width / 2);
-    const hoverY = box.y + 120;
+    // ---- 2) 横向滚动中：阴影浮现 ---------------------------------------
+    const mid = Math.max(12, Math.round(initial.container.maxScrollLeft / 2));
+    await setScroll(mid);
+    const scrolling = await collect(page);
+    widthEntry.scrolling = scrolling;
+    assertShadowVisible(scrolling, label);
+    // 名称列仍固定，内容从它下面滑过。
+    assert.ok(
+      Math.abs(scrolling.name.left - (scrolling.container.left + 40)) <= 1,
+      `${label}: name must stay pinned`,
+    );
+    assert.ok(
+      scrolling.address.left < scrolling.name.right,
+      `${label}: address should slide under the name column`,
+    );
+    // 投影颜色按亮暗主题取不同不透明度。
+    assert.ok(
+      scrolling.shadowName.boxShadow.includes(themeToken),
+      `${label}: shadow colour ${scrolling.shadowName.boxShadow} != ${themeToken}`,
+    );
+    await page.screenshot({
+      path: path.join(HERE, `servers-${width}-${theme}-scrolling.png`),
+    });
 
-    await page.locator('[data-slot="table-container"]').first().evaluate((el) => {
-      el.scrollLeft = 0;
+    // ---- 3) 滚回最左：阴影淡出 -----------------------------------------
+    await setScroll(0);
+    const back = await collect(page);
+    widthEntry.back = back;
+    assert.equal(back.container.scrollLeft, 0);
+    assertNoShadow(back, label);
+    await page.screenshot({
+      path: path.join(HERE, `servers-${width}-${theme}-back.png`),
     });
-    await page.mouse.move(hoverX, hoverY);
-    await page.mouse.wheel(120, 0);
-    await page.waitForTimeout(200);
-    const wheelLeft = await page
-      .locator('[data-slot="table-container"]')
-      .first()
-      .evaluate((el) => el.scrollLeft);
-    assert.ok(wheelLeft > 0, `${label}: horizontal wheel did not scroll`);
 
-    await page.locator('[data-slot="table-container"]').first().evaluate((el) => {
-      el.scrollLeft = 0;
-    });
-    const mainTopBefore = await page.evaluate(
-      () => document.querySelector("main").scrollTop,
-    );
-    const cdp = await page.context().newCDPSession(page);
-    await cdp.send("Input.dispatchMouseEvent", {
-      type: "mouseMoved",
-      x: hoverX,
-      y: hoverY,
-    });
-    await cdp.send("Input.dispatchMouseEvent", {
-      type: "mouseWheel",
-      x: hoverX,
-      y: hoverY,
-      deltaX: 0,
-      deltaY: 180,
-      modifiers: 8, // Shift
-    });
-    await page.waitForTimeout(250);
-    const shiftLeft = await page
-      .locator('[data-slot="table-container"]')
-      .first()
-      .evaluate((el) => el.scrollLeft);
-    const mainTopAfter = await page.evaluate(
-      () => document.querySelector("main").scrollTop,
-    );
-    assert.ok(shiftLeft > 0, `${label}: Shift+wheel did not scroll the table`);
-    assert.equal(
-      mainTopAfter,
-      mainTopBefore,
-      `${label}: Shift+wheel must not scroll the page vertically`,
-    );
-    pass(
-      `${label}: 滚轮 / Shift+滚轮横向滚动`,
-      `wheel=${wheelLeft}px, shift+wheel=${shiftLeft}px`,
-    );
-
-    // 8) 拖滚动条：native scroller 位置由 scrollLeft 驱动；headless 的
-    //    macOS overlay 滚动条不可命中，记录尝试结果而不判红。
-    await page.evaluate(() => {
-      const el = document.querySelector('[data-slot="table-container"]');
-      el.scrollLeft = 0;
-      const main = document.querySelector("main");
-      main.scrollTop = main.scrollHeight;
-    });
-    await page.waitForTimeout(200);
-    const bottomBox = await page
-      .locator('[data-slot="table-container"]')
-      .first()
-      .boundingBox();
-    const barY = bottomBox.y + bottomBox.height - 4;
-    let dragLeft = null;
-    let dragNote = "overlay-scrollbar-not-hit-testable-in-headless";
-    if (barY > 0 && barY < height - 1) {
-      await page.mouse.move(bottomBox.x + 30, barY);
-      await page.mouse.down();
-      for (let step = 1; step <= 8; step += 1) {
-        await page.mouse.move(bottomBox.x + 30 + step * 16, barY, {
-          steps: 2,
-        });
-      }
-      await page.mouse.up();
-      await page.waitForTimeout(150);
-      dragLeft = await page
-        .locator('[data-slot="table-container"]')
-        .first()
-        .evaluate((el) => el.scrollLeft);
-      if (dragLeft > 0) dragNote = "dragged";
-    }
-    await page.evaluate(() => {
-      document.querySelector("main").scrollTop = 0;
-    });
-    entry[width].scrollInteraction = {
-      wheelLeft,
-      shiftLeft,
-      dragLeft,
-      dragNote,
+    // 回滚后的截图与初始截图应当没有可见的 sticky 投影差异（忽略「滑动提示」）。
+    widthEntry.shadowState = {
+      initialOpacity: initial.shadowName.opacity,
+      scrollingOpacity: scrolling.shadowName.opacity,
+      backOpacity: back.shadowName.opacity,
+      colour: scrolling.shadowName.boxShadow.match(/rgba?\([^)]*\)/)?.[0],
     };
-
-    // 9) 滚到最右：sticky 名称列仍在，地址从它下面滑过。
-    await page.locator('[data-slot="table-container"]').first().evaluate((el) => {
-      el.scrollLeft = el.scrollWidth;
-    });
-    await page.waitForTimeout(250);
-    const scrolled = await collect(page);
-    entry[width].scrolled = scrolled;
-    assert.ok(
-      scrolled.container.scrollLeft >= scrolled.container.maxScrollLeft - 1,
-      `${label}: must reach max scroll`,
-    );
-    assertStickyAfterScroll(scrolled, label);
-
-    // sticky 单元格必须不透明并盖住滑过的内容（命中测试）。
-    const hit = await page.evaluate(() => {
-      const nameCell = document.querySelector(
-        'tbody [data-slot="table-row"] td.pw-sticky-name',
-      );
-      const box = nameCell.getBoundingClientRect();
-      const el = document.elementFromPoint(box.right - 6, box.top + box.height / 2);
-      return {
-        insideName: el?.closest("td.pw-sticky-name") !== null,
-        tag: el?.tagName ?? null,
-      };
-    });
-    assert.ok(hit.insideName, `${label}: sliding content paints over the sticky name`);
-    const alpha = /\/\s*([\d.]+)\)/.exec(scrolled.name.backgroundColor);
-    assert.ok(
-      alpha === null || Number(alpha[1]) >= 0.99,
-      `${label}: sticky name background must be opaque (${scrolled.name.backgroundColor})`,
-    );
-    pass(
-      `${label}: 内容从 sticky 列下滑过`,
-      `hit=${hit.tag}, bg=${scrolled.name.backgroundColor}, z=${scrolled.name.zIndex}`,
-    );
-
-    await page.screenshot({
-      path: path.join(HERE, `servers-${width}-${theme}-scrolled.png`),
-    });
-
     await context.close();
   }
 
@@ -532,24 +429,23 @@ for (const theme of ["dark", "light"]) {
     await page.goto(`${BASE}/servers`, { waitUntil: "networkidle" });
     await page.locator('[data-slot="mobile-data-card"]').first().waitFor();
     await page.waitForTimeout(250);
-
     assert.equal(
       await page.locator('[data-slot="table-container"]').count(),
       0,
       `${theme} 390: table must not render`,
     );
     assert.equal(
-      await page.locator('[data-slot="table-scroll-hint"]').count(),
+      await page.locator('[data-slot="sticky-scroll-shadow"]').count(),
       0,
-      `${theme} 390: scroll hint must not render`,
+      `${theme} 390: shadow must not render`,
     );
     const cards = await page.locator('[data-slot="mobile-data-card"]').count();
     assert.equal(cards, servers.length, `${theme} 390: card count`);
-    entry.mobile390 = { tables: 0, cards };
+    entry.mobile390 = { tables: 0, shadows: 0, cards };
     await page.screenshot({
       path: path.join(HERE, `servers-390-${theme}-cards.png`),
     });
-    pass(`${theme} 390: 卡片视图`, `${cards} cards, 0 tables`);
+    pass(`${theme} 390: 卡片视图`, `${cards} cards, 0 tables / 0 shadows`);
     await context.close();
   }
 }

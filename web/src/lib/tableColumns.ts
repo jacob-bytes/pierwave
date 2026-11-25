@@ -39,6 +39,8 @@ export interface ServerTableColumn {
   /** 表头 title；用于解释「Agent 版本」里还带配置版本。 */
   title?: string;
   sticky?: "left" | "right";
+  /** 固定列在横向滚动时是否投射内侧柔和阴影。 */
+  stickyShadow?: boolean;
 }
 
 export function serverTableColumns(t: TFunction): ServerTableColumn[] {
@@ -63,6 +65,7 @@ export function serverTableColumns(t: TFunction): ServerTableColumn[] {
       skeletonClassName: "w-52 max-w-52",
       skeletonWidth: "w-28",
       sticky: "left",
+      stickyShadow: true,
     },
     {
       key: "address",
@@ -137,6 +140,7 @@ export function serverTableColumns(t: TFunction): ServerTableColumn[] {
       skeletonClassName: "w-24",
       skeletonWidth: "w-10",
       sticky: "right",
+      stickyShadow: true,
     },
   ];
 }

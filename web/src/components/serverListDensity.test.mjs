@@ -25,7 +25,7 @@ const table = read("components/ui/table.tsx");
 const mobileCard = read("components/common/MobileDataCard.tsx");
 const css = read("index.css");
 
-test("名称列与复选框列一起 sticky，右侧是 1px 分隔线", () => {
+test("名称列与复选框列一起 sticky，固定列不画 1px 实线", () => {
   const columns = serverTableColumns((key) => key);
   const select = columns.find((column) => column.key === "select");
   assert.match(select.headClassName, /w-10/);
@@ -47,19 +47,50 @@ test("名称列与复选框列一起 sticky，右侧是 1px 分隔线", () => {
 
   assert.match(
     servers,
-    /<TableCell\s+sticky="left"\s+className="pw-sticky-name left-10 w-52 max-w-52 px-2"/,
+    /<TableCell\s+sticky="left"\s+stickyShadow\s+className="pw-sticky-name left-10 w-52 max-w-52 px-2"/,
   );
   assert.match(servers, /w-10 min-w-10 px-2/);
   assert.match(servers, /hidden min-w-40 px-2[^"]*lg:table-cell/);
-  assert.match(servers, /sticky="right"/);
+  assert.match(servers, /<TableCell\s+sticky="right"\s+stickyShadow/);
   assert.match(css, /\[data-slot="table-cell"\]\.pw-sticky-name/);
 
-  // 右边界只是一条 1px 分隔线：宽渐变（尤其是 12px / 20% 前景色）在连续
-  // 行上会叠成粗竖条，把地址列衬得像被截断。
-  assert.match(css, /width:\s*1px/);
-  assert.match(css, /background:\s*var\(--border\)/);
+  // 默认不画任何分隔线 / 伪元素渐变。
+  assert.doesNotMatch(css, /pw-sticky-name::after/);
   assert.doesNotMatch(css, /right:\s*-12px/);
   assert.doesNotMatch(css, /--foreground\) 20%/);
+});
+
+test("sticky 列的柔和投影只在横向滚动时出现，回滚后淡出", () => {
+  const columns = serverTableColumns((key) => key);
+  assert.equal(columns.find((column) => column.key === "name")?.stickyShadow, true);
+  assert.equal(columns.find((column) => column.key === "actions")?.stickyShadow, true);
+  // 复选框列与名称列同为 sticky left，但复选框列不该投影。
+  assert.notEqual(columns.find((column) => column.key === "select")?.stickyShadow, true);
+
+  // Table 把滚动位置同步到容器属性，CSS 才能只在该值下显示投影。
+  assert.match(table, /data-scrolled-x=\{scrolled \? "true" : undefined\}/);
+  assert.match(table, /setScrolled\(container\.scrollLeft > 1\)/);
+  assert.match(table, /data-slot="sticky-scroll-shadow"/);
+  assert.match(table, /data-side=\{side\}/);
+  assert.match(table, /stickyShadow\?: boolean/);
+
+  // 左右两个方向用 box-shadow，宽而不实；未滚动 opacity 0，滚动后 1。
+  assert.match(css, /--sticky-scroll-shadow: rgb\(0 0 0 \/ 0\.6\)/);
+  assert.match(css, /--sticky-scroll-shadow: rgb\(0 0 0 \/ 0\.16\)/);
+  assert.match(
+    css,
+    /box-shadow: 6px 0 10px -6px var\(--sticky-scroll-shadow\)/,
+  );
+  assert.match(
+    css,
+    /box-shadow: -6px 0 10px -6px var\(--sticky-scroll-shadow\)/,
+  );
+  assert.match(css, /opacity: 0;/);
+  assert.match(css, /transition: opacity 180ms/);
+  assert.match(
+    css,
+    /\[data-slot="table-container"\]\[data-scrolled-x="true"\]\s*\[data-slot="sticky-scroll-shadow"\]\s*\{\s*opacity: 1/,
+  );
 });
 
 test("名称 / 元信息都在单元格内收口：min-w-0 + truncate，完整内容进 title", () => {

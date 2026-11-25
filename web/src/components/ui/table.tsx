@@ -19,6 +19,7 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
   const { t } = useI18n()
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const [overflowing, setOverflowing] = React.useState(false)
+  const [scrolled, setScrolled] = React.useState(false)
 
   React.useEffect(() => {
     const container = scrollRef.current
@@ -26,6 +27,8 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
 
     const update = () => {
       setOverflowing(container.scrollWidth > container.clientWidth + 1)
+      // 只有真的离开左端才让 sticky 列投影浮现；回到 0 后淡出。
+      setScrolled(container.scrollLeft > 1)
     }
 
     update()
@@ -80,6 +83,7 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
         ref={scrollRef}
         data-slot="table-container"
         data-overflowing={overflowing ? "true" : undefined}
+        data-scrolled-x={scrolled ? "true" : undefined}
         className="relative w-full overflow-x-auto"
       >
         <table
@@ -155,20 +159,45 @@ type StickySide = "left" | "right";
 /**
  * 横向滚动时固定首列 / 操作列。
  *
- * 不画分隔线：整张表靠行边框分隔，再加一条竖线会让固定的两列看起来
+ * 固定列不画分隔线：整张表靠行边框分隔，再加一条竖线会让固定的两列看起来
  * 像独立的「侧栏」，与表格主体割裂。固定列只需要不透明背景（由
  * index.css 按表头 / 行状态设置），滚动内容不会透出来。
+ *
+ * 「内容从固定列下面滑过」用一层内嵌的柔和投影提示：投影放在 sticky
+ * 单元格内部的 absolute span 上，而不是 td 自己身上 —— 表格是
+ * border-collapse: collapse，td 的 box-shadow 会被单元格边界裁掉。
  */
 const stickyClasses: Record<StickySide, string> = {
   left: "sticky left-0 z-20",
   right: "sticky right-0 z-20",
 };
 
+/**
+ * 仅当 `stickyShadow` 打开时渲染。是否可见由 Table 容器上的
+ * `data-scrolled-x` 控制（index.css 里做 opacity 过渡）：
+ * 未横向滚动时不出现任何阴影，滚回左端后淡出。
+ */
+function StickyScrollShadow({ side }: { side: StickySide }) {
+  return (
+    <span
+      aria-hidden="true"
+      data-slot="sticky-scroll-shadow"
+      data-side={side}
+    />
+  );
+}
+
 function TableHead({
   className,
   sticky,
+  stickyShadow,
+  children,
   ...props
-}: React.ComponentProps<"th"> & { sticky?: StickySide }) {
+}: React.ComponentProps<"th"> & {
+  sticky?: StickySide;
+  /** 该固定列是否需要在滚动时投射内侧柔和阴影。 */
+  stickyShadow?: boolean;
+}) {
   return (
     <th
       data-slot="table-head"
@@ -179,15 +208,24 @@ function TableHead({
         className
       )}
       {...props}
-    />
+    >
+      {stickyShadow && sticky ? <StickyScrollShadow side={sticky} /> : null}
+      {children}
+    </th>
   )
 }
 
 function TableCell({
   className,
   sticky,
+  stickyShadow,
+  children,
   ...props
-}: React.ComponentProps<"td"> & { sticky?: StickySide }) {
+}: React.ComponentProps<"td"> & {
+  sticky?: StickySide;
+  /** 该固定列是否需要在滚动时投射内侧柔和阴影。 */
+  stickyShadow?: boolean;
+}) {
   return (
     <td
       data-slot="table-cell"
@@ -199,7 +237,10 @@ function TableCell({
         className
       )}
       {...props}
-    />
+    >
+      {stickyShadow && sticky ? <StickyScrollShadow side={sticky} /> : null}
+      {children}
+    </td>
   )
 }
 

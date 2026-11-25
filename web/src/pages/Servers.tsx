@@ -1339,6 +1339,7 @@ export default function ServersPage() {
         </TableCell>
         <TableCell
           sticky="left"
+          stickyShadow
           className="pw-sticky-name left-10 w-52 max-w-52 px-2"
         >
           {renderServerName(server)}
@@ -1375,6 +1376,7 @@ export default function ServersPage() {
         </TableCell>
         <TableCell
           sticky="right"
+          stickyShadow
           className={cn(
             "px-2",
             highlighted && "border-r border-primary/40",
@@ -1822,6 +1824,7 @@ export default function ServersPage() {
                     <TableHead
                       key={column.key}
                       sticky={column.sticky}
+                      stickyShadow={column.stickyShadow}
                       className={cn(HEAD_CLASS, column.headClassName)}
                     >
                       <SelectAllCheckbox
@@ -1834,6 +1837,7 @@ export default function ServersPage() {
                     <TableHead
                       key={column.key}
                       sticky={column.sticky}
+                      stickyShadow={column.stickyShadow}
                       title={column.title}
                       className={cn(HEAD_CLASS, column.headClassName)}
                     >
