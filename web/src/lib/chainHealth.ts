@@ -967,6 +967,37 @@ export function chainHasTrend(chain: ChainHealthChain): boolean {
   );
 }
 
+/** 图例里的一条链：`index` 是完整列表里的下标，颜色 / 线型按它固定。 */
+export interface ChainLegendEntry {
+  chain: ChainHealthChain;
+  index: number;
+}
+
+export interface ChainLegendGroups {
+  /** 有整体曲线的链，进图例主行。 */
+  sampled: ChainLegendEntry[];
+  /** 无样本的链，默认折叠成一条「N 条暂无样本」。 */
+  unsampled: ChainLegendEntry[];
+}
+
+/**
+ * 链路趋势图例折叠：只有有样本的链留在主行，其余单独成组。
+ *
+ * 9 条链里 5 条没有样本时，主行从 9 项降到 4 项，图例不再折行 + 滚动；
+ * 无样本链的 `index` 仍指向完整列表，颜色不会因为折叠而跳动。
+ */
+export function chainLegendGroups(
+  chains: readonly ChainHealthChain[],
+): ChainLegendGroups {
+  const groups: ChainLegendGroups = { sampled: [], unsampled: [] };
+  chains.forEach((chain, index) => {
+    const entry: ChainLegendEntry = { chain, index };
+    if (chainHasTrend(chain)) groups.sampled.push(entry);
+    else groups.unsampled.push(entry);
+  });
+  return groups;
+}
+
 /** 多序列折线的一行：`ts` + 每条有样本链的 P50（无样本为 null）。 */
 export interface ChainTrendRow {
   ts: number;

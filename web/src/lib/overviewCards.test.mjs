@@ -118,12 +118,33 @@ test("资源图是折线图，不是面积图", () => {
   assertExcludes(line, ["<Area", "AreaChart"], "ResourceLineChart");
 });
 
-test("成本汇率明细收在 popover，默认不铺完整汇率表", () => {
-  assertIncludes(cost, ["FxSummary", "data-cost-fx"], "CostView");
-  assertExcludes(cost, ["fxRatesInline", "UnknownCurrencyWarning"], "CostView");
+test("成本汇率明细收在 popover，正常汇率并入图表卡头的 CNY 标签", () => {
+  assertIncludes(
+    cost,
+    [
+      "FxWarning",
+      "data-cost-fx",
+      "costFxMode",
+      "fxMode === \"warning\"",
+      "triggerLabel",
+    ],
+    "CostView",
+  );
+  assertExcludes(
+    cost,
+    ["FxSummary", "fxShort", "fxAllCny", "fxRatesInline", "UnknownCurrencyWarning"],
+    "CostView",
+  );
   assertIncludes(
     fxPopover,
-    ["buildFxDetails", "data-fx-row", "data-fx-unknown", "max-h-64"],
+    [
+      "buildFxDetails",
+      "data-fx-row",
+      "data-fx-unknown",
+      "max-h-64",
+      "triggerLabel",
+      "onPointerEnter",
+    ],
     "FxDetailsPopover",
   );
 });
@@ -131,17 +152,17 @@ test("成本汇率明细收在 popover，默认不铺完整汇率表", () => {
 test("F4：无汇率时仍可打开明细，并说明缺哪些币种与去哪里配置", () => {
   assertIncludes(
     cost,
-    ["usesForeign", "overview.cost.fxMissing", "<FxDetailsPopover"],
+    ["overview.cost.fxMissing", "<FxDetailsPopover"],
     "CostView",
   );
   // 不能像旧实现那样在 !fx.provided 时直接 return 掉 popover。
-  const fxSummary = cost.slice(
-    cost.indexOf("function FxSummary"),
+  const fxWarning = cost.slice(
+    cost.indexOf("function FxWarning"),
     cost.indexOf("function MonthExpenseCard"),
   );
   assert.ok(
-    !fxSummary.includes("if (!fx.provided) {"),
-    "FxSummary must not early-return without the popover",
+    !fxWarning.includes("if (!fx.provided) {"),
+    "FxWarning must not early-return without the popover",
   );
   assertIncludes(
     fxPopover,
@@ -155,6 +176,30 @@ test("F4：无汇率时仍可打开明细，并说明缺哪些币种与去哪里
     "FxDetailsPopover",
   );
 });
+
+test("成本金额统一为「代码 + 空格 + 数字」，占比 <1%，纵轴整齐步长", () => {
+  assertExcludes(cost, ["¥", "toFixed(0)", "formatCnyCompact"], "CostView");
+  assertIncludes(
+    cost,
+    [
+      "formatSharePercent",
+      "buildCostAxisTicks",
+      "formatCnyAxisTick",
+      "data-cost-axis",
+      "data-cost-axis-tick",
+      "data-cost-share",
+    ],
+    "CostView",
+  );
+  // 一次性费用只在底部说明一次，卡头不再挂「不计入本年度」徽章。
+  assertExcludes(cost, ["overview.cost.oneTimeBadge"], "CostView");
+  assert.equal(
+    cost.split('t("overview.cost.oneTimeHint")').length - 1,
+    1,
+    "one-time hint must appear exactly once",
+  );
+});
+
 
 test("tab 只保留文字，移除前面的小图标", () => {
   assert.ok(!shell.includes("LucideIcon"), "tab shell should not import icon types");

@@ -134,6 +134,25 @@ export interface HeatmapCell {
   bucket: ServerHealthBucket | null;
 }
 
+/** 热力图里正常展开的一台服务器。 */
+export interface HeatmapServerRow {
+  kind: "server";
+  server: ServerHealthServer;
+  /**
+   * 在「可见服务器行」中的序号（0 起），与 `data-row` / 键盘上下移动一致。
+   * 折叠的聚合行不占序号，所以折叠后后面的行会自然接上。
+   */
+  row: number;
+}
+
+/** 全程没有在线样本的服务器折叠成的聚合行。 */
+export interface HeatmapOfflineGroupRow {
+  kind: "offline-group";
+  servers: ServerHealthServer[];
+}
+
+export type HeatmapRow = HeatmapServerRow | HeatmapOfflineGroupRow;
+
 /** 面积图的一台服务器（id + 展示名）。 */
 export interface ResourceSeries {
   id: string;
@@ -443,6 +462,33 @@ export function resourcePercent(
   return Math.min(Math.max(value, 0), 1) * 100;
 }
 
+/**
+ * 「当前资源」折线图 y 轴上界：数据最大值 1.2 倍留白后向上取整到 5 的倍数，
+ * 至少 25%、至多 100%，0 基线始终保留。
+ *
+ * 之前写死 0–100% 会把负载曲线（load1/8 近似）压成贴底的一条线。
+ */
+export function resourceYMax(dataMax: number): number {
+  if (!Number.isFinite(dataMax)) return 25;
+  const padded = Math.max(0, dataMax) * 1.2;
+  const rounded = Math.ceil(padded / 5) * 5;
+  return Math.min(100, Math.max(25, rounded));
+}
+
+/**
+ * 资源折线图的 y 轴刻度：优先 4 等分，其次 5 / 2 / 1 等分，
+ * 取第一个能整除 yMax 的份数，保证每档都是整数并回到 0 基线。
+ */
+export function resourceYTicks(yMax: number): number[] {
+  const top =
+    Number.isFinite(yMax) && yMax > 0 ? Math.round(Math.min(100, yMax)) : 25;
+  const intervals = [4, 5, 2, 1].find((count) => top % count === 0) ?? 1;
+  const step = top / intervals;
+  return Array.from({ length: intervals + 1 }, (_, index) =>
+    Math.round(index * step),
+  );
+}
+
 /** 找与列时间最接近的桶；容差半个桶，避免时区取整导致整列空。 */
 export function bucketAt(
   server: ServerHealthServer,
@@ -509,6 +555,63 @@ export function buildHeatmapColumns(
   return Array.from({ length: count }, (_, index) => ({
     ts: start + index * step,
   }));
+}
+
+/**
+ * 整段窗口里是否至少有一个「在线率 > 0」的样本。
+ *
+ * 离线桶（onlineRatio = 0）和无采样桶都不算在线样本；两者在热力图上
+ * 都只有空格子，整行都这样时折叠成一行，把空间留给有信息的行。
+ */
+export function serverHasOnlineSample(
+  server: ServerHealthServer,
+  columns: readonly HeatmapColumn[],
+  stepSecs: number,
+): boolean {
+  return columns.some(
+    (column) => heatmapCell(server, column.ts, stepSecs).state === "sample",
+  );
+}
+
+/**
+ * 把服务器行折叠成「可见行」列表。
+ *
+ * - 整段窗口没有任何在线样本（离线 + 无采样）的服务器合并成一行；
+ * - 聚合行固定出现在第一台被折叠服务器原来的位置，未折叠行顺序不变；
+ * - 聚合行始终保留（它是展开 / 收起的唯一入口），展开后把 N 台
+ *   逐行放回聚合行后面；`row` 序号只给真正渲染格子的服务器行，
+ *   所以折叠的服务器不会进入热力图的键盘遍历。
+ */
+export function buildHeatmapRows(
+  servers: readonly ServerHealthServer[],
+  columns: readonly HeatmapColumn[],
+  stepSecs: number,
+  { offlineExpanded = false }: { offlineExpanded?: boolean } = {},
+): HeatmapRow[] {
+  const offline = servers.filter(
+    (server) => !serverHasOnlineSample(server, columns, stepSecs),
+  );
+  const offlineIds = new Set(offline.map((server) => server.id));
+  const rows: HeatmapRow[] = [];
+  let row = 0;
+  let groupPlaced = false;
+  for (const server of servers) {
+    if (!offlineIds.has(server.id)) {
+      rows.push({ kind: "server", server, row });
+      row += 1;
+      continue;
+    }
+    if (groupPlaced) continue;
+    rows.push({ kind: "offline-group", servers: offline });
+    groupPlaced = true;
+    if (offlineExpanded) {
+      for (const item of offline) {
+        rows.push({ kind: "server", server: item, row });
+        row += 1;
+      }
+    }
+  }
+  return rows;
 }
 
 function anomalyMetricValue(

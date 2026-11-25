@@ -7,14 +7,14 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ServerIcon, ServerOffIcon, TriangleAlertIcon } from "lucide-react";
+import { ChevronDownIcon, ServerIcon, ServerOffIcon, TriangleAlertIcon } from "lucide-react";
 import { EmptyState, ListError } from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { InsightMetrics } from "./InsightMetrics";
+import { ChainKpiCell, ChainKpiGrid } from "./ChainKpi";
 import { ResourceLineChart } from "./ResourceLineChart";
 import { ServerUptimeTrendChart } from "./ServerUptimeTrendChart";
 import { errorText } from "@/lib/errors";
@@ -24,6 +24,7 @@ import {
   anomalyWindowHours,
   buildAnomalyWindows,
   buildHeatmapColumns,
+  buildHeatmapRows,
   buildResourceChartData,
   buildUptimeTrend,
   formatHourTick,
@@ -244,33 +245,32 @@ function ServerHealthBody({
 
   return (
     <div className="space-y-4" data-server-health>
-      <InsightMetrics
-        items={[
-          {
-            label: t("overview.serverHealth.uptime24"),
-            value: formatPercent(uptime24),
-            hint: t(
-              sampleServers === 1
-                ? "overview.serverHealth.uptimeHintOne"
-                : "overview.serverHealth.uptimeHint",
-              {
-                seven: formatPercent(uptime7d),
-                n: sampleServers,
-              },
-            ),
-          },
-          {
-            label: t("overview.serverHealth.anomalyServers"),
-            value: scopedSnapshot.summary.anomalyServers,
-            hint: anomalyHint,
-          },
-          {
-            label: t("overview.serverHealth.diskMax"),
-            value: formatPercent(scopedSnapshot.summary.diskMax),
-            hint: diskHint,
-          },
-        ]}
-      />
+      <ChainKpiGrid data-server-kpis>
+        <ChainKpiCell
+          className="col-span-2"
+          label={t("overview.serverHealth.uptime24")}
+          value={formatPercent(uptime24)}
+          hint={t(
+            sampleServers === 1
+              ? "overview.serverHealth.uptimeHintOne"
+              : "overview.serverHealth.uptimeHint",
+            {
+              seven: formatPercent(uptime7d),
+              n: sampleServers,
+            },
+          )}
+        />
+        <ChainKpiCell
+          label={t("overview.serverHealth.anomalyServers")}
+          value={String(scopedSnapshot.summary.anomalyServers)}
+          hint={anomalyHint}
+        />
+        <ChainKpiCell
+          label={t("overview.serverHealth.diskMax")}
+          value={formatPercent(scopedSnapshot.summary.diskMax)}
+          hint={diskHint}
+        />
+      </ChainKpiGrid>
 
       <HeatmapCard
         snapshot={scopedSnapshot}
@@ -414,6 +414,40 @@ function HeatmapCard({
     () => buildHeatmapColumns(snapshot, 168),
     [snapshot],
   );
+  // 全程没有在线样本的行默认折叠成一行；展开状态只影响这张卡。
+  const [offlineExpanded, setOfflineExpanded] = useState(false);
+  const heatmapRows = useMemo(
+    () =>
+      buildHeatmapRows(servers, columns, stepSecs, {
+        offlineExpanded,
+      }),
+    [servers, columns, stepSecs, offlineExpanded],
+  );
+  const serverRowCount = useMemo(
+    () =>
+      heatmapRows.reduce(
+        (count, row) => count + (row.kind === "server" ? 1 : 0),
+        0,
+      ),
+    [heatmapRows],
+  );
+  const offlineServers = useMemo(() => {
+    const row = heatmapRows.find((item) => item.kind === "offline-group");
+    return row?.kind === "offline-group" ? row.servers : [];
+  }, [heatmapRows]);
+  const offlineTooltip =
+    offlineServers.length === 0
+      ? ""
+      : t("overview.serverHealth.offlineGroupTooltip", {
+          n: offlineServers.length,
+          names: offlineServers.map((server) => server.name).join(" · "),
+        });
+  const offlineToggle = t(
+    offlineExpanded
+      ? "overview.serverHealth.offlineGroupCollapse"
+      : "overview.serverHealth.offlineGroupExpand",
+    { n: offlineServers.length },
+  );
   const dayGroups = useMemo(
     () => groupHeatmapColumnsByDay(columns),
     [columns],
@@ -490,12 +524,13 @@ function HeatmapCard({
     if (element) element.scrollLeft = element.scrollWidth;
   }, [columns.length, servers.length]);
 
-  const focusRow = Math.min(focus.row, Math.max(0, servers.length - 1));
+  const focusRow = Math.min(focus.row, Math.max(0, serverRowCount - 1));
   const focusCol = Math.min(focus.col, Math.max(0, columns.length - 1));
 
   const heatmapVars = {
     "--heatmap-cell-size": desktop ? "14px" : "9px",
     "--heatmap-gap": "2px",
+    "--heatmap-group-row-height": desktop ? "28px" : "24px",
   } as CSSProperties;
   const gridStyle: CSSProperties = {
     gridTemplateColumns: `repeat(${columns.length}, var(--heatmap-cell-size))`,
@@ -522,7 +557,8 @@ function HeatmapCard({
         nextRow = Math.max(0, row - 1);
         break;
       case "ArrowDown":
-        nextRow = Math.min(servers.length - 1, row + 1);
+        // `row` 是可见服务器行的序号，折叠的聚合行没有序号，天然被跳过。
+        nextRow = Math.min(serverRowCount - 1, row + 1);
         break;
       case "Home":
         nextCol = 0;
@@ -620,31 +656,72 @@ function HeatmapCard({
                     className="flex flex-col"
                     style={{ gap: "var(--heatmap-gap)" }}
                   >
-                    {servers.map((server) => (
-                      <div
-                        key={server.id}
-                        className="flex items-center gap-1.5 overflow-hidden"
-                        style={{ height: "var(--heatmap-cell-size)" }}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className={cn(
-                            "size-1.5 shrink-0 rounded-full",
-                            server.status === "online"
-                              ? "bg-primary"
-                              : server.status === "offline"
-                                ? "bg-muted-foreground/40"
-                                : "bg-muted-foreground/30",
-                          )}
-                        />
-                        <span
-                          className="truncate text-[11px] leading-none"
-                          title={server.name}
+                    {heatmapRows.map((row) => {
+                      if (row.kind === "offline-group") {
+                        return (
+                          <button
+                            key="offline-group"
+                            type="button"
+                            data-heatmap-offline-row-name
+                            aria-expanded={offlineExpanded}
+                            aria-label={`${offlineTooltip} · ${offlineToggle}`}
+                            onClick={() =>
+                              setOfflineExpanded((value) => !value)
+                            }
+                            onMouseEnter={(event) =>
+                              showTip(event.currentTarget, offlineTooltip)
+                            }
+                            onFocus={(event) =>
+                              showTip(event.currentTarget, offlineTooltip)
+                            }
+                            onBlur={hideTip}
+                            className="flex w-full items-center gap-0.5 overflow-hidden rounded-[3px] text-left text-muted-foreground outline-none transition-colors duration-150 hover:bg-muted/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                            style={{
+                              height: "var(--heatmap-group-row-height)",
+                            }}
+                          >
+                            <ChevronDownIcon
+                              aria-hidden="true"
+                              className={cn(
+                                "size-3 shrink-0 transition-transform duration-150",
+                                !offlineExpanded && "-rotate-90",
+                              )}
+                            />
+                            <span className="truncate text-[11px] leading-none">
+                              {t("overview.serverHealth.offlineGroup", {
+                                n: row.servers.length,
+                              })}
+                            </span>
+                          </button>
+                        );
+                      }
+                      const server = row.server;
+                      return (
+                        <div
+                          key={server.id}
+                          className="flex items-center gap-1.5 overflow-hidden"
+                          style={{ height: "var(--heatmap-cell-size)" }}
                         >
-                          {server.name}
-                        </span>
-                      </div>
-                    ))}
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              "size-1.5 shrink-0 rounded-full",
+                              server.status === "online"
+                                ? "bg-primary"
+                                : server.status === "offline"
+                                  ? "bg-muted-foreground/40"
+                                  : "bg-muted-foreground/30",
+                            )}
+                          />
+                          <span
+                            className="truncate text-[11px] leading-none"
+                            title={server.name}
+                          >
+                            {server.name}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -694,78 +771,113 @@ function HeatmapCard({
                       aria-label={t("overview.serverHealth.heatmapAria", {
                         n: servers.length,
                       })}
-                      aria-rowcount={servers.length}
+                      aria-rowcount={heatmapRows.length}
                       aria-colcount={columns.length}
                       className="mt-0.5 flex flex-col"
                       style={{ gap: "var(--heatmap-gap)" }}
                       onKeyDown={moveFocus}
                       onMouseLeave={hideTip}
                     >
-                      {servers.map((server, rowIndex) => (
-                        <div
-                          key={server.id}
-                          role="row"
-                          aria-label={server.name}
-                          data-heatmap-row
-                          className="grid"
-                          style={gridStyle}
-                        >
-                          {columns.map((column, colIndex) => {
-                            const cell = heatmapCell(
-                              server,
-                              column.ts,
-                              stepSecs,
-                            );
-                            const label = cellLabel(
-                              server.name,
-                              column.ts,
-                              cell,
-                            );
-                            const focused =
-                              focusRow === rowIndex &&
-                              focusCol === colIndex;
-                            return (
+                      {heatmapRows.map((row) => {
+                        if (row.kind === "offline-group") {
+                          return (
+                            <div
+                              key="offline-group"
+                              role="row"
+                              aria-label={offlineTooltip}
+                              data-heatmap-offline-row
+                              className="grid cursor-pointer"
+                              style={{
+                                ...gridStyle,
+                                height: "var(--heatmap-group-row-height)",
+                              }}
+                              onMouseEnter={(event) =>
+                                showTip(event.currentTarget, offlineTooltip)
+                              }
+                              onClick={() =>
+                                setOfflineExpanded((value) => !value)
+                              }
+                            >
                               <div
-                                key={`${server.id}-${column.ts}`}
                                 role="gridcell"
-                                tabIndex={focused ? 0 : -1}
-                                data-heatmap-cell
-                                data-row={rowIndex}
-                                data-col={colIndex}
-                                data-state={cell.state}
-                                data-step={cell.step ?? ""}
-                                aria-label={label}
-                                onMouseEnter={(event) =>
-                                  showTip(event.currentTarget, label)
-                                }
-                                onPointerDown={(event) => {
-                                  // 390 触摸端没有 hover；点按也要立即出提示。
-                                  if (event.pointerType !== "mouse") {
-                                    showTip(event.currentTarget, label);
-                                  }
-                                }}
-                                onFocus={(event) => {
-                                  setFocus({
-                                    row: rowIndex,
-                                    col: colIndex,
-                                  });
-                                  showTip(event.currentTarget, label);
-                                }}
-                                onBlur={hideTip}
-                                className={cn(
-                                  "aspect-square w-full rounded-[3px] outline-none transition-[box-shadow] duration-100 focus-visible:ring-2 focus-visible:ring-ring",
-                                  heatmapCellClass(
-                                    cell.state,
-                                    cell.step,
-                                  ),
-                                  dayStarts.has(colIndex) &&
-                                    "heatmap-day-start",
+                                aria-label={t(
+                                  "overview.serverHealth.offlineGroup",
+                                  { n: row.servers.length },
                                 )}
+                                className="heatmap-offline h-full w-full rounded-[3px] opacity-70 transition-opacity duration-150 hover:opacity-100"
+                                style={{ gridColumn: "1 / -1" }}
                               />
-                            );
-                          })}
-                        </div>
-                      ))}
+                            </div>
+                          );
+                        }
+                        const server = row.server;
+                        const rowIndex = row.row;
+                        return (
+                          <div
+                            key={server.id}
+                            role="row"
+                            aria-label={server.name}
+                            data-heatmap-row
+                            className="grid"
+                            style={gridStyle}
+                          >
+                            {columns.map((column, colIndex) => {
+                              const cell = heatmapCell(
+                                server,
+                                column.ts,
+                                stepSecs,
+                              );
+                              const label = cellLabel(
+                                server.name,
+                                column.ts,
+                                cell,
+                              );
+                              const focused =
+                                focusRow === rowIndex &&
+                                focusCol === colIndex;
+                              return (
+                                <div
+                                  key={`${server.id}-${column.ts}`}
+                                  role="gridcell"
+                                  tabIndex={focused ? 0 : -1}
+                                  data-heatmap-cell
+                                  data-row={rowIndex}
+                                  data-col={colIndex}
+                                  data-state={cell.state}
+                                  data-step={cell.step ?? ""}
+                                  aria-label={label}
+                                  onMouseEnter={(event) =>
+                                    showTip(event.currentTarget, label)
+                                  }
+                                  onPointerDown={(event) => {
+                                    // 390 触摸端没有 hover；点按也要立即出提示。
+                                    if (event.pointerType !== "mouse") {
+                                      showTip(event.currentTarget, label);
+                                    }
+                                  }}
+                                  onFocus={(event) => {
+                                    setFocus({
+                                      row: rowIndex,
+                                      col: colIndex,
+                                    });
+                                    showTip(event.currentTarget, label);
+                                  }}
+                                  onBlur={hideTip}
+                                  className={cn(
+                                    "aspect-square w-full rounded-[3px] outline-none transition-[box-shadow] duration-100 focus-visible:ring-2 focus-visible:ring-ring",
+                                    heatmapCellClass(
+                                      cell.state,
+                                      cell.step,
+                                    ),
+                                    dayStarts.has(colIndex) &&
+                                      "heatmap-day-start",
+                                  )}
+                                />
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -1061,7 +1173,7 @@ function EmptyServerHealth() {
 function ServerHealthSkeleton() {
   return (
     <div className="space-y-4" aria-hidden="true">
-      <Skeleton className="h-[88px] w-full rounded-xl" />
+      <Skeleton className="h-[329px] w-full rounded-xl xl:h-[136px]" />
       <Card className="gap-4">
         <CardHeader>
           <Skeleton className="h-4 w-32" />

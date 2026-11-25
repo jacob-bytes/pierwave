@@ -1,0 +1,440 @@
+{
+  "generatedAt": "2026-11-25T14:40:07.084Z",
+  "kpi": {
+    "server-dark-1440": {
+      "height": 136,
+      "cells": 3,
+      "cellHeights": [
+        136,
+        136,
+        136
+      ],
+      "rows": 1,
+      "columns": 3,
+      "gridColumns": 4,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 576,
+      "secondWidth": 287
+    },
+    "cost-dark-1440": {
+      "height": 136,
+      "cells": 3,
+      "cellHeights": [
+        136,
+        136,
+        136
+      ],
+      "rows": 1,
+      "columns": 3,
+      "gridColumns": 4,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 576,
+      "secondWidth": 287
+    },
+    "chain-dark-1440": {
+      "height": 136,
+      "cells": 4,
+      "cellHeights": [
+        136,
+        136,
+        136,
+        136
+      ],
+      "rows": 1,
+      "columns": 4,
+      "gridColumns": 4,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 287,
+      "secondWidth": 287
+    },
+    "templates-dark-1440": {
+      "height": 136,
+      "cells": 4,
+      "cellHeights": [
+        136,
+        136,
+        136,
+        136
+      ],
+      "rows": 1,
+      "columns": 4,
+      "gridColumns": 4,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 287,
+      "secondWidth": 287
+    },
+    "heights-dark-1440": [
+      136,
+      136,
+      136,
+      136
+    ],
+    "server-dark-390": {
+      "height": 329,
+      "cells": 3,
+      "cellHeights": [
+        164,
+        164,
+        164
+      ],
+      "rows": 2,
+      "columns": 2,
+      "gridColumns": 2,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 342,
+      "secondWidth": 171
+    },
+    "cost-dark-390": {
+      "height": 329,
+      "cells": 3,
+      "cellHeights": [
+        164,
+        164,
+        164
+      ],
+      "rows": 2,
+      "columns": 2,
+      "gridColumns": 2,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 342,
+      "secondWidth": 171
+    },
+    "chain-dark-390": {
+      "height": 329,
+      "cells": 4,
+      "cellHeights": [
+        164,
+        164,
+        164,
+        164
+      ],
+      "rows": 2,
+      "columns": 2,
+      "gridColumns": 2,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 171,
+      "secondWidth": 171
+    },
+    "templates-dark-390": {
+      "height": 329,
+      "cells": 4,
+      "cellHeights": [
+        164,
+        164,
+        164,
+        164
+      ],
+      "rows": 2,
+      "columns": 2,
+      "gridColumns": 2,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 171,
+      "secondWidth": 171
+    },
+    "heights-dark-390": [
+      329,
+      329,
+      329,
+      329
+    ],
+    "server-light-1440": {
+      "height": 136,
+      "cells": 3,
+      "cellHeights": [
+        136,
+        136,
+        136
+      ],
+      "rows": 1,
+      "columns": 3,
+      "gridColumns": 4,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 576,
+      "secondWidth": 287
+    },
+    "cost-light-1440": {
+      "height": 136,
+      "cells": 3,
+      "cellHeights": [
+        136,
+        136,
+        136
+      ],
+      "rows": 1,
+      "columns": 3,
+      "gridColumns": 4,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 576,
+      "secondWidth": 287
+    },
+    "chain-light-1440": {
+      "height": 136,
+      "cells": 4,
+      "cellHeights": [
+        136,
+        136,
+        136,
+        136
+      ],
+      "rows": 1,
+      "columns": 4,
+      "gridColumns": 4,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 287,
+      "secondWidth": 287
+    },
+    "templates-light-1440": {
+      "height": 136,
+      "cells": 4,
+      "cellHeights": [
+        136,
+        136,
+        136,
+        136
+      ],
+      "rows": 1,
+      "columns": 4,
+      "gridColumns": 4,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 287,
+      "secondWidth": 287
+    },
+    "heights-light-1440": [
+      136,
+      136,
+      136,
+      136
+    ],
+    "server-light-390": {
+      "height": 329,
+      "cells": 3,
+      "cellHeights": [
+        164,
+        164,
+        164
+      ],
+      "rows": 2,
+      "columns": 2,
+      "gridColumns": 2,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 342,
+      "secondWidth": 171
+    },
+    "cost-light-390": {
+      "height": 329,
+      "cells": 3,
+      "cellHeights": [
+        164,
+        164,
+        164
+      ],
+      "rows": 2,
+      "columns": 2,
+      "gridColumns": 2,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 342,
+      "secondWidth": 171
+    },
+    "chain-light-390": {
+      "height": 329,
+      "cells": 4,
+      "cellHeights": [
+        164,
+        164,
+        164,
+        164
+      ],
+      "rows": 2,
+      "columns": 2,
+      "gridColumns": 2,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 171,
+      "secondWidth": 171
+    },
+    "templates-light-390": {
+      "height": 329,
+      "cells": 4,
+      "cellHeights": [
+        164,
+        164,
+        164,
+        164
+      ],
+      "rows": 2,
+      "columns": 2,
+      "gridColumns": 2,
+      "valueSize": "28px",
+      "hintSize": "13px",
+      "labelSize": "12px",
+      "firstWidth": 171,
+      "secondWidth": 171
+    },
+    "heights-light-390": [
+      329,
+      329,
+      329,
+      329
+    ]
+  },
+  "heatmap": {
+    "collapsed-1440": {
+      "groupText": "6 台全程离线",
+      "groupAria": "6 台全程离线：法兰克福-01 · 法兰克福-02 · 美西-01 · 美西-02 · 悉尼-01 · 大阪-01 · 展开查看这 6 台服务器的热力图",
+      "groupExpanded": "false",
+      "serverRows": 4,
+      "cells": 672,
+      "tabStops": 1,
+      "maxDataRow": 3,
+      "groupRows": 1
+    },
+    "tooltip-1440": "6 台全程离线：法兰克福-01 · 法兰克福-02 · 美西-01 · 美西-02 · 悉尼-01 · 大阪-01",
+    "expanded-1440": {
+      "groupExpanded": "true",
+      "serverRows": 10,
+      "groupRows": 1,
+      "cells": 1680,
+      "tabStops": 1,
+      "maxDataRow": 9
+    },
+    "keyboard-1440": {
+      "before": {
+        "row": "0",
+        "col": "0",
+        "isCell": true
+      },
+      "end": {
+        "row": "0",
+        "col": "167",
+        "isCell": true
+      },
+      "after": {
+        "row": "1",
+        "col": "167",
+        "isCell": true
+      }
+    },
+    "collapsed-390": {
+      "groupText": "6 台全程离线",
+      "groupAria": "6 台全程离线：法兰克福-01 · 法兰克福-02 · 美西-01 · 美西-02 · 悉尼-01 · 大阪-01 · 展开查看这 6 台服务器的热力图",
+      "groupExpanded": "false",
+      "serverRows": 4,
+      "cells": 672,
+      "tabStops": 1,
+      "maxDataRow": 3,
+      "groupRows": 1
+    },
+    "tooltip-390": "6 台全程离线：法兰克福-01 · 法兰克福-02 · 美西-01 · 美西-02 · 悉尼-01 · 大阪-01",
+    "expanded-390": {
+      "groupExpanded": "true",
+      "serverRows": 10,
+      "groupRows": 1,
+      "cells": 1680,
+      "tabStops": 1,
+      "maxDataRow": 9
+    },
+    "keyboard-390": {
+      "before": {
+        "row": "0",
+        "col": "0",
+        "isCell": true
+      },
+      "end": {
+        "row": "0",
+        "col": "167",
+        "isCell": true
+      },
+      "after": {
+        "row": "1",
+        "col": "167",
+        "isCell": true
+      }
+    }
+  },
+  "subtabs": {
+    "dark-1440": {
+      "label": "转发链",
+      "fontSize": "12px",
+      "activeColor": "oklch(0.662 0.179 264.6)",
+      "inactiveColor": "oklch(0.7 0.015 285)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "afterHeight": "2px",
+      "afterColor": "oklch(0.662 0.179 264.6)",
+      "afterDisplay": "block",
+      "listHeight": 32
+    },
+    "dark-390": {
+      "label": "转发链",
+      "fontSize": "12px",
+      "activeColor": "oklch(0.662 0.179 264.6)",
+      "inactiveColor": "oklch(0.7 0.015 285)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "afterHeight": "2px",
+      "afterColor": "oklch(0.662 0.179 264.6)",
+      "afterDisplay": "block",
+      "listHeight": 32
+    },
+    "light-1440": {
+      "label": "转发链",
+      "fontSize": "12px",
+      "activeColor": "oklch(0.424 0.199 265.638)",
+      "inactiveColor": "oklch(0.52 0.035 265.1)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "afterHeight": "2px",
+      "afterColor": "oklch(0.424 0.199 265.638)",
+      "afterDisplay": "block",
+      "listHeight": 32
+    },
+    "light-390": {
+      "label": "转发链",
+      "fontSize": "12px",
+      "activeColor": "oklch(0.424 0.199 265.638)",
+      "inactiveColor": "oklch(0.52 0.035 265.1)",
+      "backgroundColor": "rgba(0, 0, 0, 0)",
+      "afterHeight": "2px",
+      "afterColor": "oklch(0.424 0.199 265.638)",
+      "afterDisplay": "block",
+      "listHeight": 32
+    }
+  },
+  "traffic": {
+    "390": {
+      "text": "香港-01—负载 0.42负载0.42·105 GB",
+      "loadLabels": 2
+    },
+    "1440": {
+      "text": "香港-01—负载 0.42负载0.42·105 GB",
+      "loadLabels": 2
+    }
+  },
+  "errors": []
+}

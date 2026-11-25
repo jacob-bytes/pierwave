@@ -37,7 +37,7 @@ const VIEW_META: readonly {
 function InsightFallback() {
   return (
     <div className="space-y-4" aria-hidden="true">
-      <Skeleton className="h-[88px] w-full rounded-xl" />
+      <Skeleton className="h-[329px] w-full rounded-xl xl:h-[136px]" />
       <Skeleton className="h-[320px] w-full rounded-xl" />
       <section className="grid gap-4 xl:grid-cols-3">
         <Skeleton className="h-[240px] w-full rounded-xl" />

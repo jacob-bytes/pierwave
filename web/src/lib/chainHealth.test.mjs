@@ -14,6 +14,7 @@ import {
   chainEndpointServerName,
   chainLatestSampleTs,
   chainLatestSeriesTs,
+  chainLegendGroups,
   chainLatencyWindow,
   chainLossAt,
   chainNodeStatusTone,
@@ -2238,4 +2239,36 @@ test("route preview keeps real nodes and uses an ellipsis for missing middles", 
   const empty = normalizeChainHealth(payload([chain({ series: [], segments: [] })]))
     .snapshot.chains[0];
   assert.deepEqual(chainRoutePreview(empty), []);
+});
+
+test("chainLegendGroups: 无样本链从图例主行折叠出去，下标仍指向完整列表", () => {
+  const chains = [
+    chain({ id: "empty", name: "无样本", series: [] }),
+    chain({ id: "sampled", name: "有样本" }),
+    chain({
+      id: "zero",
+      name: "零采样",
+      series: [point(1_800_000_000, null, null, null, 0)],
+    }),
+  ];
+  const groups = chainLegendGroups(chains);
+  assert.deepEqual(
+    groups.sampled.map((entry) => entry.chain.id),
+    ["sampled"],
+  );
+  assert.equal(groups.sampled[0].index, 1, "颜色下标按完整列表固定");
+  assert.deepEqual(
+    groups.unsampled.map((entry) => entry.chain.id),
+    ["empty", "zero"],
+  );
+  assert.deepEqual(
+    groups.unsampled.map((entry) => entry.index),
+    [0, 2],
+  );
+});
+
+test("chainLegendGroups: 空列表返回两个空分组", () => {
+  const groups = chainLegendGroups([]);
+  assert.deepEqual(groups.sampled, []);
+  assert.deepEqual(groups.unsampled, []);
 });

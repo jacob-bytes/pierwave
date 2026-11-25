@@ -1,6 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  CartesianGrid,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -14,8 +13,20 @@ import type {
   ResourceChartData,
   ResourceMetric,
 } from "@/lib/serverHealth";
-import { formatMonthDayHour } from "@/lib/serverHealth";
+import {
+  formatMonthDayHour,
+  resourceYMax,
+  resourceYTicks,
+} from "@/lib/serverHealth";
+import { timeAxisTicks } from "@/lib/chartAxis";
 import { cn } from "@/lib/utils";
+import { ChartGrid } from "./ChartGrid";
+import {
+  ChartTooltipHeading,
+  ChartTooltipRow,
+  ChartTooltipShell,
+} from "./ChartTooltipShell";
+import { CHART_CURSOR } from "./chartTheme";
 import { t, useI18n } from "@/i18n";
 
 /** 多序列折线图的固定色板；全部走 shadcn chart token，不写死色值。 */
@@ -52,28 +63,26 @@ function ResourceTooltip({
   if (rows.length === 0) return null;
 
   return (
-    <div className="min-w-44 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40">
-      <p className="mb-2 font-mono text-[11px] text-muted-foreground">
-        {formatMonthDayHour(Number(label))}
-      </p>
+    <ChartTooltipShell
+      data-resource-tooltip
+      role="tooltip"
+      className="max-w-64"
+    >
+      <ChartTooltipHeading>{formatMonthDayHour(Number(label))}</ChartTooltipHeading>
       <div className="flex flex-col gap-1">
         {rows.map((item) => (
-          <div
+          <ChartTooltipRow
             key={String(item.dataKey)}
-            className="flex items-center justify-between gap-6"
-          >
-            <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+            label={String(item.name ?? "")}
+            value={`${(item.value as number).toFixed(1)}%`}
+            marker={
               <span
                 aria-hidden="true"
                 className="size-2 shrink-0 rounded-full"
                 style={{ backgroundColor: item.color }}
               />
-              <span className="truncate">{String(item.name ?? "")}</span>
-            </span>
-            <span className="shrink-0 font-mono text-foreground tabular-nums">
-              {(item.value as number).toFixed(1)}%
-            </span>
-          </div>
+            }
+          />
         ))}
       </div>
       {metric === "load" ? (
@@ -81,7 +90,7 @@ function ResourceTooltip({
           {t("overview.serverHealth.loadApproxTooltip")}
         </p>
       ) : null}
-    </div>
+    </ChartTooltipShell>
   );
 }
 
@@ -111,6 +120,36 @@ export function ResourceLineChart({
       ),
   );
   const visible = data.series.filter((series) => !hidden.has(series.id));
+
+  /**
+   * y 轴上界跟着当前可见序列的数据走：至少 25%，数据 1.2 倍留白后取整到
+   * 5 的倍数、封顶 100%；0 基线保留。负载曲线不再被 0–100% 压成贴底直线。
+   */
+  const { yMax, yTicks } = useMemo(() => {
+    let dataMax = 0;
+    for (const point of data.points) {
+      for (const series of data.series) {
+        if (hidden.has(series.id)) continue;
+        const value = point[series.id];
+        if (typeof value === "number" && Number.isFinite(value)) {
+          dataMax = Math.max(dataMax, value);
+        }
+      }
+    }
+    const max = resourceYMax(dataMax);
+    return { yMax: max, yTicks: resourceYTicks(max) };
+  }, [data, hidden]);
+
+  const axisTicks = useMemo(() => {
+    const firstPoint = data.points[0]?.ts;
+    const lastPoint = data.points.at(-1)?.ts;
+    if (firstPoint === undefined || lastPoint === undefined) return [];
+    return timeAxisTicks(firstPoint, lastPoint);
+  }, [data.points]);
+  const axisLabels = useMemo(
+    () => new Map(axisTicks.map((tick) => [tick.ts, tick.label])),
+    [axisTicks],
+  );
 
   function toggle(id: string) {
     setHidden((previous) => {
@@ -181,27 +220,22 @@ export function ResourceLineChart({
               data={data.points}
               margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
             >
-              <CartesianGrid
-                stroke="var(--border)"
-                strokeDasharray="2 4"
-                vertical={false}
-              />
+              <ChartGrid />
               <XAxis
                 dataKey="ts"
                 type="number"
                 scale="time"
                 domain={["dataMin", "dataMax"]}
-                tickFormatter={(value: number) =>
-                  formatMonthDayHour(value).slice(0, 5)
-                }
-                minTickGap={44}
+                ticks={axisTicks.map((tick) => tick.ts)}
+                interval={0}
+                tickFormatter={(value: number) => axisLabels.get(value) ?? ""}
                 tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
               />
               <YAxis
-                domain={[0, 100]}
-                ticks={[0, 25, 50, 75, 100]}
+                domain={[0, yMax]}
+                ticks={yTicks}
                 tickFormatter={(value: number) => `${value}%`}
                 width={34}
                 tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
@@ -210,10 +244,7 @@ export function ResourceLineChart({
               />
               <Tooltip
                 content={<ResourceTooltip metric={metric} />}
-                cursor={{
-                  stroke: "var(--muted-foreground)",
-                  strokeOpacity: 0.35,
-                }}
+                cursor={CHART_CURSOR}
               />
               {visible.map((series) => {
                 const index = data.series.findIndex(

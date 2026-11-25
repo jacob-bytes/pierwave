@@ -19,6 +19,16 @@ import {
   formatMs,
 } from "@/lib/chainHealth";
 import { cn } from "@/lib/utils";
+import {
+  ChartTooltipHeading,
+  ChartTooltipRow,
+  ChartTooltipShell,
+} from "./ChartTooltipShell";
+import {
+  CHART_GRID_DASH,
+  CHART_GRID_OPACITY,
+  CHART_GRID_STROKE,
+} from "./chartTheme";
 import { t, useI18n } from "@/i18n";
 
 const VIEW_WIDTH = 1000;
@@ -322,8 +332,9 @@ export function ChainLatencySparkline({
             x2={xOf(tick.ts)}
             y1={0}
             y2={VIEW_HEIGHT}
-            stroke="var(--border)"
-            strokeOpacity={0.7}
+            stroke={CHART_GRID_STROKE}
+            strokeOpacity={CHART_GRID_OPACITY}
+            strokeDasharray={CHART_GRID_DASH}
             strokeWidth={1}
             vectorEffect="non-scaling-stroke"
           />
@@ -373,34 +384,30 @@ export function ChainLatencySparkline({
       ) : null}
 
       {activePoint ? (
-        <div
+        <ChartTooltipShell
           data-chain-sparkline-tooltip
           role="tooltip"
           aria-live="polite"
-          className="pointer-events-none absolute top-0 z-20 min-w-36 rounded-md border border-border bg-popover px-2 py-1.5 text-[11px] leading-normal text-popover-foreground shadow-md/30"
+          className="pointer-events-none absolute top-0 z-20 min-w-40 max-w-64 leading-normal"
           style={{ left: `${activePct}%`, transform }}
         >
-          <p className="font-mono text-muted-foreground">
+          <ChartTooltipHeading>
             {formatChainTime(activePoint.ts, bucketSecs)}
-          </p>
-          <p className="mt-1 flex items-center justify-between gap-4">
-            <span className="text-muted-foreground">P50</span>
-            <span className="font-mono tabular-nums">
-              {formatMs(activePoint.p50)}
-            </span>
-          </p>
+          </ChartTooltipHeading>
+          <ChartTooltipRow
+            label="P50"
+            value={formatMs(activePoint.p50)}
+          />
           {showBand && activePoint.p10 !== null && activePoint.p90 !== null ? (
-            <p className="flex items-center justify-between gap-4">
-              <span className="text-muted-foreground">P10–P90</span>
-              <span className="font-mono tabular-nums">
-                {formatMs(activePoint.p10)} – {formatMs(activePoint.p90)}
-              </span>
-            </p>
+            <ChartTooltipRow
+              label="P10–P90"
+              value={`${formatMs(activePoint.p10)} – ${formatMs(activePoint.p90)}`}
+            />
           ) : null}
-          <p className="mt-1 text-muted-foreground">
+          <p className="mt-1 text-[11px] text-muted-foreground">
             {t("overview.chainLatency.samples", { n: activePoint.samples })}
           </p>
-        </div>
+        </ChartTooltipShell>
       ) : null}
     </div>
   );

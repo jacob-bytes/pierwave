@@ -16,7 +16,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { chromium } from "/Users/jlthzy/Documents/mmrust/.npm-cache/_npx/e78b33305587cb7c/node_modules/playwright/index.mjs";
 
 const OUT = fileURLToPath(new URL(".", import.meta.url));
-const DIST = fileURLToPath(new URL("../../dist/", import.meta.url));
+const DIST = process.env.APP_SHOTS_DIST
+  ? resolve(process.env.APP_SHOTS_DIST)
+  : fileURLToPath(new URL("../../dist/", import.meta.url));
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const HOUR = 3600;
 
@@ -1041,6 +1043,22 @@ async function handleApi(route, mock) {
         secret_errors: null,
       });
     }
+    if (mock === "costAed") {
+      // 接近评审截图：AED 进入可折算范围，金额显示 `AED 320.00` 而不是
+      // 先输出代码、再由 Intl 回退成代码。
+      return json(route, {
+        items: {
+          ...SETTINGS,
+          fx_rates: JSON.stringify({
+            base: "CNY",
+            rates: { USD: 7.2, EUR: 7.8, JPY: 0.048, AED: 1.94 },
+            fetched_at: NOW - HOUR,
+            source: "open.er-api.com",
+          }),
+        },
+        secret_errors: null,
+      });
+    }
     return json(route, { items: SETTINGS, secret_errors: null });
   }
   if (path === "/api/v1/updates") {
@@ -1154,6 +1172,34 @@ function scenarioServerIds(scenario) {
   }
   if (Array.isArray(scenario.servers)) return scenario.servers;
   return null;
+}
+
+/**
+ * 汇率提示应该处于哪种形态：normal = 收进图表卡头 CNY；
+ * warning = 缺汇率的一行警告；none = 全 CNY；null = 该场景没有成本视图。
+ */
+function expectedFxMode(scenario) {
+  if (scenario.expectFx) return scenario.expectFx;
+  if (scenario.mock === "costEmpty" || scenario.mock === "costError") {
+    return null;
+  }
+  if (scenario.mock === "costNoFx") return "warning";
+  const ids = scenarioServerIds(scenario);
+  if (ids !== null) {
+    if (ids.length === 0) return null;
+    const items = serverItemsFor(scenario.mock).filter((server) =>
+      ids.includes(server.id),
+    );
+    const usesForeign = items.some(
+      (server) =>
+        server.currency &&
+        server.currency !== "CNY" &&
+        server.price_cents !== null &&
+        server.price_cents !== undefined,
+    );
+    return usesForeign ? "normal" : "none";
+  }
+  return "normal";
 }
 
 const SCENARIOS = [
@@ -1280,6 +1326,131 @@ const SCENARIOS = [
   { id: "cost-manual-1440", view: "cost", theme: "dark", width: 1440, mock: "costManual" },
   { id: "cost-dec-1440", view: "cost", theme: "dark", width: 1440, mock: "normal", clockMs: Date.UTC(2026, 11, 15, 4, 0, 0) },
   { id: "cost-dec-390", view: "cost", theme: "dark", width: 390, mock: "normal", clockMs: Date.UTC(2026, 11, 15, 4, 0, 0) },
+
+  // 金额格式 / 占比 / 纵轴 / 汇率提示的验收截图：AED 320.00 这类币种
+  // 不再出现两次代码，JPY 0.36% 显示 <1%，正常汇率收进卡头 CNY。
+  {
+    id: "costfmt-aed-dark-1440",
+    view: "cost",
+    theme: "dark",
+    width: 1440,
+    mock: "costAed",
+    servers: ["srv-dubai-01", "srv-hk-01", "srv-tokyo-01", "srv-osaka-01"],
+    expectFx: "normal",
+    expectTinyShare: true,
+  },
+  {
+    id: "costfmt-aed-dark-390",
+    view: "cost",
+    theme: "dark",
+    width: 390,
+    mock: "costAed",
+    servers: ["srv-dubai-01", "srv-hk-01", "srv-tokyo-01", "srv-osaka-01"],
+    expectFx: "normal",
+    expectTinyShare: true,
+  },
+  {
+    id: "costfmt-aed-light-1440",
+    view: "cost",
+    theme: "light",
+    width: 1440,
+    mock: "costAed",
+    servers: ["srv-dubai-01", "srv-hk-01", "srv-tokyo-01", "srv-osaka-01"],
+    expectFx: "normal",
+    expectTinyShare: true,
+  },
+  {
+    id: "costfmt-aed-light-390",
+    view: "cost",
+    theme: "light",
+    width: 390,
+    mock: "costAed",
+    servers: ["srv-dubai-01", "srv-hk-01", "srv-tokyo-01", "srv-osaka-01"],
+    expectFx: "normal",
+    expectTinyShare: true,
+  },
+  {
+    id: "costfmt-fx-hover-dark-1440",
+    view: "cost",
+    theme: "dark",
+    width: 1440,
+    mock: "normal",
+    action: "fxHover",
+    expectedFxRows: 4,
+    expectFx: "normal",
+  },
+  {
+    id: "costfmt-fx-warning-dark-1440",
+    view: "cost",
+    theme: "dark",
+    width: 1440,
+    mock: "costNoFx",
+    servers: "all",
+    expectFx: "warning",
+  },
+  {
+    id: "costfmt-fx-warning-dark-390",
+    view: "cost",
+    theme: "dark",
+    width: 390,
+    mock: "costNoFx",
+    servers: "all",
+    expectFx: "warning",
+  },
+  {
+    id: "costfmt-fx-warning-light-1440",
+    view: "cost",
+    theme: "light",
+    width: 1440,
+    mock: "costNoFx",
+    servers: "all",
+    expectFx: "warning",
+  },
+  {
+    id: "costfmt-fx-warning-light-390",
+    view: "cost",
+    theme: "light",
+    width: 390,
+    mock: "costNoFx",
+    servers: "all",
+    expectFx: "warning",
+  },
+  {
+    id: "costfmt-all-cny-dark-1440",
+    view: "cost",
+    theme: "dark",
+    width: 1440,
+    mock: "normal",
+    servers: ["srv-hk-01", "srv-hk-02", "srv-sg-01", "srv-sg-02", "srv-us-01"],
+    expectFx: "none",
+  },
+  {
+    id: "costfmt-all-cny-dark-390",
+    view: "cost",
+    theme: "dark",
+    width: 390,
+    mock: "normal",
+    servers: ["srv-hk-01", "srv-hk-02", "srv-sg-01", "srv-sg-02", "srv-us-01"],
+    expectFx: "none",
+  },
+  {
+    id: "costfmt-all-cny-light-1440",
+    view: "cost",
+    theme: "light",
+    width: 1440,
+    mock: "normal",
+    servers: ["srv-hk-01", "srv-hk-02", "srv-sg-01", "srv-sg-02", "srv-us-01"],
+    expectFx: "none",
+  },
+  {
+    id: "costfmt-all-cny-light-390",
+    view: "cost",
+    theme: "light",
+    width: 390,
+    mock: "normal",
+    servers: ["srv-hk-01", "srv-hk-02", "srv-sg-01", "srv-sg-02", "srv-us-01"],
+    expectFx: "none",
+  },
 ];
 
 const only = process.env.APP_SHOTS_ONLY?.split(",").filter(Boolean) ?? [];
@@ -1553,6 +1724,11 @@ for (const scenario of activeScenarios) {
   }
   if (scenario.action === "fxOpen") {
     await page.locator("[data-cost-fx-trigger]").click();
+    await page.waitForSelector("[data-fx-popover]");
+    await page.waitForTimeout(250);
+  }
+  if (scenario.action === "fxHover") {
+    await page.locator("[data-cost-fx-trigger]").hover();
     await page.waitForSelector("[data-fx-popover]");
     await page.waitForTimeout(250);
   }
@@ -1986,11 +2162,24 @@ for (const scenario of activeScenarios) {
         const list = document.querySelector("[data-fx-list]");
         const rect = popover?.getBoundingClientRect();
         const rows = [...document.querySelectorAll("[data-fx-row]")];
+        const trigger = document.querySelector("[data-cost-fx-trigger]");
         return {
           defaultText:
             document
               .querySelector("[data-cost-fx]")
               ?.textContent?.trim() ?? null,
+          rowVisible: Boolean(document.querySelector("[data-cost-fx]")),
+          trigger: trigger
+            ? {
+                present: true,
+                label: trigger.textContent?.trim() ?? "",
+                labelAttr:
+                  trigger.getAttribute("data-cost-fx-trigger-label") ?? null,
+                inMonthHeader: Boolean(
+                  trigger.closest('[data-cost-card="month"]'),
+                ),
+              }
+            : { present: false },
           popoverOpen: Boolean(popover),
           rows: rows.length,
           rowTexts: rows.map((row) => row.textContent?.trim() ?? ""),
@@ -2463,6 +2652,44 @@ for (const scenario of activeScenarios) {
             : null,
         };
       })(),
+      costAxis: (() => {
+        const axis = document.querySelector("[data-cost-axis]");
+        if (!axis) return null;
+        return {
+          maxCents: Number(axis.getAttribute("data-axis-max-cents")),
+          stepCents: Number(axis.getAttribute("data-axis-step-cents")),
+          ticks: [...axis.querySelectorAll("[data-cost-axis-tick]")].map(
+            (tick) => ({
+              text: tick.textContent?.trim() ?? "",
+              cents: Number(tick.getAttribute("data-tick-cents")),
+            }),
+          ),
+        };
+      })(),
+      costShares: [...document.querySelectorAll("[data-cost-share]")].map(
+        (share) => share.textContent?.trim() ?? "",
+      ),
+      costText:
+        document.querySelector("[data-cost-view]")?.innerText ?? null,
+      oneTime: (() => {
+        const card = document.querySelector('[data-cost-card="once"]');
+        if (!card) return null;
+        const text = card.textContent?.trim() ?? "";
+        const hints = [
+          /不计入本年度；按到期日计入未来 12 个月/g,
+          /Excluded from this year; counted in the next 12 months on its due date/g,
+        ];
+        return {
+          text,
+          hintCount: hints.reduce(
+            (count, pattern) =>
+              count + (text.match(pattern)?.length ?? 0),
+            0,
+          ),
+          noteCount: card.querySelectorAll('[data-cost-note="once"]').length,
+          badgeCount: card.querySelectorAll('[data-slot="badge"]').length,
+        };
+      })(),
       oneTimeText:
         document
           .querySelector('[data-cost-card="once"]')
@@ -2923,27 +3150,48 @@ for (const scenario of activeScenarios) {
       errors.push(`${scenario.id}: clear count ${metrics.selectedText}`);
     }
   }
+  const fxMode = expectedFxMode(scenario);
   if (
     (scenario.view ?? null) === "cost" &&
-    scenario.mock === "normal" &&
-    scenario.action !== "fxOpen" &&
-    explicitServers === null
+    fxMode !== null &&
+    !metrics.hasEmptyState
   ) {
-    if (metrics.fx.popoverOpen) {
+    if (!["fxOpen", "fxHover"].includes(scenario.action) && metrics.fx.popoverOpen) {
       errors.push(`${scenario.id}: FX popover open by default`);
     }
-    const shortFx =
-      (scenario.locale ?? "zh-CN") === "en"
-        ? "Converted to CNY at FX rates"
-        : "按汇率折算为 CNY";
-    if (!metrics.fx.defaultText?.includes(shortFx)) {
-      errors.push(`${scenario.id}: missing short FX sentence`);
+    if (fxMode === "normal") {
+      if (metrics.fx.rowVisible) {
+        errors.push(`${scenario.id}: standalone FX row in normal mode`);
+      }
+      if (!metrics.fx.trigger.present) {
+        errors.push(`${scenario.id}: normal FX trigger missing`);
+      } else if (!metrics.fx.trigger.inMonthHeader) {
+        errors.push(`${scenario.id}: normal FX trigger not in month header`);
+      } else if (metrics.fx.trigger.labelAttr !== "CNY") {
+        errors.push(
+          `${scenario.id}: normal FX trigger label ${metrics.fx.trigger.label}`,
+        );
+      }
+    } else if (fxMode === "warning") {
+      if (!metrics.fx.rowVisible) {
+        errors.push(`${scenario.id}: missing visible FX warning row`);
+      }
+      if (!metrics.fx.trigger.present) {
+        errors.push(`${scenario.id}: FX warning has no details trigger`);
+      }
+    } else {
+      if (metrics.fx.rowVisible) {
+        errors.push(`${scenario.id}: all-CNY view shows an FX row`);
+      }
+      if (metrics.fx.trigger.present) {
+        errors.push(`${scenario.id}: all-CNY view shows an FX trigger`);
+      }
     }
-    if (metrics.fx.bodyHasRateLine) {
+    if (!["fxOpen", "fxHover"].includes(scenario.action) && metrics.fx.bodyHasRateLine) {
       errors.push(`${scenario.id}: full FX rate line visible by default`);
     }
   }
-  if (scenario.action === "fxOpen") {
+  if (scenario.action === "fxOpen" || scenario.action === "fxHover") {
     if (!metrics.fx.popoverOpen) {
       errors.push(`${scenario.id}: FX popover did not open`);
     }
@@ -3295,6 +3543,96 @@ for (const scenario of activeScenarios) {
     ) {
       errors.push(`${scenario.id}: one-time empty state missing`);
     }
+    if (metrics.oneTime) {
+      if (metrics.oneTime.hintCount !== 1) {
+        errors.push(
+          `${scenario.id}: one-time hint shown ${metrics.oneTime.hintCount} times`,
+        );
+      }
+      if (metrics.oneTime.noteCount !== 1) {
+        errors.push(
+          `${scenario.id}: one-time note block count ${metrics.oneTime.noteCount}`,
+        );
+      }
+      if (metrics.oneTime.badgeCount !== 0) {
+        errors.push(`${scenario.id}: one-time card still has a header badge`);
+      }
+    }
+    if (metrics.costShares.length > 0) {
+      if (metrics.costShares.some((share) => share === "0%")) {
+        errors.push(
+          `${scenario.id}: share rounded to 0% (${metrics.costShares.join(",")})`,
+        );
+      }
+      if (
+        scenario.expectTinyShare &&
+        !metrics.costShares.includes("<1%")
+      ) {
+        errors.push(
+          `${scenario.id}: tiny share is not <1% (${metrics.costShares.join(",")})`,
+        );
+      }
+    }
+    if (metrics.costText) {
+      if (/[¥$€£]/.test(metrics.costText)) {
+        errors.push(`${scenario.id}: cost view still shows a currency symbol`);
+      }
+      if (/([A-Z]{3})[ \t]+\1\b/.test(metrics.costText)) {
+        errors.push(`${scenario.id}: duplicate currency code in cost view`);
+      }
+      if (
+        scenario.expectTinyShare &&
+        !metrics.costText.includes("<1%")
+      ) {
+        errors.push(`${scenario.id}: cost text missing <1%`);
+      }
+    }
+    if (metrics.costAxis) {
+      const axis = metrics.costAxis;
+      const maxBar = Math.max(...(metrics.costBars?.totals ?? [0]));
+      if (axis.ticks.some((tick) => tick.text.includes("¥"))) {
+        errors.push(`${scenario.id}: axis tick still shows ¥`);
+      }
+      if (axis.maxCents > 0) {
+        const magnitude = 10 ** Math.floor(Math.log10(axis.stepCents));
+        const mantissa = axis.stepCents / magnitude;
+        if (![1, 2, 2.5, 5].includes(mantissa)) {
+          errors.push(
+            `${scenario.id}: axis step ${axis.stepCents} is not a nice step`,
+          );
+        }
+        if (axis.maxCents < maxBar) {
+          errors.push(
+            `${scenario.id}: axis max ${axis.maxCents} < data max ${maxBar}`,
+          );
+        }
+        if (axis.ticks.length < 2 || axis.ticks.length > 6) {
+          errors.push(
+            `${scenario.id}: axis has ${axis.ticks.length} ticks`,
+          );
+        }
+        if (
+          !axis.ticks.every(
+            (tick, index) =>
+              index === 0 || tick.cents < axis.ticks[index - 1].cents,
+          )
+        ) {
+          errors.push(`${scenario.id}: axis ticks are not descending`);
+        }
+        if (new Set(axis.ticks.map((tick) => tick.text)).size !== axis.ticks.length) {
+          errors.push(`${scenario.id}: axis has duplicate tick labels`);
+        }
+        if (
+          axis.stepCents >= 100 &&
+          axis.ticks.some((tick) => tick.text.includes("."))
+        ) {
+          errors.push(`${scenario.id}: integer axis step rendered decimals`);
+        }
+        if (axis.ticks.at(-1)?.cents !== 0) {
+          errors.push(`${scenario.id}: axis does not start at 0`);
+        }
+      }
+    }
     if (scenario.action === "pieHoverOther") {
       if (!metrics.currencyPie?.tooltip?.text?.includes("其他")) {
         errors.push(`${scenario.id}: pie other tooltip missing`);
@@ -3343,7 +3681,7 @@ for (const scenario of activeScenarios) {
         }
         if (
           !top.dialog.texts.some(
-            (row) => row.includes("%") && /[$€¥]/.test(row),
+            (row) => row.includes("%") && /[A-Z]{3} [-\d]/.test(row),
           )
         ) {
           errors.push(`${scenario.id}: top dialog missing amounts/share`);
@@ -3380,7 +3718,7 @@ for (const scenario of activeScenarios) {
       ) {
         errors.push(`${scenario.id}: dialog title ${dialog.title}`);
       }
-      if (!dialog.total?.includes("¥")) {
+      if (!/[A-Z]{3} /.test(dialog.total ?? "")) {
         errors.push(`${scenario.id}: dialog total missing`);
       }
       if (
@@ -3390,7 +3728,7 @@ for (const scenario of activeScenarios) {
       ) {
         errors.push(`${scenario.id}: dialog cycle label missing`);
       }
-      if (!dialog.rows.every((row) => row.includes("¥"))) {
+      if (!dialog.rows.every((row) => /[A-Z]{3} [-\d]/.test(row))) {
         errors.push(`${scenario.id}: dialog amount missing`);
       }
       if (dialog.rect.width > metrics.viewportWidth + 1) {

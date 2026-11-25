@@ -2,7 +2,6 @@ import { useId } from "react";
 import {
   Bar,
   BarChart,
-  CartesianGrid,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -10,8 +9,17 @@ import {
 } from "recharts";
 import { ChartColumnIcon } from "lucide-react";
 import type { TrafficDay } from "@/lib/api";
+import { byteAxisScale, formatByteAxisTick } from "@/lib/chartAxis";
 import { formatBytes } from "@/lib/format";
 import { cumulativeSeries } from "@/lib/overview";
+import { ChartGrid } from "./ChartGrid";
+import {
+  ChartTooltipDivider,
+  ChartTooltipHeading,
+  ChartTooltipRow,
+  ChartTooltipShell,
+} from "./ChartTooltipShell";
+import { CHART_CURSOR_OPACITY, CHART_CURSOR_STROKE } from "./chartTheme";
 import { t } from "@/i18n";
 
 interface ChartDay extends TrafficDay {
@@ -142,9 +150,11 @@ function TooltipValue({
   marker?: "dot" | "line";
 }) {
   return (
-    <div className="flex items-center justify-between gap-6">
-      <span className="flex items-center gap-1.5 text-muted-foreground">
-        {color ? (
+    <ChartTooltipRow
+      label={label}
+      value={formatBytes(value)}
+      marker={
+        color ? (
           marker === "line" ? (
             <svg
               aria-hidden="true"
@@ -173,15 +183,13 @@ function TooltipValue({
           ) : (
             <span
               aria-hidden="true"
-              className="size-2 rounded-full"
+              className="size-2 shrink-0 rounded-full"
               style={{ backgroundColor: color }}
             />
           )
-        ) : null}
-        {label}
-      </span>
-      <span className="font-mono text-foreground">{formatBytes(value)}</span>
-    </div>
+        ) : null
+      }
+    />
   );
 }
 
@@ -209,8 +217,8 @@ function TrafficCursor({
       x2={center}
       y1={y}
       y2={y + height}
-      stroke="var(--muted-foreground)"
-      strokeOpacity={0.45}
+      stroke={CHART_CURSOR_STROKE}
+      strokeOpacity={CHART_CURSOR_OPACITY}
       strokeWidth={1}
       pointerEvents="none"
     />
@@ -223,8 +231,8 @@ function TrafficTooltip({ active, payload }: TrafficTooltipProps) {
   if (!day) return null;
 
   return (
-    <div className="min-w-44 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40">
-      <p className="mb-2 font-medium text-foreground">{day.date}</p>
+    <ChartTooltipShell data-traffic-tooltip role="tooltip" className="max-w-64">
+      <ChartTooltipHeading>{day.date}</ChartTooltipHeading>
       <div className="flex flex-col gap-1">
         <TooltipValue
           label={t("trafficChart.downlink")}
@@ -236,11 +244,11 @@ function TrafficTooltip({ active, payload }: TrafficTooltipProps) {
           value={day.uplink}
           color="var(--muted-foreground)"
         />
-        <div className="my-1 h-px bg-border" />
+        <ChartTooltipDivider />
         <TooltipValue label={t("trafficChart.weighted")} value={day.weighted} />
         {typeof day.cumulative === "number" ? (
           <>
-            <div className="my-1 h-px bg-border" />
+            <ChartTooltipDivider />
             <TooltipValue
               label={t("trafficChart.cumulativeToDate")}
               value={day.cumulative}
@@ -250,7 +258,7 @@ function TrafficTooltip({ active, payload }: TrafficTooltipProps) {
           </>
         ) : null}
       </div>
-    </div>
+    </ChartTooltipShell>
   );
 }
 
@@ -277,6 +285,10 @@ export default function TrafficChart({
   const chartDays: ChartDay[] = showCumulative
     ? cumulativeSeries(days)
     : days;
+  // 堆叠柱的总高度决定 y 轴上界；步长按 1024 单位取整齐值。
+  const scale = byteAxisScale(
+    chartDays.reduce((max, day) => Math.max(max, day.downlink + day.uplink), 0),
+  );
 
   if (!days.length || !hasTraffic) {
     return (
@@ -291,7 +303,7 @@ export default function TrafficChart({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" data-traffic-chart>
       {showLegend ? <TrafficLegend days={days} /> : null}
 
       <div className="h-[220px] w-full">
@@ -328,11 +340,7 @@ export default function TrafficChart({
                 />
               </pattern>
             </defs>
-            <CartesianGrid
-              vertical={false}
-              stroke="var(--border)"
-              strokeWidth={1}
-            />
+            <ChartGrid />
             <XAxis
               dataKey="date"
               tickFormatter={formatDayTick}
@@ -343,10 +351,11 @@ export default function TrafficChart({
             />
             <YAxis
               yAxisId="traffic"
-              tickFormatter={(value: number) => formatBytes(value)}
+              domain={[0, scale.max]}
+              ticks={scale.ticks}
+              tickFormatter={formatByteAxisTick}
               axisLine={false}
               tickLine={false}
-              tickCount={4}
               width={64}
               tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             />

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  CartesianGrid,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -8,10 +7,11 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { ChevronDownIcon } from "lucide-react";
 import {
   buildChainTrendData,
-  chainHasTrend,
   chainLatestSeriesTs,
+  chainLegendGroups,
   chainLossAt,
   chainTimeTicks,
   formatChainTime,
@@ -24,6 +24,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { seriesVisual } from "@/lib/seriesStyle";
 import { useIsDesktop } from "@/lib/useIsDesktop";
+import { ChartGrid } from "./ChartGrid";
+import { ChartTooltipHeading, ChartTooltipShell } from "./ChartTooltipShell";
+import { CHART_CURSOR } from "./chartTheme";
 import { t, useI18n } from "@/i18n";
 
 interface LineVisual {
@@ -67,6 +70,10 @@ function LineSwatch({ visual }: { visual: LineVisual }) {
   );
 }
 
+/**
+ * 图例主行只放有样本的链；无样本链默认折成一条弱化按钮
+ * 「N 条暂无样本」，点开才展开名单，避免 9 项折两行还要滚动。
+ */
 function ChainTrendLegend({
   chains,
   hidden,
@@ -76,51 +83,94 @@ function ChainTrendLegend({
   hidden: ReadonlySet<string>;
   onToggle: (id: string) => void;
 }) {
+  const [showUnsampled, setShowUnsampled] = useState(false);
+  const { sampled, unsampled } = chainLegendGroups(chains);
+
   return (
     <div
       data-chain-trend-legend
       role="group"
       aria-label={t("overview.chainLatency.legendAria")}
-      className="flex max-h-24 flex-wrap content-start gap-x-3 gap-y-1 overflow-y-auto pb-2"
+      className="flex flex-col gap-1 pb-2"
     >
-      {chains.map((chain, index) => {
-        const hasTrend = chainHasTrend(chain);
-        const hiddenHere = hasTrend && hidden.has(chain.id);
-        const visual = lineVisual(index, !hasTrend);
-        return (
-          <button
-            key={chain.id}
-            type="button"
-            disabled={!hasTrend}
-            aria-pressed={hasTrend ? !hiddenHere : undefined}
-            data-chain-legend-item
-            data-chain-id={chain.id}
-            data-has-samples={hasTrend ? "true" : "false"}
-            data-hidden={hiddenHere ? "true" : "false"}
-            onClick={() => {
-              if (hasTrend) onToggle(chain.id);
-            }}
-            className={cn(
-              "inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] transition-opacity duration-150",
-              hasTrend
-                ? hiddenHere
+      {/* 有样本的链仍限制高度，链特别多时滚动；折叠区在它下面，不会被裁切。 */}
+      <div className="flex max-h-24 flex-wrap content-start gap-x-3 gap-y-1 overflow-y-auto">
+        {sampled.map(({ chain, index }) => {
+          const hiddenHere = hidden.has(chain.id);
+          const visual = lineVisual(index);
+          return (
+            <button
+              key={chain.id}
+              type="button"
+              aria-pressed={!hiddenHere}
+              data-chain-legend-item
+              data-chain-id={chain.id}
+              data-has-samples="true"
+              data-hidden={hiddenHere ? "true" : "false"}
+              onClick={() => onToggle(chain.id)}
+              className={cn(
+                "inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] transition-opacity duration-150",
+                hiddenHere
                   ? "opacity-35 hover:opacity-60"
-                  : "opacity-100 hover:bg-muted/40"
-                : "cursor-default opacity-50",
+                  : "opacity-100 hover:bg-muted/40",
+              )}
+            >
+              <LineSwatch visual={visual} />
+              <span className="max-w-40 truncate" title={chain.name}>
+                {chain.name}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {unsampled.length === 0 ? null : (
+        <button
+          type="button"
+          data-chain-legend-unsampled-toggle
+          aria-expanded={showUnsampled}
+          aria-label={t("overview.chainLatency.noSamplesGroupAria", {
+            n: unsampled.length,
+          })}
+          onClick={() => setShowUnsampled((value) => !value)}
+          className="inline-flex min-h-6 self-start items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-70 transition-opacity duration-150 hover:bg-muted/40 hover:opacity-100"
+        >
+          <span data-chain-legend-unsampled-count>
+            {t("overview.chainLatency.noSamplesGroup", { n: unsampled.length })}
+          </span>
+          <ChevronDownIcon
+            aria-hidden="true"
+            className={cn(
+              "size-3 transition-transform duration-150",
+              showUnsampled && "rotate-180",
             )}
-          >
-            <LineSwatch visual={visual} />
-            <span className="max-w-40 truncate" title={chain.name}>
-              {chain.name}
-            </span>
-            {hasTrend ? null : (
-              <span className="shrink-0 text-muted-foreground">
+          />
+        </button>
+      )}
+
+      {showUnsampled && unsampled.length > 0 ? (
+        <div
+          data-chain-legend-unsampled-list
+          className="flex w-full flex-wrap gap-x-3 gap-y-1 border-t border-border/60 pt-1"
+        >
+          {unsampled.map(({ chain, index }) => (
+            <span
+              key={chain.id}
+              data-chain-legend-unsampled-item
+              data-chain-id={chain.id}
+              className="inline-flex min-h-6 max-w-full items-center gap-1.5 px-1.5 text-[11px] text-muted-foreground opacity-80"
+            >
+              <LineSwatch visual={lineVisual(index, true)} />
+              <span className="max-w-40 truncate" title={chain.name}>
+                {chain.name}
+              </span>
+              <span className="shrink-0">
                 {t("overview.chainLatency.noSamplesShort")}
               </span>
-            )}
-          </button>
-        );
-      })}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -176,15 +226,15 @@ function ChainTrendTooltip({
   const highestIndex = rows.findIndex((row) => row.value !== null);
 
   return (
-    <div
+    <ChartTooltipShell
       data-chain-trend-tooltip
       role="tooltip"
       aria-live="polite"
-      className="min-w-52 max-w-64 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40"
+      className="min-w-52 max-w-64"
     >
-      <p className="mb-2 font-mono text-[11px] text-muted-foreground">
+      <ChartTooltipHeading>
         {formatChainTime(Number(label), bucket)}
-      </p>
+      </ChartTooltipHeading>
       <div className="flex flex-col gap-1">
         {rows.map((row, index) => {
           const highest = index === highestIndex;
@@ -242,7 +292,7 @@ function ChainTrendTooltip({
           );
         })}
       </div>
-    </div>
+    </ChartTooltipShell>
   );
 }
 
@@ -423,12 +473,7 @@ export function ChainLatencyTrendChart({
               data={data.rows}
               margin={{ top: 8, right: 40, left: 0, bottom: 0 }}
             >
-              <CartesianGrid
-                stroke="var(--border)"
-                strokeOpacity={0.7}
-                strokeDasharray="2 4"
-                vertical
-              />
+              <ChartGrid vertical />
               <XAxis
                 dataKey="ts"
                 type="number"
@@ -456,10 +501,7 @@ export function ChainLatencyTrendChart({
                 content={
                   <ChainTrendTooltip chains={chains} bucket={bucket} />
                 }
-                cursor={{
-                  stroke: "var(--muted-foreground)",
-                  strokeOpacity: 0.35,
-                }}
+                cursor={CHART_CURSOR}
               />
               {visible.map((chain) => {
                 const index = chains.findIndex((item) => item.id === chain.id);

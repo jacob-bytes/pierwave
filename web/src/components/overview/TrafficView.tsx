@@ -397,13 +397,16 @@ function LeaderboardServerRow({ item }: { item: OverviewTopItem }) {
         </span>
 
         <span className="flex min-w-0 items-center gap-2 text-xs md:contents">
-          {/* 移动端把负载与流量并成一行；桌面 order 恢复「流量 → 点 → 负载」。 */}
+          {/* 移动端把负载与流量并成一行；桌面 order 恢复「流量 → 点 → 负载」。
+              两端都带「负载」二字：桌面上只有 0.42 时看不出这是负载。 */}
           <span
             title={loadLabel}
-            className="shrink-0 font-mono text-muted-foreground tabular-nums md:order-4 md:w-12 md:text-right"
+            className="flex shrink-0 items-baseline gap-1 font-mono text-muted-foreground tabular-nums md:order-4 md:w-20 md:justify-end md:text-right"
           >
-            {/* 手机上把「负载」二字也带上，否则 0.82 · 925 GB 读不出哪个是负载。 */}
             <span className="md:hidden">{loadLabel}</span>
+            <span className="hidden font-sans text-[11px] text-muted-foreground md:inline">
+              {t("overview.loadLabel")}
+            </span>
             <span className="hidden md:inline">{load}</span>
           </span>
           <span aria-hidden="true" className="text-muted-foreground md:hidden">

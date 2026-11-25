@@ -1,5 +1,5 @@
+import { useMemo } from "react";
 import {
-  CartesianGrid,
   Line,
   LineChart,
   ReferenceArea,
@@ -17,6 +17,14 @@ import {
   type UptimeTrend,
   type UptimeTrendPoint,
 } from "@/lib/serverHealth";
+import { timeAxisTicks } from "@/lib/chartAxis";
+import { ChartGrid } from "./ChartGrid";
+import {
+  ChartTooltipHeading,
+  ChartTooltipRow,
+  ChartTooltipShell,
+} from "./ChartTooltipShell";
+import { CHART_CURSOR } from "./chartTheme";
 import { t, useI18n } from "@/i18n";
 
 interface TooltipPayload {
@@ -50,21 +58,16 @@ function UptimeTooltip({
           .join(" ");
 
   return (
-    <div
+    <ChartTooltipShell
       data-uptime-tooltip
-      className="min-w-44 max-w-64 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40"
+      role="tooltip"
+      className="max-w-64"
     >
-      <p className="mb-2 font-mono text-[11px] text-muted-foreground">
-        {formatMonthDayHour(point.ts)}
-      </p>
-      <div className="flex items-center justify-between gap-6">
-        <span className="text-muted-foreground">
-          {t("overview.serverHealth.metricUptime")}
-        </span>
-        <span className="shrink-0 font-mono text-foreground tabular-nums">
-          {point.pct.toFixed(1)}%
-        </span>
-      </div>
+      <ChartTooltipHeading>{formatMonthDayHour(point.ts)}</ChartTooltipHeading>
+      <ChartTooltipRow
+        label={t("overview.serverHealth.metricUptime")}
+        value={`${point.pct.toFixed(1)}%`}
+      />
       <div className="mt-1 flex items-center justify-between gap-6">
         <span className="text-muted-foreground">
           {t("overview.serverHealth.trendServers", {
@@ -81,7 +84,7 @@ function UptimeTooltip({
           {t("overview.serverHealth.trendOffline", { names: offlineText })}
         </p>
       )}
-    </div>
+    </ChartTooltipShell>
   );
 }
 
@@ -108,6 +111,18 @@ export function ServerUptimeTrendChart({
     points.length > 1 && points[1].ts > points[0].ts
       ? points[1].ts - points[0].ts
       : 3600;
+  /**
+   * x 轴每天一个刻度（窗口 ≤24h 时退到每 6 小时的时刻刻度），
+   * 标签不再靠 `MM/DD HH:00` 截前 5 位，避免同一天出现两个「11/18」。
+   */
+  const axisTicks = useMemo(
+    () => (first === undefined || last === undefined ? [] : timeAxisTicks(first, last)),
+    [first, last],
+  );
+  const axisLabels = useMemo(
+    () => new Map(axisTicks.map((tick) => [tick.ts, tick.label])),
+    [axisTicks],
+  );
 
   if (!trend.hasData) {
     return (
@@ -132,11 +147,7 @@ export function ServerUptimeTrendChart({
             data={points}
             margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
           >
-            <CartesianGrid
-              stroke="var(--border)"
-              strokeDasharray="2 4"
-              vertical={false}
-            />
+            <ChartGrid />
             {/* 阴影先画，折线压在上面；区间末尾补满最后一个桶的宽度。 */}
             {trend.anomalyRanges.map((range) => (
               <ReferenceArea
@@ -154,10 +165,9 @@ export function ServerUptimeTrendChart({
               type="number"
               scale="time"
               domain={["dataMin", "dataMax"]}
-              tickFormatter={(value: number) =>
-                formatMonthDayHour(value).slice(0, 5)
-              }
-              minTickGap={44}
+              ticks={axisTicks.map((tick) => tick.ts)}
+              interval={0}
+              tickFormatter={(value: number) => axisLabels.get(value) ?? ""}
               tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
@@ -173,10 +183,7 @@ export function ServerUptimeTrendChart({
             />
             <Tooltip
               content={<UptimeTooltip />}
-              cursor={{
-                stroke: "var(--muted-foreground)",
-                strokeOpacity: 0.35,
-              }}
+              cursor={CHART_CURSOR}
             />
             <Line
               type="monotone"

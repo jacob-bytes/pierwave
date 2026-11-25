@@ -1,5 +1,4 @@
 import {
-  CartesianGrid,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -9,12 +8,20 @@ import {
 } from "recharts";
 import { ChartLineIcon } from "lucide-react";
 import type { OverviewProtocolSeries } from "@/lib/api";
+import { byteAxisScale, formatByteAxisTick } from "@/lib/chartAxis";
 import { formatBytes } from "@/lib/format";
 import {
   protocolTrend,
   type ProtocolTrendLine,
   type ProtocolTrendPoint,
 } from "@/lib/overview";
+import { ChartGrid } from "./ChartGrid";
+import {
+  ChartTooltipHeading,
+  ChartTooltipRow,
+  ChartTooltipShell,
+} from "./ChartTooltipShell";
+import { CHART_CURSOR_OPACITY, CHART_CURSOR_STROKE } from "./chartTheme";
 import { useI18n } from "@/i18n";
 
 /** X 轴刻度：`2026-11-05` → `11/5`；与流量趋势图保持一致。 */
@@ -83,30 +90,28 @@ function ProtocolTrendTooltip({
   if (!active || !payload?.length) return null;
 
   return (
-    <div className="min-w-44 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40">
-      <p className="mb-2 font-medium text-foreground tabular-nums">{label}</p>
+    <ChartTooltipShell
+      data-protocol-tooltip
+      role="tooltip"
+      className="max-w-64"
+    >
+      <ChartTooltipHeading>{label}</ChartTooltipHeading>
       <div className="flex flex-col gap-1">
         {payload.map((entry) => {
           const key = String(entry.dataKey ?? "");
           const line = lines.find((item) => item.key === key);
           const value = Number(entry.value);
           return (
-            <div
+            <ChartTooltipRow
               key={key}
-              className="flex items-center justify-between gap-6"
-            >
-              <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-                <LineMark line={line} />
-                <span className="truncate">{entry.name}</span>
-              </span>
-              <span className="font-mono text-foreground tabular-nums">
-                {formatBytes(Number.isFinite(value) ? value : 0)}
-              </span>
-            </div>
+              label={entry.name}
+              value={formatBytes(Number.isFinite(value) ? value : 0)}
+              marker={<LineMark line={line} />}
+            />
           );
         })}
       </div>
-    </div>
+    </ChartTooltipShell>
   );
 }
 
@@ -127,8 +132,8 @@ function TrendCursor({
       x2={x}
       y1={y}
       y2={y + height}
-      stroke="var(--muted-foreground)"
-      strokeOpacity={0.45}
+      stroke={CHART_CURSOR_STROKE}
+      strokeOpacity={CHART_CURSOR_OPACITY}
       strokeWidth={1}
       pointerEvents="none"
     />
@@ -152,6 +157,15 @@ export default function ProtocolTrendChart({
 }) {
   const { t } = useI18n();
   const trend = protocolTrend(series);
+  // 纵轴上界取所有协议里的最大日流量，步长按 1024 单位取整齐值。
+  let dataMax = 0;
+  for (const row of trend.rows) {
+    for (const line of trend.lines) {
+      const value = Number(row[line.key] ?? 0);
+      if (Number.isFinite(value)) dataMax = Math.max(dataMax, value);
+    }
+  }
+  const scale = byteAxisScale(dataMax);
 
   if (trend.lines.length === 0) {
     return (
@@ -163,7 +177,7 @@ export default function ProtocolTrendChart({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3" data-protocol-trend-chart>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         {trend.lines.map((line) => (
           <span
@@ -191,11 +205,7 @@ export default function ProtocolTrendChart({
               accessibilityLayer: true,
             } as Record<string, unknown>)}
           >
-            <CartesianGrid
-              vertical={false}
-              stroke="var(--border)"
-              strokeWidth={1}
-            />
+            <ChartGrid />
             <XAxis
               dataKey="day"
               tickFormatter={formatDayTick}
@@ -205,10 +215,11 @@ export default function ProtocolTrendChart({
               dy={6}
             />
             <YAxis
-              tickFormatter={(value: number) => formatBytes(value)}
+              domain={[0, scale.max]}
+              ticks={scale.ticks}
+              tickFormatter={formatByteAxisTick}
               axisLine={false}
               tickLine={false}
-              tickCount={4}
               width={64}
               tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             />

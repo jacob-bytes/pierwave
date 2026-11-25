@@ -120,7 +120,7 @@ export function ChainTemplateKpisSkeleton() {
         <div
           key={index}
           data-chain-template-kpi-skeleton
-          className="min-w-0 bg-card px-3 py-4 sm:px-5"
+          className="min-h-[164px] min-w-0 bg-card px-3 py-4 sm:px-5 xl:min-h-[136px]"
         >
           <Skeleton className="h-3 w-16" />
           <Skeleton className="mt-3 h-7 w-14" />

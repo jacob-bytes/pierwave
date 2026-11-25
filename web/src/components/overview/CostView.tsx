@@ -36,17 +36,20 @@ import {
 } from "@/components/ui/select";
 
 import { FxDetailsPopover } from "./FxDetailsPopover";
-import { InsightMetrics } from "./InsightMetrics";
+import { ChainKpiCell, ChainKpiGrid } from "./ChainKpi";
 import { errorText } from "@/lib/errors";
 import {
+  buildCostAxisTicks,
   buildCostOverview,
   buildMonthExpenses,
   buildRenewalMonth,
+  costFxMode,
   formatCny,
-  formatCnyCompact,
+  formatCnyAxisTick,
   formatCurrency,
   formatMonthIndex,
   formatMonthLabel,
+  formatSharePercent,
   parseFxRates,
   parseFxUpdatedAt,
   renewalRowsFromScope,
@@ -172,42 +175,49 @@ function CostBody({
             : "overview.cost.currentYearHint",
           { n: overview.remainingMonths },
         );
+  const fxMode = costFxMode(overview, fx.provided);
 
   return (
     <div className="space-y-4 -mb-4" data-cost-view>
-      <InsightMetrics
-        items={[
-          {
-            label: t("overview.cost.total"),
-            value: formatCny(overview.totalCnyCents, locale),
-            hint: t("overview.cost.totalHint"),
-          },
-          {
-            label: t("overview.cost.currentYear"),
-            value: formatCny(overview.currentYearCnyCents, locale),
-            hint: currentYearHint,
-          },
-          {
-            label: t("overview.cost.next12"),
-            value: formatCny(overview.next12CnyCents, locale),
-            hint: t("overview.cost.next12Hint"),
-          },
-        ]}
-      />
+      {/* 三个金额与资源状态共用同一套 KPI 栅格：首格「总开销」占满 390
+          的第一行，本年度 / 未来 12 个月落在第二行；桌面 2+1+1 补满 4 列。 */}
+      <ChainKpiGrid data-cost-kpis>
+        <ChainKpiCell
+          className="col-span-2"
+          label={t("overview.cost.total")}
+          value={formatCny(overview.totalCnyCents, locale)}
+          hint={t("overview.cost.totalHint")}
+        />
+        <ChainKpiCell
+          label={t("overview.cost.currentYear")}
+          value={formatCny(overview.currentYearCnyCents, locale)}
+          hint={currentYearHint}
+        />
+        <ChainKpiCell
+          label={t("overview.cost.next12")}
+          value={formatCny(overview.next12CnyCents, locale)}
+          hint={t("overview.cost.next12Hint")}
+        />
+      </ChainKpiGrid>
 
-      <FxSummary
-        overview={overview}
-        fx={fx}
-        fxUpdatedAt={fxUpdatedAt}
-        locale={locale}
-        settingsError={settingsError}
-        settingsFetching={settingsFetching}
-        onRetry={onRetrySettings}
-      />
+      {fxMode === "warning" ? (
+        <FxWarning
+          overview={overview}
+          fx={fx}
+          fxUpdatedAt={fxUpdatedAt}
+          locale={locale}
+          settingsError={settingsError}
+          settingsFetching={settingsFetching}
+          onRetry={onRetrySettings}
+        />
+      ) : null}
 
       <section className="grid items-stretch gap-4 xl:grid-cols-3">
         <MonthExpenseCard
           overview={overview}
+          fx={fx}
+          fxUpdatedAt={fxUpdatedAt}
+          fxMode={fxMode}
           locale={locale}
           className="xl:col-span-2"
         />
@@ -248,7 +258,7 @@ function CostBody({
   );
 }
 
-function FxSummary({
+function FxWarning({
   overview,
   fx,
   fxUpdatedAt,
@@ -265,44 +275,20 @@ function FxSummary({
   settingsFetching: boolean;
   onRetry: () => void;
 }) {
-  // 只有真的用到非 CNY 金额时，「未提供汇率 → 非 CNY 未计入」才是有效警告；
-  // 全 CNY 时不该用一句看不懂的警告占据成本页顶部。
-  const usesForeign =
-    overview.unknownCurrency.length > 0 ||
-    overview.scope.some((row) => row.currency !== "CNY");
-
+  // 只在「有外币、但主控没提供汇率」时出现；正常汇率收进图表卡头的 CNY
+  // 标签，全 CNY 时连这一行也不出现。缺汇率是事实边界，必须保持可见。
   return (
     <div
-      className={cn(
-        "flex flex-wrap items-center gap-x-2 gap-y-1 text-xs",
-        !fx.provided && usesForeign
-          ? "text-warning"
-          : "text-muted-foreground",
-      )}
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-warning"
       data-cost-fx
       data-fx-provided={fx.provided || undefined}
     >
-      {!fx.provided && usesForeign ? (
-        <>
-          <TriangleAlertIcon
-            className="size-3.5 shrink-0"
-            aria-hidden="true"
-          />
-          <span className="min-w-0">
-            {settingsError
-              ? t("overview.cost.fxLoadFailed")
-              : t("overview.cost.fxMissing")}
-          </span>
-        </>
-      ) : (
-        <span>
-          {t(
-            fx.provided
-              ? "overview.cost.fxShort"
-              : "overview.cost.fxAllCny",
-          )}
-        </span>
-      )}
+      <TriangleAlertIcon className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="min-w-0">
+        {settingsError
+          ? t("overview.cost.fxLoadFailed")
+          : t("overview.cost.fxMissing")}
+      </span>
       {/* 无汇率时也要能打开明细：说明缺哪些币种、几台、去哪里配置。 */}
       <FxDetailsPopover
         overview={overview}
@@ -331,10 +317,16 @@ function FxSummary({
 
 function MonthExpenseCard({
   overview,
+  fx,
+  fxUpdatedAt,
+  fxMode,
   locale,
   className,
 }: {
   overview: CostOverview;
+  fx: FxRates;
+  fxUpdatedAt: number | null;
+  fxMode: ReturnType<typeof costFxMode>;
   locale: string;
   className?: string;
 }) {
@@ -350,9 +342,22 @@ function MonthExpenseCard({
           <CardTitle className="text-sm font-medium">
             {t("overview.cost.calendarTitle")}
           </CardTitle>
-          <span className="text-[11px] text-muted-foreground">
-            {t("overview.cost.monthUnit")}
-          </span>
+          {fxMode === "normal" ? (
+            <FxDetailsPopover
+              overview={overview}
+              fx={fx}
+              fxUpdatedAt={fxUpdatedAt}
+              locale={locale}
+              triggerLabel={t("overview.cost.monthUnit")}
+            />
+          ) : (
+            <span
+              data-cost-unit
+              className="text-[11px] text-muted-foreground"
+            >
+              {t("overview.cost.monthUnit")}
+            </span>
+          )}
         </div>
       </CardHeader>
 
@@ -381,7 +386,7 @@ function MonthBarChart({
   const { t } = useI18n();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const max = Math.max(0, ...months.map((month) => month.totalCnyCents));
-  const scaleMax = max > 0 ? max : 1;
+  const axis = useMemo(() => buildCostAxisTicks(max), [max]);
   const spansYears =
     new Set(months.map((month) => Math.floor(month.monthIndex / 12)))
       .size > 1;
@@ -474,14 +479,22 @@ function MonthBarChart({
   return (
     <div className="flex min-h-[300px] flex-1 flex-col" data-cost-bar-chart>
       <div className="relative flex min-h-0 flex-1 gap-2">
-        <div className="flex w-9 shrink-0 flex-col justify-between pb-1 text-right text-[11px] text-muted-foreground tabular-nums">
-          {[max, max * (2 / 3), max * (1 / 3), 0].map(
-            (value, index) => (
-              <span key={index} className="truncate">
-                ¥{formatCnyCompact(value, locale)}
-              </span>
-            ),
-          )}
+        <div
+          data-cost-axis
+          data-axis-max-cents={axis.maxCents}
+          data-axis-step-cents={axis.stepCents}
+          className="flex w-14 shrink-0 flex-col justify-between pb-1 text-right text-[11px] text-muted-foreground tabular-nums"
+        >
+          {[...axis.ticksCents].reverse().map((value) => (
+            <span
+              key={value}
+              data-cost-axis-tick
+              data-tick-cents={value}
+              className="truncate"
+            >
+              {formatCnyAxisTick(value, axis.stepCents, locale)}
+            </span>
+          ))}
         </div>
 
         <div
@@ -492,15 +505,18 @@ function MonthBarChart({
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 flex flex-col justify-between"
           >
-            {[0, 1, 2, 3].map((line) => (
-              <span key={line} className="border-t border-border/40" />
+            {axis.ticksCents.map((tick) => (
+              <span key={tick} className="border-t border-border/40" />
             ))}
           </div>
 
           {months.map((month, index) => {
             const height =
-              scaleMax > 0
-                ? Math.max(0, (month.totalCnyCents / scaleMax) * 100)
+              axis.maxCents > 0
+                ? Math.max(
+                    0,
+                    (month.totalCnyCents / axis.maxCents) * 100,
+                  )
                 : 0;
             const empty =
               month.totalCnyCents === 0 && month.prepaid.length === 0;
@@ -1170,26 +1186,21 @@ function RenewalDayDialog({
                 <div className="shrink-0 text-right">
                   <p className="font-mono text-xs tabular-nums text-foreground">
                     {event.amountOriginalCents === null ||
-                    event.currency === null ? (
-                      "—"
-                    ) : (
-                      <>
-                        <span className="mr-1 text-[11px] text-muted-foreground">
-                          {event.currency}
-                        </span>
-                        {formatCurrency(
+                    event.currency === null
+                      ? "—"
+                      : formatCurrency(
                           event.amountOriginalCents,
                           event.currency,
                           locale,
                         )}
-                      </>
-                    )}
                   </p>
-                  <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
-                    {event.amountCnyCents === null
-                      ? "—"
-                      : formatCny(event.amountCnyCents, locale)}
-                  </p>
+                  {event.currency === "CNY" ? null : (
+                    <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted-foreground">
+                      {event.amountCnyCents === null
+                        ? "—"
+                        : formatCny(event.amountCnyCents, locale)}
+                    </p>
+                  )}
                 </div>
               </li>
             ))}
@@ -1353,20 +1364,26 @@ function TopCostCard({
                   >
                     {row.name}
                   </span>
-                  <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                    {row.share.toFixed(0)}%
+                  <span
+                    data-cost-share
+                    className="shrink-0 text-[11px] text-muted-foreground tabular-nums"
+                  >
+                    {formatSharePercent(row.share)}
                   </span>
                 </div>
                 <div className="mt-1 flex items-baseline gap-2 pl-6 font-mono text-[11px] tabular-nums">
-                  <span className="text-muted-foreground">{row.currency}</span>
-                  <span className="text-muted-foreground">
-                    {formatCurrency(
-                      row.cycleOriginalCents,
-                      row.currency,
-                      locale,
-                    )}
-                  </span>
-                  <span className="ml-auto text-xs text-foreground">
+                  {/* CNY 的原币与折算金额相同，只留一处，避免同一行出现
+                      两个 `CNY 268.00`。 */}
+                  {row.currency === "CNY" ? null : (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      {formatCurrency(
+                        row.cycleOriginalCents,
+                        row.currency,
+                        locale,
+                      )}
+                    </span>
+                  )}
+                  <span className="ml-auto shrink-0 text-xs text-foreground">
                     {formatCny(row.cycleCnyCents, locale)}
                   </span>
                 </div>
@@ -1423,12 +1440,11 @@ function TopCostRowItem({
         <span className="min-w-0 flex-1 truncate text-sm" title={row.name}>
           {row.name}
         </span>
-        <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-          {row.currency}
-        </span>
-        <span className="max-w-20 shrink-0 truncate font-mono text-[11px] text-muted-foreground tabular-nums">
-          {formatCurrency(row.cycleOriginalCents, row.currency, locale)}
-        </span>
+        {row.currency === "CNY" ? null : (
+          <span className="max-w-24 shrink-0 truncate font-mono text-[11px] text-muted-foreground tabular-nums">
+            {formatCurrency(row.cycleOriginalCents, row.currency, locale)}
+          </span>
+        )}
         <span className="shrink-0 font-mono text-xs tabular-nums">
           {formatCny(row.cycleCnyCents, locale)}
         </span>
@@ -1449,12 +1465,13 @@ function TopCostRowItem({
           />
         </span>
         <span
-          className="w-8 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums"
+          data-cost-share
+          className="w-9 shrink-0 text-right text-[11px] text-muted-foreground tabular-nums"
           title={t("overview.cost.topShare", {
-            share: row.share.toFixed(0),
+            share: formatSharePercent(row.share),
           })}
         >
-          {row.share.toFixed(0)}%
+          {formatSharePercent(row.share)}
         </span>
       </div>
     </li>
@@ -1619,20 +1636,23 @@ function CurrencyMixCard({
                           </span>
                           <span
                             data-pie-legend-share
-                            className="w-8 shrink-0 text-right text-[13px] text-muted-foreground tabular-nums"
+                            data-cost-share
+                            className="w-10 shrink-0 text-right text-[13px] text-muted-foreground tabular-nums"
                           >
-                            {row.share.toFixed(0)}%
+                            {formatSharePercent(row.share)}
                           </span>
                         </div>
                         <div className="mt-0.5 flex items-baseline justify-between gap-2 text-[11px] text-muted-foreground">
                           <span className="min-w-0 truncate font-mono tabular-nums">
                             {row.originalCents === null
                               ? "—"
-                              : formatCurrency(
-                                  row.originalCents,
-                                  row.items[0]?.currency ?? "",
-                                  locale,
-                                )}
+                              : row.items[0]?.currency === "CNY"
+                                ? ""
+                                : formatCurrency(
+                                    row.originalCents,
+                                    row.items[0]?.currency ?? "",
+                                    locale,
+                                  )}
                           </span>
                           <span
                             data-pie-legend-amount
@@ -1708,8 +1728,8 @@ function CurrencyPieDetail({ row }: { row: CurrencyPieRow }) {
     >
       <div className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-1.5">
         <span className="font-medium">{row.label}</span>
-        <span className="font-mono tabular-nums">
-          {row.share.toFixed(0)}%
+        <span className="font-mono tabular-nums" data-cost-share>
+          {formatSharePercent(row.share)}
         </span>
       </div>
       {row.isOther ? (
@@ -1726,8 +1746,11 @@ function CurrencyPieDetail({ row }: { row: CurrencyPieRow }) {
               <span className="font-mono tabular-nums">
                 {formatCny(item.cycleCnyCents, locale)}
               </span>
-              <span className="w-7 text-right text-muted-foreground tabular-nums">
-                {item.share.toFixed(0)}%
+              <span
+                data-cost-share
+                className="w-8 text-right text-muted-foreground tabular-nums"
+              >
+                {formatSharePercent(item.share)}
               </span>
             </li>
           ))}
@@ -1753,16 +1776,10 @@ function OneTimeCard({
   return (
     <Card className={cn("flex h-full flex-col gap-0", className)} data-cost-card="once">
       <CardHeader className="border-b border-border pb-4">
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center justify-between gap-2">
           <CardTitle className="text-sm font-medium">
             {t("overview.cost.oneTimeTitle")}
           </CardTitle>
-          <Badge
-            variant="outline"
-            className="shrink-0 font-normal text-muted-foreground"
-          >
-            {t("overview.cost.oneTimeBadge")}
-          </Badge>
         </div>
       </CardHeader>
       {rows.length === 0 ? (

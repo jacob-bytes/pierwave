@@ -1,0 +1,1664 @@
+{
+  "generatedAt": "2026-11-25T14:37:01.609Z",
+  "shots": [
+    "uptime-dark-1440.png",
+    "resource-load-dark-1440.png",
+    "traffic-dark-1440.png",
+    "protocol-dark-1440.png",
+    "chain-trend-dark-1440.png",
+    "uptime-light-1440.png",
+    "resource-load-light-1440.png",
+    "traffic-light-1440.png",
+    "protocol-light-1440.png",
+    "chain-trend-light-1440.png",
+    "uptime-dark-390.png",
+    "resource-load-dark-390.png",
+    "traffic-dark-390.png",
+    "protocol-dark-390.png",
+    "chain-trend-dark-390.png",
+    "uptime-light-390.png",
+    "resource-load-light-390.png",
+    "traffic-light-390.png",
+    "protocol-light-390.png",
+    "chain-trend-light-390.png",
+    "tooltip-uptime-dark-1440.png",
+    "tooltip-resource-dark-1440.png",
+    "tooltip-traffic-dark-1440.png",
+    "tooltip-protocol-dark-1440.png",
+    "chain-legend-expanded-dark-1440.png",
+    "tooltip-chain-trend-dark-1440.png",
+    "tooltip-segment-dark-1440.png",
+    "tooltip-sparkline-dark-1440.png",
+    "tooltip-uptime-dark-390.png",
+    "tooltip-resource-dark-390.png",
+    "tooltip-traffic-dark-390.png",
+    "tooltip-protocol-dark-390.png",
+    "chain-legend-expanded-dark-390.png",
+    "tooltip-chain-trend-dark-390.png",
+    "tooltip-segment-dark-390.png",
+    "tooltip-sparkline-dark-390.png"
+  ],
+  "charts": [
+    {
+      "id": "uptime-dark-1440",
+      "xTicks": [
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22",
+        "11/23",
+        "11/24",
+        "11/25"
+      ],
+      "yTicks": [
+        "0%",
+        "25%",
+        "50%",
+        "75%",
+        "100%"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 1120,
+      "height": 286,
+      "xTicksUnique": true
+    },
+    {
+      "id": "resource-load-dark-1440",
+      "xTicks": [
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22",
+        "11/23",
+        "11/24",
+        "11/25"
+      ],
+      "yTicks": [
+        "0%",
+        "5%",
+        "10%",
+        "15%",
+        "20%",
+        "25%"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 731,
+      "height": 290,
+      "xTicksUnique": true
+    },
+    {
+      "id": "traffic-dark-1440",
+      "xTicks": [
+        "11/16",
+        "11/17",
+        "11/18",
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22"
+      ],
+      "yTicks": [
+        "0",
+        "20 GB",
+        "40 GB",
+        "60 GB"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 1120,
+      "height": 254,
+      "xTicksUnique": true
+    },
+    {
+      "id": "protocol-dark-1440",
+      "xTicks": [
+        "11/16",
+        "11/17",
+        "11/18",
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22"
+      ],
+      "yTicks": [
+        "0",
+        "10 GB",
+        "20 GB",
+        "30 GB",
+        "40 GB"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 1120,
+      "height": 248,
+      "xTicksUnique": true
+    },
+    {
+      "id": "chain-trend-dark-1440",
+      "xTicks": [
+        "00:00",
+        "04:00",
+        "08:00",
+        "12:00",
+        "16:00",
+        "21:45"
+      ],
+      "yTicks": [
+        "0ms",
+        "15ms",
+        "30ms",
+        "45ms",
+        "60ms"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        }
+      ],
+      "width": 1120,
+      "height": 372,
+      "xTicksUnique": true
+    },
+    {
+      "id": "uptime-light-1440",
+      "xTicks": [
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22",
+        "11/23",
+        "11/24",
+        "11/25"
+      ],
+      "yTicks": [
+        "0%",
+        "25%",
+        "50%",
+        "75%",
+        "100%"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 1120,
+      "height": 286,
+      "xTicksUnique": true
+    },
+    {
+      "id": "resource-load-light-1440",
+      "xTicks": [
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22",
+        "11/23",
+        "11/24",
+        "11/25"
+      ],
+      "yTicks": [
+        "0%",
+        "5%",
+        "10%",
+        "15%",
+        "20%",
+        "25%"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 731,
+      "height": 290,
+      "xTicksUnique": true
+    },
+    {
+      "id": "traffic-light-1440",
+      "xTicks": [
+        "11/16",
+        "11/17",
+        "11/18",
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22"
+      ],
+      "yTicks": [
+        "0",
+        "20 GB",
+        "40 GB",
+        "60 GB"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 1120,
+      "height": 254,
+      "xTicksUnique": true
+    },
+    {
+      "id": "protocol-light-1440",
+      "xTicks": [
+        "11/16",
+        "11/17",
+        "11/18",
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22"
+      ],
+      "yTicks": [
+        "0",
+        "10 GB",
+        "20 GB",
+        "30 GB",
+        "40 GB"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 1120,
+      "height": 248,
+      "xTicksUnique": true
+    },
+    {
+      "id": "chain-trend-light-1440",
+      "xTicks": [
+        "00:00",
+        "04:00",
+        "08:00",
+        "12:00",
+        "16:00",
+        "21:45"
+      ],
+      "yTicks": [
+        "0ms",
+        "15ms",
+        "30ms",
+        "45ms",
+        "60ms"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        }
+      ],
+      "width": 1120,
+      "height": 372,
+      "xTicksUnique": true
+    },
+    {
+      "id": "uptime-dark-390",
+      "xTicks": [
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22",
+        "11/23",
+        "11/24",
+        "11/25"
+      ],
+      "yTicks": [
+        "0%",
+        "25%",
+        "50%",
+        "75%",
+        "100%"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 326,
+      "height": 246,
+      "xTicksUnique": true
+    },
+    {
+      "id": "resource-load-dark-390",
+      "xTicks": [
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22",
+        "11/23",
+        "11/24",
+        "11/25"
+      ],
+      "yTicks": [
+        "0%",
+        "5%",
+        "10%",
+        "15%",
+        "20%",
+        "25%"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 326,
+      "height": 275,
+      "xTicksUnique": true
+    },
+    {
+      "id": "traffic-dark-390",
+      "xTicks": [
+        "11/16",
+        "11/17",
+        "11/18",
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22"
+      ],
+      "yTicks": [
+        "0",
+        "20 GB",
+        "40 GB",
+        "60 GB"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 310,
+      "height": 254,
+      "xTicksUnique": true
+    },
+    {
+      "id": "protocol-dark-390",
+      "xTicks": [
+        "11/16",
+        "11/17",
+        "11/18",
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22"
+      ],
+      "yTicks": [
+        "0",
+        "10 GB",
+        "20 GB",
+        "30 GB",
+        "40 GB"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 310,
+      "height": 248,
+      "xTicksUnique": true
+    },
+    {
+      "id": "chain-trend-dark-390",
+      "xTicks": [
+        "00:00",
+        "04:00",
+        "08:00",
+        "12:00",
+        "16:00",
+        "21:45"
+      ],
+      "yTicks": [
+        "0ms",
+        "15ms",
+        "30ms",
+        "45ms",
+        "60ms"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        }
+      ],
+      "width": 326,
+      "height": 352,
+      "xTicksUnique": true
+    },
+    {
+      "id": "uptime-light-390",
+      "xTicks": [
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22",
+        "11/23",
+        "11/24",
+        "11/25"
+      ],
+      "yTicks": [
+        "0%",
+        "25%",
+        "50%",
+        "75%",
+        "100%"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 326,
+      "height": 246,
+      "xTicksUnique": true
+    },
+    {
+      "id": "resource-load-light-390",
+      "xTicks": [
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22",
+        "11/23",
+        "11/24",
+        "11/25"
+      ],
+      "yTicks": [
+        "0%",
+        "5%",
+        "10%",
+        "15%",
+        "20%",
+        "25%"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 326,
+      "height": 275,
+      "xTicksUnique": true
+    },
+    {
+      "id": "traffic-light-390",
+      "xTicks": [
+        "11/16",
+        "11/17",
+        "11/18",
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22"
+      ],
+      "yTicks": [
+        "0",
+        "20 GB",
+        "40 GB",
+        "60 GB"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 310,
+      "height": 254,
+      "xTicksUnique": true
+    },
+    {
+      "id": "protocol-light-390",
+      "xTicks": [
+        "11/16",
+        "11/17",
+        "11/18",
+        "11/19",
+        "11/20",
+        "11/21",
+        "11/22"
+      ],
+      "yTicks": [
+        "0",
+        "10 GB",
+        "20 GB",
+        "30 GB",
+        "40 GB"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        }
+      ],
+      "width": 310,
+      "height": 248,
+      "xTicksUnique": true
+    },
+    {
+      "id": "chain-trend-light-390",
+      "xTicks": [
+        "00:00",
+        "04:00",
+        "08:00",
+        "12:00",
+        "16:00",
+        "21:45"
+      ],
+      "yTicks": [
+        "0ms",
+        "15ms",
+        "30ms",
+        "45ms",
+        "60ms"
+      ],
+      "grid": [
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": false
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        },
+        {
+          "dash": "2 4",
+          "stroke": "var(--border)",
+          "opacity": "0.6",
+          "vertical": true
+        }
+      ],
+      "width": 326,
+      "height": 352,
+      "xTicksUnique": true
+    }
+  ],
+  "tooltips": [
+    {
+      "id": "uptime-dark-1440",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/22 09:00",
+        "在线率",
+        "100.0%",
+        "在线 6/6 台"
+      ]
+    },
+    {
+      "id": "resource-dark-1440",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/22 08:00",
+        "法兰克福-01",
+        "12.4%",
+        "东京-01",
+        "9.4%",
+        "新加坡-01",
+        "7.1%",
+        "香港-01",
+        "5.6%",
+        "香港-02",
+        "4.8%",
+        "负载按 load1/8 近似"
+      ]
+    },
+    {
+      "id": "traffic-dark-1440",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "2026-11-19",
+        "下行",
+        "38.6 GB",
+        "上行",
+        "7.4 GB",
+        "计费流量",
+        "46 GB",
+        "当天累计",
+        "162 GB"
+      ]
+    },
+    {
+      "id": "protocol-dark-1440",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "2026-11-19",
+        "vless",
+        "38.6 GB",
+        "hysteria2",
+        "2.8 GB",
+        "trojan",
+        "1 GB"
+      ]
+    },
+    {
+      "id": "chain-dark-1440",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/25 09:45",
+        "港欧链路",
+        "41.9 ms",
+        "最高",
+        "丢包 0%",
+        "日欧链路",
+        "36.8 ms",
+        "丢包 0%",
+        "港新链路",
+        "30.8 ms",
+        "丢包 0%",
+        "港日链路",
+        "24.1 ms",
+        "丢包 0%"
+      ]
+    },
+    {
+      "id": "segment-dark-1440",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/25 09:15",
+        "第 1 段",
+        "24 ms",
+        "丢包 0%",
+        "最高",
+        "第 2 段",
+        "7.5 ms",
+        "丢包 0%",
+        "最低"
+      ]
+    },
+    {
+      "id": "sparkline-dark-1440",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/25 12:15",
+        "P50",
+        "26.8 ms",
+        "P10–P90",
+        "23 ms – 32.7 ms",
+        "4 个样本"
+      ]
+    },
+    {
+      "id": "uptime-dark-390",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/22 04:00",
+        "在线率",
+        "100.0%",
+        "在线 6/6 台"
+      ]
+    },
+    {
+      "id": "resource-dark-390",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/22 04:00",
+        "法兰克福-01",
+        "12.5%",
+        "东京-01",
+        "8.6%",
+        "新加坡-01",
+        "7.0%",
+        "香港-01",
+        "5.0%",
+        "香港-02",
+        "4.3%",
+        "负载按 load1/8 近似"
+      ]
+    },
+    {
+      "id": "traffic-dark-390",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "2026-11-19",
+        "下行",
+        "38.6 GB",
+        "上行",
+        "7.4 GB",
+        "计费流量",
+        "46 GB",
+        "当天累计",
+        "162 GB"
+      ]
+    },
+    {
+      "id": "protocol-dark-390",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "2026-11-18",
+        "vless",
+        "29.5 GB",
+        "hysteria2",
+        "2.2 GB",
+        "trojan",
+        "717 MB"
+      ]
+    },
+    {
+      "id": "chain-dark-390",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/25 09:30",
+        "港欧链路",
+        "42 ms",
+        "最高",
+        "丢包 2.4%",
+        "日欧链路",
+        "36.6 ms",
+        "丢包 2.4%",
+        "港新链路",
+        "30.3 ms",
+        "丢包 2.4%",
+        "港日链路",
+        "23.4 ms",
+        "丢包 2.4%"
+      ]
+    },
+    {
+      "id": "segment-dark-390",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/25 08:30",
+        "第 1 段",
+        "23.4 ms",
+        "丢包 0%",
+        "最高",
+        "第 2 段",
+        "6.5 ms",
+        "丢包 0%",
+        "最低"
+      ]
+    },
+    {
+      "id": "sparkline-dark-390",
+      "background": "oklch(0.195 0.005 285)",
+      "border": "1px solid oklch(1 0 0 / 0.08)",
+      "radius": "9.6px",
+      "padding": "12px 12px 12px 12px",
+      "fontSize": "12px",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklab(0 0 0 / 0.4) 0px 10px 15px -3px, oklab(0 0 0 / 0.4) 0px 4px 6px -4px",
+      "fontVariantNumeric": "tabular-nums",
+      "text": [
+        "11/25 12:15",
+        "P50",
+        "26.8 ms",
+        "P10–P90",
+        "23 ms – 32.7 ms",
+        "4 个样本"
+      ]
+    }
+  ],
+  "legends": [
+    {
+      "id": "chain-trend-dark-1440",
+      "sampledItems": 4,
+      "toggleText": "5 条暂无样本",
+      "toggleExpanded": "false",
+      "listedItems": 0
+    },
+    {
+      "id": "chain-trend-light-1440",
+      "sampledItems": 4,
+      "toggleText": "5 条暂无样本",
+      "toggleExpanded": "false",
+      "listedItems": 0
+    },
+    {
+      "id": "chain-trend-dark-390",
+      "sampledItems": 4,
+      "toggleText": "5 条暂无样本",
+      "toggleExpanded": "false",
+      "listedItems": 0
+    },
+    {
+      "id": "chain-trend-light-390",
+      "sampledItems": 4,
+      "toggleText": "5 条暂无样本",
+      "toggleExpanded": "false",
+      "listedItems": 0
+    },
+    {
+      "id": "chain-trend-expanded-dark-1440",
+      "sampledItems": 4,
+      "toggleExpanded": "true",
+      "listedItems": 5
+    },
+    {
+      "id": "chain-trend-expanded-dark-390",
+      "sampledItems": 4,
+      "toggleExpanded": "true",
+      "listedItems": 5
+    }
+  ],
+  "overflow": [
+    {
+      "page": "server-dark-1440",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "overflow": false
+    },
+    {
+      "page": "traffic-dark-1440",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "overflow": false
+    },
+    {
+      "page": "chain-dark-1440",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "overflow": false
+    },
+    {
+      "page": "server-light-1440",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "overflow": false
+    },
+    {
+      "page": "traffic-light-1440",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "overflow": false
+    },
+    {
+      "page": "chain-light-1440",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "overflow": false
+    },
+    {
+      "page": "server-dark-390",
+      "scrollWidth": 390,
+      "innerWidth": 390,
+      "overflow": false
+    },
+    {
+      "page": "traffic-dark-390",
+      "scrollWidth": 390,
+      "innerWidth": 390,
+      "overflow": false
+    },
+    {
+      "page": "chain-dark-390",
+      "scrollWidth": 390,
+      "innerWidth": 390,
+      "overflow": false
+    },
+    {
+      "page": "server-light-390",
+      "scrollWidth": 390,
+      "innerWidth": 390,
+      "overflow": false
+    },
+    {
+      "page": "traffic-light-390",
+      "scrollWidth": 390,
+      "innerWidth": 390,
+      "overflow": false
+    },
+    {
+      "page": "chain-light-390",
+      "scrollWidth": 390,
+      "innerWidth": 390,
+      "overflow": false
+    },
+    {
+      "page": "dialog-dark-1440",
+      "scrollWidth": 1440,
+      "innerWidth": 1440,
+      "overflow": false
+    },
+    {
+      "page": "dialog-dark-390",
+      "scrollWidth": 390,
+      "innerWidth": 390,
+      "overflow": false
+    }
+  ],
+  "errors": [],
+  "assertions": {
+    "passed": true,
+    "failures": []
+  }
+}

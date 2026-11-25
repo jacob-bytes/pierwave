@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  CartesianGrid,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -19,6 +18,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { seriesVisual } from "@/lib/seriesStyle";
+import { ChartGrid } from "./ChartGrid";
+import { ChartTooltipHeading, ChartTooltipShell } from "./ChartTooltipShell";
+import { CHART_CURSOR } from "./chartTheme";
 import { t, useI18n } from "@/i18n";
 
 interface SegmentTrendEntry {
@@ -201,15 +203,15 @@ function SegmentTrendTooltip({
   const distinct = new Set(numeric.map((item) => item.p50)).size > 1;
 
   return (
-    <div
+    <ChartTooltipShell
       data-segment-tooltip
       role="tooltip"
       aria-live="polite"
-      className="min-w-52 max-w-72 rounded-md border border-border bg-popover px-3 py-2 text-xs shadow-lg/40"
+      className="min-w-52 max-w-72"
     >
-      <p className="mb-2 font-mono text-[11px] text-muted-foreground">
+      <ChartTooltipHeading>
         {formatChainTime(row.ts, bucket)}
-      </p>
+      </ChartTooltipHeading>
       <div className="flex flex-col gap-1">
         {rows.map((item) => {
           const isHighest = distinct && highest?.seq === item.seq;
@@ -255,7 +257,7 @@ function SegmentTrendTooltip({
           );
         })}
       </div>
-    </div>
+    </ChartTooltipShell>
   );
 }
 
@@ -481,11 +483,7 @@ export function ChainSegmentTrendChart({
               data={data}
               margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
             >
-              <CartesianGrid
-                stroke="var(--border)"
-                strokeDasharray="2 4"
-                vertical={false}
-              />
+              <ChartGrid />
               <XAxis
                 dataKey="ts"
                 type="number"
@@ -511,10 +509,7 @@ export function ChainSegmentTrendChart({
                 content={
                   <SegmentTrendTooltip entries={visible} bucket={bucketSecs} />
                 }
-                cursor={{
-                  stroke: "var(--muted-foreground)",
-                  strokeOpacity: 0.35,
-                }}
+                cursor={CHART_CURSOR}
               />
               {visible.map((entry) => {
                 const index = segments.findIndex(

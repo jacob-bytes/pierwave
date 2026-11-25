@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildCostAxisTicks,
   buildCostOverview,
   buildFxDetails,
   buildMonthExpenses,
   buildRenewalMonth,
   costCycleOf,
+  costFxMode,
   dayIndexOfDate,
+  formatCny,
+  formatCnyAxisTick,
   formatCnyCompact,
+  formatCurrency,
   formatFxRateDisplay,
+  formatMoney,
   formatMonthIndex,
   formatMonthLabel,
+  formatSharePercent,
   monthIndexOfDate,
   parseFxRates,
   parseFxUpdatedAt,
@@ -717,4 +724,116 @@ test("月份标签：中文 / 英文短月份，月份序号可解析", () => {
   assert.equal(formatMonthLabel(2026 * 12 + 10, "zh-CN"), "11月");
   assert.equal(formatMonthLabel(2026 * 12 + 10, "en-US"), "Nov");
   assert.equal(formatCnyCompact(26800, "zh-CN"), "268");
+});
+
+test("金额统一为「币种代码 + 空格 + 数字」：AED / USD / JPY / CNY、0 与负数", () => {
+  // 不再用 Intl 窄符号：AED 没有窄符号时也不回退成 `AED AED 320.00`。
+  assert.equal(formatMoney(32000, "AED", "zh-CN"), "AED 320.00");
+  assert.equal(formatMoney(120000, "USD", "zh-CN"), "USD 1,200.00");
+  assert.equal(formatMoney(0, "JPY", "zh-CN"), "JPY 0.00");
+  assert.equal(formatMoney(99900, "CNY", "zh-CN"), "CNY 999.00");
+  assert.equal(formatCny(99900), "CNY 999.00");
+  assert.equal(formatCurrency(120000, "USD"), "USD 1,200.00");
+  // 代码统一大写、去空白；负数只出现一次符号，仍然是代码在前。
+  assert.equal(formatMoney(32000, " aed "), "AED 320.00");
+  assert.equal(formatMoney(-12345, "USD"), "USD -123.45");
+  assert.equal(formatMoney(-0, "CNY"), "CNY 0.00");
+  // 英文环境同样不用 $ / ¥ / € 这类符号。
+  assert.equal(formatMoney(120000, "USD", "en-US"), "USD 1,200.00");
+  for (const value of [
+    formatMoney(32000, "AED"),
+    formatMoney(120000, "USD"),
+    formatMoney(99900, "CNY"),
+  ]) {
+    assert.ok(!/[¥$€£]/.test(value), `must not contain a currency symbol: ${value}`);
+    assert.ok(!/\b([A-Z]{3})\s+\1\b/.test(value), `duplicate code: ${value}`);
+  }
+});
+
+test("金额格式化：非有限值与极大值也不会抛错", () => {
+  // 极大值仍走千分位，不能用 toFixed 把精度截断。
+  assert.equal(
+    formatMoney(10 ** 18, "CNY"),
+    "CNY 10,000,000,000,000,000.00",
+  );
+  assert.equal(formatMoney(Number.NaN, "USD"), "USD —");
+  assert.equal(formatMoney(Number.POSITIVE_INFINITY, "JPY"), "JPY —");
+});
+
+test("占比：0 显示 0%，0 < share < 1 显示 <1%，≥1% 取整", () => {
+  assert.equal(formatSharePercent(0), "0%");
+  assert.equal(formatSharePercent(-3), "0%");
+  assert.equal(formatSharePercent(Number.NaN), "0%");
+  // JPY 0.36% 不能再被 toFixed(0) 变成 0%。
+  assert.equal(formatSharePercent(0.36), "<1%");
+  assert.equal(formatSharePercent(0.999), "<1%");
+  assert.equal(formatSharePercent(1), "1%");
+  assert.equal(formatSharePercent(1.4), "1%");
+  assert.equal(formatSharePercent(14.6), "15%");
+  assert.equal(formatSharePercent(49.9), "50%");
+});
+
+test("纵轴刻度：1 / 2 / 2.5 / 5 × 10^n 的整齐步长，刻度取整", () => {
+  const scale = buildCostAxisTicks(902300);
+  assert.equal(scale.stepCents, 250000);
+  assert.equal(scale.maxCents, 1000000);
+  assert.deepEqual(scale.ticksCents, [0, 250000, 500000, 750000, 1000000]);
+  assert.equal(formatCnyAxisTick(1000000, scale.stepCents), "10,000");
+  assert.equal(formatCnyAxisTick(0, scale.stepCents), "0");
+
+  // 步长必须是 1 / 2 / 2.5 / 5 × 10^n，且顶端覆盖数据最大值。
+  for (const max of [1, 12, 125, 902300, 171266, 12345678]) {
+    const next = buildCostAxisTicks(max);
+    const magnitude = 10 ** Math.floor(Math.log10(next.stepCents));
+    assert.ok(
+      [1, 2, 2.5, 5, 10].includes(next.stepCents / magnitude),
+      `not a nice step: ${next.stepCents} (max ${max})`,
+    );
+    assert.ok(next.maxCents >= max, `axis max ${next.maxCents} < ${max}`);
+    assert.equal(next.ticksCents[0], 0);
+    assert.equal(next.ticksCents.at(-1), next.maxCents);
+    for (let index = 1; index < next.ticksCents.length; index += 1) {
+      assert.equal(
+        next.ticksCents[index] - next.ticksCents[index - 1],
+        next.stepCents,
+      );
+    }
+  }
+
+  // 没有数据时只显示一个 0，不编造高位刻度。
+  assert.deepEqual(buildCostAxisTicks(0), {
+    maxCents: 0,
+    stepCents: 100,
+    ticksCents: [0],
+  });
+});
+
+test("汇率提示形态：正常收进卡头、缺汇率保留警告、全 CNY 不显示", () => {
+  const allCny = buildCostOverview([billed("cny")], RATES.rates, AUG);
+  assert.equal(costFxMode(allCny, true), "none");
+  assert.equal(costFxMode(allCny, false), "none");
+
+  const foreign = buildCostOverview(
+    [billed("cny"), billed("usd", { currency: "USD" })],
+    RATES.rates,
+    AUG,
+  );
+  assert.equal(costFxMode(foreign, true), "normal");
+  assert.equal(costFxMode(foreign, false), "warning");
+
+  // 只有未配置汇率的币种、没有可折算金额时，也要保留可见警告。
+  const unknownOnly = buildCostOverview(
+    [
+      server("aed", {
+        price_cents: 32000,
+        currency: "AED",
+        billing_cycle_count: 1,
+        billing_cycle_unit: "month",
+      }),
+    ],
+    RATES.rates,
+    AUG,
+  );
+  assert.equal(costFxMode(unknownOnly, false), "warning");
+  assert.equal(costFxMode(unknownOnly, true), "normal");
 });

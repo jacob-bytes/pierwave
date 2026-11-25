@@ -17,6 +17,8 @@ import {
   normalizeServerHealth,
   offlineServerNamePreview,
   resourceServerRows,
+  resourceYMax,
+  resourceYTicks,
   uptimeHeatmapStep,
 } from "./serverHealth.ts";
 
@@ -795,4 +797,29 @@ test("formatOnlineCount: 整数台直接写，部分采样带 ≈ 和一位小�
   assert.equal(formatOnlineCount(0), "0");
   assert.equal(formatOnlineCount(3.583), "≈3.6");
   assert.equal(formatOnlineCount(3.04), "3");
+});
+
+test("resourceYMax: 25% 起底、1.2 倍留白、5 的倍数、上限 100", () => {
+  assert.equal(resourceYMax(0), 25);
+  assert.equal(resourceYMax(6.25), 25, "负载压底时仍保留 0–25 的刻度");
+  assert.equal(resourceYMax(20.9), 30);
+  assert.equal(resourceYMax(62.5), 75);
+  assert.equal(resourceYMax(83), 100);
+  assert.equal(resourceYMax(99), 100);
+  assert.equal(resourceYMax(Number.NaN), 25);
+  assert.equal(resourceYMax(-10), 25);
+});
+
+test("resourceYTicks: 按 yMax 均分且每档整数，0 基线保留", () => {
+  assert.deepEqual(resourceYTicks(25), [0, 5, 10, 15, 20, 25]);
+  assert.deepEqual(resourceYTicks(75), [0, 15, 30, 45, 60, 75]);
+  assert.deepEqual(resourceYTicks(100), [0, 25, 50, 75, 100]);
+  for (const yMax of [25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]) {
+    const ticks = resourceYTicks(yMax);
+    assert.equal(ticks[0], 0, `0 baseline for ${yMax}`);
+    assert.equal(ticks.at(-1), yMax, `top tick for ${yMax}`);
+    for (const tick of ticks) {
+      assert.ok(Number.isInteger(tick), `integer tick ${tick} for ${yMax}`);
+    }
+  }
 });

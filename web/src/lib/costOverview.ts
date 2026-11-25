@@ -499,15 +499,35 @@ function safeNumberFormat(
   }
 }
 
-/** CNY 分 → `¥1,810.75`（英文环境也使用窄符号 ¥）。 */
-export function formatCny(cents: number, locale = "zh-CN"): string {
-  return safeNumberFormat(locale, {
-    style: "currency",
-    currency: "CNY",
-    currencyDisplay: "narrowSymbol",
+/**
+ * 金额的统一写法：`币种代码 + 空格 + 数字`，例如 `AED 320.00`、`USD 1,200.00`。
+ *
+ * 不读 Intl 的窄符号：AED 这类没有窄符号的币种会回退成完整代码，和调用方
+ * 已经输出的代码叠成 `AED AED 320.00`。这里只用 decimal 格式化数字，
+ * 币种代码始终由本函数输出一次。
+ */
+export function formatMoney(
+  cents: number,
+  currency: string,
+  locale = "zh-CN",
+): string {
+  const code =
+    typeof currency === "string" && currency.trim() !== ""
+      ? currency.trim().toUpperCase()
+      : "CNY";
+  if (!Number.isFinite(cents)) return `${code} —`;
+  // 避免 `-0` 被格式化成 `-0.00`。
+  const value = cents === 0 ? 0 : cents;
+  const amount = safeNumberFormat(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(cents / 100);
+  }).format(value / 100);
+  return `${code} ${amount}`;
+}
+
+/** CNY 分 → `CNY 1,810.75`。 */
+export function formatCny(cents: number, locale = "zh-CN"): string {
+  return formatMoney(cents, "CNY", locale);
 }
 
 /** 原币金额；未知币种代码也能安全展示。 */
@@ -516,17 +536,23 @@ export function formatCurrency(
   currency: string,
   locale = "zh-CN",
 ): string {
-  try {
-    return new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      currencyDisplay: "narrowSymbol",
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(cents / 100);
-  } catch {
-    return `${currency} ${(cents / 100).toFixed(2)}`;
-  }
+  return formatMoney(cents, currency, locale);
+}
+
+/**
+ * 占比：0 才显示 `0%`，非 0 且小于 1% 显示 `<1%`（与链路丢包 `<0.1%` 的
+ * 约定一致），≥1% 取整。取整而不是保留一位小数：占比列的宽度只有
+ * 36–40px，`<1%` 和 `50%` 已经能表达量级，小数只会挤掉名称。
+ */
+export function formatSharePercent(
+  share: number,
+  locale = "zh-CN",
+): string {
+  if (!Number.isFinite(share) || share <= 0) return "0%";
+  if (share < 1) return "<1%";
+  return `${safeNumberFormat(locale, {
+    maximumFractionDigits: 0,
+  }).format(share)}%`;
 }
 
 /** 付款日历格子里的紧凑金额：整数不带小数，保持 12 列不换行。 */
@@ -534,6 +560,83 @@ export function formatCnyCompact(cents: number, locale = "zh-CN"): string {
   return safeNumberFormat(locale, {
     maximumFractionDigits: 0,
   }).format(cents / 100);
+}
+
+export interface CostAxisScale {
+  /** 柱状图纵轴顶端（分）；只会大于等于数据最大值。 */
+  maxCents: number;
+  /** 相邻刻度差（分）；形式为 1 / 2 / 2.5 / 5 × 10^n。 */
+  stepCents: number;
+  /** 从 0 开始、升序的刻度（分）。 */
+  ticksCents: number[];
+}
+
+/** 以 1 / 2 / 2.5 / 5 × 10^n 为步长，给出「整齐」的纵轴刻度。 */
+export function buildCostAxisTicks(
+  maxCents: number,
+  targetIntervals = 4,
+): CostAxisScale {
+  if (!Number.isFinite(maxCents) || maxCents <= 0) {
+    return { maxCents: 0, stepCents: 100, ticksCents: [0] };
+  }
+  const target = Math.max(1, Math.floor(targetIntervals));
+  const rawStep = maxCents / target;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  let step = magnitude * 10;
+  for (const multiplier of [1, 2, 2.5, 5, 10]) {
+    const candidate = multiplier * magnitude;
+    // 分是最小单位，容忍 2.5 分这种小于一分的步长没有意义。
+    if (candidate >= rawStep && Number.isInteger(candidate)) {
+      step = candidate;
+      break;
+    }
+  }
+  step = Math.max(1, Math.round(step));
+  const intervals = Math.max(1, Math.ceil(maxCents / step));
+  return {
+    maxCents: step * intervals,
+    stepCents: step,
+    ticksCents: Array.from(
+      { length: intervals + 1 },
+      (_, index) => index * step,
+    ),
+  };
+}
+
+/**
+ * 纵轴刻度文案：不重复币种代码（卡头已经写了 `CNY`）。
+ * 步长小于 1 元时保留必要的小数，避免多个刻度都显示成同一个整数。
+ */
+export function formatCnyAxisTick(
+  cents: number,
+  stepCents: number,
+  locale = "zh-CN",
+): string {
+  const step = Math.abs(stepCents);
+  const digits = step >= 100 ? 0 : step >= 10 ? 1 : 2;
+  return safeNumberFormat(locale, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(cents / 100);
+}
+
+export type CostFxMode = "normal" | "warning" | "none";
+
+/**
+ * 汇率提示的形态：
+ * - `none`：全 CNY，或没有用到任何外币 → 不显示提示；
+ * - `normal`：有外币且有汇率 → 收进图表卡头的 CNY 标签；
+ * - `warning`：有外币但缺汇率 → 保留一行可见警告。
+ */
+export function costFxMode(
+  overview: Pick<CostOverview, "scope" | "unknownCurrency">,
+  fxProvided: boolean,
+): CostFxMode {
+  const usesForeign =
+    overview.unknownCurrency.length > 0 ||
+    overview.scope.some((row) => row.currency !== "CNY");
+  if (!usesForeign) return "none";
+  return fxProvided ? "normal" : "warning";
 }
 
 /** 汇率展示：最多 4 位小数，去掉无意义的尾零。 */

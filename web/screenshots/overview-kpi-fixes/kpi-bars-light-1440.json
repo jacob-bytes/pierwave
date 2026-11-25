@@ -1,0 +1,76 @@
+[
+  {
+    "view": "server",
+    "height": 136,
+    "cells": 3,
+    "cellHeights": [
+      136,
+      136,
+      136
+    ],
+    "rows": 1,
+    "columns": 3,
+    "gridColumns": 4,
+    "valueSize": "28px",
+    "hintSize": "13px",
+    "labelSize": "12px",
+    "firstWidth": 576,
+    "secondWidth": 287
+  },
+  {
+    "view": "cost",
+    "height": 136,
+    "cells": 3,
+    "cellHeights": [
+      136,
+      136,
+      136
+    ],
+    "rows": 1,
+    "columns": 3,
+    "gridColumns": 4,
+    "valueSize": "28px",
+    "hintSize": "13px",
+    "labelSize": "12px",
+    "firstWidth": 576,
+    "secondWidth": 287
+  },
+  {
+    "view": "chain",
+    "height": 136,
+    "cells": 4,
+    "cellHeights": [
+      136,
+      136,
+      136,
+      136
+    ],
+    "rows": 1,
+    "columns": 4,
+    "gridColumns": 4,
+    "valueSize": "28px",
+    "hintSize": "13px",
+    "labelSize": "12px",
+    "firstWidth": 287,
+    "secondWidth": 287
+  },
+  {
+    "view": "templates",
+    "height": 136,
+    "cells": 4,
+    "cellHeights": [
+      136,
+      136,
+      136,
+      136
+    ],
+    "rows": 1,
+    "columns": 4,
+    "gridColumns": 4,
+    "valueSize": "28px",
+    "hintSize": "13px",
+    "labelSize": "12px",
+    "firstWidth": 287,
+    "secondWidth": 287
+  }
+]
