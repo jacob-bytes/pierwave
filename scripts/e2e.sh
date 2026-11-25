@@ -196,6 +196,15 @@ echo "ok alice.used_bytes = 9000（加权后）"
 PACKAGE_USED=$(curl -sf -b "$WORK/cookie" "$BASE/api/v1/users?q=alice" | jget '["items"][0]["packages"][0]["used_bytes"]')
 [ "$PACKAGE_USED" = "9000" ] || { echo "FAIL: 套餐实例 used_bytes 应为 9000，实际 $PACKAGE_USED"; exit 1; }
 
+# used_bytes 只能证明累计值到位，不能证明两条报告都已落库：
+# 单条 3000/1500 的报告同样算出 9000。等报告条数到位再断言，避免偶发失败。
+REPORTS=0
+for _ in $(seq 1 100); do
+  REPORTS=$(sqlite3 "$WORK/db.sqlite" "SELECT COUNT(*) FROM traffic_reports;" 2>/dev/null || echo 0)
+  [ "$REPORTS" = "2" ] && break
+  sleep 0.1
+done
+
 python3 - "$WORK/db.sqlite" "$ALICE_ID" <<'PY'
 import sqlite3, sys
 
