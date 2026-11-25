@@ -174,10 +174,12 @@ export function ChainTemplateUsageChart({
   detail,
   range,
   onRangeChange,
+  className,
 }: {
   detail: ChainTemplateDetail;
   range: ChainTemplateUsageRange;
   onRangeChange: (range: ChainTemplateUsageRange) => void;
+  className?: string;
 }) {
   useI18n();
   // 后端两种窗口都用 15 分钟桶（168h = 672 点），x 轴格式化保持一致。
@@ -215,7 +217,7 @@ export function ChainTemplateUsageChart({
   }, [data, range]);
 
   return (
-    <Card className="min-w-0 gap-0" data-template-usage-card>
+    <Card className={cn("min-w-0 gap-0", className)} data-template-usage-card>
       <CardHeader className="border-b border-border pb-4">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="flex min-w-0 items-center gap-2">

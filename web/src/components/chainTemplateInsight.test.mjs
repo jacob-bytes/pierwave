@@ -20,6 +20,9 @@ const usage = read("../components/overview/ChainTemplateUsageChart.tsx");
 const strategies = read(
   "../components/overview/ChainTemplateStrategies.tsx",
 );
+const nodeHeat = read(
+  "../components/overview/ChainTemplateNodeHeat.tsx",
+);
 const view = read("../components/overview/ChainLatencyView.tsx");
 const api = read("../lib/api.ts");
 const queries = read("../lib/queries.ts");
@@ -116,6 +119,10 @@ test("详情弹窗由选中列表项驱动，四块内容都在", () => {
       "<ChainTemplateTopology key={detail.template.id} detail={detail} />",
       "<ChainTemplateUsageChart",
       "<ChainTemplateStrategies detail={detail} />",
+      "<ChainTemplateNodeHeat detail={detail} />",
+      "data-template-detail-grid",
+      "items-stretch",
+      "lg:grid-cols-3",
       "data-template-dialog",
       "data-template-dialog-meta",
       "metaHops",
@@ -141,7 +148,6 @@ test("拓扑：本地 TreeChart 横向树、贝塞尔曲线、折叠与离线路
       "renderTooltip",
       "chainTemplateTree(detail",
       "data-template-unused",
-      "data-template-hotspots",
       "data-template-tree-tooltip",
       "tooltipStatus",
       "tooltipChains",
@@ -149,6 +155,17 @@ test("拓扑：本地 TreeChart 横向树、贝塞尔曲线、折叠与离线路
       'translate("overview.chainTemplateInsight.treeTargetsFold"',
     ],
     "ChainTemplateTopology",
+  );
+  // 热点排序已经拆成独立的「节点热度」卡，拓扑卡里不再有表格。
+  assertExcludes(
+    topology,
+    [
+      "data-template-hotspots",
+      "data-template-hotspot-row",
+      "hotspotsTitle",
+      "Hotspots",
+    ],
+    "topology hotspots removed",
   );
   assertIncludes(
     treeChart,
@@ -525,6 +542,10 @@ test("F9 死代码与未使用 i18n 清掉", () => {
     "usageCurrentNote",
     "hotspotsExpand",
     "hotspotsCollapse",
+    "hotspotsTitle",
+    "hotspotNode",
+    "hotspotChains",
+    "hotspotUsers",
     "targetMore",
     "targetNone",
     "hopLabel",
@@ -574,6 +595,46 @@ test("使用量 tooltip 列出当前用户，策略只画真实种类", () => {
   );
 });
 
+test("节点热度：横向条形图而非表格 / 饼图，Top5 + 条宽 + 状态 + 空态", () => {
+  assertIncludes(
+    nodeHeat,
+    [
+      "data-template-node-heat-card",
+      "data-template-node-heat",
+      "data-template-heat-row",
+      "data-template-heat-bar",
+      "data-width={Math.round(barPct * 100) / 100}",
+      "style={{ width: `${barPct}%` }}",
+      "chainTemplateNodeHeat(detail)",
+      "data-template-node-heat-tooltip",
+      "group-hover:block",
+      "group-focus:block",
+      'translate("overview.chainTemplateInsight.nodeHeatShare")',
+      "data-template-node-heat-empty",
+      "data-template-heat-status",
+      "tabular-nums",
+      "bg-primary",
+      "bg-muted-foreground/40",
+      "formatPercentValue(sharePct)",
+    ],
+    "ChainTemplateNodeHeat",
+  );
+  // 不画饼图：同一节点会被多条链重复计入，扇区之和没有业务含义。
+  assertExcludes(nodeHeat, ["<table", "<thead", "<tbody", "PieChart", "recharts"], "node heat markup");
+  // Top 5 / 条宽 / 占比 / 状态合并都在纯逻辑层，组件不重复实现。
+  assertIncludes(
+    read("../lib/chainTemplateInsight.ts"),
+    [
+      "export function chainTemplateNodeHeat(",
+      "MEMBER_STATUS_PRIORITY",
+      "barPct:",
+      "sharePct:",
+      'offline: member.status === "offline"',
+    ],
+    "node heat logic",
+  );
+});
+
 test("接口路径与 404 降级集中在查询层", () => {
   assertIncludes(
     api,
@@ -616,7 +677,11 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     "usageTitle",
     "usageCurrentUsers",
     "strategiesTitle",
-    "hotspotsTitle",
+    "nodeHeatTitle",
+    "nodeHeatEmpty",
+    "nodeHeatShare",
+    "nodeHeatAria",
+    "nodeHeatListAria",
     "causeMemberOffline",
     "causeDisabled",
     "online",

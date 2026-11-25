@@ -10,6 +10,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/common";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ChainTemplateNodeHeat } from "@/components/overview/ChainTemplateNodeHeat";
 import { ChainTemplateStrategies } from "@/components/overview/ChainTemplateStrategies";
 import { ChainTemplateTopology } from "@/components/overview/ChainTemplateTopology";
 import { ChainTemplateStaleNotice } from "@/components/overview/ChainTemplateStaleNotice";
@@ -29,7 +30,8 @@ function DetailSkeleton() {
   return (
     <div className="space-y-4" data-template-detail-skeleton aria-hidden="true">
       <Skeleton className="h-[320px] w-full rounded-xl" />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <Skeleton className="h-[300px] w-full rounded-xl md:col-span-2 lg:col-span-1" />
         <Skeleton className="h-[300px] w-full rounded-xl" />
         <Skeleton className="h-[300px] w-full rounded-xl" />
       </div>
@@ -38,10 +40,11 @@ function DetailSkeleton() {
 }
 
 /**
- * 三块内容：横向树拓扑（含可折叠热点排序）、使用量折线、策略分布。
+ * 四块内容：横向树拓扑（整宽）、使用量折线、策略分布、节点热度。
  *
- * 拓扑回答「流量怎么走」，使用量回答「用得多不多」，策略回答「为什么这么走」；
- * 热点排序与拓扑着色同源，收在拓扑卡底部，不另起一张等权重的表。
+ * 拓扑回答「流量怎么走」，下面三张等宽卡回答「用得多不多」「为什么这么走」
+ * 与「哪些节点最吃链」。拓扑单独整宽，因为它需要横向空间；三张卡在桌面
+ * 三列、平板两列（使用量占整行）、390 单列堆叠。
  */
 function TemplateDetailBody({
   detail,
@@ -56,13 +59,18 @@ function TemplateDetailBody({
     <div className="space-y-4" data-template-detail>
       <ChainTemplateStaleNotice detail={detail} />
       <ChainTemplateTopology key={detail.template.id} detail={detail} />
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div
+        className="grid grid-cols-1 items-stretch gap-4 md:grid-cols-2 lg:grid-cols-3"
+        data-template-detail-grid
+      >
         <ChainTemplateUsageChart
+          className="md:col-span-2 lg:col-span-1"
           detail={detail}
           range={range}
           onRangeChange={onRangeChange}
         />
         <ChainTemplateStrategies detail={detail} />
+        <ChainTemplateNodeHeat detail={detail} />
       </div>
     </div>
   );

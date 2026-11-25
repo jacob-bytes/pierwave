@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronDownIcon, WaypointsIcon } from "lucide-react";
+import { WaypointsIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/common";
 import {
@@ -10,7 +10,6 @@ import {
   type TreeNode,
 } from "@/components/ui/charts/tree-chart";
 import {
-  chainTemplateHotspots,
   type ChainTemplateDetail,
   type ChainTemplateMemberStatus,
 } from "@/lib/chainTemplateInsight";
@@ -228,87 +227,6 @@ function UnusedMembers({ rows }: { rows: readonly ChainTemplateUnusedMember[] })
   );
 }
 
-function Hotspots({
-  detail,
-  open,
-  onToggle,
-}: {
-  detail: ChainTemplateDetail;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  const { t: translate } = useI18n();
-  const rows = useMemo(
-    () => chainTemplateHotspots(detail.nodes),
-    [detail.nodes],
-  );
-  if (rows.length === 0) return null;
-  return (
-    <div className="mt-3 border-t border-border pt-2">
-      <button
-        type="button"
-        data-template-hotspots-toggle
-        aria-expanded={open}
-        onClick={onToggle}
-        className="inline-flex min-h-6 items-center gap-1 rounded-md px-1 text-[11px] text-muted-foreground transition-colors duration-150 hover:bg-muted/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        <ChevronDownIcon
-          aria-hidden="true"
-          className={cn(
-            "size-3 transition-transform duration-150",
-            open ? "" : "-rotate-90",
-          )}
-        />
-        {translate("overview.chainTemplateInsight.hotspotsTitle")}
-      </button>
-      {open ? (
-        <table
-          data-template-hotspots
-          className="mt-1 w-full table-fixed border-collapse text-left text-[11px] tabular-nums"
-        >
-          <thead className="text-muted-foreground">
-            <tr className="border-b border-border/60">
-              <th scope="col" className="py-1 pr-2 font-medium">
-                {translate("overview.chainTemplateInsight.hotspotNode")}
-              </th>
-              <th scope="col" className="w-14 py-1 pr-2 text-right font-medium">
-                {translate("overview.chainTemplateInsight.hotspotChains")}
-              </th>
-              <th scope="col" className="w-14 py-1 text-right font-medium">
-                {translate("overview.chainTemplateInsight.hotspotUsers")}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr
-                key={row.key}
-                data-template-hotspot-row
-                className="border-b border-border/40 last:border-0"
-              >
-                <th
-                  scope="row"
-                  className="min-w-0 truncate py-1 pr-2 font-normal"
-                  title={row.name}
-                >
-                  {row.name}
-                  {row.offline ? (
-                    <span className="ml-1.5 text-[11px] text-destructive">
-                      {translate("overview.chainTemplateInsight.offline")}
-                    </span>
-                  ) : null}
-                </th>
-                <td className="py-1 pr-2 text-right font-mono">{row.chains}</td>
-                <td className="py-1 text-right font-mono">{row.users}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : null}
-    </div>
-  );
-}
-
 /**
  * 转发链模板拓扑：shadcn TreeChart 风格的横向树。
  *
@@ -332,7 +250,6 @@ export function ChainTemplateTopology({
   const [expandedParents, setExpandedParents] = useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
-  const [hotspotsOpen, setHotspotsOpen] = useState(true);
 
   const model = useMemo(
     () =>
@@ -467,14 +384,6 @@ export function ChainTemplateTopology({
           )}
         </div>
         <UnusedMembers rows={model.unusedMembers} />
-        {/* 0 链时热点全是 0，只是噪音；空态下面不再叠一张全 0 的表。 */}
-        {model.isEmpty ? null : (
-          <Hotspots
-            detail={detail}
-            open={hotspotsOpen}
-            onToggle={() => setHotspotsOpen((value) => !value)}
-          />
-        )}
       </CardContent>
     </Card>
   );

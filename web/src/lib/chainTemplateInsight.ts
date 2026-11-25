@@ -822,7 +822,16 @@ export interface ChainTemplateHotspot {
   chains: number;
   users: number;
   offline: boolean;
+  status: ChainTemplateMemberStatus;
 }
+
+/** 同一服务器在不同跳重复出现时合并状态：离线 > 降级 > 在线 > 未知。 */
+const MEMBER_STATUS_PRIORITY: Record<ChainTemplateMemberStatus, number> = {
+  unknown: 0,
+  online: 1,
+  degraded: 2,
+  offline: 3,
+};
 
 export function chainTemplateHotspots(
   nodes: readonly ChainTemplateNode[],
@@ -841,11 +850,18 @@ export function chainTemplateHotspots(
           chains: member.chains,
           users: member.users,
           offline: member.status === "offline",
+          status: member.status,
         });
       } else {
         existing.chains = Math.max(existing.chains, member.chains);
         existing.users = Math.max(existing.users, member.users);
         existing.offline = existing.offline || member.status === "offline";
+        if (
+          MEMBER_STATUS_PRIORITY[member.status] >
+          MEMBER_STATUS_PRIORITY[existing.status]
+        ) {
+          existing.status = member.status;
+        }
       }
     }
   }
@@ -857,6 +873,53 @@ export function chainTemplateHotspots(
         a.name.localeCompare(b.name),
     )
     .slice(0, Math.max(0, Math.floor(limit)));
+}
+
+export interface ChainTemplateNodeHeatRow extends ChainTemplateHotspot {
+  /** 横条宽度：chains / 本卡最大链数 × 100。 */
+  barPct: number;
+  /** 占该模板总链数的百分比，夹紧到 0–100。 */
+  sharePct: number;
+}
+
+export interface ChainTemplateNodeHeatView {
+  rows: ChainTemplateNodeHeatRow[];
+  maxChains: number;
+  totalChains: number;
+}
+
+/**
+ * 「节点热度」视图：按使用链数取 Top 5，再算条宽与占比。
+ *
+ * 只保留有链使用的节点（chains > 0）；没有这类节点时 rows 为空，卡片给空态。
+ * 条宽以本卡最大链数为基准（首行必满格），占比以模板总链数为分母——两者
+ * 分母不同，别为了「看起来一致」把占比也按最大链数算。
+ *
+ * 注意：这里**必须是横向条形图，不能换饼图**。同一节点会在链的每一跳被
+ * 重复计入（此处按 serverId 取最大值合并），各节点链数之和远大于模板链数，
+ * 画成饼图后各扇区之和没有业务含义，只能做相对长短比较。
+ */
+export function chainTemplateNodeHeat(
+  detail: ChainTemplateDetail,
+  limit = 5,
+): ChainTemplateNodeHeatView {
+  const rows = chainTemplateHotspots(detail.nodes, limit).filter(
+    (row) => row.chains > 0,
+  );
+  const maxChains = rows[0]?.chains ?? 0;
+  const totalChains = chainTemplateDetailTotals(detail).chains;
+  return {
+    rows: rows.map((row) => ({
+      ...row,
+      barPct: maxChains > 0 ? (row.chains / maxChains) * 100 : 0,
+      sharePct:
+        totalChains > 0
+          ? Math.max(0, Math.min(100, (row.chains / totalChains) * 100))
+          : 0,
+    })),
+    maxChains,
+    totalChains,
+  };
 }
 
 export interface ChainTemplateDetailTotals {

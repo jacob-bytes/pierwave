@@ -5,6 +5,7 @@ import {
   TEMPLATE_STRATEGY_ORDER,
   chainTemplateDetailTotals,
   chainTemplateHotspots,
+  chainTemplateNodeHeat,
   aggregateChainTemplateEdges,
   chainTemplateMemberStatus,
   chainTemplateStrategyLabelKey,
@@ -316,6 +317,90 @@ test("热点排序：按链数降序取 Top 5，按服务器去重，排除目�
   assert.equal(rows[0].offline, true);
   assert.equal(rows[1].name, "s1");
   assert.equal(rows.filter((row) => row.name === "1.2.3.4:443").length, 0);
+});
+
+test("节点热度：Top 5 降序，条宽按最大链数、占比按模板总链数", () => {
+  const heat = chainTemplateNodeHeat(
+    normalizeChainTemplateDetail({
+      template: { id: "tpl-heat", name: "热度", hops: 2 },
+      nodes: [
+        {
+          seq: 0,
+          role: "source",
+          name: "入口",
+          members: [member("s1", 5, 3), member("s2", 10, 2)],
+        },
+        {
+          seq: 1,
+          role: "hop",
+          name: "中转",
+          members: [
+            member("s1", 5, 3),
+            member("s3", 4, 4, "offline"),
+            member("s4", 3, 1, "degraded"),
+            member("s5", 2, 1),
+            member("s6", 1, 1),
+          ],
+        },
+      ],
+    }),
+  );
+  // Top 5：第 6 名不进入视图；同名成员按 serverId 去重。
+  assert.deepEqual(
+    heat.rows.map((row) => row.name),
+    ["s2", "s1", "s3", "s4", "s5"],
+  );
+  assert.equal(heat.maxChains, 10);
+  // 模板总链数 = 源成员链数之和（5 + 10）。
+  assert.equal(heat.totalChains, 15);
+  assert.deepEqual(
+    heat.rows.map((row) => row.barPct),
+    [100, 50, 40, 30, 20],
+  );
+  const shares = heat.rows.map((row) => Math.round(row.sharePct * 10) / 10);
+  assert.deepEqual(shares, [66.7, 33.3, 26.7, 20, 13.3]);
+  // 同一服务器在多跳出现时取最大链数，状态按最严重的一档合并。
+  assert.equal(heat.rows[1].chains, 5);
+  assert.equal(heat.rows[1].status, "online");
+  assert.equal(heat.rows[2].status, "offline");
+  assert.equal(heat.rows[2].offline, true);
+  assert.equal(heat.rows[3].status, "degraded");
+});
+
+test("节点热度：没有链使用时给空 rows，目标节点不参与", () => {
+  const heat = chainTemplateNodeHeat(
+    normalizeChainTemplateDetail({
+      template: { id: "tpl-idle", name: "空", hops: 1 },
+      nodes: [
+        { seq: 0, role: "source", name: "入口", members: [member("s1", 0, 0)] },
+        {
+          seq: 1,
+          role: "target",
+          name: "目标",
+          members: [{ name: "1.2.3.4:443", chains: 5, users: 5 }],
+        },
+      ],
+    }),
+  );
+  assert.deepEqual(heat.rows, []);
+  assert.equal(heat.maxChains, 0);
+  // 目标节点的链不会被算进模板总链数。
+  assert.equal(heat.totalChains, 0);
+});
+
+test("节点热度：占比夹紧到 0–100，脏数据不越界", () => {
+  const heat = chainTemplateNodeHeat(
+    normalizeChainTemplateDetail({
+      template: { id: "tpl-dirty", name: "脏", hops: 1 },
+      nodes: [
+        { seq: 0, role: "source", name: "入口", members: [member("s1", 2, 1)] },
+        { seq: 1, role: "hop", name: "中转", members: [member("s2", 9, 1)] },
+      ],
+    }),
+  );
+  assert.equal(heat.rows[0].name, "s2");
+  assert.equal(heat.rows[0].sharePct, 100);
+  assert.equal(heat.rows[1].sharePct, 100);
 });
 
 test("详情合计：优先源成员汇总，缺失时回退最大值", () => {

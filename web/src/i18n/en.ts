@@ -867,10 +867,12 @@ const en = {
       strategiesTitle: "Strategy split",
       strategiesEmpty: "No strategy data",
       strategyValue: "{pct}% · {chains} chains",
-      hotspotsTitle: "Hotspots",
-      hotspotNode: "Node",
-      hotspotChains: "Chains",
-      hotspotUsers: "Users",
+      nodeHeatTitle: "Node heat",
+      nodeHeatEmpty: "No node usage data",
+      nodeHeatShare: "Share",
+      nodeHeatAria:
+        "Node {name}: {chains} chains, {users} users, {status}, {pct}% of the template's chains",
+      nodeHeatListAria: "Top {n} nodes by usage",
     },
     serverHealth: {
       loadFailed: "Failed to load server status",
