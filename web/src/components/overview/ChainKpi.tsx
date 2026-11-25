@@ -1,5 +1,6 @@
 import type { ComponentProps, ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,11 +18,13 @@ import { cn } from "@/lib/utils";
  * 避免右侧留出一块 --border 色的空格子。这样三格和四格在 390 下都是
  * 两行、桌面都是一行，切 tab 时 KPI 条高度不跳。
  *
- * 每个 cell 固定最小高度：副行最多两行、标签一行，数字在最窄处最多
- * 换两行（成本金额 `CNY 28,124.80` 在 390 的 171px 格子里会断成两行），
- * 于是四组 KPI 在两种断点下高度完全一致。`≥xl` 有足够宽度，数字回到
- * 单行，KPI 条随之收窄。`min-w-0` + `break-words` 保证长文案换行而不是
- * 把卡片撑出横向滚动。
+ * cell 高度只由内容 + 固定内边距决定，不再用 `min-h` 凑高度：同一行的
+ * 格子由 grid 自动等高，底部只有 `py-3.5` 的 padding，不会出现红框那种
+ * 「数字下面空一截」的留白。副行固定单行（`line-clamp-1` + title），
+ * 所以副行文案长短不会把卡片撑高；数字在最窄处仍允许换行，390 下成本
+ * 金额可能占两行，该卡会自然高一点（这是唯一允许的高度差）。
+ *
+ * `min-w-0` + `break-words` 保证长文案换行而不是把卡片撑出横向滚动。
  */
 export type ChainKpiTone = "muted" | "primary" | "warning" | "destructive";
 
@@ -45,6 +48,32 @@ export function ChainKpiGrid({
   );
 }
 
+/** 与真实 KPI 同 padding / 同行高的骨架：加载完成时高度不会跳。 */
+export function ChainKpiSkeletonGrid({
+  cells = 4,
+  ...props
+}: { cells?: number } & ComponentProps<"div">) {
+  return (
+    <ChainKpiGrid aria-hidden="true" {...props}>
+      {Array.from({ length: cells }).map((_, index) => (
+        <div
+          key={index}
+          data-chain-kpi-skeleton
+          className={cn(
+            "min-w-0 bg-card px-3 py-3.5 sm:px-5",
+            // 三指标的视图首格跨两列，骨架也保持同样的两行 / 一行结构。
+            index === 0 && cells === 3 && "col-span-2",
+          )}
+        >
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="mt-1 h-7 w-14" />
+          <Skeleton className="mt-1 h-[21px] w-24" />
+        </div>
+      ))}
+    </ChainKpiGrid>
+  );
+}
+
 export function ChainKpiCell({
   label,
   value,
@@ -62,9 +91,11 @@ export function ChainKpiCell({
     <div
       data-chain-kpi-cell
       className={cn(
-        // 136px = 单行数字（16 + 16.2 + 8 + 28 + 8 + 41.6 + 16）；
-        // 164px 再给数字多留一行 28px，覆盖 390 下成本金额的换行。
-        "min-h-[164px] min-w-0 bg-card px-3 py-4 sm:px-5 xl:min-h-[136px]",
+        // 14 + 16.2 + 4 + 28 + 4 + 20.8 + 14 = 101：内容有多高卡片就多高，
+        // 底边只留 14px padding；同一行由 grid 自动拉齐。
+        // flex-col + hint 的 mt-auto：若同行有更高的卡把这一格拉高，
+        // 副行贴底而不是在数字下面留一截空白。
+        "flex min-w-0 flex-col bg-card px-3 py-3.5 sm:px-5",
         className,
       )}
       {...props}
@@ -79,7 +110,7 @@ export function ChainKpiCell({
       <p
         data-chain-kpi-value
         className={cn(
-          "mt-2 text-[28px] leading-none font-medium tracking-tight break-words tabular-nums",
+          "mt-1 text-[28px] leading-none font-medium tracking-tight break-words tabular-nums",
           TONE_CLASS[tone],
         )}
       >
@@ -88,7 +119,8 @@ export function ChainKpiCell({
       {hint ? (
         <p
           data-chain-kpi-hint
-          className="mt-2 line-clamp-2 text-[13px] leading-normal break-words text-muted-foreground"
+          title={hint}
+          className="mt-auto pt-1 line-clamp-1 text-[13px] leading-normal break-words text-muted-foreground"
         >
           {hint}
         </p>

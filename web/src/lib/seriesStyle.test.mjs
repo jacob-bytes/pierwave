@@ -108,13 +108,17 @@ test("light theme --series-1..4 each reach 3:1 against the card", () => {
   }
 });
 
-test("both line charts consume the shared series visuals", () => {
+test("both line chart families consume the shared series visuals", () => {
   for (const file of [
-    "components/overview/ChainLatencyTrendChart.tsx",
+    "lib/chainSeriesStyle.ts",
     "components/overview/ChainSegmentTrendChart.tsx",
   ]) {
     const source = read(file);
     assert.match(source, /seriesVisual/, `${file} must use seriesVisual`);
     assert.doesNotMatch(source, /OPACITY_LADDER/, `${file} ladder is replaced`);
   }
+  // 整体趋势图通过共享 swatch 使用同一套线型，不再各自拼颜色。
+  const trend = read("components/overview/ChainLatencyTrendChart.tsx");
+  assert.match(trend, /ChainSeriesSwatch/);
+  assert.match(trend, /lineVisual/);
 });

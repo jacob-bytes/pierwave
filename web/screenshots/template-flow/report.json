@@ -1,0 +1,178 @@
+{
+  "base": "http://127.0.0.1:8787",
+  "screenshots": [
+    "3hop-1440-dark.png",
+    "3hop-topology-1440-dark.png",
+    "hover-path-1440-dark.png",
+    "tooltip-1440-dark.png",
+    "zoom-100-1440-dark.png",
+    "zoom-50-1440-dark.png",
+    "zoom-150-1440-dark.png",
+    "3hop-1440-light.png",
+    "zoom-bar-1440-dark-en.png",
+    "4hop-1440-dark.png",
+    "collapsed-1440-dark.png",
+    "expanded-1440-dark.png",
+    "expanded-fit-1440-dark.png",
+    "collapsed-fit-1440-dark.png",
+    "tooltip-fold-1440-dark.png",
+    "6hop-1440-dark.png",
+    "6hop-fit-1440-dark.png",
+    "6hop-390-dark.png",
+    "empty-1440-dark.png",
+    "old-master-1440-dark.png",
+    "reduced-motion-1440-dark.png"
+  ],
+  "assertions": {
+    "390": {
+      "mode": "compact",
+      "scrollWidth": 1968,
+      "clientWidth": 342,
+      "overflow": 0,
+      "zoomBarVisible": false,
+      "transform": "translate(0px, 0px) scale(1)",
+      "paneTouch": "pan-y"
+    },
+    "3hop": {
+      "zoom": 90,
+      "perColumn": {
+        "0": 2,
+        "1": 3,
+        "2": 3,
+        "3": 4
+      },
+      "pulseCount": 8,
+      "dom": 309,
+      "attributionFontSize": "12px",
+      "touchAction": "pan-y",
+      "foldCards": 0,
+      "targetFolds": 2,
+      "firstPaintMs": 394,
+      "chunkTiming": {
+        "name": "ChainTemplateFlow-D4f0R3dk.js",
+        "durationMs": 73,
+        "transferSize": 56134,
+        "decodedBodySize": 179892
+      }
+    },
+    "hover": {
+      "hot": 6,
+      "dim": 6
+    },
+    "fonts": {
+      "title": 12,
+      "status": 11,
+      "subtitle": 11,
+      "pill": 11,
+      "attribution": 12
+    },
+    "zoomButtons": {
+      "50": true,
+      "100": true,
+      "150": true
+    },
+    "fitZoom": 88,
+    "wheel": {
+      "beforeWheelZoom": 88,
+      "afterWheelZoom": 88,
+      "scrollTop": 300,
+      "afterCtrlZoom": 139,
+      "afterMetaZoom": 89
+    },
+    "dblClick": {
+      "zoom": 89
+    },
+    "drag": {
+      "beforeDrag": {
+        "transform": "translate(0px, 41.04px) scale(0.884)",
+        "cards": 12
+      },
+      "afterDrag": {
+        "transform": "translate(-21.152px, 41.056px) scale(0.884)",
+        "cards": 12
+      }
+    },
+    "tab": {
+      "inCanvas": true,
+      "tag": "DIV",
+      "focusable": 14
+    },
+    "en": {
+      "fit": "Fit to view",
+      "zoom": "90%",
+      "aria": "香港-01, Entry, Online, 6 chains, 4 users"
+    },
+    "keyboard": {
+      "foldsAfterEnter": 1,
+      "foldsBefore": 2
+    },
+    "fold": {
+      "collapsed": {
+        "0": 1,
+        "1": 5,
+        "2": 2,
+        "3": 5,
+        "4": 5
+      },
+      "expanded": {
+        "0": 1,
+        "1": 7,
+        "2": 2,
+        "3": 5,
+        "4": 5
+      },
+      "foldColumn": "1",
+      "foldsAfter": 1,
+      "restored": {
+        "folds": 2,
+        "reset": 0
+      },
+      "dom": 434
+    },
+    "6hop": {
+      "counts": {
+        "0": 3,
+        "1": 3,
+        "2": 3,
+        "3": 3,
+        "4": 3,
+        "5": 3,
+        "6": 4
+      },
+      "dom": 589,
+      "zoom": 90,
+      "fitZoom": 50
+    },
+    "empty": {
+      "cards": 0,
+      "text": "暂无流量还没有转发链使用这个模板。",
+      "unused": 1
+    },
+    "oldMaster": {
+      "text": "香港 → 东京 → 洛杉矶转发链模板 香港 → 东京 → 洛杉矶 的拓扑与用量3"
+    },
+    "reducedMotion": {
+      "animationName": "none",
+      "strokeOpacity": 0.42,
+      "count": 8
+    },
+    "chunks": {
+      "flowChunk": {
+        "file": "ChainTemplateFlow-D4f0R3dk.js",
+        "bytes": 179892
+      },
+      "mainChunk": {
+        "file": "index-BucJR-UU.js",
+        "bytes": 447827
+      },
+      "latencyChunk": {
+        "file": "ChainLatencyView-C7zCQ8ea.js",
+        "bytes": 115135
+      }
+    }
+  },
+  "errors": [],
+  "build": {
+    "generatedAt": "2026-11-25T17:48:33.234Z"
+  }
+}

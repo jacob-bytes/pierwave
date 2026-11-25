@@ -6,11 +6,10 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  type XAxisTickContentProps,
 } from "recharts";
-import { ChevronDownIcon } from "lucide-react";
 import {
   buildChainTrendData,
-  chainLatestSeriesTs,
   chainLegendGroups,
   chainLossAt,
   chainTimeTicks,
@@ -20,157 +19,59 @@ import {
   type ChainHealthChain,
   type ChainTrendRow,
 } from "@/lib/chainHealth";
+import {
+  chainTrendTimeDomain,
+  selectChainTrendChains,
+} from "@/lib/chainTrendSeries";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { seriesVisual } from "@/lib/seriesStyle";
+import { lineVisual } from "@/lib/chainSeriesStyle";
 import { useIsDesktop } from "@/lib/useIsDesktop";
 import { ChartGrid } from "./ChartGrid";
 import { ChartTooltipHeading, ChartTooltipShell } from "./ChartTooltipShell";
+import { LineSwatch } from "./ChainSeriesSwatch";
 import { CHART_CURSOR } from "./chartTheme";
 import { t, useI18n } from "@/i18n";
 
-interface LineVisual {
-  color: string;
-  opacity: number;
-  dash?: string;
-}
-
 /**
- * 正常序列用 `--series-1..4` + 线型；样本不足的图例项灰显。
- * 变慢不再换色相：颜色只负责区分序列，状态由「变慢」徽章与 tooltip 文案表达。
+ * 图例只保留一行「已选链」标签：横向滚动，永不折行。
+ *
+ * 24 条链的完整清单与搜索 / 全选 / 清空在卡头的多选下拉里；这里再列一遍
+ * 只会把图表往下压。无样本链也不在这里出现，折叠在「N 条暂无样本」里。
  */
-function lineVisual(index: number, muted = false): LineVisual {
-  if (muted) {
-    return { color: "var(--muted-foreground)", opacity: 0.55 };
-  }
-  return seriesVisual(index);
-}
-
-function LineSwatch({ visual }: { visual: LineVisual }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="18"
-      height="6"
-      viewBox="0 0 18 6"
-      className="shrink-0"
-    >
-      <line
-        x1="0"
-        x2="18"
-        y1="3"
-        y2="3"
-        stroke={visual.color}
-        strokeOpacity={visual.opacity}
-        strokeWidth="1.5"
-        strokeDasharray={visual.dash}
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-/**
- * 图例主行只放有样本的链；无样本链默认折成一条弱化按钮
- * 「N 条暂无样本」，点开才展开名单，避免 9 项折两行还要滚动。
- */
-function ChainTrendLegend({
+function ChainTrendSelectedLegend({
   chains,
-  hidden,
-  onToggle,
+  selected,
 }: {
   chains: readonly ChainHealthChain[];
-  hidden: ReadonlySet<string>;
-  onToggle: (id: string) => void;
+  selected: readonly ChainHealthChain[];
 }) {
-  const [showUnsampled, setShowUnsampled] = useState(false);
-  const { sampled, unsampled } = chainLegendGroups(chains);
+  if (selected.length === 0) return null;
 
   return (
     <div
       data-chain-trend-legend
       role="group"
       aria-label={t("overview.chainLatency.legendAria")}
-      className="flex flex-col gap-1 pb-2"
+      className="flex min-h-6 items-center gap-3 overflow-x-auto pb-2 whitespace-nowrap"
     >
-      {/* 有样本的链仍限制高度，链特别多时滚动；折叠区在它下面，不会被裁切。 */}
-      <div className="flex max-h-24 flex-wrap content-start gap-x-3 gap-y-1 overflow-y-auto">
-        {sampled.map(({ chain, index }) => {
-          const hiddenHere = hidden.has(chain.id);
-          const visual = lineVisual(index);
-          return (
-            <button
-              key={chain.id}
-              type="button"
-              aria-pressed={!hiddenHere}
-              data-chain-legend-item
-              data-chain-id={chain.id}
-              data-has-samples="true"
-              data-hidden={hiddenHere ? "true" : "false"}
-              onClick={() => onToggle(chain.id)}
-              className={cn(
-                "inline-flex min-h-6 max-w-full items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] transition-opacity duration-150",
-                hiddenHere
-                  ? "opacity-35 hover:opacity-60"
-                  : "opacity-100 hover:bg-muted/40",
-              )}
-            >
-              <LineSwatch visual={visual} />
-              <span className="max-w-40 truncate" title={chain.name}>
-                {chain.name}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {unsampled.length === 0 ? null : (
-        <button
-          type="button"
-          data-chain-legend-unsampled-toggle
-          aria-expanded={showUnsampled}
-          aria-label={t("overview.chainLatency.noSamplesGroupAria", {
-            n: unsampled.length,
-          })}
-          onClick={() => setShowUnsampled((value) => !value)}
-          className="inline-flex min-h-6 self-start items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground opacity-70 transition-opacity duration-150 hover:bg-muted/40 hover:opacity-100"
-        >
-          <span data-chain-legend-unsampled-count>
-            {t("overview.chainLatency.noSamplesGroup", { n: unsampled.length })}
-          </span>
-          <ChevronDownIcon
-            aria-hidden="true"
-            className={cn(
-              "size-3 transition-transform duration-150",
-              showUnsampled && "rotate-180",
-            )}
-          />
-        </button>
-      )}
-
-      {showUnsampled && unsampled.length > 0 ? (
-        <div
-          data-chain-legend-unsampled-list
-          className="flex w-full flex-wrap gap-x-3 gap-y-1 border-t border-border/60 pt-1"
-        >
-          {unsampled.map(({ chain, index }) => (
-            <span
-              key={chain.id}
-              data-chain-legend-unsampled-item
-              data-chain-id={chain.id}
-              className="inline-flex min-h-6 max-w-full items-center gap-1.5 px-1.5 text-[11px] text-muted-foreground opacity-80"
-            >
-              <LineSwatch visual={lineVisual(index, true)} />
-              <span className="max-w-40 truncate" title={chain.name}>
-                {chain.name}
-              </span>
-              <span className="shrink-0">
-                {t("overview.chainLatency.noSamplesShort")}
-              </span>
+      {selected.map((chain) => {
+        const index = chains.findIndex((item) => item.id === chain.id);
+        return (
+          <span
+            key={chain.id}
+            data-chain-legend-item
+            data-chain-id={chain.id}
+            data-has-samples="true"
+            className="inline-flex shrink-0 items-center gap-1.5 text-[11px]"
+          >
+            <LineSwatch visual={lineVisual(Math.max(0, index))} />
+            <span className="max-w-40 truncate" title={chain.name}>
+              {chain.name}
             </span>
-          ))}
-        </div>
-      ) : null}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -366,36 +267,47 @@ function ChainTrendTable({
 /**
  * 列表页的多序列整体时延折线：一条链一条线。
  *
- * 只画有整体曲线的链；空样本链保留在图例里灰显并标「样本不足」。
- * 序列用 `--series-1..4` + 第 2 条起的线型区分，超过 4 条再用不透明度阶梯。
+ * 只画有整体曲线、且在卡头下拉里被勾选的链；无样本链不进入选择。
+ * x 轴范围取**实际数据**的最早 / 最晚样本，而不是整个窗口的起止，
+ * 窗口两端没有样本时也不会留下大段空白。
  */
 export function ChainLatencyTrendChart({
   chains,
   bucket,
+  selectedIds,
 }: {
   chains: readonly ChainHealthChain[];
   bucket: number;
+  /** 卡头多选下拉的当前选择；空数组时显示空态，不画全空线。 */
+  selectedIds: readonly string[];
 }) {
   useI18n();
-  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const [tableView, setTableView] = useState(false);
   const desktop = useIsDesktop();
-  const data = useMemo(() => buildChainTrendData(chains), [chains]);
-  const visible = data.series.filter((chain) => !hidden.has(chain.id));
+  const groups = useMemo(() => chainLegendGroups(chains), [chains]);
+  const selectedChains = useMemo(
+    () => selectChainTrendChains(chains, selectedIds),
+    [chains, selectedIds],
+  );
+  const data = useMemo(
+    () => buildChainTrendData(selectedChains),
+    [selectedChains],
+  );
+
   /**
-   * 时间轴跟详情里的整体时延图共用一套刻度：24h 每 4h、7d 每 1d，
-   * 右端固定在最后一个真实样本，不是「现在」或最后一个空桶。
+   * 时间轴跟详情里的整体时延图共用一套刻度：24h 每 4h、7d 每 1d。
+   * domain 收敛到有效样本的实际范围；末位刻度仍是最后一个真实样本。
    */
   const axis = useMemo(() => {
-    const latest = data.series.reduce((max, chain) => {
-      const ts = chainLatestSeriesTs(chain.series);
-      return ts !== null && ts > max ? ts : max;
-    }, 0);
-    const endTs = latest > 0 ? latest : (data.rows.at(-1)?.ts ?? 0);
-    if (endTs <= 0) return null;
+    const domain = chainTrendTimeDomain(data.series, bucket);
+    if (domain === null) return null;
     const hours = bucket >= 3_600 ? 168 : 24;
-    const startTs = endTs - hours * 3_600;
-    const ticks = chainTimeTicks(startTs, endTs, hours, bucket);
+    const ticks = chainTimeTicks(
+      domain.startTs,
+      domain.endTs,
+      hours,
+      bucket,
+    );
     // 390 宽时 7 个标签会互相压住：丢掉最后一小段前的等距刻度，保留
     // 末位真实样本，仍不少于 5 个刻度。桌面保持完整间隔。
     const visibleTicks = desktop
@@ -403,36 +315,75 @@ export function ChainLatencyTrendChart({
       : ticks.filter(
           (tick) =>
             tick.kind === "last" ||
-            (tick.ts - startTs) / (endTs - startTs) <= 0.78,
+            (tick.ts - domain.startTs) /
+              (domain.endTs - domain.startTs) <=
+              0.78,
         );
     return {
-      startTs,
-      endTs,
+      ...domain,
       ticks: visibleTicks,
       labels: new Map(visibleTicks.map((tick) => [tick.ts, tick.label])),
     };
-  }, [bucket, data, desktop]);
+  }, [bucket, data.series, desktop]);
 
-  function toggle(id: string) {
-    setHidden((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  /**
+   * 只把落在数据区间内的行交给 recharts。
+   *
+   * 定长 `series` 在窗口首尾还有 `null` 空桶；即使显式写了 domain，
+   * recharts 仍会按数据的 `ts` 扩展刻度范围，左右空白会原样回来。
+   * 表格视图仍用完整 `data.rows`（窗口内空桶显示 `—`）。
+   */
+  const chartRows = useMemo(() => {
+    if (axis === null) return data.rows;
+    return data.rows.filter(
+      (row) => row.ts >= axis.startTs && row.ts <= axis.endTs,
+    );
+  }, [axis, data.rows]);
+
+  /**
+   * 首尾刻度的标签贴边对齐：margin 收到 8–12px 后，居中排列的
+   * `20:30` 会被 SVG 边缘裁掉几个像素。
+   */
+  function timeTick(props: XAxisTickContentProps) {
+    const value = Number(props.payload?.value);
+    const text = Number.isFinite(value)
+      ? (axis?.labels.get(value) ?? axisTick(value, bucket))
+      : "";
+    const anchor =
+      axis === null
+        ? "middle"
+        : value <= axis.startTs
+          ? "start"
+          : value >= axis.endTs
+            ? "end"
+            : "middle";
+    return (
+      <text
+        x={props.x}
+        y={props.y}
+        dy={12}
+        textAnchor={anchor}
+        fill="var(--muted-foreground)"
+        fontSize={11}
+      >
+        {text}
+      </text>
+    );
   }
 
+  // x 轴的权威范围（= 有效样本实际范围）；截图脚本据此断言不再铺满窗口。
   return (
     <div
       data-chain-trend-chart
-      data-series-count={data.series.length}
-      data-visible-count={visible.length}
+      data-series-count={groups.sampled.length}
+      data-visible-count={selectedChains.length}
+      data-axis-min={axis?.startTs ?? undefined}
+      data-axis-max={axis?.endTs ?? undefined}
       role="group"
       aria-label={t("overview.chainLatency.trendChartAria", {
-        n: data.series.length,
+        n: groups.sampled.length,
       })}
     >
-      <ChainTrendLegend chains={chains} hidden={hidden} onToggle={toggle} />
       <div className="flex items-center justify-between gap-2 pb-1">
         <p
           data-chain-trend-hint
@@ -456,76 +407,87 @@ export function ChainLatencyTrendChart({
           )}
         </Button>
       </div>
-      {data.series.length === 0 ? (
+      {groups.sampled.length === 0 ? (
         <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground">
           {t("overview.chainLatency.noSamplesShort")}
         </div>
-      ) : visible.length === 0 ? (
+      ) : selectedChains.length === 0 ? (
         <div className="flex h-[220px] items-center justify-center text-xs text-muted-foreground">
           {t("overview.chainLatency.allHidden")}
         </div>
-      ) : tableView ? (
-        <ChainTrendTable rows={data.rows} chains={visible} bucket={bucket} />
       ) : (
-        <div className="h-[220px] w-full sm:h-[280px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart
-              data={data.rows}
-              margin={{ top: 8, right: 40, left: 0, bottom: 0 }}
-            >
-              <ChartGrid vertical />
-              <XAxis
-                dataKey="ts"
-                type="number"
-                scale="time"
-                domain={axis ? [axis.startTs, axis.endTs] : ["dataMin", "dataMax"]}
-                ticks={axis?.ticks.map((tick) => tick.ts)}
-                interval={0}
-                tickFormatter={(value: number) =>
-                  axis?.labels.get(value) ?? axisTick(value, bucket)
-                }
-                minTickGap={bucket >= 3600 ? 40 : 30}
-                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <YAxis
-                domain={[0, "auto"]}
-                width={48}
-                tickFormatter={(value: number) => `${Math.round(value)}ms`}
-                tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
-                axisLine={false}
-                tickLine={false}
-              />
-              <Tooltip
-                content={
-                  <ChainTrendTooltip chains={chains} bucket={bucket} />
-                }
-                cursor={CHART_CURSOR}
-              />
-              {visible.map((chain) => {
-                const index = chains.findIndex((item) => item.id === chain.id);
-                const visual = lineVisual(Math.max(0, index));
-                return (
-                  <Line
-                    key={chain.id}
-                    type="monotone"
-                    dataKey={chain.id}
-                    name={chain.name}
-                    stroke={visual.color}
-                    strokeOpacity={visual.opacity}
-                    strokeDasharray={visual.dash}
-                    strokeWidth={1.5}
-                    dot={false}
-                    activeDot={{ r: 3 }}
-                    connectNulls={false}
-                    isAnimationActive={false}
+        <>
+          {tableView ? (
+            <ChainTrendTable
+              rows={data.rows}
+              chains={data.series}
+              bucket={bucket}
+            />
+          ) : (
+            <div className="h-[220px] w-full min-w-0 sm:h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={chartRows}
+                  margin={{ top: 8, right: 12, left: 8, bottom: 0 }}
+                >
+                  <ChartGrid vertical />
+                  <XAxis
+                    dataKey="ts"
+                    type="number"
+                    scale="time"
+                    domain={
+                      axis
+                        ? [axis.startTs, axis.endTs]
+                        : ["dataMin", "dataMax"]
+                    }
+                    ticks={axis?.ticks.map((tick) => tick.ts)}
+                    interval={0}
+                    tick={timeTick}
+                    axisLine={false}
+                    tickLine={false}
                   />
-                );
-              })}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+                  <YAxis
+                    domain={[0, "auto"]}
+                    width={48}
+                    tickFormatter={(value: number) => `${Math.round(value)}ms`}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip
+                    content={
+                      <ChainTrendTooltip chains={chains} bucket={bucket} />
+                    }
+                    cursor={CHART_CURSOR}
+                  />
+                  {data.series.map((chain) => {
+                    const index = chains.findIndex(
+                      (item) => item.id === chain.id,
+                    );
+                    const visual = lineVisual(Math.max(0, index));
+                    return (
+                      <Line
+                        key={chain.id}
+                        type="monotone"
+                        dataKey={chain.id}
+                        name={chain.name}
+                        stroke={visual.color}
+                        strokeOpacity={visual.opacity}
+                        strokeDasharray={visual.dash}
+                        strokeWidth={1.5}
+                        dot={false}
+                        activeDot={{ r: 3 }}
+                        connectNulls={false}
+                        isAnimationActive={false}
+                      />
+                    );
+                  })}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <ChainTrendSelectedLegend chains={chains} selected={data.series} />
+        </>
       )}
     </div>
   );

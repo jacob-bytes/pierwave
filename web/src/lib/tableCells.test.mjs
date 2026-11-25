@@ -28,11 +28,6 @@ test("alignClass maps the three column kinds", () => {
 
 /** 数值列覆盖：每个页面至少有一处「右对齐 + 等宽数字」，且带对应的表头。 */
 const NUMERIC_FILES = {
-  "lib/tableColumns.ts": [
-    // 负载 / 内存 / 速率三列表头右对齐（真实表头与骨架共用同一份元数据）
-    "hidden text-right xl:table-cell",
-    "text-right xl:table-cell",
-  ],
   "pages/Packages.tsx": [
     // 额度 / 周期 / 倍率三个单元格
     "text-right font-mono text-[13px] tabular-nums",
@@ -58,14 +53,21 @@ test("numeric columns keep text-right + tabular-nums in every covered page", () 
   assert.ok(usageBar.includes('align === "end"'));
 });
 
-test("servers memory / rate / load cells align their content to the right", () => {
+test("servers load / memory / rate columns are left aligned", () => {
   const source = read("../pages/Servers.tsx");
-  assert.ok(source.includes('className="flex items-center justify-end gap-2"'));
-  assert.ok(
-    source.includes(
-      'className="inline-flex items-center justify-end gap-2 whitespace-nowrap"',
-    ),
+  const row = source.slice(
+    source.indexOf("function renderRow"),
+    source.indexOf("function renderCard"),
   );
+  // 三列合并成两列后，数值紧跟列头文字左对齐：不再有 text-right。
+  assert.ok(!row.includes("text-right"));
+  assert.ok(row.includes("<LoadMemoryCell server={server} />"));
+  assert.ok(row.includes('layout="stacked"'));
+  assert.ok(source.includes('data-slot="server-load-memory"'));
+  assert.ok(source.includes("flex-col items-start"));
+  // 真实表头与骨架也不能把这几列改回右对齐（注释里提到历史做法不算）。
+  const columns = read("../lib/tableColumns.ts");
+  assert.ok(!/ClassName: "[^"]*text-right/.test(columns));
 });
 
 test("table rows share the 40px baseline and cells use the matching padding", () => {

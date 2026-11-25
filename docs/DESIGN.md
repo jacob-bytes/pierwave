@@ -100,6 +100,24 @@ and rejects `text-[8px]` / `text-[9px]` / `text-[10px]` and `fontSize: 9|10`.
 When the larger type truncates a column, fold label, badge or tooltip, widen the
 column or its minimum width — do not shrink the text back.
 
+### 画布缩放与字号下限 / Canvas zoom and the type floor
+
+**中文**：拓扑画布（React Flow）里的字号按 **100% 缩放** 计算：卡片标题 12px，
+状态、卡片第二行与时延药丸 11px —— 11px 仍是全站下限。缩小画布是「看全图」的
+手段，不是把字缩小的理由，所以默认视图缩放 **≥0.9 且不超过 1**：内容再大也停在
+0.9，由平移 / 390 下的横向滚动看全；交互缩放范围 0.4–1.6（按钮按 25% 整档步进，
+「适应窗口」可以低于 0.9）。React Flow 的署名保留，**12px + muted**，不隐藏，
+也不低于 11px。
+
+**English**: Type inside the topology canvas (React Flow) is measured at **100%
+zoom**: 12px card titles, 11px for status, the card's second line and the latency
+pill — 11px is still the global floor. Zooming out is how you see the whole graph,
+not a reason to shrink text, so the default viewport zoom is **≥0.9 and never above
+1**: large graphs stay at 0.9 and are panned (horizontally scrolled at 390) instead.
+Interactive zoom is 0.4–1.6 (the buttons step in whole 25% steps; "Fit to view" may
+go below 0.9). The React Flow attribution stays visible at **12px muted** — never
+hidden, never below 11px.
+
 ## 四、动效（「灵动」的唯一来源）
 
 时长 150–220ms，`ease-out`，位移不超过 4px。只用在这几处：

@@ -2,6 +2,12 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+/*
+ * React Flow 的基础样式（布局 / 交互层）放在 Tailwind 的 base 层：
+ * 下面的组件层规则（touch-action / 署名字号 / 连线颜色）才能按语言层面的
+ * 顺序稳定覆盖它，而不是靠选择器打架。
+ */
+@import "@xyflow/react/dist/style.css" layer(base);
 
 @custom-variant dark (&:is(.dark *));
 
@@ -759,19 +765,157 @@
 }
 
 /*
+ * 转发链模板拓扑（React Flow 卡片画布）。
+ *
+ * 卡片 192×64、直角折线圆角 8、线宽按链数、颜色按状态；时延药丸贴在
+ * 列间竖线上（落点在纯函数里做过防重叠）。RF 官方样式在 base 层，
+ * 这里全部放组件层，覆盖顺序由 layer 决定而不是选择器权重。
+ */
+@layer components {
+  /*
+   * hover / focus：点亮到入口的路径，其余压到 35%。
+   * 高亮集合在组件里算（`highlightTemplatePath`），这里只按 data-hot 上色。
+   */
+  /* React Flow 对不可选 / 不可拖的节点会写 pointer-events: none；卡片自己
+   * 还要吃 hover / focus / 点击（折叠与 +N），所以这里显式恢复命中。 */
+  [data-template-flow-card] {
+    pointer-events: auto;
+  }
+  [data-template-flow-card],
+  [data-template-flow-edge-group] {
+    transition: opacity 150ms ease-out;
+  }
+  [data-template-flow-card][data-hot="false"],
+  [data-template-flow-edge-group][data-hot="false"] {
+    opacity: 0.35;
+  }
+  [data-template-flow-card][data-hot="true"],
+  [data-template-flow-edge-group][data-hot="true"] {
+    opacity: 1;
+  }
+  /* 焦点环用 outline：卡片自带的 shadow-card 是工具类，避免互相覆盖。 */
+  [data-template-flow-card][data-active="true"] {
+    outline: 2px solid var(--primary);
+    outline-offset: 1px;
+  }
+  [data-template-flow-card]:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+
+  /*
+   * React Flow 的连接点：只作为连线的锚点存在，视觉上的小圆点由边自己画
+   * （`data-template-flow-dot`），所以这里把它压成 0 尺寸并隐藏。
+   */
+  .template-flow-handle {
+    width: 1px !important;
+    height: 1px !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+
+  /* 连线：直角折线由布局算好，这里只上颜色 / 虚线。 */
+  .template-flow-edge {
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .template-flow-edge[data-status="online"],
+  .template-flow-dot[data-status="online"] {
+    stroke: var(--primary);
+  }
+  .template-flow-edge[data-status="degraded"],
+  .template-flow-dot[data-status="degraded"] {
+    stroke: var(--warning);
+  }
+  .template-flow-edge[data-status="offline"],
+  .template-flow-dot[data-status="offline"] {
+    stroke: var(--destructive);
+  }
+  .template-flow-edge[data-dashed="true"] {
+    stroke-dasharray: 4 4;
+  }
+  .template-flow-dot {
+    fill: var(--card);
+    stroke-width: 1.4;
+  }
+
+  /*
+   * 时延药丸：白底贴在列间竖线上，11px（全站字号下限）。
+   * 宽度 / 高度与布局里的碰撞盒一致（44×18），换字号要同步改纯逻辑常量。
+   */
+  .template-flow-pill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 18px;
+    border: 1px solid color-mix(in oklab, var(--foreground) 22%, transparent);
+    border-radius: 999px;
+    background: var(--card);
+    color: var(--foreground);
+    box-shadow: var(--card-shadow);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .template-flow-pill[data-status="degraded"] {
+    color: var(--warning);
+  }
+  .template-flow-pill[data-status="offline"] {
+    color: var(--destructive);
+  }
+
+  /*
+   * 触屏单指滚动弹窗：React Flow 默认给 pane 加 `touch-action: none`，
+   * 会吃掉 390 下弹窗的上下滚动。覆盖成 pan-y 后，单指竖滑滚弹窗，
+   * 横向滚动交给外层 `overflow-x-auto` 容器（1 倍画布）。
+   *
+   * 用 `!important`：Tailwind 4 目前会把 `@import ... layer(base)` 的
+   * layer 参数丢掉（第三方样式实际落在未分层区），未分层声明会压过任何
+   * `@layer`。这里必须确定性覆盖，不能依赖选择器权重或层顺序。
+   */
+  .react-flow__pane {
+    touch-action: pan-y !important;
+  }
+
+  /* React Flow 署名保留，字号抬到 12px muted（低于 11px 不允许）。 */
+  .react-flow__attribution {
+    background: transparent !important;
+    color: var(--muted-foreground) !important;
+    font-size: 12px !important;
+    padding: 0 4px;
+  }
+  .react-flow__attribution a {
+    color: inherit !important;
+  }
+  .react-flow__attribution a:hover {
+    color: var(--foreground) !important;
+  }
+}
+
+/*
  * 转发链模板拓扑的路径脉冲。
  *
- * 只有 Top N 条（默认 10）可用路径带这条 path（见 `selectPulseEdgeIds`），
- * 其余边保持静态，避免上百条 SVG 动画同时跑。每条边一个短 dash
- * （pathLength=100 归一化，长度与边的像素宽度无关），负延迟由 JS 按层序
- * 写入：第 k 层在 k * step 出发，多路径同相位分裂。周期 3.6s，与
- * DESIGN.md 的「短、只解释状态」一致；不引入新色相，只用 primary 的同色
- * 浅档 --series-4，保证在已经着色的主边上仍看得见。
+ * 只有 Top N 条（默认 10）可用路径带这条 path（见 `layoutTemplateGraph`
+ * 里的 pulse 选择），其余边保持静态。每条边一个短 dash（pathLength=100
+ * 归一化，长度与边的像素宽度无关），负延迟由 JS 按层序写入；周期 3.6s，
+ * 只用 primary 的同色浅档 --series-4，不引入新色相。
  *
+ * 动画只改 stroke-opacity，元素自身 opacity 留给 hover 变暗规则。
  * prefers-reduced-motion 下同一条 path 停掉动画、换成静态半透明描边：
  * 信息（哪条路径有流量）仍然可见，只是不再移动。
  */
-@keyframes template-pulse-flow {
+@keyframes template-flow-pulse-flow {
   0% {
     stroke-dashoffset: 0;
     stroke-opacity: 0;
@@ -793,64 +937,21 @@
   }
 }
 
-/*
- * 动画只改 stroke-opacity，元素自身的 opacity 留给 hover 变暗规则；
- * 否则 keyframes 的 opacity 会盖掉 `[data-tree-dim] [data-tree-pulse]` 的 0.35，
- * hover 时没被点亮的那几条脉冲还是全亮。
- */
-.template-pulse {
+.template-flow-pulse {
+  fill: none;
+  stroke: var(--series-4);
+  stroke-linecap: round;
+  stroke-dasharray: 16 6 4 100;
   stroke-opacity: 0;
-  animation: template-pulse-flow 3.6s linear infinite;
+  animation: template-flow-pulse-flow 3.6s linear infinite;
 }
 
-/*
- * reduced-motion：**同一条** pulse path 停止动画并保持静态可见。
- *
- * 早先是给每条边再渲染一条静态副本 path，109 条边就多 218 个 path；
- * 现在只靠媒体查询把动画关掉、把 dash 换成整段描边，信息（哪条路径有
- * 流量）仍然可见，只是不再移动。
- */
 @media (prefers-reduced-motion: reduce) {
-  .template-pulse {
+  .template-flow-pulse {
     animation: none !important;
     stroke-dasharray: none;
     stroke-opacity: 0.42;
   }
-}
-
-/*
- * 树图 hover 高亮：根节点挂 `data-tree-dim`，CSS 把非高亮节点 / 边 / 标签
- * 压到 35%；高亮集合由组件编译成一条 `<style>` 规则（按 data-tree-index
- * 命中），一次 hover 只写根属性 + 一段文本，不再重写 500+ 个 SVG 属性。
- */
-[data-tree-chart][data-tree-dim] [data-tree-node],
-[data-tree-chart][data-tree-dim] [data-tree-node-dot],
-[data-tree-chart][data-tree-dim] [data-tree-label],
-[data-tree-chart][data-tree-dim] [data-tree-edge-group],
-[data-tree-chart][data-tree-dim] [data-tree-edge],
-[data-tree-chart][data-tree-dim] [data-tree-edge-label],
-[data-tree-chart][data-tree-dim] [data-tree-pulse] {
-  opacity: 0.35;
-  transition: opacity 150ms ease-out;
-}
-
-/*
- * 键盘焦点：命中矩形 / 命中路径上画一圈 ring，不额外加 DOM。
- * 命中路径平时是透明的，聚焦时描一圈 2px 的线即可看见。
- */
-[data-tree-node]:focus-visible,
-[data-tree-edge-group]:focus-visible {
-  outline: none;
-  stroke: var(--ring);
-  stroke-width: 2;
-}
-
-/*
- * 密集扇出（同一父节点 >6 条边）：P50 默认收起，只留边宽与颜色；
- * hover / focus 到具体路径时由生成式 CSS 把它显出来。
- */
-[data-tree-chart] [data-tree-edge-label][data-tree-dense="true"] {
-  opacity: 0;
 }
 
 /*

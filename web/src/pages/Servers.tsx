@@ -144,6 +144,11 @@ import {
   type ServerBillingForm,
 } from "@/lib/serverBilling";
 import {
+  LOAD_MEMORY_SEPARATOR,
+  loadMemoryDisplay,
+  memoryPercent as serverMemoryPercent,
+} from "@/lib/serverMetrics";
+import {
   GROUP_NAME_MAX_LENGTH,
   groupServers,
   normalizeGroupName,
@@ -295,14 +300,7 @@ function targetVersionLabel(server: Server): string {
 }
 
 function memoryPercent(server: Server): number | null {
-  if (
-    server.mem_used === null ||
-    server.mem_total === null ||
-    server.mem_total <= 0
-  ) {
-    return null;
-  }
-  return Math.min(100, Math.max(0, (server.mem_used / server.mem_total) * 100));
+  return serverMemoryPercent(server.mem_used, server.mem_total);
 }
 
 type HeartbeatInfo = { text: string; stale: boolean; title: string };
@@ -380,6 +378,52 @@ function MemoryCell({ server }: { server: Server }) {
 }
 
 /**
+ * 表格「负载 / 内存」合并单元格：只留数值，`/` 用 muted。
+ *
+ * 两条进度条都移除：进度条只是把百分比再画一遍，却会把数值推到单元格
+ * 另一侧；左对齐后「值紧跟列头」比一条 1.5px 的细线更容易扫读。卡片视图
+ * 仍用带进度条的 `MemoryCell`，字段保持独立。
+ */
+function LoadMemoryCell({ server }: { server: Server }) {
+  const display = loadMemoryDisplay(
+    server.load1,
+    server.mem_used,
+    server.mem_total,
+  );
+  const memoryTitle =
+    display.percent === null
+      ? t("servers.memoryNotReported")
+      : `${formatBytes(server.mem_used)} / ${formatBytes(server.mem_total)}`;
+
+  return (
+    <span
+      data-slot="server-load-memory"
+      className="inline-flex items-baseline font-mono text-[13px] tabular-nums"
+      title={`${t("servers.loadTitle")} · ${memoryTitle}`}
+    >
+      <span
+        data-slot="load-memory-load"
+        className={cn(display.load === "—" && "text-muted-foreground")}
+      >
+        {display.load}
+      </span>
+      <span
+        data-slot="load-memory-slash"
+        className="text-muted-foreground"
+      >
+        {LOAD_MEMORY_SEPARATOR}
+      </span>
+      <span
+        data-slot="load-memory-memory"
+        className="text-muted-foreground"
+      >
+        {display.memory}
+      </span>
+    </span>
+  );
+}
+
+/**
  * 一个方向的速率：数值优先、单位弱化。
  *
  * `null` = 没有数据（旧 Agent / 首次心跳 / 回绕被丢弃），返回 `null` 让上层
@@ -398,13 +442,46 @@ function RatePartsView({ bps }: { bps: number | null | undefined }) {
   );
 }
 
+/** 速率的一行：箭头 muted，数值与单位沿用 `RatePartsView`。 */
+function RateLine({
+  direction,
+  glyph,
+  bps,
+}: {
+  direction: "tx" | "rx";
+  glyph: string;
+  bps: number | null | undefined;
+}) {
+  return (
+    <span
+      data-direction={direction}
+      className="inline-flex items-center gap-1 whitespace-nowrap text-[13px] leading-[1.15]"
+    >
+      <span className="text-muted-foreground" aria-hidden="true">
+        {glyph}
+      </span>
+      <RatePartsView bps={bps} />
+    </span>
+  );
+}
+
 /**
  * 「当前速率」单元格。
+ *
+ * 表格里用 `layout="stacked"`：上行（↑）在上、下行（↓）在下，两行 13px /
+ * line-height 1.15，32px 左右就装得下，不会把 64px 的行撑高。卡片视图保留
+ * 单行 `↓ … ↑ …` 的既有形态。
  *
  * 离线时最后一次心跳的速率已经过期，不再当作实时数据展示（与 Xray 状态同一
  * 口径）；两侧都没有有效速率时只显示一个 `—`，绝不写 0。
  */
-function RateCell({ server }: { server: Server }) {
+function RateCell({
+  server,
+  layout = "inline",
+}: {
+  server: Server;
+  layout?: "inline" | "stacked";
+}) {
   const online = server.status === "online";
   const rx = online ? server.net_rx_bps : null;
   const tx = online ? server.net_tx_bps : null;
@@ -424,23 +501,27 @@ function RateCell({ server }: { server: Server }) {
     );
   }
 
+  if (layout === "stacked") {
+    return (
+      <span
+        data-slot="server-rate"
+        data-layout="stacked"
+        className="inline-flex flex-col items-start whitespace-nowrap tabular-nums"
+        title={t("servers.detail.rateHint")}
+      >
+        <RateLine direction="tx" glyph="↑" bps={tx} />
+        <RateLine direction="rx" glyph="↓" bps={rx} />
+      </span>
+    );
+  }
+
   return (
     <span
       className="inline-flex items-center justify-end gap-2 whitespace-nowrap"
       title={t("servers.detail.rateHint")}
     >
-      <span className="inline-flex items-center gap-1 whitespace-nowrap">
-        <span className="text-[13px] text-muted-foreground" aria-hidden="true">
-          ↓
-        </span>
-        <RatePartsView bps={rx} />
-      </span>
-      <span className="inline-flex items-center gap-1 whitespace-nowrap">
-        <span className="text-[13px] text-muted-foreground" aria-hidden="true">
-          ↑
-        </span>
-        <RatePartsView bps={tx} />
-      </span>
+      <RateLine direction="rx" glyph="↓" bps={rx} />
+      <RateLine direction="tx" glyph="↑" bps={tx} />
     </span>
   );
 }
@@ -1364,14 +1445,11 @@ export default function ServersPage() {
         <TableCell className="hidden px-2 xl:table-cell">
           <VersionCell server={server} />
         </TableCell>
-        <TableCell className="hidden px-2 text-right xl:table-cell">
-          {renderServerLoad(server)}
+        <TableCell className="hidden px-2 text-left xl:table-cell">
+          <LoadMemoryCell server={server} />
         </TableCell>
-        <TableCell className="hidden px-2 text-right xl:table-cell">
-          <MemoryCell server={server} />
-        </TableCell>
-        <TableCell className="hidden whitespace-nowrap px-2 text-right xl:table-cell">
-          <RateCell server={server} />
+        <TableCell className="hidden whitespace-nowrap px-2 text-left xl:table-cell">
+          <RateCell server={server} layout="stacked" />
         </TableCell>
         <TableCell
           sticky="right"

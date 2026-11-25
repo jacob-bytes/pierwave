@@ -34,7 +34,7 @@ function includes(source, patterns, label) {
   }
 }
 
-test("KPI 唯一栅格：390 2×2、桌面 4 列、28px 数字、13px 副行、统一最小高度", () => {
+test("KPI 唯一栅格：390 2×2、桌面 4 列、28px 数字、13px 副行、内容决定高度", () => {
   includes(
     kpi,
     [
@@ -42,16 +42,17 @@ test("KPI 唯一栅格：390 2×2、桌面 4 列、28px 数字、13px 副行、�
       "sm:grid-cols-4",
       "gap-px",
       "bg-border",
-      "min-h-[164px]",
-      "xl:min-h-[136px]",
       "min-w-0",
+      "py-3.5",
+      "line-clamp-1",
       "text-[28px]",
       "text-[13px]",
-      "line-clamp-2",
       "break-words",
     ],
     "ChainKpi",
   );
+  // 不允许再用固定 min-h 凑高度：高度 = 内容 + 固定 padding。
+  assert.ok(!kpi.includes("min-h-["), "KPI cell must not set min-h");
   // 共用同一份实现：四个有 KPI 的视图都走 ChainKpi 的栅格 / 单元格。
   assert.match(chainList, /ChainKpiGrid/);
   assert.match(chainList, /ChainKpiCell/);

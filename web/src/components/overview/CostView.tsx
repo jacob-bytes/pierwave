@@ -36,7 +36,7 @@ import {
 } from "@/components/ui/select";
 
 import { FxDetailsPopover } from "./FxDetailsPopover";
-import { ChainKpiCell, ChainKpiGrid } from "./ChainKpi";
+import { ChainKpiCell, ChainKpiGrid, ChainKpiSkeletonGrid } from "./ChainKpi";
 import { errorText } from "@/lib/errors";
 import {
   buildCostAxisTicks,
@@ -1876,7 +1876,7 @@ function EmptyCost() {
 function CostSkeleton() {
   return (
     <div className="space-y-4" aria-hidden="true">
-      <Skeleton className="h-[88px] w-full rounded-xl" />
+      <ChainKpiSkeletonGrid cells={3} />
       <Skeleton className="h-3 w-72 max-w-full" />
       <section className="grid gap-4 xl:grid-cols-3">
         <Skeleton className="h-[420px] w-full rounded-xl xl:col-span-2" />

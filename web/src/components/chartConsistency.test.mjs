@@ -107,7 +107,8 @@ test("资源图 y 轴上界跟随数据，0 基线保留", () => {
 });
 
 test("链路趋势图例默认收起无样本链", () => {
-  const source = read("components/overview/ChainLatencyTrendChart.tsx");
+  // 图例改成卡头多选下拉后，无样本链折叠在弹层里，不再占图表高度。
+  const source = read("components/overview/ChainSeriesSelect.tsx");
   assert.match(source, /chainLegendGroups/);
   assert.match(source, /useState\(false\)/);
   assert.match(source, /data-chain-legend-unsampled-toggle/);

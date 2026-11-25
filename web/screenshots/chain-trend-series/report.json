@@ -1,0 +1,539 @@
+{
+  "base": "http://127.0.0.1:8797",
+  "pool": {
+    "chains": 24,
+    "sampled": 23,
+    "unsampled": 1,
+    "dataMin": 1795540500,
+    "dataMax": 1795608900
+  },
+  "expectedDefault": [
+    "c0ffee00-0006-4000-8000-000000000751",
+    "c0ffee00-0006-4000-8000-000000000752",
+    "c0ffee00-0006-4000-8000-000000000601",
+    "c0ffee00-0006-4000-8000-000000000721",
+    "c0ffee00-0006-4000-8000-000000000723"
+  ],
+  "shots": [
+    "default-5-1440-dark.png",
+    "picker-search-1440-dark.png",
+    "all-chains-1440-dark.png",
+    "empty-1440-dark.png",
+    "default-5-1440-light.png",
+    "picker-search-1440-light.png",
+    "all-chains-1440-light.png",
+    "empty-1440-light.png",
+    "default-5-390-dark.png",
+    "picker-search-390-dark.png",
+    "all-chains-390-dark.png",
+    "empty-390-dark.png",
+    "default-5-390-light.png",
+    "picker-search-390-light.png",
+    "all-chains-390-light.png",
+    "empty-390-light.png",
+    "tooltip-1440-dark.png",
+    "table-view-1440-dark.png",
+    "picker-unsampled-1440-dark.png"
+  ],
+  "assertions": [
+    {
+      "name": "default 1440-dark: 图例一行 / x 轴用满绘图区",
+      "ok": true,
+      "detail": {
+        "legendHeight": 25.6,
+        "rightGap": 12,
+        "leftGutter": 56,
+        "plotLeft": 56,
+        "plotRight": 1108,
+        "surfaceWidth": 1120,
+        "lineWidthRatio": 1
+      }
+    },
+    {
+      "name": "default 1440-dark: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "default 1440-dark: 默认 5 条 + x 轴=数据范围",
+      "ok": true,
+      "detail": {
+        "ids": [
+          "c0ffee00-0006-4000-8000-000000000751",
+          "c0ffee00-0006-4000-8000-000000000752",
+          "c0ffee00-0006-4000-8000-000000000601",
+          "c0ffee00-0006-4000-8000-000000000721",
+          "c0ffee00-0006-4000-8000-000000000723"
+        ],
+        "trigger": "显示 5 / 23",
+        "axis": [
+          1795540500,
+          1795608900
+        ],
+        "data": [
+          1795540500,
+          1795608900
+        ],
+        "pool": [
+          1795540500,
+          1795608900
+        ],
+        "seriesCount": 23
+      }
+    },
+    {
+      "name": "default 1440-dark: URL 刷新保持",
+      "ok": true,
+      "detail": {
+        "added": "c0ffee00-0006-4000-8000-000000000603",
+        "count": 6,
+        "series": "c0ffee00-0006-4000-8000-000000000601,c0ffee00-0006-4000-8000-000000000603,c0ffee00-0006-4000-8000-000000000721,c0ffee00-0006-4000-8000-000000000751,c0ffee00-0006-4000-8000-000000000752,c0ffee00-0006-4000-8000-000000000723"
+      }
+    },
+    {
+      "name": "1440-dark: 下拉展开含搜索 / 全选 / 清空 / 无样本折叠",
+      "ok": true,
+      "detail": {
+        "rows": 23,
+        "searched": 10,
+        "fold": "1 条暂无样本"
+      }
+    },
+    {
+      "name": "all 1440-dark: 图例一行 / x 轴用满绘图区",
+      "ok": true,
+      "detail": {
+        "legendHeight": 25.6,
+        "rightGap": 12,
+        "leftGutter": 56,
+        "plotLeft": 56,
+        "plotRight": 1108,
+        "surfaceWidth": 1120,
+        "lineWidthRatio": 1
+      }
+    },
+    {
+      "name": "all 1440-dark: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "all 1440-dark: 全选写入 URL",
+      "ok": true,
+      "detail": {
+        "count": 23,
+        "trigger": "显示 23 / 23",
+        "axis": [
+          1795540500,
+          1795608900
+        ]
+      }
+    },
+    {
+      "name": "empty 1440-dark: 空选择无折线",
+      "ok": true,
+      "detail": {
+        "visibleCount": 0
+      }
+    },
+    {
+      "name": "empty 1440-dark: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "empty 1440-dark: 空选择显示空态",
+      "ok": true,
+      "detail": {
+        "trigger": "显示 0 / 23",
+        "series": ""
+      }
+    },
+    {
+      "name": "default 1440-light: 图例一行 / x 轴用满绘图区",
+      "ok": true,
+      "detail": {
+        "legendHeight": 25.6,
+        "rightGap": 12,
+        "leftGutter": 56,
+        "plotLeft": 56,
+        "plotRight": 1108,
+        "surfaceWidth": 1120,
+        "lineWidthRatio": 1
+      }
+    },
+    {
+      "name": "default 1440-light: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "default 1440-light: 默认 5 条 + x 轴=数据范围",
+      "ok": true,
+      "detail": {
+        "ids": [
+          "c0ffee00-0006-4000-8000-000000000751",
+          "c0ffee00-0006-4000-8000-000000000752",
+          "c0ffee00-0006-4000-8000-000000000601",
+          "c0ffee00-0006-4000-8000-000000000721",
+          "c0ffee00-0006-4000-8000-000000000723"
+        ],
+        "trigger": "显示 5 / 23",
+        "axis": [
+          1795540500,
+          1795608900
+        ],
+        "data": [
+          1795540500,
+          1795608900
+        ],
+        "pool": [
+          1795540500,
+          1795608900
+        ],
+        "seriesCount": 23
+      }
+    },
+    {
+      "name": "default 1440-light: URL 刷新保持",
+      "ok": true,
+      "detail": {
+        "added": "c0ffee00-0006-4000-8000-000000000603",
+        "count": 6,
+        "series": "c0ffee00-0006-4000-8000-000000000601,c0ffee00-0006-4000-8000-000000000603,c0ffee00-0006-4000-8000-000000000721,c0ffee00-0006-4000-8000-000000000751,c0ffee00-0006-4000-8000-000000000752,c0ffee00-0006-4000-8000-000000000723"
+      }
+    },
+    {
+      "name": "1440-light: 下拉展开含搜索 / 全选 / 清空 / 无样本折叠",
+      "ok": true,
+      "detail": {
+        "rows": 23,
+        "searched": 10,
+        "fold": "1 条暂无样本"
+      }
+    },
+    {
+      "name": "all 1440-light: 图例一行 / x 轴用满绘图区",
+      "ok": true,
+      "detail": {
+        "legendHeight": 25.6,
+        "rightGap": 12,
+        "leftGutter": 56,
+        "plotLeft": 56,
+        "plotRight": 1108,
+        "surfaceWidth": 1120,
+        "lineWidthRatio": 1
+      }
+    },
+    {
+      "name": "all 1440-light: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "all 1440-light: 全选写入 URL",
+      "ok": true,
+      "detail": {
+        "count": 23,
+        "trigger": "显示 23 / 23",
+        "axis": [
+          1795540500,
+          1795608900
+        ]
+      }
+    },
+    {
+      "name": "empty 1440-light: 空选择无折线",
+      "ok": true,
+      "detail": {
+        "visibleCount": 0
+      }
+    },
+    {
+      "name": "empty 1440-light: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "empty 1440-light: 空选择显示空态",
+      "ok": true,
+      "detail": {
+        "trigger": "显示 0 / 23",
+        "series": ""
+      }
+    },
+    {
+      "name": "default 390-dark: 图例一行 / x 轴用满绘图区",
+      "ok": true,
+      "detail": {
+        "legendHeight": 25.6,
+        "rightGap": 12,
+        "leftGutter": 56,
+        "plotLeft": 56,
+        "plotRight": 314,
+        "surfaceWidth": 326,
+        "lineWidthRatio": 1
+      }
+    },
+    {
+      "name": "default 390-dark: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "default 390-dark: 默认 5 条 + x 轴=数据范围",
+      "ok": true,
+      "detail": {
+        "ids": [
+          "c0ffee00-0006-4000-8000-000000000751",
+          "c0ffee00-0006-4000-8000-000000000752",
+          "c0ffee00-0006-4000-8000-000000000601",
+          "c0ffee00-0006-4000-8000-000000000721",
+          "c0ffee00-0006-4000-8000-000000000723"
+        ],
+        "trigger": "显示 5 / 23",
+        "axis": [
+          1795540500,
+          1795608900
+        ],
+        "data": [
+          1795540500,
+          1795608900
+        ],
+        "pool": [
+          1795540500,
+          1795608900
+        ],
+        "seriesCount": 23
+      }
+    },
+    {
+      "name": "default 390-dark: URL 刷新保持",
+      "ok": true,
+      "detail": {
+        "added": "c0ffee00-0006-4000-8000-000000000603",
+        "count": 6,
+        "series": "c0ffee00-0006-4000-8000-000000000601,c0ffee00-0006-4000-8000-000000000603,c0ffee00-0006-4000-8000-000000000721,c0ffee00-0006-4000-8000-000000000751,c0ffee00-0006-4000-8000-000000000752,c0ffee00-0006-4000-8000-000000000723"
+      }
+    },
+    {
+      "name": "390-dark: 下拉展开含搜索 / 全选 / 清空 / 无样本折叠",
+      "ok": true,
+      "detail": {
+        "rows": 23,
+        "searched": 10,
+        "fold": "1 条暂无样本"
+      }
+    },
+    {
+      "name": "all 390-dark: 图例一行 / x 轴用满绘图区",
+      "ok": true,
+      "detail": {
+        "legendHeight": 25.6,
+        "rightGap": 12,
+        "leftGutter": 56,
+        "plotLeft": 56,
+        "plotRight": 314,
+        "surfaceWidth": 326,
+        "lineWidthRatio": 1
+      }
+    },
+    {
+      "name": "all 390-dark: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "all 390-dark: 全选写入 URL",
+      "ok": true,
+      "detail": {
+        "count": 23,
+        "trigger": "显示 23 / 23",
+        "axis": [
+          1795540500,
+          1795608900
+        ]
+      }
+    },
+    {
+      "name": "empty 390-dark: 空选择无折线",
+      "ok": true,
+      "detail": {
+        "visibleCount": 0
+      }
+    },
+    {
+      "name": "empty 390-dark: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "empty 390-dark: 空选择显示空态",
+      "ok": true,
+      "detail": {
+        "trigger": "显示 0 / 23",
+        "series": ""
+      }
+    },
+    {
+      "name": "default 390-light: 图例一行 / x 轴用满绘图区",
+      "ok": true,
+      "detail": {
+        "legendHeight": 25.6,
+        "rightGap": 12,
+        "leftGutter": 56,
+        "plotLeft": 56,
+        "plotRight": 314,
+        "surfaceWidth": 326,
+        "lineWidthRatio": 1
+      }
+    },
+    {
+      "name": "default 390-light: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "default 390-light: 默认 5 条 + x 轴=数据范围",
+      "ok": true,
+      "detail": {
+        "ids": [
+          "c0ffee00-0006-4000-8000-000000000751",
+          "c0ffee00-0006-4000-8000-000000000752",
+          "c0ffee00-0006-4000-8000-000000000601",
+          "c0ffee00-0006-4000-8000-000000000721",
+          "c0ffee00-0006-4000-8000-000000000723"
+        ],
+        "trigger": "显示 5 / 23",
+        "axis": [
+          1795540500,
+          1795608900
+        ],
+        "data": [
+          1795540500,
+          1795608900
+        ],
+        "pool": [
+          1795540500,
+          1795608900
+        ],
+        "seriesCount": 23
+      }
+    },
+    {
+      "name": "default 390-light: URL 刷新保持",
+      "ok": true,
+      "detail": {
+        "added": "c0ffee00-0006-4000-8000-000000000603",
+        "count": 6,
+        "series": "c0ffee00-0006-4000-8000-000000000601,c0ffee00-0006-4000-8000-000000000603,c0ffee00-0006-4000-8000-000000000721,c0ffee00-0006-4000-8000-000000000751,c0ffee00-0006-4000-8000-000000000752,c0ffee00-0006-4000-8000-000000000723"
+      }
+    },
+    {
+      "name": "390-light: 下拉展开含搜索 / 全选 / 清空 / 无样本折叠",
+      "ok": true,
+      "detail": {
+        "rows": 23,
+        "searched": 10,
+        "fold": "1 条暂无样本"
+      }
+    },
+    {
+      "name": "all 390-light: 图例一行 / x 轴用满绘图区",
+      "ok": true,
+      "detail": {
+        "legendHeight": 25.6,
+        "rightGap": 12,
+        "leftGutter": 56,
+        "plotLeft": 56,
+        "plotRight": 314,
+        "surfaceWidth": 326,
+        "lineWidthRatio": 1
+      }
+    },
+    {
+      "name": "all 390-light: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "all 390-light: 全选写入 URL",
+      "ok": true,
+      "detail": {
+        "count": 23,
+        "trigger": "显示 23 / 23",
+        "axis": [
+          1795540500,
+          1795608900
+        ]
+      }
+    },
+    {
+      "name": "empty 390-light: 空选择无折线",
+      "ok": true,
+      "detail": {
+        "visibleCount": 0
+      }
+    },
+    {
+      "name": "empty 390-light: 无横向溢出",
+      "ok": true,
+      "detail": {
+        "overflowX": 0
+      }
+    },
+    {
+      "name": "empty 390-light: 空选择显示空态",
+      "ok": true,
+      "detail": {
+        "trigger": "显示 0 / 23",
+        "series": ""
+      }
+    },
+    {
+      "name": "切 tab / 切时窗保持 ?series=",
+      "ok": true,
+      "detail": {
+        "series": "c0ffee00-0006-4000-8000-000000000751,c0ffee00-0006-4000-8000-000000000752,c0ffee00-0006-4000-8000-000000000601,c0ffee00-0006-4000-8000-000000000721,c0ffee00-0006-4000-8000-000000000723"
+      }
+    },
+    {
+      "name": "回归：tooltip / 表格视图",
+      "ok": true,
+      "detail": {
+        "tooltipRows": 5,
+        "tableColumns": 6
+      }
+    },
+    {
+      "name": "回归：无样本链折叠展开",
+      "ok": true,
+      "detail": {
+        "unsampledRows": 1
+      }
+    }
+  ],
+  "ok": true
+}

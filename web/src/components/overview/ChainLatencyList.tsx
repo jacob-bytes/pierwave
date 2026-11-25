@@ -1,17 +1,27 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ChevronRightIcon, WaypointsIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   ChainLatencyRangeTabs,
   ChainLatencyUpdatedBadge,
 } from "@/components/overview/ChainLatencyControls";
+import {
+  ChainLatencySearch,
+  ChainLatencySortFilter,
+  ChainLatencySortHeader,
+  ChainLatencyStatusFilter,
+} from "@/components/overview/ChainLatencyListControls";
 import { ChainKpiCell, ChainKpiGrid } from "@/components/overview/ChainKpi";
 import {
   CHAIN_HEALTH_STATE_META,
   chainNodeIssueText,
 } from "@/components/overview/ChainStatusBadge";
 import { ChainLatencyTrendChart } from "@/components/overview/ChainLatencyTrendChart";
+import { ChainSeriesSelect } from "@/components/overview/ChainSeriesSelect";
+import { useChainTrendSeries } from "@/components/overview/useChainTrendSeries";
 import { ChainLossValue } from "@/components/overview/ChainLossValue";
 import type { Chain } from "@/lib/api";
 import {
@@ -36,7 +46,23 @@ import {
   type ChainHealthSummary,
   type ChainLatencyRange,
 } from "@/lib/chainHealth";
+import {
+  CHAIN_LIST_QUERY_PARAM,
+  CHAIN_LIST_STATUS_PARAM,
+  DEFAULT_CHAIN_LIST_SORT,
+  applyChainListFilters,
+  chainListStatusCounts,
+  chainListStatusOf,
+  chainMatchesQuery,
+  normalizeChainListQuery,
+  resolveChainListStatusFilter,
+  sortChainList,
+  toggleChainListSort,
+  type ChainListSort,
+  type ChainListStatusFilter,
+} from "@/lib/chainListFilters";
 import { degradedGroups } from "@/lib/chains";
+import { useChainTemplates } from "@/lib/queries";
 import { formatRelativeTime } from "@/lib/time";
 import { t, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -466,10 +492,114 @@ export function ChainLatencyList({
   onOpenChain: (id: string) => void;
 }) {
   useI18n();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [sort, setSort] = useState<ChainListSort>(DEFAULT_CHAIN_LIST_SORT);
+  const statusFilter = resolveChainListStatusFilter(
+    searchParams.get(CHAIN_LIST_STATUS_PARAM),
+  );
+  const query = searchParams.get(CHAIN_LIST_QUERY_PARAM) ?? "";
   const chainById = useMemo(
     () => new Map(chains.map((chain) => [chain.id, chain])),
     [chains],
   );
+  // 趋势图显示哪些链写在 URL（`?series=`），切时窗 / 刷新 / 切 tab 都保持。
+  const series = useChainTrendSeries(snapshot.chains);
+
+  // 模板名只在用户输入关键词时才真正参与匹配；这里常驻取一次管理员模板
+  // 列表，失败时 `data` 为 undefined，搜索退化为链路 / 地址 / 服务器名。
+  const templates = useChainTemplates();
+  const templateNameById = useMemo(
+    () => new Map((templates.data ?? []).map((template) => [template.id, template.name])),
+    [templates.data],
+  );
+
+  const queryFiltered = useMemo(() => {
+    if (normalizeChainListQuery(query) === "") return snapshot.chains;
+    return snapshot.chains.filter((chain) => {
+      const config = chainById.get(chain.id) ?? null;
+      const templateName =
+        config?.template_id != null
+          ? (templateNameById.get(config.template_id) ?? null)
+          : null;
+      return chainMatchesQuery(chain, query, {
+        templateName,
+        entryAddress: config?.entry_address ?? null,
+        // 旧契约缺 nodes / segments 时，链配置里的组名与成员名仍可搜到。
+        groupNames: config?.groups?.map((group) => group.name) ?? [],
+        serverNames:
+          config?.groups?.flatMap((group) =>
+            group.members.map((member) => member.server_name),
+          ) ?? [],
+      });
+    });
+  }, [snapshot.chains, query, chainById, templateNameById]);
+
+  // 数量按关键词过滤后的集合统计：输入关键词时每档数量一起收窄；状态筛选
+  // 本身不再参与计数，否则选中「阻断」后其它档位全变成 0。
+  const counts = useMemo(
+    () => chainListStatusCounts(queryFiltered, chainById),
+    [queryFiltered, chainById],
+  );
+
+  const filteredChains = useMemo(() => {
+    const matched =
+      statusFilter === "all"
+        ? queryFiltered
+        : queryFiltered.filter(
+            (chain) =>
+              chainListStatusOf(chain, chainById.get(chain.id) ?? null) ===
+              statusFilter,
+          );
+    return sortChainList(matched, sort);
+  }, [queryFiltered, statusFilter, chainById, sort]);
+
+  const filtersActive =
+    statusFilter !== "all" || normalizeChainListQuery(query) !== "";
+  const countText = filtersActive
+    ? t("overview.chainLatency.listCountFiltered", {
+        total: snapshot.chains.length,
+        shown: filteredChains.length,
+      })
+    : t("overview.chainLatency.listCount", {
+        n: snapshot.chains.length,
+      });
+
+  function updateFilters(next: {
+    status?: ChainListStatusFilter;
+    q?: string;
+  }) {
+    // 函数式更新：连续输入 / 输入后立刻切状态时，不会用上一帧的闭包把
+    // 另一个参数覆盖掉。
+    setSearchParams(
+      (previous) => {
+        const status =
+          next.status ??
+          resolveChainListStatusFilter(previous.get(CHAIN_LIST_STATUS_PARAM));
+        const previousQuery = previous.get(CHAIN_LIST_QUERY_PARAM) ?? "";
+        return applyChainListFilters(previous, {
+          status,
+          q: next.q ?? previousQuery,
+        });
+      },
+      { replace: true },
+    );
+  }
+
+  function handleStatusChange(status: ChainListStatusFilter) {
+    updateFilters({ status });
+  }
+
+  function handleQueryChange(nextQuery: string) {
+    updateFilters({ q: nextQuery });
+  }
+
+  function clearFilters() {
+    updateFilters({ status: "all", q: "" });
+  }
+
+  function handleSortChange(key: ChainListSort["key"]) {
+    setSort((current) => toggleChainListSort(current, key));
+  }
 
   return (
     <div className="space-y-4" data-chain-list>
@@ -482,11 +612,16 @@ export function ChainLatencyList({
             <CardTitle className="text-sm font-medium">
               {t("overview.chainLatency.trendTitle")}
             </CardTitle>
-            <div className="flex min-w-0 items-center gap-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
               <ChainLatencyUpdatedBadge generatedAt={snapshot.generatedAt} />
               <ChainLatencyRangeTabs
                 range={range}
                 onRangeChange={onRangeChange}
+              />
+              <ChainSeriesSelect
+                chains={snapshot.chains}
+                selectedIds={series.selectedIds}
+                onChange={series.setSelectedIds}
               />
             </div>
           </div>
@@ -495,30 +630,40 @@ export function ChainLatencyList({
           <ChainLatencyTrendChart
             chains={snapshot.chains}
             bucket={snapshot.bucket}
+            selectedIds={series.selectedIds}
           />
         </CardContent>
       </Card>
 
       <Card className="gap-0" data-chain-list-card>
         <CardHeader className="border-b border-border pb-4">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <CardTitle className="text-sm font-medium">
-              {t("overview.chainLatency.listTitle")}
-            </CardTitle>
-            <Badge
-              variant="outline"
-              className="shrink-0 font-mono font-normal text-muted-foreground"
-            >
-              {t("overview.chainLatency.listCount", {
-                n: snapshot.chains.length,
-              })}
-            </Badge>
+          <div className="flex min-w-0 flex-col gap-y-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-3 sm:gap-y-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <CardTitle className="text-sm font-medium">
+                {t("overview.chainLatency.listTitle")}
+              </CardTitle>
+              <Badge
+                variant="outline"
+                data-chain-list-count
+                className="shrink-0 font-mono font-normal text-muted-foreground tabular-nums"
+              >
+                {countText}
+              </Badge>
+            </div>
+            <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:w-auto sm:flex-none sm:justify-end">
+              <ChainLatencySearch value={query} onChange={handleQueryChange} />
+              <ChainLatencyStatusFilter
+                value={statusFilter}
+                counts={counts}
+                onChange={handleStatusChange}
+              />
+              <ChainLatencySortFilter value={sort} onChange={setSort} />
+            </div>
           </div>
         </CardHeader>
         <CardContent className="p-2">
           <div
             data-chain-list-head
-            aria-hidden="true"
             className={cn(
               "hidden items-center gap-x-3 px-3 pb-1 text-left text-[11px] text-muted-foreground lg:grid",
               LIST_GRID,
@@ -528,21 +673,51 @@ export function ChainLatencyList({
             <span>{t("overview.chainLatency.colEndpoint")}</span>
             <span>{t("overview.chainLatency.colRoute")}</span>
             <span>{t("overview.chainLatency.colHops")}</span>
-            <span>P50</span>
-            <span>{t("overview.chainLatency.windowLoss")}</span>
+            <ChainLatencySortHeader
+              label="P50"
+              sortKey="p50"
+              sort={sort}
+              onSort={handleSortChange}
+            />
+            <ChainLatencySortHeader
+              label={t("overview.chainLatency.windowLoss")}
+              sortKey="loss"
+              sort={sort}
+              onSort={handleSortChange}
+            />
             <span>{t("overview.chainLatency.colStatus")}</span>
             <span />
           </div>
-          <ul className="flex flex-col">
-            {snapshot.chains.map((chain) => (
-              <ChainListRow
-                key={chain.id}
-                chain={chain}
-                source={chainById.get(chain.id) ?? null}
-                onOpen={() => onOpenChain(chain.id)}
-              />
-            ))}
-          </ul>
+          {filteredChains.length === 0 ? (
+            <div
+              data-chain-list-empty
+              className="flex flex-col items-center gap-3 px-4 py-12 text-center"
+            >
+              <p className="text-[13px] text-muted-foreground">
+                {t("overview.chainLatency.noMatchTitle")}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-chain-clear-filters
+                onClick={clearFilters}
+              >
+                {t("overview.chainLatency.clearFilters")}
+              </Button>
+            </div>
+          ) : (
+            <ul className="flex flex-col">
+              {filteredChains.map((chain) => (
+                <ChainListRow
+                  key={chain.id}
+                  chain={chain}
+                  source={chainById.get(chain.id) ?? null}
+                  onOpen={() => onOpenChain(chain.id)}
+                />
+              ))}
+            </ul>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -19,8 +19,7 @@ export const SERVER_TABLE_COLUMN_KEYS = [
   "xray",
   "heartbeat",
   "version",
-  "load",
-  "memory",
+  "loadMemory",
   "rate",
   "actions",
 ] as const;
@@ -113,25 +112,21 @@ export function serverTableColumns(t: TFunction): ServerTableColumn[] {
       skeletonWidth: "w-20",
     },
     {
-      key: "load",
-      label: t("servers.detail.load"),
-      headClassName: "hidden text-right xl:table-cell",
-      skeletonClassName: "hidden text-right xl:table-cell w-16",
-      skeletonWidth: "w-8",
-    },
-    {
-      key: "memory",
-      label: t("servers.detail.memory"),
-      headClassName: "hidden text-right xl:table-cell",
-      skeletonClassName: "hidden text-right xl:table-cell w-28",
+      // 负载与内存合成一列：`0.39 / 31%`。数值紧跟列头文字左对齐，
+      // 不再用 text-right 把数字推到单元格另一侧。
+      key: "loadMemory",
+      label: t("servers.detail.loadMemory"),
+      headClassName: "hidden w-28 min-w-28 text-left xl:table-cell",
+      skeletonClassName: "hidden w-28 text-left xl:table-cell",
       skeletonWidth: "w-16",
     },
     {
+      // 两行速率（上行在上、下行在下），不再为了单行而压窄其它列。
       key: "rate",
       label: t("servers.detail.rate"),
-      headClassName: "hidden whitespace-nowrap text-right xl:table-cell",
-      skeletonClassName: "hidden whitespace-nowrap text-right xl:table-cell w-32",
-      skeletonWidth: "w-20",
+      headClassName: "hidden w-24 min-w-24 whitespace-nowrap text-left xl:table-cell",
+      skeletonClassName: "hidden whitespace-nowrap text-left xl:table-cell w-24",
+      skeletonWidth: "w-16",
     },
     {
       key: "actions",

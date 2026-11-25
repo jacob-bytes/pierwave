@@ -23,11 +23,11 @@ test("两个子页共用同一套 KPI 栅格：2×2（≥sm 4 列）、1px 分�
   assert.match(kpi, /gap-px/);
   assert.match(kpi, /bg-border/);
   assert.match(kpi, /min-w-0/);
-  assert.match(kpi, /px-3 py-4 sm:px-5/);
+  assert.match(kpi, /px-3 py-3\.5 sm:px-5/);
   assert.match(kpi, /text-\[28px\]/);
   assert.match(kpi, /text-\[13px\]/);
-  // 副行必须允许长英文换行，不能把卡片撑出横向滚动。
-  assert.match(kpi, /line-clamp-2/);
+  // 副行固定单行，长英文省略而不是把卡片撑高。
+  assert.match(kpi, /line-clamp-1/);
   assert.match(kpi, /break-words/);
   // 转发链 KPI 也必须走同一份实现，不再自己维护一份字号。
   assert.match(chainList, /ChainKpiGrid/);

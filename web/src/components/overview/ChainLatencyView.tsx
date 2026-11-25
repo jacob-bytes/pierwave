@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/common";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ChainKpiSkeletonGrid } from "@/components/overview/ChainKpi";
 import { ChainLatencyDetailDialog } from "@/components/overview/ChainLatencyDetailDialog";
 import { ChainTemplateInsightList } from "@/components/overview/ChainTemplateInsightList";
 import { ChainLatencyList } from "@/components/overview/ChainLatencyList";
@@ -302,7 +303,7 @@ function NoChainsCard({ scoped }: { scoped: boolean }) {
 function ChainLatencySkeleton() {
   return (
     <div className="space-y-4" data-chain-latency-skeleton aria-hidden="true">
-      <Skeleton className="h-[104px] w-full rounded-xl" />
+      <ChainKpiSkeletonGrid />
       <Card className="gap-0">
         <CardHeader className="border-b border-border pb-4">
           <Skeleton className="h-4 w-32" />

@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChainKpiSkeletonGrid } from "@/components/overview/ChainKpi";
 import { ChainSectionTabs } from "@/components/overview/ChainSectionTabs";
 import { ServerFilter } from "@/components/overview/ServerFilter";
 import type { OverviewScopeState } from "@/components/overview/useOverviewScope";
@@ -37,7 +38,7 @@ const VIEW_META: readonly {
 function InsightFallback() {
   return (
     <div className="space-y-4" aria-hidden="true">
-      <Skeleton className="h-[329px] w-full rounded-xl xl:h-[136px]" />
+      <ChainKpiSkeletonGrid />
       <Skeleton className="h-[320px] w-full rounded-xl" />
       <section className="grid gap-4 xl:grid-cols-3">
         <Skeleton className="h-[240px] w-full rounded-xl" />

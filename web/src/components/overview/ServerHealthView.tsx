@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ChainKpiCell, ChainKpiGrid } from "./ChainKpi";
+import { ChainKpiCell, ChainKpiGrid, ChainKpiSkeletonGrid } from "./ChainKpi";
 import { ResourceLineChart } from "./ResourceLineChart";
 import { ServerUptimeTrendChart } from "./ServerUptimeTrendChart";
 import { errorText } from "@/lib/errors";
@@ -1173,7 +1173,7 @@ function EmptyServerHealth() {
 function ServerHealthSkeleton() {
   return (
     <div className="space-y-4" aria-hidden="true">
-      <Skeleton className="h-[329px] w-full rounded-xl xl:h-[136px]" />
+      <ChainKpiSkeletonGrid cells={3} />
       <Card className="gap-4">
         <CardHeader>
           <Skeleton className="h-4 w-32" />

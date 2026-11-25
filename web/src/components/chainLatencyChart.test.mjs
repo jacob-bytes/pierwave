@@ -273,10 +273,79 @@ test("the overall legend and anomaly band use primary only", () => {
 
 test("the list-level overall trend shares the 4h/1d axis and vertical gridlines", () => {
   const source = read("components/overview/ChainLatencyTrendChart.tsx");
-  assert.match(source, /chainLatestSeriesTs/);
+  // x 轴收敛到有效样本的实际最小 / 最大时间，不再固定成整个窗口。
+  assert.match(source, /chainTrendTimeDomain/);
   assert.match(source, /chainTimeTicks/);
-  assert.match(source, /domain=\{axis \? \[axis\.startTs, axis\.endTs\]/);
+  assert.match(source, /\[axis\.startTs, axis\.endTs\]/);
   assert.match(source, /vertical/);
+});
+
+test("chain trend keeps the legend to one scrollable row below the chart", () => {
+  const source = read("components/overview/ChainLatencyTrendChart.tsx");
+  const start = source.indexOf("function ChainTrendSelectedLegend");
+  const end = source.indexOf("interface TooltipItem", start);
+  assert.ok(start >= 0 && end > start);
+  const legend = source.slice(start, end);
+  // 一行横向滚动，不再折行 / 限高 24。
+  assert.match(legend, /overflow-x-auto/);
+  assert.match(legend, /whitespace-nowrap/);
+  assert.match(legend, /min-h-6/);
+  assert.doesNotMatch(legend, /flex-wrap/);
+  assert.doesNotMatch(source, /max-h-24/);
+  // 标签挂在图表 / 表格之后，而不是压在图表上方。
+  const chartTail = source.slice(source.indexOf("<ChainTrendSelectedLegend"));
+  assert.ok(chartTail.length > 0);
+});
+
+test("chart margins leave at most 12px of outer blank space", () => {
+  const source = read("components/overview/ChainLatencyTrendChart.tsx");
+  assert.match(source, /right: 12, left: 8/);
+});
+
+test("series selection lives in ?series= and the chart renders an empty state", async () => {
+  const hook = read("components/overview/useChainTrendSeries.ts");
+  assert.match(hook, /useSearchParams/);
+  assert.match(hook, /CHAIN_SERIES_PARAM/);
+  assert.match(hook, /replace: true/);
+  assert.match(hook, /defaultChainSeriesIds/);
+
+  const list = read("components/overview/ChainLatencyList.tsx");
+  assert.match(list, /useChainTrendSeries/);
+  assert.match(list, /ChainSeriesSelect/);
+  assert.match(list, /selectedIds=\{series\.selectedIds\}/);
+
+  const select = read("components/overview/ChainSeriesSelect.tsx");
+  for (const marker of [
+    "data-chain-series-trigger",
+    "data-chain-series-search",
+    "data-chain-series-all",
+    "data-chain-series-clear",
+    "data-chain-series-checkbox",
+    "data-chain-series-row",
+  ]) {
+    assert.ok(select.includes(marker), `select missing ${marker}`);
+  }
+
+  const chart = read("components/overview/ChainLatencyTrendChart.tsx");
+  assert.match(chart, /selectedIds: readonly string\[\]/);
+  assert.match(chart, /selectedChains\.length === 0/);
+
+  const [{ default: zh }, { default: en }] = await Promise.all([
+    import("../i18n/zh-CN.ts"),
+    import("../i18n/en.ts"),
+  ]);
+  for (const key of [
+    "seriesSelectAria",
+    "seriesSelectTrigger",
+    "seriesSearch",
+    "seriesSelectAll",
+    "seriesClear",
+    "seriesNoMatch",
+    "seriesToggleAria",
+  ]) {
+    assert.equal(typeof zh.overview.chainLatency[key], "string", `zh ${key}`);
+    assert.equal(typeof en.overview.chainLatency[key], "string", `en ${key}`);
+  }
 });
 
 test("loss tooltips drop the old 'at that time' prefix in both languages", async () => {

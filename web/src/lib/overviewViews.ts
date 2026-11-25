@@ -8,6 +8,8 @@
  * 这里只放纯函数，方便 `node:test` 直接覆盖 URL 行为；组件只负责渲染。
  */
 
+import { CHAIN_SERIES_PARAM } from "./chainTrendSeries.ts";
+
 export const OVERVIEW_VIEWS = ["server", "traffic", "cost", "chain"] as const;
 
 export type OverviewView = (typeof OVERVIEW_VIEWS)[number];
@@ -53,9 +55,15 @@ export function applyOverviewView(
   // `chain` 只属于链路时延视图；离开时必须清掉，否则切回来会重新弹窗，
   // 后退历史里也会留下指向已关闭弹窗的脏参数。
   // `section`（转发链 / 转发模板）同理：它只在链路时延 tab 内有意义。
+  // `status` / `q` 是链路列表自己的筛选与搜索，`series` 是趋势图的链选择；
+  // 三者都只属于链路时延 tab，跟到流量 / 成本 tab 会让分享出去的链接带着
+  // 一个看不见的筛选 / 选择条件，因此一并清理。
   if (view !== "chain") {
     next.delete("chain");
     next.delete("section");
+    next.delete("status");
+    next.delete("q");
+    next.delete(CHAIN_SERIES_PARAM);
   }
   return next;
 }

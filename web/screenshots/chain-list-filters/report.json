@@ -1,0 +1,612 @@
+{
+  "generatedAt": "2026-11-25T17:33:49.851Z",
+  "expectedCounts": {
+    "all": 24,
+    "ok": 15,
+    "degraded": 3,
+    "blocked": 2,
+    "unknown": 2,
+    "insufficient": 1,
+    "disabled": 1
+  },
+  "expectedQueryHits": 6,
+  "latency": {
+    "samples": [
+      {
+        "query": "港日",
+        "ms": 31.3
+      },
+      {
+        "query": "港日",
+        "ms": 14.4
+      },
+      {
+        "query": "港日中转模板",
+        "ms": 16.1
+      },
+      {
+        "query": "港日中转模板",
+        "ms": 14.8
+      },
+      {
+        "query": "大阪-01",
+        "ms": 15.8
+      },
+      {
+        "query": "大阪-01",
+        "ms": 16.5
+      },
+      {
+        "query": "198.51.100.30",
+        "ms": 14.7
+      },
+      {
+        "query": "198.51.100.30",
+        "ms": 14.7
+      },
+      {
+        "query": "不存在的链路",
+        "ms": 16.6
+      },
+      {
+        "query": "不存在的链路",
+        "ms": 16.3
+      }
+    ],
+    "minMs": 14.4,
+    "medianMs": 16.1,
+    "maxMs": 31.3,
+    "method": "input event → filtered rows painted (requestAnimationFrame)"
+  },
+  "screenshots": [
+    "status-all-dark-1440.png",
+    "status-ok-dark-1440.png",
+    "status-degraded-dark-1440.png",
+    "status-blocked-dark-1440.png",
+    "status-unknown-dark-1440.png",
+    "status-insufficient-dark-1440.png",
+    "status-disabled-dark-1440.png",
+    "status-all-light-1440.png",
+    "status-ok-light-1440.png",
+    "status-degraded-light-1440.png",
+    "status-blocked-light-1440.png",
+    "status-unknown-light-1440.png",
+    "status-insufficient-light-1440.png",
+    "status-disabled-light-1440.png",
+    "status-all-dark-390.png",
+    "status-ok-dark-390.png",
+    "status-degraded-dark-390.png",
+    "status-blocked-dark-390.png",
+    "status-unknown-dark-390.png",
+    "status-insufficient-dark-390.png",
+    "status-disabled-dark-390.png",
+    "status-all-light-390.png",
+    "status-ok-light-390.png",
+    "status-degraded-light-390.png",
+    "status-blocked-light-390.png",
+    "status-unknown-light-390.png",
+    "status-insufficient-light-390.png",
+    "status-disabled-light-390.png",
+    "status-dropdown-dark-1440.png",
+    "status-dropdown-dark-390.png",
+    "status-dropdown-light-1440.png",
+    "status-dropdown-light-390.png",
+    "search-港日-dark-1440.png",
+    "combined-blocked-港日-dark-1440.png",
+    "empty-dark-1440.png",
+    "search-港日-dark-390.png",
+    "combined-blocked-港日-dark-390.png",
+    "empty-dark-390.png",
+    "search-港日-light-390.png",
+    "combined-blocked-港日-light-390.png",
+    "empty-light-390.png",
+    "sort-p50-asc-dark-1440.png",
+    "header-dark-390.png",
+    "header-light-390.png"
+  ],
+  "results": [
+    {
+      "name": "status all (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 24,
+        "statuses": [
+          "ok",
+          "degraded",
+          "blocked",
+          "unknown",
+          "insufficient",
+          "disabled"
+        ]
+      }
+    },
+    {
+      "name": "status ok (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 15,
+        "statuses": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "status degraded (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 3,
+        "statuses": [
+          "degraded"
+        ]
+      }
+    },
+    {
+      "name": "status blocked (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 2,
+        "statuses": [
+          "blocked"
+        ]
+      }
+    },
+    {
+      "name": "status unknown (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 2,
+        "statuses": [
+          "unknown"
+        ]
+      }
+    },
+    {
+      "name": "status insufficient (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 1,
+        "statuses": [
+          "insufficient"
+        ]
+      }
+    },
+    {
+      "name": "status disabled (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 1,
+        "statuses": [
+          "disabled"
+        ]
+      }
+    },
+    {
+      "name": "status all (light)",
+      "ok": true,
+      "detail": {
+        "rows": 24,
+        "statuses": [
+          "ok",
+          "degraded",
+          "blocked",
+          "unknown",
+          "insufficient",
+          "disabled"
+        ]
+      }
+    },
+    {
+      "name": "status ok (light)",
+      "ok": true,
+      "detail": {
+        "rows": 15,
+        "statuses": [
+          "ok"
+        ]
+      }
+    },
+    {
+      "name": "status degraded (light)",
+      "ok": true,
+      "detail": {
+        "rows": 3,
+        "statuses": [
+          "degraded"
+        ]
+      }
+    },
+    {
+      "name": "status blocked (light)",
+      "ok": true,
+      "detail": {
+        "rows": 2,
+        "statuses": [
+          "blocked"
+        ]
+      }
+    },
+    {
+      "name": "status unknown (light)",
+      "ok": true,
+      "detail": {
+        "rows": 2,
+        "statuses": [
+          "unknown"
+        ]
+      }
+    },
+    {
+      "name": "status insufficient (light)",
+      "ok": true,
+      "detail": {
+        "rows": 1,
+        "statuses": [
+          "insufficient"
+        ]
+      }
+    },
+    {
+      "name": "status disabled (light)",
+      "ok": true,
+      "detail": {
+        "rows": 1,
+        "statuses": [
+          "disabled"
+        ]
+      }
+    },
+    {
+      "name": "status all 390 (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 24
+      }
+    },
+    {
+      "name": "status ok 390 (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 15
+      }
+    },
+    {
+      "name": "status degraded 390 (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 3
+      }
+    },
+    {
+      "name": "status blocked 390 (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 2
+      }
+    },
+    {
+      "name": "status unknown 390 (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 2
+      }
+    },
+    {
+      "name": "status insufficient 390 (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "status disabled 390 (dark)",
+      "ok": true,
+      "detail": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "status all 390 (light)",
+      "ok": true,
+      "detail": {
+        "rows": 24
+      }
+    },
+    {
+      "name": "status ok 390 (light)",
+      "ok": true,
+      "detail": {
+        "rows": 15
+      }
+    },
+    {
+      "name": "status degraded 390 (light)",
+      "ok": true,
+      "detail": {
+        "rows": 3
+      }
+    },
+    {
+      "name": "status blocked 390 (light)",
+      "ok": true,
+      "detail": {
+        "rows": 2
+      }
+    },
+    {
+      "name": "status unknown 390 (light)",
+      "ok": true,
+      "detail": {
+        "rows": 2
+      }
+    },
+    {
+      "name": "status insufficient 390 (light)",
+      "ok": true,
+      "detail": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "status disabled 390 (light)",
+      "ok": true,
+      "detail": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "status counts dropdown (dark, 1440)",
+      "ok": true,
+      "detail": {
+        "all": 24,
+        "ok": 15,
+        "degraded": 3,
+        "blocked": 2,
+        "unknown": 2,
+        "insufficient": 1,
+        "disabled": 1
+      }
+    },
+    {
+      "name": "status counts dropdown (dark, 390)",
+      "ok": true,
+      "detail": {
+        "all": 24,
+        "ok": 15,
+        "degraded": 3,
+        "blocked": 2,
+        "unknown": 2,
+        "insufficient": 1,
+        "disabled": 1
+      }
+    },
+    {
+      "name": "status counts dropdown (light, 1440)",
+      "ok": true,
+      "detail": {
+        "all": 24,
+        "ok": 15,
+        "degraded": 3,
+        "blocked": 2,
+        "unknown": 2,
+        "insufficient": 1,
+        "disabled": 1
+      }
+    },
+    {
+      "name": "status counts dropdown (light, 390)",
+      "ok": true,
+      "detail": {
+        "all": 24,
+        "ok": 15,
+        "degraded": 3,
+        "blocked": 2,
+        "unknown": 2,
+        "insufficient": 1,
+        "disabled": 1
+      }
+    },
+    {
+      "name": "search by chain name writes q and filters rows",
+      "ok": true,
+      "detail": {
+        "rows": 6
+      }
+    },
+    {
+      "name": "search matches entry/exit address and server name",
+      "ok": true,
+      "detail": [
+        "港日多路径",
+        "港日-大阪",
+        "大阪-香港链"
+      ]
+    },
+    {
+      "name": "search matches template name",
+      "ok": true,
+      "detail": [
+        "港日中转链",
+        "港日多路径",
+        "港日-大阪"
+      ]
+    },
+    {
+      "name": "search and status filter stack",
+      "ok": true,
+      "detail": {
+        "rows": 1
+      }
+    },
+    {
+      "name": "typing updates q without losing characters",
+      "ok": true,
+      "detail": {
+        "value": "203"
+      }
+    },
+    {
+      "name": "keyword filter latency on 24 chains",
+      "ok": true,
+      "detail": {
+        "samples": [
+          {
+            "query": "港日",
+            "ms": 31.3
+          },
+          {
+            "query": "港日",
+            "ms": 14.4
+          },
+          {
+            "query": "港日中转模板",
+            "ms": 16.1
+          },
+          {
+            "query": "港日中转模板",
+            "ms": 14.8
+          },
+          {
+            "query": "大阪-01",
+            "ms": 15.8
+          },
+          {
+            "query": "大阪-01",
+            "ms": 16.5
+          },
+          {
+            "query": "198.51.100.30",
+            "ms": 14.7
+          },
+          {
+            "query": "198.51.100.30",
+            "ms": 14.7
+          },
+          {
+            "query": "不存在的链路",
+            "ms": 16.6
+          },
+          {
+            "query": "不存在的链路",
+            "ms": 16.3
+          }
+        ],
+        "minMs": 14.4,
+        "medianMs": 16.1,
+        "maxMs": 31.3,
+        "method": "input event → filtered rows painted (requestAnimationFrame)"
+      }
+    },
+    {
+      "name": "search clear button resets q",
+      "ok": true,
+      "detail": {
+        "rows": 24
+      }
+    },
+    {
+      "name": "empty state copy and clear filters button",
+      "ok": true,
+      "detail": {
+        "empty": true
+      }
+    },
+    {
+      "name": "filters survive a reload",
+      "ok": true,
+      "detail": {
+        "url": "http://127.0.0.1:64067/?view=chain&series=chain-17%2Cchain-12%2Cchain-10%2Cchain-09%2Cchain-13&q=%E6%B8%AF%E6%97%A5&status=degraded"
+      }
+    },
+    {
+      "name": "390 keyword + combined + empty (dark)",
+      "ok": true,
+      "detail": {
+        "search": 6,
+        "combined": 1,
+        "empty": true
+      }
+    },
+    {
+      "name": "390 keyword + combined + empty (light)",
+      "ok": true,
+      "detail": {
+        "search": 6,
+        "combined": 1,
+        "empty": true
+      }
+    },
+    {
+      "name": "P50 header toggles ascending / descending",
+      "ok": true,
+      "detail": {
+        "ascending": 24,
+        "descending": 24
+      }
+    },
+    {
+      "name": "loss sort selector and default order reset",
+      "ok": true,
+      "detail": {
+        "losses": 21
+      }
+    },
+    {
+      "name": "sort selector exposes latest sample",
+      "ok": true,
+      "detail": [
+        {
+          "value": "default",
+          "text": "默认顺序"
+        },
+        {
+          "value": "p50-asc",
+          "text": "P50 · 升序"
+        },
+        {
+          "value": "p50-desc",
+          "text": "P50 · 降序"
+        },
+        {
+          "value": "loss-asc",
+          "text": "丢包 · 升序"
+        },
+        {
+          "value": "loss-desc",
+          "text": "丢包 · 降序"
+        },
+        {
+          "value": "latest-desc",
+          "text": "最近样本 · 降序"
+        },
+        {
+          "value": "latest-asc",
+          "text": "最近样本 · 升序"
+        }
+      ]
+    },
+    {
+      "name": "status/q coexist with series/section and all leave the chain tab",
+      "ok": true,
+      "detail": {
+        "initial": "?view=chain&section=chains&series=chain-01,chain-02&status=blocked&q=%E6%B8%AF%E6%97%A5",
+        "afterFilter": "?view=chain&section=chains&series=chain-01%2Cchain-02&status=blocked&q=%E9%A6%99%E6%B8%AF",
+        "finalUrl": "http://127.0.0.1:64067/?view=traffic"
+      }
+    },
+    {
+      "name": "390 filter header (dark)",
+      "ok": true,
+      "detail": {
+        "width": 390
+      }
+    },
+    {
+      "name": "390 filter header (light)",
+      "ok": true,
+      "detail": {
+        "width": 390
+      }
+    }
+  ],
+  "failures": []
+}

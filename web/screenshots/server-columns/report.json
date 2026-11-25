@@ -1,0 +1,197 @@
+{
+  "base": "http://127.0.0.1:8797",
+  "servers": 15,
+  "themes": {
+    "dark": {
+      "390": {
+        "labels": [
+          "地址",
+          "负载（1 分钟）",
+          "内存",
+          "当前速率"
+        ],
+        "cardHeightMax": 234
+      },
+      "1024": {
+        "mergedHeaderDisplay": "none",
+        "addressWidth": 163,
+        "noPageOverflow": true
+      },
+      "1360": {
+        "overflows": true,
+        "sticky": {
+          "position": "sticky",
+          "left": "40px"
+        },
+        "rateVisible": true
+      },
+      "merged": "0.39 / 31%",
+      "rate": [
+        "↑ 614 KB/s",
+        "↓ 1.9 MB/s"
+      ],
+      "rowHeights": {
+        "min": 64,
+        "max": 64,
+        "count": 15
+      },
+      "alignment": {
+        "merged": {
+          "head": "left",
+          "cell": "left"
+        },
+        "rate": {
+          "head": "left",
+          "cell": "left"
+        }
+      },
+      "fontVariantNumeric": {
+        "merged": "tabular-nums",
+        "rate": "tabular-nums"
+      },
+      "colors": {
+        "load": "oklch(0.965 0.003 285)",
+        "slash": "oklch(0.7 0.015 285)",
+        "arrow": "oklch(0.7 0.015 285)"
+      },
+      "tableAt1440": {
+        "clientWidth": 1152,
+        "scrollWidth": 1152,
+        "overflows": false
+      },
+      "addressWidth": 190
+    },
+    "light": {
+      "390": {
+        "labels": [
+          "地址",
+          "负载（1 分钟）",
+          "内存",
+          "当前速率"
+        ],
+        "cardHeightMax": 234
+      },
+      "1024": {
+        "mergedHeaderDisplay": "none",
+        "addressWidth": 163,
+        "noPageOverflow": true
+      },
+      "1360": {
+        "overflows": true,
+        "sticky": {
+          "position": "sticky",
+          "left": "40px"
+        },
+        "rateVisible": true
+      },
+      "merged": "0.39 / 31%",
+      "rate": [
+        "↑ 614 KB/s",
+        "↓ 1.9 MB/s"
+      ],
+      "rowHeights": {
+        "min": 64,
+        "max": 64,
+        "count": 15
+      },
+      "alignment": {
+        "merged": {
+          "head": "left",
+          "cell": "left"
+        },
+        "rate": {
+          "head": "left",
+          "cell": "left"
+        }
+      },
+      "fontVariantNumeric": {
+        "merged": "tabular-nums",
+        "rate": "tabular-nums"
+      },
+      "colors": {
+        "load": "oklch(0.253 0.03 267.4)",
+        "slash": "oklch(0.52 0.035 265.1)",
+        "arrow": "oklch(0.52 0.035 265.1)"
+      },
+      "tableAt1440": {
+        "clientWidth": 1152,
+        "scrollWidth": 1152,
+        "overflows": false
+      },
+      "addressWidth": 190
+    }
+  },
+  "assertions": [
+    {
+      "name": "dark: 合并列文案",
+      "ok": true,
+      "detail": "0.39 / 31%"
+    },
+    {
+      "name": "dark: 两行速率",
+      "ok": true,
+      "detail": "↑ 614 KB/s | ↓ 1.9 MB/s"
+    },
+    {
+      "name": "dark: 行高",
+      "ok": true,
+      "detail": "64–64px"
+    },
+    {
+      "name": "dark: 左对齐",
+      "ok": true,
+      "detail": "cell=left, head=left"
+    },
+    {
+      "name": "dark: 1360 滚动后列仍可见",
+      "ok": true,
+      "detail": "scroll=28px"
+    },
+    {
+      "name": "dark: 1024 断点",
+      "ok": true,
+      "detail": "address=163px, 无横向溢出"
+    },
+    {
+      "name": "dark: 390 卡片独立字段",
+      "ok": true,
+      "detail": "4 fields, max=234px"
+    },
+    {
+      "name": "light: 合并列文案",
+      "ok": true,
+      "detail": "0.39 / 31%"
+    },
+    {
+      "name": "light: 两行速率",
+      "ok": true,
+      "detail": "↑ 614 KB/s | ↓ 1.9 MB/s"
+    },
+    {
+      "name": "light: 行高",
+      "ok": true,
+      "detail": "64–64px"
+    },
+    {
+      "name": "light: 左对齐",
+      "ok": true,
+      "detail": "cell=left, head=left"
+    },
+    {
+      "name": "light: 1360 滚动后列仍可见",
+      "ok": true,
+      "detail": "scroll=28px"
+    },
+    {
+      "name": "light: 1024 断点",
+      "ok": true,
+      "detail": "address=163px, 无横向溢出"
+    },
+    {
+      "name": "light: 390 卡片独立字段",
+      "ok": true,
+      "detail": "4 fields, max=234px"
+    }
+  ],
+  "ok": true
+}

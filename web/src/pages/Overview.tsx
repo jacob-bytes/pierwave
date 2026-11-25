@@ -3,12 +3,12 @@ import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
   ActivityIcon,
-  PackageIcon,
   PlusIcon,
   RefreshCwIcon,
   ServerIcon,
   TriangleAlertIcon,
   UsersIcon,
+  WaypointsIcon,
 } from "lucide-react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import {
@@ -77,7 +77,7 @@ function KpiCard({
           });
 
   return (
-    <Card size="sm" className="h-full gap-3">
+    <Card size="sm" data-kpi-card className="h-full gap-3">
       <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
         {/* 标签用普通文本而不是 CardDescription：后者会触发卡头的两行网格，
             在只有标签 + 图标时多出一条 8px 空行。 */}
@@ -113,11 +113,17 @@ function KpiCard({
         <div className="mt-auto flex flex-col gap-y-0.5 pt-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3 sm:gap-y-0">
           {deltaText ? (
             // 流量涨跌本身没有好坏：保持 muted，不用绿 / 红，也不加图标。
-            <p className="text-xs text-muted-foreground tabular-nums sm:ml-auto sm:whitespace-nowrap">
+            <p
+              data-kpi-delta
+              className="text-xs text-muted-foreground tabular-nums sm:ml-auto sm:whitespace-nowrap"
+            >
               {deltaText}
             </p>
           ) : null}
-          <p className="text-xs text-muted-foreground sm:order-first sm:whitespace-nowrap">
+          <p
+            data-kpi-hint
+            className="text-xs text-muted-foreground sm:order-first sm:whitespace-nowrap"
+          >
             {hint}
           </p>
         </div>
@@ -205,11 +211,14 @@ function EmptyOverview() {
 
 export default function OverviewPage() {
   useI18n();
-  // 全局 KPI 只需要 stats + 今日流量的日环比；趋势 / 分布 / 排行等
-  // 都在「流量」tab 里按需挂载，切到其它 tab 不会请求它们。
+  // 全局 KPI 需要 stats、今日流量的日环比，以及聚合接口里的转发链计数；
+  // 趋势 / 分布 / 排行等仍只在「流量」tab 里按需挂载，切到其它 tab 不请求。
   const statsQuery = useOverviewStats();
   const traffic = useTraffic(OVERVIEW_TRAFFIC_DAYS);
   const scope = useOverviewScope();
+  // 顶部「转发链」卡只消费聚合接口的 `chains`（全局口径，不受筛选影响）。
+  // 与按范围统计的 `scopedOverview` 分开缓存：切换筛选时这张卡不会先变空。
+  const chainsOverview = useOverview(OVERVIEW_TRAFFIC_DAYS);
   // 只有缩小了范围才请求带 server_ids 的聚合；全选时沿用 stats 的全量值。
   const scopedOverview = useOverview(
     OVERVIEW_TRAFFIC_DAYS,
@@ -275,6 +284,7 @@ export default function OverviewPage() {
     trafficScoped && scopedAggregate
       ? scopedAggregate.kpi.traffic_month
       : stats?.traffic.month_bytes;
+  const chains = chainsOverview.data?.chains;
   const trafficHint = emptyScope
     ? t("overview.scope.emptyTitle")
     : scope.filtered
@@ -350,7 +360,10 @@ export default function OverviewPage() {
               </span>
             </div>
           ) : null}
-          <section className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+          <section
+            className="grid grid-cols-2 gap-4 xl:grid-cols-4"
+            data-overview-kpis
+          >
             <KpiCard
               label={t("overview.onlineServers")}
               icon={ServerIcon}
@@ -375,32 +388,44 @@ export default function OverviewPage() {
               }
             />
             <KpiCard
-              label={t("overview.users")}
+              label={t("overview.usersAndPackages")}
               icon={UsersIcon}
               value={
-                <>
-                  {stats.users.active}
-                  <span className="ml-1 text-sm font-normal text-muted-foreground">
-                    / {stats.users.total}
+                <span className="flex min-w-0 flex-wrap items-baseline gap-x-1">
+                  <span data-kpi-users-total>{stats.users.total}</span>{" "}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {t("overview.usersUnit")}
+                  </span>{" "}
+                  <span
+                    aria-hidden="true"
+                    className="mx-0.5 text-sm font-normal text-muted-foreground"
+                  >
+                    /
+                  </span>{" "}
+                  <span data-kpi-package-instances>
+                    {stats.packages.instances}
+                  </span>{" "}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    {t("overview.instancesUnit")}
                   </span>
-                </>
+                </span>
               }
-              hint={t(
-                stats.users.total === 1
-                  ? "overview.usersTotalHintOne"
-                  : "overview.usersTotalHint",
-                { n: stats.users.total },
-              )}
+              hint={t("overview.usersAndPackagesHint", {
+                users: stats.users.total,
+                packages: stats.packages.total,
+              })}
               global
             />
             <KpiCard
-              label={t("overview.packageInstances")}
-              icon={PackageIcon}
-              value={stats.packages.instances}
-              hint={t("overview.packagesTotalHint", {
-                n: stats.packages.total,
+              label={t("overview.forwardChains")}
+              icon={WaypointsIcon}
+              value={
+                <span data-kpi-chains-total>{chains?.total ?? "—"}</span>
+              }
+              hint={t("overview.forwardChainsHint", {
+                blocked: chains?.blocked ?? "—",
+                degraded: chains?.degraded ?? "—",
               })}
-              global
             />
             <KpiCard
               label={t("overview.todayTraffic")}

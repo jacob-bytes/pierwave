@@ -13,9 +13,23 @@ const staleNotice = read(
   "../components/overview/ChainTemplateStaleNotice.tsx",
 );
 const topology = read("../components/overview/ChainTemplateTopology.tsx");
-const treeChart = read("../components/ui/charts/tree-chart.tsx");
-const treeLib = read("../lib/treeChart.ts");
-const templateTreeLib = read("../lib/chainTemplateTree.ts");
+const graphLib = read("../lib/chainTemplateGraph.ts");
+const flowIndex = read(
+  "../components/overview/chain-template-flow/index.tsx",
+);
+const flowCanvas = read(
+  "../components/overview/chain-template-flow/ChainTemplateFlow.tsx",
+);
+const flowCard = read(
+  "../components/overview/chain-template-flow/FlowCard.tsx",
+);
+const flowEdge = read(
+  "../components/overview/chain-template-flow/FlowEdge.tsx",
+);
+const flowContext = read(
+  "../components/overview/chain-template-flow/context.ts",
+);
+const packageJson = read("../../package.json");
 const usage = read("../components/overview/ChainTemplateUsageChart.tsx");
 const strategies = read(
   "../components/overview/ChainTemplateStrategies.tsx",
@@ -136,379 +150,334 @@ test("详情弹窗由选中列表项驱动，四块内容都在", () => {
   );
 });
 
-test("拓扑：本地 TreeChart 横向树、贝塞尔曲线、折叠与离线路经", () => {
+test("拓扑：React Flow 卡片画布，懒加载 + 自定义缩放栏", () => {
+  assertIncludes(
+    flowIndex,
+    [
+      'import("./ChainTemplateFlow")',
+      "lazy(",
+      "export const ChainTemplateFlowLazy",
+    ],
+    "lazy flow chunk",
+  );
+  // 拓扑壳里不能静态 import React Flow：否则会进「链路时延」主 chunk。
+  assert.equal(
+    topology.includes('from "@xyflow/react"'),
+    false,
+    "ChainTemplateTopology 不能静态 import React Flow",
+  );
   assertIncludes(
     topology,
     [
-      'from "@/components/ui/charts/tree-chart"',
-      "<TreeChart",
-      "links={model.links}",
-      "collapsedIds={collapsed}",
-      "onNodeToggle={toggleNode}",
-      "pulse",
-      "renderTooltip",
-      "chainTemplateTree(detail",
+      'from "@/components/overview/chain-template-flow"',
+      "<Suspense",
+      "<ChainTemplateFlowLazy",
+      "buildTemplateGraph(detail)",
       "data-template-unused",
-      "data-template-tree-tooltip",
-      "tooltipStatus",
-      "tooltipChains",
-      "tooltipUsers",
-      'translate("overview.chainTemplateInsight.treeTargetsFold"',
+      "data-template-flow-zoom",
+      "data-flow-zoom-out",
+      "data-flow-zoom-in",
+      "data-flow-zoom-value",
+      "data-flow-zoom-fit",
+      'translate("overview.chainTemplateInsight.flowFit")',
+      'translate("overview.chainTemplateInsight.flowZoomIn")',
+      'translate("overview.chainTemplateInsight.flowZoomOut")',
     ],
     "ChainTemplateTopology",
   );
-  // 热点排序已经拆成独立的「节点热度」卡，拓扑卡里不再有表格。
-  assertExcludes(
+  assertIncludes(
+    flowCanvas,
+    [
+      'from "@xyflow/react"',
+      "<ReactFlow",
+      "nodeTypes",
+      "edgeTypes",
+      "<Background",
+      "variant={BackgroundVariant.Dots}",
+      "attributionPosition",
+      "onInit={handleInit}",
+      "onMove={handleMove}",
+    ],
+    "flow canvas",
+  );
+  // 官方控件（Controls / MiniMap / 缩放按钮）一律不用。
+  assert.equal(flowCanvas.includes("<Controls"), false, "不用官方 Controls");
+  assert.equal(flowCanvas.includes("<MiniMap"), false, "不用官方 MiniMap");
+  assertIncludes(
+    graphLib,
+    [
+      "export function buildTemplateGraph(",
+      "export function foldTemplateGraph(",
+      "export function layoutTemplateGraph(",
+      "export function initialViewport(",
+      "export function fitViewport(",
+    ],
+    "graph lib",
+  );
+  // 依赖锁 exact，且不引入 13。
+  assert.ok(packageJson.includes('"@xyflow/react": "12.12.1"'));
+});
+
+test("折叠：+N 只展开本列，目标 +N 挂在目标卡上，恢复默认只在此后出现", () => {
+  assertIncludes(
     topology,
     [
-      "data-template-hotspots",
-      "data-template-hotspot-row",
-      "hotspotsTitle",
-      "Hotspots",
+      "const [expandedColumns, setExpandedColumns]",
+      "const [expandedTargets, setExpandedTargets]",
+      "const hasExpanded =",
+      "restoreDefaults",
+      "data-template-flow-reset",
+      'translate("overview.chainTemplateInsight.flowReset")',
     ],
-    "topology hotspots removed",
+    "expand state",
   );
   assertIncludes(
-    treeChart,
+    flowCard,
     [
-      'data-tree-node',
-      'data-tree-edge',
-      'data-tree-edge-label',
-      'data-tree-hidden-count',
-      'data-tree-pulse',
-      "data-collapsed=",
-      "data-value={edge.value}",
+      'card.kind === "fold"',
+      "aria-expanded={false}",
+      "onExpandColumn(card.seq)",
+      "onExpandTargets(card.upstreamId)",
+      "data-template-flow-target-fold",
+      'translate("overview.chainTemplateInsight.flowFoldMembers"',
+      't("overview.chainTemplateInsight.flowFoldTargets"',
+      't("overview.chainTemplateInsight.flowFoldOffline"',
+    ],
+    "fold card",
+  );
+  // 折叠规则是纯逻辑：每列 4 张 + 折叠卡；目标每个上游至少 1 张。
+  assertIncludes(
+    graphLib,
+    [
+      "export const TEMPLATE_FOLD_LIMIT = 4",
+      "if (!expanded && cards.length > columnLimit)",
+      "expandedTargets.has(key)",
+      "visibleTargets.set(key, [members[0]])",
+    ],
+    "fold rules",
+  );
+});
+
+test("连线：直角折线 + 圆角 8 + 两端小圆点 + 合并虚线 + 时延药丸", () => {
+  assertIncludes(
+    graphLib,
+    [
+      "export function templateEdgePath(",
+      "export const TEMPLATE_EDGE_RADIUS = 8",
+      'const merged = sourceCard.kind === "fold" || targetCard.kind === "fold";',
+      "export function spreadPills(",
+      "export const TEMPLATE_PILL_WIDTH",
+      "const onVertical = dy >= TEMPLATE_PILL_HEIGHT + 16",
+    ],
+    "edge layout",
+  );
+  assertIncludes(
+    flowEdge,
+    [
+      "data-template-flow-edge",
+      "data-chains={edge.chains}",
       "data-width={edge.width}",
-      'aria-label={ariaLabel}',
-      "data-chart-tooltip",
-      "renderTooltip",
-      "treeHighlightPath",
-      "+{layoutNode.hiddenCount}",
+      'data-unavailable={edge.unavailable ? "true" : "false"}',
+      'data-merged={edge.merged ? "true" : "false"}',
+      'data-dashed={edge.dashed ? "true" : "false"}',
+      "data-template-flow-dot",
+      "data-template-flow-pill",
+      "<EdgeLabelRenderer>",
     ],
-    "TreeChart",
-  );
-  // 曲线与层级 x 在纯布局层生成；这里守住 C（三次贝塞尔）和 O(n) 行/列。
-  assertIncludes(
-    treeLib,
-    [
-      " C ",
-      "hiddenCount",
-      "treeHighlightPath",
-      "treeNodePathToRoot",
-      "Math.max(options.minColumnWidth",
-    ],
-    "tree layout",
+    "edge render",
   );
   assertIncludes(
     css,
     [
-      "@keyframes template-pulse-flow",
-      ".template-pulse",
-      "@media (prefers-reduced-motion: reduce)",
-      "animation: none !important",
+      '.template-flow-edge[data-dashed="true"]',
+      '.template-flow-edge[data-status="offline"]',
+      ".template-flow-pill {",
     ],
-    "pulse css",
+    "edge css",
   );
 });
 
-/* ------------------------------------------------------------------ */
-/* F1 目标按父节点分组折叠：拓扑点 +N 只展开这一组，并可收起            */
-/* ------------------------------------------------------------------ */
-
-test("F1 折叠按父节点分组可分别展开，卡片头部有「收起目标」", () => {
+test("手势：滚轮滚弹窗、Ctrl/⌘ 缩放、双击不缩放、平移有限范围", () => {
   assertIncludes(
-    topology,
+    flowCanvas,
     [
-      "chainTemplateTreeNodeMeta(node)",
-      'meta?.kind === "fold"',
-      "const parentId = meta.foldParent",
-      "expandedParents",
-      "expandedParents,",
-      "data-template-targets-collapse",
-      "collapseTargets",
-      'translate("overview.chainTemplateInsight.collapseTargets")',
+      "zoomOnScroll={false}",
+      "preventScrolling={false}",
+      "zoomOnDoubleClick={false}",
+      "zoomOnPinch={false}",
+      "panOnDrag={!compact}",
+      "translateExtent={compact ? undefined : translateExtent}",
+      "minZoom={compact ? 1 : TEMPLATE_MIN_ZOOM}",
+      "maxZoom={compact ? 1 : TEMPLATE_MAX_ZOOM}",
+      "event.ctrlKey",
+      "event.metaKey",
+      "clampTemplateZoom(",
+      "stepTemplateZoom(viewport.zoom, 1)",
     ],
-    "per-parent fold",
+    "gestures",
+  );
+  assertIncludes(
+    graphLib,
+    [
+      "export const TEMPLATE_MIN_ZOOM = 0.4",
+      "export const TEMPLATE_MAX_ZOOM = 1.6",
+      "export const TEMPLATE_INITIAL_MIN_ZOOM = 0.9",
+      "clamp(fit, TEMPLATE_INITIAL_MIN_ZOOM, TEMPLATE_INITIAL_MAX_ZOOM)",
+    ],
+    "zoom bounds",
+  );
+  assertIncludes(
+    css,
+    [".react-flow__pane {", "touch-action: pan-y"],
+    "touch action",
+  );
+  // 390：1 倍 + 横向滚动，画布不缩放。
+  assertIncludes(
+    flowCanvas,
+    ['"(max-width: 639px)"', "overflow-x-auto", "height: layout.height"],
+    "compact scroll",
   );
 });
 
-/* ------------------------------------------------------------------ */
-/* F2 离线边不显示当前 P50                                             */
-/* ------------------------------------------------------------------ */
-
-test("F2 离线边：标签 —、tooltip 用「最近已知」，aria 同步", () => {
+test("可访问性：Tab 可达、aria 带状态、tooltip 用现有组件", () => {
   assertIncludes(
-    topology,
+    flowCard,
     [
-      'const unavailable = edge.unavailable || link?.unavailable === true;',
-      'const value = unavailable ? "—" : (edge.label ?? "—");',
-      "edge.lastP50Ms",
-      'translate("overview.chainTemplateInsight.edgeLastKnown"',
-      '"overview.chainTemplateInsight.edgeUnavailable"',
-      "edgeAriaExtra(edge, link, translate)",
-    ],
-    "unavailable edge",
-  );
-  // 边标签本身由模型决定：不可用边固定 —，不再把历史 P50 当当前值。
-  assertIncludes(
-    read("../lib/chainTemplateTree.ts"),
-    [
-      "CHAIN_TEMPLATE_UNAVAILABLE_LABEL",
-      "lastP50Ms: item.unavailable ? p50 : null",
-    ],
-    "unavailable label",
-  );
-  // 渲染层拿不到 label 时也不把数值贴上去。
-  assertIncludes(
-    treeChart,
-    [
-      "function edgeValueText(edge: TreeChartLayoutEdge): string {",
-      'if (edge.unavailable) return "—";',
-    ],
-    "edge aria value",
-  );
-});
-
-/* ------------------------------------------------------------------ */
-/* F7 四档状态：degraded 标黄不脉冲，文案可读                          */
-/* ------------------------------------------------------------------ */
-
-test("F7 状态四档：degraded 标黄 / 不 pulse / tooltip 有文字", () => {
-  assertIncludes(
-    topology,
-    [
-      'if (status === "degraded") return translate("overview.chainTemplateInsight.degraded");',
-      'if (status === "degraded") return "text-warning";',
-      "edgeDegradedHint",
-      'data-template-tree-tooltip-status={meta.status}',
-      'className="inline-flex items-center gap-1"',
-      "border-warning",
-    ],
-    "degraded status",
-  );
-  assertIncludes(
-    treeChart,
-    [
-      "function isDegraded(node: TreeNode): boolean",
-      'statusOf(node) === "degraded"',
-      '"var(--warning)"',
-      "data-degraded={degraded ? \"true\" : \"false\"}",
-    ],
-    "degraded accent",
-  );
-  // 图例除颜色外带文字，离线 / 降级不是只靠颜色区分。
-  assertIncludes(topology, ['translate("overview.chainTemplateInsight.online")', 'translate("overview.chainTemplateInsight.offline")'], "legend text");
-});
-
-/* ------------------------------------------------------------------ */
-/* F3 tooltip 被滚动容器裁切                                           */
-/* ------------------------------------------------------------------ */
-
-test("F3 tooltip：实测尺寸 + 可见窗口夹紧，首行翻下方、390 夹回窗口", () => {
-  assertIncludes(
-    treeChart,
-    [
-      "useLayoutEffect",
-      "element.offsetWidth",
-      "element.offsetHeight",
-      "placeTreeTooltip({",
-      "visibleLeft: scroll?.scrollLeft ?? 0",
-      "visibleTop: scroll?.scrollTop ?? 0",
-      "visibleWidth: scroll?.clientWidth ?? element.offsetWidth + 16",
-      "visibleHeight: scroll?.clientHeight ?? element.offsetHeight + 16",
-      'scroll?.addEventListener("scroll", update, { passive: true })',
-      'window.addEventListener("resize", update)',
-      "visibility: placement === null ? \"hidden\" : \"visible\"",
-    ],
-    "measured tooltip",
-  );
-  assertIncludes(
-    treeLib,
-    [
-      "export function placeTreeTooltip(",
-      "const below = above < input.visibleTop + margin;",
-      "input.anchorX - width / 2",
-    ],
-    "tooltip placement",
-  );
-  // 键盘 focus 与 hover 走同一套定位：focus handler 直接 setActive。
-  assertIncludes(
-    treeChart,
-    [
-      "const focusNodeAt = useCallback(",
-      "const focusEdgeAt = useCallback(",
-      "onFocus={focusNodeAt}",
-      "onFocus={focusEdgeAt}",
       "tabIndex={0}",
+      "aria-label={aria}",
+      "<TooltipTrigger asChild>",
+      'side="top"',
+      "useI18n()",
+      't("overview.chainTemplateInsight.flowCardAria"',
     ],
-    "keyboard focus",
+    "card a11y",
+  );
+  assertIncludes(flowEdge, ['role="img"', "aria-label={aria}"], "edge a11y");
+  assertIncludes(
+    flowCanvas,
+    ['role="group"', "aria-label={translate(", "<TooltipProvider"],
+    "canvas a11y",
+  );
+  assertIncludes(
+    topology,
+    ["focus-visible:ring-2", "disabled={flowApi === null"],
+    "keyboard controls",
   );
 });
 
-/* ------------------------------------------------------------------ */
-/* F4 脉冲：单条 path + Top N + reduced-motion 同一条 path 静态可见     */
-/* ------------------------------------------------------------------ */
-
-test("F4 脉冲：不再渲染静态副本，只保留一条 path；reduced-motion 原路复用", () => {
-  // 每条脉冲边只有一条 path：源码里 pulse 的 pathLength 只出现一次。
-  assert.equal(
-    (treeChart.match(/pathLength=\{100\}/g) ?? []).length,
-    1,
-    "每条脉冲边只渲染一条 path",
-  );
-  assertExcludes(treeChart, ["data-tree-pulse-static"], "TreeChart");
-  assertExcludes(css, [".template-pulse-static"], "index.css");
+test("性能：动画边 ≤10、脉冲一条 path、reduced-motion 静止可见", () => {
   assertIncludes(
-    treeChart,
+    graphLib,
     [
-      "selectPulseEdgeIds(layout.edges)",
-      'className="template-pulse"',
-      'data-tree-pulse',
+      "export const TEMPLATE_PULSE_LIMIT = 10",
+      ".slice(0, TEMPLATE_PULSE_LIMIT)",
     ],
+    "pulse cap",
+  );
+  assertIncludes(
+    flowEdge,
+    ["data-template-flow-pulse", "pathLength={100}"],
     "pulse path",
   );
   assertIncludes(
     css,
     [
-      ".template-pulse {",
-      "stroke-dasharray: none;",
-      "stroke-opacity: 0.42;",
-      "animation: none !important;",
+      "@keyframes template-flow-pulse-flow",
+      "stroke-opacity: 0.42",
+      "animation: none !important",
     ],
-    "reduced motion static path",
+    "reduced motion",
   );
-  assertIncludes(treeLib, ["export const TREE_PULSE_LIMIT = 10", "export function selectPulseEdgeIds("], "pulse cap");
+  // 高亮只重渲染读 context 的卡片 / 连线，nodes / edges 引用保持稳定。
+  assertIncludes(
+    flowCanvas,
+    ["useMemo<Node[]>(", "useMemo<Edge[]>("],
+    "memo nodes",
+  );
+  assertIncludes(flowContext, ["createContext"], "interaction context");
 });
 
-/* ------------------------------------------------------------------ */
-/* F5 可访问性                                                         */
-/* ------------------------------------------------------------------ */
-
-test("F5 可访问性：aria 带状态 / 用户数，tooltip aria-live 且与触发元素关联", () => {
+test("React Flow 署名保留，12px muted，不隐藏", () => {
   assertIncludes(
-    treeChart,
+    css,
     [
-      'aria-describedby={tooltipId}',
-      'aria-live="polite"',
-      'aria-atomic="true"',
-      'role="tooltip"',
-      "describeNode?: (node: TreeNode, layoutNode: TreeChartLayoutNode) => string;",
-      "describeEdge?: (",
+      ".react-flow__attribution {",
+      "font-size: 12px",
+      "color: var(--muted-foreground)",
     ],
-    "aria wiring",
+    "attribution",
   );
+  assert.equal(
+    flowCanvas.includes("hideAttribution: true"),
+    false,
+    "不能隐藏 React Flow 署名",
+  );
+});
+
+test("F2 离线边：不给当前 P50，lastP50Ms 只做「最近已知」", () => {
+  assertIncludes(
+    graphLib,
+    [
+      "p50Ms: unavailable ? null : p50,",
+      "lastP50Ms: unavailable ? p50 : null,",
+    ],
+    "unavailable edge",
+  );
+  assertIncludes(
+    flowEdge,
+    ['if (edge.unavailable || edge.p50Ms === null) return "—";'],
+    "pill value",
+  );
+  assertIncludes(
+    css,
+    ['.template-flow-pill[data-status="offline"]', "color: var(--destructive)"],
+    "unavailable pill",
+  );
+});
+
+test("F7 状态四档：degraded 标黄、不 pulse、有文字", () => {
+  assertIncludes(
+    flowCard,
+    [
+      'if (status === "degraded") return "bg-warning";',
+      'if (status === "degraded") return "text-warning";',
+      'translate("overview.chainTemplateInsight.degraded")',
+      'translate("overview.chainTemplateInsight.online")',
+      'translate("overview.chainTemplateInsight.offline")',
+    ],
+    "status",
+  );
+  assertIncludes(
+    css,
+    [
+      '.template-flow-edge[data-status="degraded"]',
+      '.template-flow-pill[data-status="degraded"]',
+    ],
+    "degraded color",
+  );
+  // 降级 / 不可用路径不脉冲：脉冲候选过滤掉它们。
+  assertIncludes(
+    graphLib,
+    ["!edge.merged && !edge.unavailable && !edge.degraded && edge.chains > 0"],
+    "pulse filter",
+  );
+});
+
+test("F9 0 链拓扑显示空态，不渲染画布", () => {
   assertIncludes(
     topology,
     [
-      'translate("overview.chainTemplateInsight.usersValue", { n: meta.users })',
-      "edge.users > 0",
-      "describeNode={describeNode}",
-      "describeEdge={describeEdge}",
-    ],
-    "aria content",
-  );
-  // 命中区 ≥44×44：使用共享常量，行高与命中区同档。
-  assertIncludes(
-    treeChart,
-    [
-      "TREE_NODE_HIT_SIZE",
-      "data-tree-hit",
-      "width={hitWidth}",
-      "height={TREE_NODE_HIT_SIZE}",
-      "x={hitX}",
-      "const hitWidth = Math.max(",
-      "TREE_LABEL_OFFSET +",
-    ],
-    "hit area",
-  );
-  assertIncludes(treeLib, ["export const TREE_NODE_HIT_SIZE = 44", "rowHeight: 44"], "hit size");
-  // 触点：首点只选中，再点才折叠。
-  assertIncludes(
-    treeChart,
-    [
-      "treeNodeActivation({",
-      'if (action === "reveal") {',
-      "const [armedId, setArmedId] = useState<string | null>(null);",
-    ],
-    "tap to reveal",
-  );
-  assertIncludes(treeLib, ["export function treeNodeActivation(", 'hoverCapable: boolean;'], "activation helper");
-  // 离线 / 降级除颜色外有文字：tooltip 状态行 + sr-only 标记。
-  assertIncludes(topology, ["sr-only", "statusText(row.status, translate)"], "sr-only status");
-});
-
-/* ------------------------------------------------------------------ */
-/* F6 hover 性能：根属性 + 生成式 CSS，不逐节点重写                      */
-/* ------------------------------------------------------------------ */
-
-test("F6 hover：高亮收敛成根 data-tree-dim + 一条生成式 CSS", () => {
-  assertIncludes(
-    treeChart,
-    [
-      "function buildHighlightCss(",
-      '<style data-tree-highlight>{highlightCss}</style>',
-      'data-tree-dim={activeHighlight === null ? undefined : "true"}',
-      'data-tree-scope={scope}',
-      'data-tree-index={index}',
-      'data-tree-edge-index={index}',
-      "hot?.nodes.has(index)",
-      "const NodeShape = memo(",
-      "const EdgeLayer = memo(",
-    ],
-    "highlight css",
-  );
-  // 渲染层不再按节点写 fillOpacity / dimmed 之类的属性。
-  assertExcludes(treeChart, ["dimmed", "highlighted ?"], "per-node highlight props");
-  assertIncludes(css, ["[data-tree-chart][data-tree-dim] [data-tree-node]"], "dim css");
-  // 交叉边：hover 节点时把汇入它的交叉边和 source 路径一起点亮。
-  assertIncludes(
-    treeLib,
-    [
-      "if (edge.tree || edge.target !== target.nodeId) continue;",
-      "addNodePath(edge.source);",
-      "const guard = new Set<string>();",
-    ],
-    "cross-edge highlight",
-  );
-});
-
-/* ------------------------------------------------------------------ */
-/* F8 对比度与标签                                                     */
-/* ------------------------------------------------------------------ */
-
-test("F8 对比度 / 标签：透明度 ≥0.7、1.5px、24 字截断、10px、密集扇出只 hover 显示", () => {
-  assertIncludes(
-    treeLib,
-    [
-      "return Math.round((0.7 + 0.3 * ratio) * 100) / 100;",
-      "return Math.round((1.5 + 4.5 * ratio) * 100) / 100;",
-      "export const TREE_LABEL_MAX_CHARS = 24;",
-      "export const TREE_DENSE_FANOUT = 6;",
-      "export function truncateTreeLabel(",
-    ],
-    "contrast + labels",
-  );
-  assertIncludes(treeChart, ['displayName', "fontSize={10}", 'data-tree-dense={edge.dense ? "true" : undefined}'], "label render");
-  assertIncludes(css, ['[data-tree-edge-label][data-tree-dense="true"]'], "dense label css");
-  // 拓扑下方的三行解释文案已经删掉。
-  assertExcludes(topology, ["topologyHintWidth", "topologyHintP50", "topologyHintPulse"], "topology hints");
-  assertExcludes(treeChart, ["topologyHint"], "TreeChart hints");
-});
-
-/* ------------------------------------------------------------------ */
-/* F9 其它小项                                                         */
-/* ------------------------------------------------------------------ */
-
-test("F9 0 链拓扑显示空态，不画孤立 root", () => {
-  assertIncludes(
-    topology,
-    [
-      "model.isEmpty",
+      "graph.empty",
       "<EmptyState",
       'translate("overview.chainTemplateInsight.emptyTopologyTitle")',
       "WaypointsIcon",
     ],
     "empty topology",
+  );
+  assertIncludes(
+    graphLib,
+    ["const empty = columns.every((column) => column.members.length === 0);"],
+    "empty graph",
   );
 });
 
@@ -530,8 +499,7 @@ test("F9 死代码与未使用 i18n 清掉", () => {
     ["nodeHeatTier", "edgeStrokeWidth", "edgeStrokeOpacity", "MAX_TEMPLATE_HEAT_TIERS", "templateTargetLabels"],
     "dead insight helpers",
   );
-  const tree = read("../lib/chainTemplateTree.ts");
-  assertExcludes(tree, ["maxEdgeChains"], "dead tree field");
+  assertExcludes(graphLib, ["maxEdgeChains"], "dead tree field");
   const zhBlock = i18nBlock(zh);
   const enBlock = i18nBlock(en);
   for (const key of [
@@ -563,19 +531,17 @@ test("F9 死代码与未使用 i18n 清掉", () => {
 });
 
 test("F9 成员去重键用 serverId ?? name", () => {
-  const tree = read("../lib/chainTemplateTree.ts");
   assertIncludes(
-    tree,
+    graphLib,
     [
       "function memberIdentity(member: ChainTemplateMember): string {",
       'const serverId = member.serverId ?? "";',
-      "return serverId !== \"\" ? serverId : member.name;",
-      "key: `${seq}::${member === null ? name : memberIdentity(member)}`,",
+      'return serverId !== "" ? serverId : member.name;',
+      "const identity = memberIdentity(member);",
     ],
     "member identity",
   );
 });
-
 test("使用量 tooltip 列出当前用户，策略只画真实种类", () => {
   assertIncludes(
     usage,
@@ -797,8 +763,21 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     "offline",
     "degraded",
     "unknownStatus",
-    "treeRoot",
-    "treeTargetsFold",
+    "flowEntry",
+    "flowTarget",
+    "flowHop",
+    "flowFoldMembers",
+    "flowFoldTargets",
+    "flowFoldOffline",
+    "flowFoldListTitle",
+    "flowTargetListTitle",
+    "flowCardAria",
+    "flowEdgeAria",
+    "flowTargetFoldAria",
+    "flowZoomIn",
+    "flowZoomOut",
+    "flowFit",
+    "flowReset",
     "topologyAria",
     "unusedTitle",
     "tooltipStatus",
@@ -809,7 +788,6 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     "edgeUnavailable",
     "edgeLastKnown",
     "edgeDegradedHint",
-    "collapseTargets",
     "emptyTopologyTitle",
     "emptyTopologyDesc",
     "staleNotice",
@@ -821,9 +799,27 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
   }
   assertIncludes(zh, ['sectionTitle: "转发链模板"'], "zh title");
   assertIncludes(en, ['sectionTitle: "Chain templates"'], "en title");
-  // 新增的降级 / 收起目标 / 空态文案也要中英成对。
-  assertIncludes(zh, ['degraded: "降级"', 'collapseTargets: "收起目标"', 'emptyTopologyTitle: "暂无流量"'], "zh new keys");
-  assertIncludes(en, ['degraded: "Degraded"', 'collapseTargets: "Collapse targets"', 'emptyTopologyTitle: "No traffic yet"'], "en new keys");
+  // 新增的降级 / 缩放 / 空态文案也要中英成对。
+  assertIncludes(
+    zh,
+    [
+      'degraded: "降级"',
+      'flowFit: "适应窗口"',
+      'flowReset: "恢复默认"',
+      'emptyTopologyTitle: "暂无流量"',
+    ],
+    "zh new keys",
+  );
+  assertIncludes(
+    en,
+    [
+      'degraded: "Degraded"',
+      'flowFit: "Fit to view"',
+      'flowReset: "Reset view"',
+      'emptyTopologyTitle: "No traffic yet"',
+    ],
+    "en new keys",
+  );
 });
 
 test("模板 stale 提示与使用量口径图注：读新字段，缺失时不出", () => {
@@ -870,9 +866,9 @@ test("模板 stale 提示与使用量口径图注：读新字段，缺失时不�
     "en new contract copy",
   );
   // 未使用候选只来自契约字段，不再从 nodes 反推。
-  assertIncludes(templateTreeLib, ["detail.unusedCandidates.map"], "unused candidates");
+  assertIncludes(graphLib, ["detail.unusedCandidates.map"], "unused candidates");
   assertExcludes(
-    templateTreeLib,
+    graphLib,
     ["const usedSourceIdentities = new Set(", "drafts.has(`${node.seq}::${identity}`)"],
     "unused candidates derived from nodes",
   );

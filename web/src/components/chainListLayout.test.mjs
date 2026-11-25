@@ -111,7 +111,7 @@ test("mobile stacks link → address → route → metrics", () => {
   assert.match(row, /truncate/);
 });
 
-test("header appears once with route and all numeric columns", () => {
+test("header appears once with sortable numeric columns", () => {
   const start = source.indexOf("data-chain-list-head");
   const end = source.indexOf("<ul", start);
   const head = source.slice(start, end);
@@ -125,6 +125,22 @@ test("header appears once with route and all numeric columns", () => {
   ]) {
     assert.match(head, new RegExp(key.replace(".", "\\.")));
   }
-  assert.match(head, />P50</);
+  // P50 / 丢包表头是可点击的排序按钮（点击切换升降序），不再是纯文本。
+  assert.match(head, /label="P50"/);
+  assert.match(
+    head,
+    /label=\{t\("overview\.chainLatency\.windowLoss"\)\}/,
+  );
+  assert.match(head, /sortKey="p50"/);
+  assert.match(head, /sortKey="loss"/);
+  assert.equal(
+    (head.match(/onSort=\{handleSortChange\}/g) ?? []).length,
+    2,
+    "both sortable headers must share the same sort handler",
+  );
+  // 「最近样本」没有独立列，由卡头的排序下拉覆盖：选项里必须有 latest。
+  const controls = read("components/overview/ChainLatencyListControls.tsx");
+  assert.match(controls, /\["p50", "loss", "latest"\]/);
+  assert.match(controls, /overview\.chainLatency\.sortLatest/);
   assert.equal((head.match(/data-chain-list-head/g) ?? []).length, 1);
 });
