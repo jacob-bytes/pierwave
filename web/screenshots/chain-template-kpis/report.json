@@ -1,0 +1,547 @@
+{
+  "generatedAt": "2026-11-25T00:35:59.114Z",
+  "base": "http://127.0.0.1:8787",
+  "expected": {
+    "total": 3,
+    "enabled": 2,
+    "disabled": 1,
+    "inUse": 3,
+    "chains": 7,
+    "users": 5,
+    "blocked": 1,
+    "degraded": 0,
+    "abnormal": 1
+  },
+  "zh": {
+    "total": "3 个",
+    "inUse": "3 个",
+    "users": "5 人",
+    "abnormal": "1 个",
+    "totalHint": "启用 2 · 停用 1",
+    "inUseHint": "共 7 条链",
+    "usersHint": "管理员链不计入",
+    "abnormalHint": "阻断 1 · 降级 0"
+  },
+  "results": [
+    {
+      "name": "normal 1440-dark: 四个 KPI 存在且顺序固定",
+      "ok": true,
+      "detail": [
+        "模板总数",
+        "使用中的模板",
+        "使用用户",
+        "异常模板"
+      ]
+    },
+    {
+      "name": "normal 1440-dark: 数值与列表接口聚合一致",
+      "ok": true,
+      "detail": {
+        "values": [
+          "3 个",
+          "3 个",
+          "5 人",
+          "1 个"
+        ],
+        "rows": {
+          "total": 3,
+          "enabled": 2,
+          "disabled": 1,
+          "inUse": 3,
+          "chains": 7,
+          "users": 5,
+          "blocked": 1,
+          "degraded": 0,
+          "abnormal": 1
+        }
+      }
+    },
+    {
+      "name": "normal 1440-dark: 副行文案与 13px 字号",
+      "ok": true,
+      "detail": [
+        "启用 2 · 停用 1",
+        "共 7 条链",
+        "管理员链不计入",
+        "阻断 1 · 降级 0"
+      ]
+    },
+    {
+      "name": "normal 1440-dark: 异常模板非 0 用 destructive 数字",
+      "ok": true,
+      "detail": "mt-2 text-[28px] leading-none font-medium tracking-tight tabular-nums text-destructive"
+    },
+    {
+      "name": "normal 1440-dark: 栅格与无横向溢出",
+      "ok": true,
+      "detail": {
+        "cells": [
+          {
+            "kind": "total",
+            "w": 287,
+            "h": 113,
+            "x": 264,
+            "y": 344
+          },
+          {
+            "kind": "in-use",
+            "w": 287,
+            "h": 113,
+            "x": 552,
+            "y": 344
+          },
+          {
+            "kind": "users",
+            "w": 287,
+            "h": 113,
+            "x": 841,
+            "y": 344
+          },
+          {
+            "kind": "abnormal",
+            "w": 287,
+            "h": 113,
+            "x": 1129,
+            "y": 344
+          }
+        ],
+        "docOverflow": 0
+      }
+    },
+    {
+      "name": "normal 1440-light: 四个 KPI 存在且顺序固定",
+      "ok": true,
+      "detail": [
+        "模板总数",
+        "使用中的模板",
+        "使用用户",
+        "异常模板"
+      ]
+    },
+    {
+      "name": "normal 1440-light: 数值与列表接口聚合一致",
+      "ok": true,
+      "detail": {
+        "values": [
+          "3 个",
+          "3 个",
+          "5 人",
+          "1 个"
+        ],
+        "rows": {
+          "total": 3,
+          "enabled": 2,
+          "disabled": 1,
+          "inUse": 3,
+          "chains": 7,
+          "users": 5,
+          "blocked": 1,
+          "degraded": 0,
+          "abnormal": 1
+        }
+      }
+    },
+    {
+      "name": "normal 1440-light: 副行文案与 13px 字号",
+      "ok": true,
+      "detail": [
+        "启用 2 · 停用 1",
+        "共 7 条链",
+        "管理员链不计入",
+        "阻断 1 · 降级 0"
+      ]
+    },
+    {
+      "name": "normal 1440-light: 异常模板非 0 用 destructive 数字",
+      "ok": true,
+      "detail": "mt-2 text-[28px] leading-none font-medium tracking-tight tabular-nums text-destructive"
+    },
+    {
+      "name": "normal 1440-light: 栅格与无横向溢出",
+      "ok": true,
+      "detail": {
+        "cells": [
+          {
+            "kind": "total",
+            "w": 287,
+            "h": 113,
+            "x": 264,
+            "y": 344
+          },
+          {
+            "kind": "in-use",
+            "w": 287,
+            "h": 113,
+            "x": 552,
+            "y": 344
+          },
+          {
+            "kind": "users",
+            "w": 287,
+            "h": 113,
+            "x": 841,
+            "y": 344
+          },
+          {
+            "kind": "abnormal",
+            "w": 287,
+            "h": 113,
+            "x": 1129,
+            "y": 344
+          }
+        ],
+        "docOverflow": 0
+      }
+    },
+    {
+      "name": "normal 390-dark: 四个 KPI 存在且顺序固定",
+      "ok": true,
+      "detail": [
+        "模板总数",
+        "使用中的模板",
+        "使用用户",
+        "异常模板"
+      ]
+    },
+    {
+      "name": "normal 390-dark: 数值与列表接口聚合一致",
+      "ok": true,
+      "detail": {
+        "values": [
+          "3 个",
+          "3 个",
+          "5 人",
+          "1 个"
+        ],
+        "rows": {
+          "total": 3,
+          "enabled": 2,
+          "disabled": 1,
+          "inUse": 3,
+          "chains": 7,
+          "users": 5,
+          "blocked": 1,
+          "degraded": 0,
+          "abnormal": 1
+        }
+      }
+    },
+    {
+      "name": "normal 390-dark: 副行文案与 13px 字号",
+      "ok": true,
+      "detail": [
+        "启用 2 · 停用 1",
+        "共 7 条链",
+        "管理员链不计入",
+        "阻断 1 · 降级 0"
+      ]
+    },
+    {
+      "name": "normal 390-dark: 异常模板非 0 用 destructive 数字",
+      "ok": true,
+      "detail": "mt-2 text-[28px] leading-none font-medium tracking-tight tabular-nums text-destructive"
+    },
+    {
+      "name": "normal 390-dark: 栅格与无横向溢出",
+      "ok": true,
+      "detail": {
+        "cells": [
+          {
+            "kind": "total",
+            "w": 171,
+            "h": 113,
+            "x": 24,
+            "y": 290
+          },
+          {
+            "kind": "in-use",
+            "w": 171,
+            "h": 113,
+            "x": 196,
+            "y": 290
+          },
+          {
+            "kind": "users",
+            "w": 171,
+            "h": 113,
+            "x": 24,
+            "y": 404
+          },
+          {
+            "kind": "abnormal",
+            "w": 171,
+            "h": 113,
+            "x": 196,
+            "y": 404
+          }
+        ],
+        "docOverflow": 0
+      }
+    },
+    {
+      "name": "normal 390-light: 四个 KPI 存在且顺序固定",
+      "ok": true,
+      "detail": [
+        "模板总数",
+        "使用中的模板",
+        "使用用户",
+        "异常模板"
+      ]
+    },
+    {
+      "name": "normal 390-light: 数值与列表接口聚合一致",
+      "ok": true,
+      "detail": {
+        "values": [
+          "3 个",
+          "3 个",
+          "5 人",
+          "1 个"
+        ],
+        "rows": {
+          "total": 3,
+          "enabled": 2,
+          "disabled": 1,
+          "inUse": 3,
+          "chains": 7,
+          "users": 5,
+          "blocked": 1,
+          "degraded": 0,
+          "abnormal": 1
+        }
+      }
+    },
+    {
+      "name": "normal 390-light: 副行文案与 13px 字号",
+      "ok": true,
+      "detail": [
+        "启用 2 · 停用 1",
+        "共 7 条链",
+        "管理员链不计入",
+        "阻断 1 · 降级 0"
+      ]
+    },
+    {
+      "name": "normal 390-light: 异常模板非 0 用 destructive 数字",
+      "ok": true,
+      "detail": "mt-2 text-[28px] leading-none font-medium tracking-tight tabular-nums text-destructive"
+    },
+    {
+      "name": "normal 390-light: 栅格与无横向溢出",
+      "ok": true,
+      "detail": {
+        "cells": [
+          {
+            "kind": "total",
+            "w": 171,
+            "h": 113,
+            "x": 24,
+            "y": 290
+          },
+          {
+            "kind": "in-use",
+            "w": 171,
+            "h": 113,
+            "x": 196,
+            "y": 290
+          },
+          {
+            "kind": "users",
+            "w": 171,
+            "h": 113,
+            "x": 24,
+            "y": 404
+          },
+          {
+            "kind": "abnormal",
+            "w": 171,
+            "h": 113,
+            "x": 196,
+            "y": 404
+          }
+        ],
+        "docOverflow": 0
+      }
+    },
+    {
+      "name": "empty 1440-dark: 四格都是 —，不是 0",
+      "ok": true,
+      "detail": [
+        "—",
+        "—",
+        "—",
+        "—"
+      ]
+    },
+    {
+      "name": "empty 1440-dark: KPI 与列表一起降级",
+      "ok": true,
+      "detail": {
+        "kpiState": "empty",
+        "listState": "empty"
+      }
+    },
+    {
+      "name": "empty 1440-light: 四格都是 —，不是 0",
+      "ok": true,
+      "detail": [
+        "—",
+        "—",
+        "—",
+        "—"
+      ]
+    },
+    {
+      "name": "empty 1440-light: KPI 与列表一起降级",
+      "ok": true,
+      "detail": {
+        "kpiState": "empty",
+        "listState": "empty"
+      }
+    },
+    {
+      "name": "empty 390-dark: 四格都是 —，不是 0",
+      "ok": true,
+      "detail": [
+        "—",
+        "—",
+        "—",
+        "—"
+      ]
+    },
+    {
+      "name": "empty 390-dark: KPI 与列表一起降级",
+      "ok": true,
+      "detail": {
+        "kpiState": "empty",
+        "listState": "empty"
+      }
+    },
+    {
+      "name": "empty 390-light: 四格都是 —，不是 0",
+      "ok": true,
+      "detail": [
+        "—",
+        "—",
+        "—",
+        "—"
+      ]
+    },
+    {
+      "name": "empty 390-light: KPI 与列表一起降级",
+      "ok": true,
+      "detail": {
+        "kpiState": "empty",
+        "listState": "empty"
+      }
+    },
+    {
+      "name": "unsupported 1440-dark: 四格都是 —，不是 0",
+      "ok": true,
+      "detail": [
+        "—",
+        "—",
+        "—",
+        "—"
+      ]
+    },
+    {
+      "name": "unsupported 1440-dark: KPI 与列表一起降级",
+      "ok": true,
+      "detail": {
+        "kpiState": "unavailable",
+        "listState": "unavailable"
+      }
+    },
+    {
+      "name": "unsupported 1440-light: 四格都是 —，不是 0",
+      "ok": true,
+      "detail": [
+        "—",
+        "—",
+        "—",
+        "—"
+      ]
+    },
+    {
+      "name": "unsupported 1440-light: KPI 与列表一起降级",
+      "ok": true,
+      "detail": {
+        "kpiState": "unavailable",
+        "listState": "unavailable"
+      }
+    },
+    {
+      "name": "unsupported 390-dark: 四格都是 —，不是 0",
+      "ok": true,
+      "detail": [
+        "—",
+        "—",
+        "—",
+        "—"
+      ]
+    },
+    {
+      "name": "unsupported 390-dark: KPI 与列表一起降级",
+      "ok": true,
+      "detail": {
+        "kpiState": "unavailable",
+        "listState": "unavailable"
+      }
+    },
+    {
+      "name": "unsupported 390-light: 四格都是 —，不是 0",
+      "ok": true,
+      "detail": [
+        "—",
+        "—",
+        "—",
+        "—"
+      ]
+    },
+    {
+      "name": "unsupported 390-light: KPI 与列表一起降级",
+      "ok": true,
+      "detail": {
+        "kpiState": "unavailable",
+        "listState": "unavailable"
+      }
+    },
+    {
+      "name": "healthy 1440-dark: 异常为 0 显示 0 + 正常色",
+      "ok": true,
+      "detail": {
+        "value": "0 个",
+        "className": "mt-2 text-[28px] leading-none font-medium tracking-tight tabular-nums text-foreground"
+      }
+    },
+    {
+      "name": "degraded-only 1440-dark: 只有降级用 warning",
+      "ok": true,
+      "detail": {
+        "value": "1 个",
+        "className": "mt-2 text-[28px] leading-none font-medium tracking-tight tabular-nums text-warning"
+      }
+    },
+    {
+      "name": "error 1440-dark: 接口失败时 KPI 与错误态同屏，不用 0 冒充",
+      "ok": true,
+      "detail": [
+        "转发链模板",
+        "",
+        "数据加载失败",
+        ""
+      ]
+    },
+    {
+      "name": "loading 1440-dark: KPI 与列表同时铺骨架",
+      "ok": true,
+      "detail": {
+        "kpiSkeletonCells": 4,
+        "listSkeleton": true,
+        "kpiPresent": false
+      }
+    }
+  ],
+  "failures": []
+}

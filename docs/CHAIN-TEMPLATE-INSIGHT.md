@@ -323,28 +323,71 @@ the measured one on the preview database. Migration 0068 only adds the
 
 ## 4. 造数 / Preview seed
 
-`scripts/seed-preview.sh` 每次重建 3 个模板 + 9 条链（3 条原管理员链 + 6 条
-用户链），并写入相应 groups / members / 样本：
+`scripts/seed-preview.sh` 每次重建 **5 个模板 + 17 条链**（3 条管理员链 +
+14 条用户链；其中 12 条链分布在新增 / 改造的 701 / 704 / 705 上），并写入
+相应 groups / members / 样本：
 
-- `港日双路`：3 跳，入口组 `[香港-01, 香港-02]`、中转组
-  `[东京-01, 东京-02]`、出口组 `[大阪-01]`；东京-02 与大阪-01 离线 →
-  `blocked/member_offline`；4 条链（1 条管理员 + kenji + mei 两条），
-  `users = 2`；`香港-02` 是未被使用的候选（`chains = 0`）；
-- `港新单跳`：1 跳 `[香港-02]`，2 条链（kenji / nora），目标相同，
+- `港日双路`（`…701`）：3 跳，候选 `[香港-01, 香港-02, 香港-03]` →
+  `[东京-01, 东京-02]` → `[新加坡-01, 新加坡-02, 大阪-01]`；香港-03、东京-02
+  离线 → `blocked/member_offline`；5 条链（管理员 `港日多路径` + kenji +
+  mei 两条 + nora），`users = 3`。603「港日多路径」的中转组有两台成员
+  （东京-01 / 东京-02），东京-02 离线使这条链 `blocked/node_offline`；
+  `香港-03` 是未被使用的候选（`chains = 0`）；
+- `港日新四跳`（`…704`）：4 跳，候选 `[香港-01, 香港-02]` →
+  `[东京-01, 东京-02]` → `[新加坡-01, 新加坡-02]` → `[大阪-01]`；最后一跳
+  单成员、大阪-01 在线，4 条链（kenji / mei / nora / demo，`users = 4`）的
+  最后一跳都有当前 `p50_ms` / `loss_pct`；东京-02 仍是候选 → 模板
+  `blocked/member_offline`，723 在第二跳离线、721 / 724 是完整四跳路径；
+- `港新入口分叉`（`…705`）：2 跳，入口组 3 台 `[香港-01, 香港-02,
+  新加坡-02]`，三条链各用一个入口、都汇入新加坡-01；`status = ok`，
+  `chains = 3`、`users = 3`；
+- `港新单跳`（`…702`）：1 跳 `[香港-02]`，2 条链（kenji / nora），目标相同，
   `users = 2`、`status = ok`；
-- `美西备用线`：2 跳，已停用；nora 的历史链仍挂在模板上 →
+- `美西备用线`（`…703`）：2 跳，已停用；nora 的历史链仍挂在模板上 →
   `blocked/disabled`，`chains = 1`、`users = 1`；
-- 用户链的 `owner_user_id` 落到真实的 `kenji` / `mei` / `nora`；mei 的两条
-  港日双路链目标相同，用来验证 users 去重而 chains 不去重；
-- 三条策略都有链在用：`ip_hashed`（港日双路）、`round_robin`（港新单跳）、
-  `lowest_latency`（美西备用线）；
-- 港新单跳链有 24h 时延 / 探测样本，详情里能看到边 `p50_ms ≈ 18ms`。
+- 用户链的 `owner_user_id` 落到真实的 `kenji` / `mei` / `nora` / `demo`；
+  701 的 712 / 713 目标相同，用来验证 users 去重、chains 不去重与目标节点合并；
+- 策略覆盖四种：`ip_hashed`（港日双路 / 港新入口分叉）、`round_robin`
+  （港日新四跳 / 港新单跳）、`lowest_latency` / `failover`（各模板的中间 /
+  最后一跳）；
+- 样本：每条链的每个 forward 都有最近 24h、5 分钟粒度的时延与探测样本；
+  东京-02（2h 前）、香港-03（3h 前）、美西-01（2 天前）在停止后不再写入，
+  新加坡-02（Agent 在线、Xray 停止）按 3 小时前停止；从未上报的探针机不写。
+  模板洞察的成员状态直接透传 `servers.status`，所以新加坡-02 在详情里仍是
+  `online`，只有样本在它停止后截断（状态契约见 §1.1 / §2）；
+- 状态分布：模板层 `blocked/member_offline` 是 `港日双路` / `港日新四跳`
+  （候选含离线的香港-03 / 东京-02），`ok` 是 `港新单跳` / `港新入口分叉`，
+  `美西备用线` 是 `blocked/disabled`；链层 `港日多路径` 为
+  `blocked/node_offline`（东京-02），经过新加坡-02 的 `港新直达链` /
+  `mei · 港日新四跳` / `nora · 港日双路 C` / `demo · 港新入口 C` 为
+  `degraded/no_samples`（Xray 停止、没有当前样本；`servers.status` 未改）。
 
-English: the seed rebuilds three templates and nine chains (three original admin
-chains plus six user chains), with groups, members and samples. It covers a
-blocked multi-member template, a healthy single-hop template, a disabled
-template with a historical chain, distinct owners, duplicate targets for the
-same user, and all three strategies.
+English: the seed rebuilds **five templates and 17 chains** (three admin chains
+plus 14 user chains; 12 chains live on the new/reshaped 701 / 704 / 705), with
+their groups, members and samples. `港日双路` is a 3-hop blocked template with
+three entry / two middle / three exit candidates, five chains (an admin
+multi-path chain plus four user chains) and three users; its admin chain
+`港日多路径` has a multi-member middle hop and is `blocked/node_offline`
+because 东京-02 is offline. `港日新四跳` is a 4-hop template whose last hop is
+a single online member (大阪-01), so all four chains have current p50/loss on
+their final edges while the template itself stays `blocked/member_offline` due
+to the offline 东京-02 candidate; 721 / 724 are complete 4-hop paths.
+`港新入口分叉` uses three entry machines (one per chain) and is `ok`. The
+single-hop `港新单跳` is `ok`; the disabled `美西备用线` keeps nora's
+historical chain (`blocked/disabled`). Owners are the real kenji / mei / nora /
+demo users; 712 / 713 share a target to exercise user deduplication and target
+merging. All four strategies are covered, and every chain forward has 24h of
+5-minute latency/probe samples; offline members (东京-02, 香港-03, 美西-01)
+stop at their last heartbeat and the Xray-stopped 新加坡-02 stops three hours
+ago. The insight contract passes `servers.status` through, so 新加坡-02 still
+shows as `online` in the detail while its samples are cut off. At the template
+level `港日双路` / `港日新四跳` are `blocked/member_offline` (offline candidates
+香港-03 / 东京-02), `港新单跳` / `港新入口分叉` are `ok`, and `美西备用线` is
+`blocked/disabled`; at the chain level `港日多路径` is
+`blocked/node_offline` (东京-02) and the chains through 新加坡-02
+(`港新直达链`, `mei · 港日新四跳`, `nora · 港日双路 C`, `demo · 港新入口 C`)
+are `degraded/no_samples` because the Xray-stopped member has no current
+samples (its `servers.status` is untouched).
 
 ## 5. 测试 / Tests
 

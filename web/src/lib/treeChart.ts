@@ -8,6 +8,11 @@
  * 该层最长标签估算，避免标签压到下一列。折叠只影响可见子节点，隐藏数量
  * 记在节点上（`+N`）。
  *
+ * 标签方向：根节点标签在圆点**左侧**（右对齐，否则「入口」会压住根圆点），
+ * 叶子与中间层标签在圆点右侧。传入 `availableWidth` 时出图宽度取
+ * `max(内容宽度, 容器宽度)`，内容在容器内水平居中；内容更宽时保持原宽度，
+ * 由渲染层的横向滚动兜底。
+ *
  * 行高 44 与节点命中区同档：再密下去 44×44 的触摸目标会上下重叠，点一个
  * 节点会命中另一个。长标签截断到 24 字符 + `…`（完整名留给 aria / tooltip），
  * 边透明度下限 0.7、最细 1.5px，保证亮暗主题下都 ≥3:1。
@@ -49,12 +54,21 @@ export interface TreeChartLayoutOptions {
   fontSize?: number;
   labelGap?: number;
   dotRadius?: number;
+  /**
+   * 容器可用宽度。给了就按 `max(内容所需宽度, availableWidth)` 出图，并把
+   * 内容在可用宽度内水平居中；内容更宽时宽度不缩，仍由渲染层横向滚动。
+   * 不给时只按内容宽度出图（纯布局 / 嵌入式使用）。
+   */
+  availableWidth?: number;
 }
+
+/** 标签在圆点的哪一侧：根节点 `end`（左侧、右对齐），其余 `start`（右侧）。 */
+export type TreeLabelAnchor = "start" | "end";
 
 export interface TreeChartLayoutNode {
   id: string;
   node: TreeNode;
-  /** 画在圆点右侧的文本：长标签已截断，完整名仍在 `node.name`。 */
+  /** 画在圆点侧面的文本：长标签已截断，完整名仍在 `node.name`。 */
   displayName: string;
   depth: number;
   parentId: string | null;
@@ -62,6 +76,14 @@ export interface TreeChartLayoutNode {
   /** 圆点中心。 */
   x: number;
   y: number;
+  /** 圆点半径（根节点 6.5，其余用 `dotRadius` 选项，默认 5）。 */
+  dotRadius: number;
+  /** 标签盒子相对锚点的总宽（显示名 + 折叠的 `+N`）。 */
+  labelExtent: number;
+  /** 标签锚点 x：根节点在圆点左侧，其余在圆点右侧。 */
+  labelX: number;
+  /** 标签对齐方向。 */
+  labelAnchor: TreeLabelAnchor;
   labelWidth: number;
   totalChildren: number;
   /** 全部后代数量（不论是否折叠）。 */
@@ -135,8 +157,14 @@ const DEFAULT_OPTIONS = {
 /** 节点圆点的最小命中区（触摸目标）。 */
 export const TREE_NODE_HIT_SIZE = 44;
 
-/** 标签相对圆点中心的水平偏移（命中矩形宽度也用它算）。 */
-export const TREE_LABEL_OFFSET = 11;
+/** 根节点圆点半径：比中间层 / 叶子大一圈，作为入口的视觉锚点。 */
+export const TREE_ROOT_DOT_RADIUS = 6.5;
+
+/**
+ * 默认主题下标签相对圆点中心的水平偏移（圆点半径 5 + 间距 10）。
+ * 实际坐标以布局里的 `labelX` 为准；这里只给命中区兜底用。
+ */
+export const TREE_LABEL_OFFSET = 15;
 
 /** 标签超过这个字符数就截断，完整名留给 tooltip / aria。 */
 export const TREE_LABEL_MAX_CHARS = 24;
@@ -179,13 +207,23 @@ function resolveOptions(
   };
 }
 
-/** 粗略的标签宽度：CJK 按 1em、拉丁按 0.58em，留出 `+N` 的空间。 */
+/**
+ * 粗略的标签宽度：CJK 按 1em，数字按 0.56em，`.` / `:` 等窄标点按 0.25em，
+ * `-` / `/` 等按 0.34em，其余拉丁按 0.58em，留出 `+N` 的空间。
+ *
+ * 这组比例按 Geist 的实际字形拟合（host:port 里的标点比字母窄得多）：
+ * 全部按 0.58em 会把 `1.2.3.4:443` 高估约 30%，居中时肉眼可见偏左。
+ */
 export function treeLabelWidth(name: string, fontSize = 11): number {
   let units = 0;
   for (const char of name) {
     const code = char.codePointAt(0) ?? 0;
     if (code >= 0x2e80) units += 1;
-    else if (char === " ") units += 0.32;
+    else if (char === " ") units += 0.28;
+    else if (char === "." || char === "," || char === ":") units += 0.25;
+    else if (char === "-" || char === "_" || char === "/" || char === "|") {
+      units += 0.34;
+    } else if (code >= 0x30 && code <= 0x39) units += 0.56;
     else units += 0.58;
   }
   return Math.ceil(units * fontSize);
@@ -253,6 +291,15 @@ function visit(
   const children = node.children ?? [];
   const collapsed = children.length > 0 && context.collapsedIds.has(id);
   const displayName = truncateTreeLabel(node.name);
+  const labelWidth = treeLabelWidth(displayName, context.options.fontSize);
+  const descendantCount = countDescendants(node, context.descendants);
+  const hiddenCount = collapsed ? descendantCount : 0;
+  // `+N` 是同一行的 tspan（dx=4），按同一套字宽算进标签包围盒，避免折叠
+  // 后标签盒忽大忽小、把居中带偏。
+  const hiddenWidth =
+    hiddenCount > 0
+      ? 4 + treeLabelWidth(`+${hiddenCount}`, context.options.fontSize)
+      : 0;
   const layout: TreeChartLayoutNode = {
     id,
     node,
@@ -262,10 +309,14 @@ function visit(
     childIds: [],
     x: 0,
     y: 0,
-    labelWidth: treeLabelWidth(displayName, context.options.fontSize),
+    dotRadius: depth === 0 ? TREE_ROOT_DOT_RADIUS : context.options.dotRadius,
+    labelExtent: labelWidth + hiddenWidth,
+    labelX: 0,
+    labelAnchor: depth === 0 ? "end" : "start",
+    labelWidth,
     totalChildren: children.length,
-    descendantCount: countDescendants(node, context.descendants),
-    hiddenCount: collapsed ? countDescendants(node, context.descendants) : 0,
+    descendantCount,
+    hiddenCount,
     collapsed,
     hasChildren: children.length > 0,
     hasOutgoing: false,
@@ -295,29 +346,56 @@ function visit(
 function assignColumns(
   nodes: readonly TreeChartLayoutNode[],
   options: ResolvedTreeChartLayoutOptions,
-): { xForDepth: number[]; width: number } {
+): { xForDepth: number[] } {
   const maxDepth = nodes.reduce((max, node) => Math.max(max, node.depth), 0);
   const contentWidth: number[] = Array.from(
     { length: maxDepth + 1 },
     () => 0,
   );
   for (const node of nodes) {
-    const extra = node.hiddenCount > 0 ? 26 : 0;
     contentWidth[node.depth] = Math.max(
       contentWidth[node.depth],
-      node.labelWidth + extra,
+      node.labelExtent,
     );
   }
   const columnWidth = contentWidth.map(
     (width) => options.dotRadius * 2 + options.labelGap + width + 24,
   );
+  // 根节点的标签在圆点左侧：首列 x 要把根标签的宽度让出来，否则根标签会
+  // 被左 padding 裁掉，或者被挤到圆点上。
+  let cursor =
+    options.paddingX +
+    TREE_ROOT_DOT_RADIUS +
+    options.labelGap +
+    contentWidth[0];
   const xForDepth: number[] = [];
-  let cursor = options.paddingX;
   for (let depth = 0; depth <= maxDepth; depth += 1) {
     xForDepth.push(cursor);
     cursor += Math.max(options.minColumnWidth, columnWidth[depth]);
   }
-  return { xForDepth, width: cursor + options.paddingX };
+  return { xForDepth };
+}
+
+/** 内容（圆点 + 标签）的水平包围盒，不含左右 padding。 */
+function contentHorizontalBounds(nodes: readonly TreeChartLayoutNode[]): {
+  left: number;
+  right: number;
+} {
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  for (const node of nodes) {
+    const labelLeft =
+      node.labelAnchor === "end"
+        ? node.labelX - node.labelExtent
+        : node.labelX;
+    const labelRight =
+      node.labelAnchor === "end"
+        ? node.labelX
+        : node.labelX + node.labelExtent;
+    left = Math.min(left, node.x - node.dotRadius, labelLeft);
+    right = Math.max(right, node.x + node.dotRadius, labelRight);
+  }
+  return { left, right };
 }
 
 function createEdge(
@@ -454,12 +532,34 @@ export function buildTreeChartLayout(
     }
   }
 
-  const { xForDepth, width } = assignColumns(nodes, resolved);
+  const { xForDepth } = assignColumns(nodes, resolved);
   const rowCount = Math.max(1, context.nextLeafRow);
   const offsetY = resolved.paddingY + resolved.rowHeight / 2;
   for (const node of nodes) {
     node.x = xForDepth[node.depth];
     node.y += offsetY;
+    node.labelX =
+      node.labelAnchor === "end"
+        ? node.x - node.dotRadius - resolved.labelGap
+        : node.x + node.dotRadius + resolved.labelGap;
+  }
+  // 宽度 = max(内容所需, 容器可用)；多出来的空间平均分到左右，内容居中。
+  // 内容比容器宽时保持自然宽度，由渲染层横向滚动，不压缩列距。
+  const bounds = contentHorizontalBounds(nodes);
+  const naturalWidth = bounds.right - bounds.left + resolved.paddingX * 2;
+  const availableWidth =
+    typeof options.availableWidth === "number" &&
+    Number.isFinite(options.availableWidth) &&
+    options.availableWidth > 0
+      ? options.availableWidth
+      : 0;
+  const width = Math.max(naturalWidth, availableWidth);
+  const dx = (width - naturalWidth) / 2 + resolved.paddingX - bounds.left;
+  if (dx !== 0) {
+    for (const node of nodes) {
+      node.x += dx;
+      node.labelX += dx;
+    }
   }
   const height =
     resolved.paddingY * 2 +
@@ -542,6 +642,77 @@ export function buildTreeChartLayout(
     maxDepth: nodes.reduce((max, node) => Math.max(max, node.depth), 0),
     maxValue,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* 几何包围盒：标签不压圆点、内容居中的确定性断言                        */
+/* ------------------------------------------------------------------ */
+
+export interface TreeChartBounds {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/** 圆点的视觉包围盒（根节点半径更大）。 */
+export function treeNodeDotBounds(node: TreeChartLayoutNode): TreeChartBounds {
+  return {
+    left: node.x - node.dotRadius,
+    right: node.x + node.dotRadius,
+    top: node.y - node.dotRadius,
+    bottom: node.y + node.dotRadius,
+  };
+}
+
+/** 节点标签的包围盒：按锚点方向展开，高度按字号上下各半。 */
+export function treeNodeLabelBounds(
+  node: TreeChartLayoutNode,
+  fontSize = DEFAULT_OPTIONS.fontSize,
+): TreeChartBounds {
+  const halfHeight = fontSize / 2;
+  const labelLeft =
+    node.labelAnchor === "end" ? node.labelX - node.labelExtent : node.labelX;
+  const labelRight =
+    node.labelAnchor === "end" ? node.labelX : node.labelX + node.labelExtent;
+  return {
+    left: labelLeft,
+    right: labelRight,
+    top: node.y - halfHeight,
+    bottom: node.y + halfHeight,
+  };
+}
+
+/** 整张图内容（圆点 + 标签）的包围盒，不含左右 padding。 */
+export function treeChartContentBounds(
+  layout: TreeChartLayout,
+): TreeChartBounds {
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  let top = Number.POSITIVE_INFINITY;
+  let bottom = Number.NEGATIVE_INFINITY;
+  for (const node of layout.nodes) {
+    for (const box of [treeNodeDotBounds(node), treeNodeLabelBounds(node)]) {
+      left = Math.min(left, box.left);
+      right = Math.max(right, box.right);
+      top = Math.min(top, box.top);
+      bottom = Math.max(bottom, box.bottom);
+    }
+  }
+  return { left, right, top, bottom };
+}
+
+/** 两个包围盒是否相交（碰边不算）。 */
+export function treeBoundsOverlap(
+  a: TreeChartBounds,
+  b: TreeChartBounds,
+): boolean {
+  return (
+    a.left < b.right &&
+    b.left < a.right &&
+    a.top < b.bottom &&
+    b.top < a.bottom
+  );
 }
 
 /** 节点到根的主路径（含自身与根）。 */

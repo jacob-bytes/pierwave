@@ -6,6 +6,7 @@ import {
   ChainLatencyRangeTabs,
   ChainLatencyUpdatedBadge,
 } from "@/components/overview/ChainLatencyControls";
+import { ChainKpiCell, ChainKpiGrid } from "@/components/overview/ChainKpi";
 import {
   CHAIN_HEALTH_STATE_META,
   chainNodeIssueText,
@@ -80,41 +81,6 @@ function endpointTitle(
     : chainEndpointServerName(endpoint);
 }
 
-function KpiCell({
-  label,
-  value,
-  hint,
-  tone = "muted",
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  tone?: "warning" | "primary" | "muted";
-}) {
-  return (
-    <div className="min-w-0 bg-card px-3 py-4 sm:px-5">
-      <p className="text-xs leading-tight text-muted-foreground">{label}</p>
-      <p
-        className={cn(
-          "mt-2 text-xl leading-none font-medium tracking-tight tabular-nums sm:text-2xl",
-          tone === "warning"
-            ? "text-warning"
-            : tone === "primary"
-              ? "text-primary"
-              : "text-foreground",
-        )}
-      >
-        {value}
-      </p>
-      {hint ? (
-        <p className="mt-2 line-clamp-2 text-xs leading-normal text-muted-foreground">
-          {hint}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 /** 列表页 KPI：跳间 P50 / 变化 / 变慢链 / 最慢段。 */
 export function ChainLatencyKpis({
   summary,
@@ -144,37 +110,35 @@ export function ChainLatencyKpis({
           .join(" · ");
 
   return (
-    <Card className="gap-0 overflow-hidden py-0" data-chain-kpis>
-      <CardContent className="grid grid-cols-2 gap-px bg-border p-0 sm:grid-cols-4">
-        <KpiCell
-          label={t("overview.chainLatency.hopP50")}
-          value={formatMs(summary.hopP50)}
-          hint={t("overview.chainLatency.hopP50Hint")}
-        />
-        <KpiCell
-          label={t("overview.chainLatency.delta")}
-          value={formatSignedMs(summary.deltaMs)}
-          hint={t("overview.chainLatency.deltaHint")}
-          tone={deltaTone}
-        />
-        <KpiCell
-          label={t("overview.chainLatency.slowChains")}
-          value={
-            summary.slowChains === null
-              ? "—"
-              : `${summary.slowChains}/${summary.totalChains}`
-          }
-          hint={t("overview.chainLatency.slowChainsHint")}
-          tone={slowTone}
-        />
-        <KpiCell
-          label={t("overview.chainLatency.worstHop")}
-          value={formatMs(worst?.p50Ms ?? null)}
-          hint={worstHint}
-          tone={worstTone}
-        />
-      </CardContent>
-    </Card>
+    <ChainKpiGrid data-chain-kpis>
+      <ChainKpiCell
+        label={t("overview.chainLatency.hopP50")}
+        value={formatMs(summary.hopP50)}
+        hint={t("overview.chainLatency.hopP50Hint")}
+      />
+      <ChainKpiCell
+        label={t("overview.chainLatency.delta")}
+        value={formatSignedMs(summary.deltaMs)}
+        hint={t("overview.chainLatency.deltaHint")}
+        tone={deltaTone}
+      />
+      <ChainKpiCell
+        label={t("overview.chainLatency.slowChains")}
+        value={
+          summary.slowChains === null
+            ? "—"
+            : `${summary.slowChains}/${summary.totalChains}`
+        }
+        hint={t("overview.chainLatency.slowChainsHint")}
+        tone={slowTone}
+      />
+      <ChainKpiCell
+        label={t("overview.chainLatency.worstHop")}
+        value={formatMs(worst?.p50Ms ?? null)}
+        hint={worstHint}
+        tone={worstTone}
+      />
+    </ChainKpiGrid>
   );
 }
 

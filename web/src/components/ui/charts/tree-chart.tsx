@@ -42,7 +42,9 @@ import {
  * 2. 脉冲路径只有 Top N 条（`selectPulseEdgeIds`），其余边保持静态；
  *    `prefers-reduced-motion` 下同一条路径停止动画并保持可见。
  * 3. tooltip 用实测宽高 + 可见窗口夹紧（`placeTreeTooltip`），首行节点
- *    翻到下方，390 滚到末端也不会被滚动容器裁掉。
+ *    翻到下方，390 滚到末端也不会被滚动容器裁掉；树比容器窄时内容水平
+ *    居中，容器宽度变化（窗口缩放 / 弹窗 390 → 1440）由 ResizeObserver
+ *    重新测量。
  * 4. DOM 预算：节点 = 命中矩形 + 圆点 + 标签（3 个元素），边 = 命中路径 +
  *    可见路径 + 标签（3 个元素）；不额外套 `<g>`、不重复 `<title>`。
  *    110 节点 / 109 边约 680 个元素，不是 1200+。
@@ -90,7 +92,7 @@ export interface TreeChartProps {
     | ((counts: { nodes: number; edges: number }) => string);
   valueLabel?: string;
   formatValue?: (value: number) => string;
-  /** 视口宽度；不给时铺满容器，内容更宽时横向滚动。 */
+  /** 视口宽度；不给时按容器实测宽度铺满并居中，内容更宽时横向滚动。 */
   width?: number;
   /** 视口最小高度；树更高时以树为准。 */
   height?: number;
@@ -123,6 +125,9 @@ export interface TreeChartProps {
 
 const PULSE_PERIOD_SEC = 3.6;
 const PULSE_STEP_SEC = 0.18;
+
+/** 命中矩形在标签左右各留的余量，避免长标签尾部点不中。 */
+const TREE_LABEL_HIT_PAD = 4;
 
 function pulseDelay(depth: number): number {
   return -PULSE_PERIOD_SEC + Math.max(0, depth) * PULSE_STEP_SEC;
@@ -230,9 +235,9 @@ export interface TreeLabelsProps {
 
 /**
  * 节点标签层。TreeChart 内部使用；也可以单独拿来叠自定义布局。
- * 标签永远画在圆点右侧、字号固定，不随容器缩放（390 下横向滚动）。
- * 纯展示：`pointer-events: none`，命中与 aria 都在节点的命中矩形上，
- * 这样「点标签」和「点圆点」是同一个 44px 高的大目标。
+ * 根节点标签在圆点左侧（右对齐），叶子与中间层在右侧；字号固定，不随容器
+ * 缩放（390 下横向滚动）。纯展示：`pointer-events: none`，命中与 aria 都在
+ * 节点的命中矩形上，这样「点标签」和「点圆点」是同一个 44px 高的大目标。
  */
 export function TreeLabels({ nodes, className }: TreeLabelsProps) {
   return (
@@ -248,8 +253,10 @@ export function TreeLabels({ nodes, className }: TreeLabelsProps) {
             data-tree-label
             data-tree-index={index}
             data-node-id={layoutNode.id}
-            x={layoutNode.x + TREE_LABEL_OFFSET}
+            data-tree-label-anchor={layoutNode.labelAnchor}
+            x={layoutNode.labelX}
             y={layoutNode.y + 0.5}
+            textAnchor={layoutNode.labelAnchor}
             dominantBaseline="middle"
             fontSize={11}
             className="pointer-events-none select-none"
@@ -319,13 +326,27 @@ const NodeShape = memo(function NodeShape({
     (layoutNode.depth !== 0 && isIntermediate(layoutNode) && !offline)
       ? "var(--card)"
       : accent;
-  // 命中区盖住圆点 + 标签（≥44 高，行距 44 所以上下不重叠）。
+  // 命中区盖住圆点 + 标签（≥44 高，行距 44 所以上下不重叠）。根节点标签在
+  // 圆点左侧，命中矩形要往左扩，否则点根标签不会命中。
+  const labelLeft =
+    layoutNode.labelAnchor === "end"
+      ? layoutNode.labelX - layoutNode.labelExtent
+      : layoutNode.labelX;
+  const labelRight =
+    layoutNode.labelAnchor === "end"
+      ? layoutNode.labelX
+      : layoutNode.labelX + layoutNode.labelExtent;
+  const hitX = Math.min(
+    layoutNode.x - TREE_NODE_HIT_SIZE / 2,
+    labelLeft - TREE_LABEL_HIT_PAD,
+  );
   const hitWidth = Math.max(
     TREE_NODE_HIT_SIZE,
-    TREE_NODE_HIT_SIZE / 2 +
-      TREE_LABEL_OFFSET +
-      layoutNode.labelWidth +
-      (layoutNode.hiddenCount > 0 ? 26 : 0),
+    TREE_NODE_HIT_SIZE / 2 + TREE_LABEL_OFFSET + layoutNode.labelExtent,
+    Math.max(
+      labelRight + TREE_LABEL_HIT_PAD,
+      layoutNode.x + TREE_NODE_HIT_SIZE / 2,
+    ) - hitX,
   );
   return (
     <Fragment>
@@ -341,7 +362,7 @@ const NodeShape = memo(function NodeShape({
         data-degraded={degraded ? "true" : "false"}
         data-collapsed={layoutNode.collapsed ? "true" : "false"}
         data-hidden-count={layoutNode.hiddenCount}
-        x={layoutNode.x - TREE_NODE_HIT_SIZE / 2}
+        x={hitX}
         y={layoutNode.y - TREE_NODE_HIT_SIZE / 2}
         width={hitWidth}
         height={TREE_NODE_HIT_SIZE}
@@ -392,7 +413,7 @@ const NodeShape = memo(function NodeShape({
         pointerEvents="none"
         cx={layoutNode.x}
         cy={layoutNode.y}
-        r={layoutNode.depth === 0 ? 6.5 : 5}
+        r={layoutNode.dotRadius}
         fill={fill}
         stroke={offline ? "var(--destructive)" : accent}
         strokeWidth={isIntermediate(layoutNode) ? 1.6 : 1}
@@ -587,18 +608,24 @@ export function TreeChart({
   describeNode,
   describeEdge,
 }: TreeChartProps) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * 滚动容器的可用宽度。树比容器窄时用它把内容居中；窗口缩放 / 弹窗从
+   * 390 拉到 1440 时由 ResizeObserver 触发重算，不依赖挂载时的一次测量。
+   */
+  const [availableWidth, setAvailableWidth] = useState(0);
   const layout = useMemo(
     () =>
       buildTreeChartLayout(data, {
         links,
         collapsedIds,
+        availableWidth: width ?? availableWidth,
       }),
-    [data, links, collapsedIds],
+    [data, links, collapsedIds, width, availableWidth],
   );
   const [active, setActive] = useState<ActiveTarget>(null);
   const [armedId, setArmedId] = useState<string | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   // useId 里可能有 : / «» 之类的字符，先归一成可安全放进属性选择器的串。
   const scope = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const tooltipId = `tree-chart-tooltip-${scope}`;
@@ -794,6 +821,25 @@ export function TreeChart({
       window.removeEventListener("resize", update);
     };
   }, [anchorHeight, anchorX, anchorY, tooltipOpen]);
+
+  /* ---------------- 容器宽度：居中跟随 resize / 弹窗宽度 ---------------- */
+  useLayoutEffect(() => {
+    if (width !== undefined) return;
+    const element = scrollRef.current;
+    if (element === null) return;
+    const measure = (): void => {
+      const next = element.clientWidth;
+      setAvailableWidth((previous) => (previous === next ? previous : next));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [width]);
 
   const hoverCapable = useMemo(() => {
     if (

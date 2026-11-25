@@ -400,6 +400,62 @@ export function normalizeChainTemplateList(
   };
 }
 
+/**
+ * 模板子页顶部的四格 KPI：只从列表响应聚合，不新增接口。
+ *
+ * 口径：
+ * - `total` / `enabled` / `disabled`：模板总数与启停数；
+ * - `inUse`：有链在用（`chains > 0`）的模板数，停用模板也算在用；
+ * - `chains`：所有模板的链数之和；
+ * - `users`：各模板去重用户数之和。列表契约只给每个模板的 owner 去重数，
+ *   没有用户 id，跨模板重复用户无法在这里再去重（管理员链本身已被后端
+ *   排除，见 `/api/v1/overview/chain-templates` 的 `users` 口径）；
+ * - `abnormal`：**启用中**的模板里 blocked / degraded 的数量；停用是主动
+ *   降噪，不算异常，否则「异常模板」会把故意关掉的模板也算进去。
+ */
+export interface ChainTemplateKpisView {
+  total: number;
+  enabled: number;
+  disabled: number;
+  inUse: number;
+  chains: number;
+  users: number;
+  blocked: number;
+  degraded: number;
+  abnormal: number;
+}
+
+export function chainTemplateKpis(
+  items: readonly ChainTemplateListItem[],
+): ChainTemplateKpisView {
+  let enabled = 0;
+  let inUse = 0;
+  let chains = 0;
+  let users = 0;
+  let blocked = 0;
+  let degraded = 0;
+  for (const item of items) {
+    if (item.enabled) enabled += 1;
+    if (item.chains > 0) inUse += 1;
+    chains += Math.max(0, item.chains);
+    users += Math.max(0, item.users);
+    if (!item.enabled) continue;
+    if (item.status.kind === "blocked") blocked += 1;
+    else if (item.status.kind === "degraded") degraded += 1;
+  }
+  return {
+    total: items.length,
+    enabled,
+    disabled: items.length - enabled,
+    inUse,
+    chains,
+    users,
+    blocked,
+    degraded,
+    abnormal: blocked + degraded,
+  };
+}
+
 function normalizeNode(value: unknown, fallbackHops: number): ChainTemplateNode | null {
   if (!isRecord(value)) return null;
   const seqNumber = finiteNumber(value.seq);

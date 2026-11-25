@@ -397,7 +397,7 @@ test("F5 可访问性：aria 带状态 / 用户数，tooltip aria-live 且与触
       "data-tree-hit",
       "width={hitWidth}",
       "height={TREE_NODE_HIT_SIZE}",
-      "x={layoutNode.x - TREE_NODE_HIT_SIZE / 2}",
+      "x={hitX}",
       "const hitWidth = Math.max(",
       "TREE_LABEL_OFFSET +",
     ],

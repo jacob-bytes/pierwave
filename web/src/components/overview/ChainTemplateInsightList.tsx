@@ -5,6 +5,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/common";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChainTemplateInsightDialog } from "@/components/overview/ChainTemplateInsightDialog";
+import {
+  ChainTemplateKpis,
+  ChainTemplateKpisSkeleton,
+  type ChainTemplateKpiState,
+} from "@/components/overview/ChainTemplateKpis";
 import { PanelError } from "@/components/overview/PanelError";
 import { errorText } from "@/lib/errors";
 import {
@@ -134,6 +139,9 @@ function TemplateRow({
         type="button"
         data-chain-template-row
         data-template-id={item.id}
+        data-template-enabled={item.enabled ? "true" : "false"}
+        data-template-chains={item.chains}
+        data-template-users={item.users}
         data-status={item.status.kind}
         onClick={onOpen}
         aria-label={label}
@@ -211,11 +219,13 @@ function TemplateRow({
 }
 
 /**
- * 链路时延 tab 底部的「转发链模板」区块。
+ * 「链路时延 → 转发模板」子页：顶部四格 KPI + 模板列表。
  *
- * 五列：模板名 / 跳数 / 使用它的转发链数 / 使用它的用户数 / 状态。
- * 数据来自模板洞察列表接口；旧主控 404 时整块降级成「需要新版本主控」，
- * 403（权限）照常走错误态，不会留下骨架或空白卡片。
+ * KPI 与列表共用同一份列表响应（前端聚合，不新增接口）：
+ * 模板总数 / 使用中的模板 / 使用用户 / 异常模板。列表五列：
+ * 模板名 / 跳数 / 使用它的转发链数 / 使用它的用户数 / 状态。
+ * 旧主控 404 时整块降级成「需要新版本主控」，403（权限）照常走错误态；
+ * 无模板时 KPI 显示 `—`，列表保留原空态。
  */
 export function ChainTemplateInsightList() {
   useI18n();
@@ -225,97 +235,118 @@ export function ChainTemplateInsightList() {
   const items = snapshot?.items ?? [];
   const selected = items.find((item) => item.id === selectedId) ?? null;
 
+  // KPI 与列表共用同一份状态：KPI 不会在接口失败时停留在上一帧，
+  // 也不会在没有模板时用 0 冒充「有数据」。
+  const loading = query.isPending && query.data === undefined;
+  const state: ChainTemplateKpiState =
+    query.isError || snapshot === null
+      ? "unavailable"
+      : items.length === 0
+        ? "empty"
+        : "ready";
+
   return (
     <>
-      <Card className="gap-0" data-chain-template-insight>
-        <CardHeader className="border-b border-border pb-4">
-          <div className="flex min-w-0 items-center justify-between gap-2">
-            <CardTitle className="text-sm font-medium">
-              {t("overview.chainTemplateInsight.sectionTitle")}
-            </CardTitle>
-            <div className="flex shrink-0 items-center gap-2">
-              {snapshot !== null ? (
-                <Badge
-                  variant="outline"
-                  className="shrink-0 font-mono font-normal text-muted-foreground"
-                >
-                  {t("overview.chainTemplateInsight.count", {
-                    n: items.length,
-                  })}
-                </Badge>
-              ) : null}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="p-2">
-          {query.isPending && query.data === undefined ? (
-            <div
-              className="flex flex-col gap-2 p-1"
-              data-chain-template-skeleton
-              aria-hidden="true"
-            >
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between gap-3 px-2 py-2"
-                >
-                  <Skeleton className="h-3.5 w-40" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-              ))}
-            </div>
-          ) : query.isError ? (
-            <PanelError
-              message={errorText(
-                query.error,
-                t("overview.chainTemplateInsight.loadFailed"),
-              )}
-              retrying={query.isFetching}
-              onRetry={() => void query.refetch()}
-            />
-          ) : snapshot === null ? (
-            <EmptyState
-              icon={WaypointsIcon}
-              title={t("overview.chainTemplateInsight.unsupportedTitle")}
-              description={t("overview.chainTemplateInsight.unsupportedDesc")}
-              className="py-10"
-            />
-          ) : items.length === 0 ? (
-            <EmptyState
-              icon={WaypointsIcon}
-              title={t("overview.chainTemplateInsight.emptyTitle")}
-              className="py-10"
-            />
-          ) : (
-            <>
-              <div
-                data-chain-template-head
-                aria-hidden="true"
-                className={cn(
-                  "hidden items-center gap-x-3 px-3 pb-1 text-left text-[11px] text-muted-foreground lg:grid",
-                  LIST_GRID,
-                )}
-              >
-                <span>{t("overview.chainTemplateInsight.colName")}</span>
-                <span>{t("overview.chainTemplateInsight.colHops")}</span>
-                <span>{t("overview.chainTemplateInsight.colChains")}</span>
-                <span>{t("overview.chainTemplateInsight.colUsers")}</span>
-                <span>{t("overview.chainTemplateInsight.colStatus")}</span>
-                <span />
+      <div className="space-y-4" data-chain-template-page>
+        {loading ? (
+          <ChainTemplateKpisSkeleton />
+        ) : (
+          <ChainTemplateKpis items={items} state={state} />
+        )}
+        <Card
+          className="gap-0"
+          data-chain-template-insight
+          data-state={loading ? "loading" : state}
+        >
+          <CardHeader className="border-b border-border pb-4">
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <CardTitle className="text-sm font-medium">
+                {t("overview.chainTemplateInsight.sectionTitle")}
+              </CardTitle>
+              <div className="flex shrink-0 items-center gap-2">
+                {snapshot !== null ? (
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 font-mono font-normal text-muted-foreground"
+                  >
+                    {t("overview.chainTemplateInsight.count", {
+                      n: items.length,
+                    })}
+                  </Badge>
+                ) : null}
               </div>
-              <ul className="flex flex-col">
-                {items.map((item) => (
-                  <TemplateRow
-                    key={item.id}
-                    item={item}
-                    onOpen={() => setSelectedId(item.id)}
-                  />
+            </div>
+          </CardHeader>
+          <CardContent className="p-2">
+            {query.isPending && query.data === undefined ? (
+              <div
+                className="flex flex-col gap-2 p-1"
+                data-chain-template-skeleton
+                aria-hidden="true"
+              >
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between gap-3 px-2 py-2"
+                  >
+                    <Skeleton className="h-3.5 w-40" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
                 ))}
-              </ul>
-            </>
-          )}
-        </CardContent>
-      </Card>
+              </div>
+            ) : query.isError ? (
+              <PanelError
+                message={errorText(
+                  query.error,
+                  t("overview.chainTemplateInsight.loadFailed"),
+                )}
+                retrying={query.isFetching}
+                onRetry={() => void query.refetch()}
+              />
+            ) : snapshot === null ? (
+              <EmptyState
+                icon={WaypointsIcon}
+                title={t("overview.chainTemplateInsight.unsupportedTitle")}
+                description={t("overview.chainTemplateInsight.unsupportedDesc")}
+                className="py-10"
+              />
+            ) : items.length === 0 ? (
+              <EmptyState
+                icon={WaypointsIcon}
+                title={t("overview.chainTemplateInsight.emptyTitle")}
+                className="py-10"
+              />
+            ) : (
+              <>
+                <div
+                  data-chain-template-head
+                  aria-hidden="true"
+                  className={cn(
+                    "hidden items-center gap-x-3 px-3 pb-1 text-left text-[11px] text-muted-foreground lg:grid",
+                    LIST_GRID,
+                  )}
+                >
+                  <span>{t("overview.chainTemplateInsight.colName")}</span>
+                  <span>{t("overview.chainTemplateInsight.colHops")}</span>
+                  <span>{t("overview.chainTemplateInsight.colChains")}</span>
+                  <span>{t("overview.chainTemplateInsight.colUsers")}</span>
+                  <span>{t("overview.chainTemplateInsight.colStatus")}</span>
+                  <span />
+                </div>
+                <ul className="flex flex-col" data-chain-template-list>
+                  {items.map((item) => (
+                    <TemplateRow
+                      key={item.id}
+                      item={item}
+                      onOpen={() => setSelectedId(item.id)}
+                    />
+                  ))}
+                </ul>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      </div>
       <ChainTemplateInsightDialog
         key={selectedId ?? "closed"}
         item={selected}

@@ -6,12 +6,16 @@ import {
   buildTreeChartLayout,
   placeTreeTooltip,
   selectPulseEdgeIds,
+  treeBoundsOverlap,
+  treeChartContentBounds,
   treeCurvePath,
   treeEdgeOpacity,
   treeEdgeWidth,
   treeHighlightPath,
   treeLabelWidth,
   treeNodeActivation,
+  treeNodeDotBounds,
+  treeNodeLabelBounds,
   treeNodePathToRoot,
   truncateTreeLabel,
 } from "./treeChart.ts";
@@ -63,8 +67,153 @@ test("层级 x 随深度递增，节点宽固定、标签不缩放", () => {
   // 同一层的 x 完全一致；列宽只由标签长度决定，不是百分比。
   const depth1 = layout.nodes.filter((node) => node.depth === 1);
   assert.equal(new Set(depth1.map((node) => node.x)).size, 1);
-  assert.ok(layout.width > 3 * 148);
+  // 列距固定：两层之间至少隔着 minColumnWidth，不随容器缩放。
+  assert.ok(xByDepth.get(2) - xByDepth.get(0) >= 2 * 148);
   assert.ok(treeLabelWidth("香港-01", 11) > treeLabelWidth("HK", 11));
+});
+
+/* ------------------------------------------------------------------ */
+/* 宽度：max(内容, 容器) + 内容居中；标签按侧避让圆点                    */
+/* ------------------------------------------------------------------ */
+
+/** 短树：入口 → 1 个中间跳 → 2 个目标（链路模板的 1 跳最小形态）。 */
+function shortTree() {
+  return {
+    id: "root",
+    name: "入口",
+    value: 3,
+    children: [
+      {
+        id: "hop-1",
+        name: "香港-01",
+        value: 3,
+        children: [
+          { id: "t-1", name: "1.2.3.4:443", value: 2 },
+          { id: "t-2", name: "5.6.7.8:8443", value: 1 },
+        ],
+      },
+    ],
+  };
+}
+
+/** 长树：6 跳、每层 3 个成员（18 个叶子，内容比 390 宽得多）。 */
+function longTree() {
+  const root = { id: "root", name: "入口", value: 3 };
+  let parent = root;
+  for (let depth = 1; depth <= 6; depth += 1) {
+    parent.children = Array.from({ length: 3 }, (_, index) => ({
+      id: `n-${depth}-${index}`,
+      name: `成员-${depth}-${index}`,
+      value: 3 - index,
+    }));
+    parent = parent.children[0];
+  }
+  return root;
+}
+
+/** 所有标签的包围盒都不与任何圆点相交（含根标签、折叠 +N）。 */
+function assertLabelsClearDots(layout) {
+  for (const node of layout.nodes) {
+    const label = treeNodeLabelBounds(node);
+    for (const other of layout.nodes) {
+      assert.equal(
+        treeBoundsOverlap(label, treeNodeDotBounds(other)),
+        false,
+        `${node.id} label overlaps ${other.id} dot`,
+      );
+    }
+  }
+}
+
+test("短树在可用宽度内居中：左右留白相等，宽度取容器宽", () => {
+  const layout = buildTreeChartLayout(shortTree(), { availableWidth: 960 });
+  assert.equal(layout.width, 960);
+  const bounds = treeChartContentBounds(layout);
+  const leftSpace = bounds.left;
+  const rightSpace = layout.width - bounds.right;
+  assert.ok(
+    Math.abs(leftSpace - rightSpace) <= 2,
+    `left ${leftSpace} right ${rightSpace}`,
+  );
+});
+
+test("折叠根的 +N 标签计入包围盒：仍居中且不压圆点", () => {
+  const layout = buildTreeChartLayout(shortTree(), {
+    collapsedIds: new Set(["root"]),
+    availableWidth: 960,
+  });
+  const bounds = treeChartContentBounds(layout);
+  assert.equal(layout.width, 960);
+  assert.ok(
+    Math.abs(bounds.left - (layout.width - bounds.right)) <= 2,
+    `left ${bounds.left} right ${layout.width - bounds.right}`,
+  );
+  const root = layout.byId.get("root");
+  assert.ok(root.labelExtent > root.labelWidth);
+  assertLabelsClearDots(layout);
+});
+
+test("长树：内容超出容器时保持自然宽度，横向滚动而不是压缩列距", () => {
+  const natural = buildTreeChartLayout(longTree());
+  const layout = buildTreeChartLayout(longTree(), { availableWidth: 390 });
+  assert.equal(layout.width, natural.width);
+  assert.ok(layout.width > 390, `natural width ${layout.width}`);
+  // 根标签仍从左侧 padding 开始，不会因为居中把根推出首屏。
+  const bounds = treeChartContentBounds(layout);
+  assert.ok(bounds.left >= 0 && bounds.left < 20, `left ${bounds.left}`);
+});
+
+test("容器宽度变化（390 → 1440）后重新居中，390 下首屏有根与第一跳", () => {
+  const narrow = buildTreeChartLayout(shortTree(), { availableWidth: 390 });
+  const wide = buildTreeChartLayout(shortTree(), { availableWidth: 1440 });
+  assert.equal(wide.width, 1440);
+  assert.ok(narrow.width > 390, "390 下横向滚动");
+  for (const layout of [narrow, wide]) {
+    const bounds = treeChartContentBounds(layout);
+    assert.ok(
+      Math.abs(bounds.left - (layout.width - bounds.right)) <= 2,
+      `centered at ${layout.width}`,
+    );
+  }
+  const root = narrow.byId.get("root");
+  const firstHop = narrow.nodes.find((node) => node.depth === 1);
+  assert.ok(root.x + root.dotRadius < 120, `root x ${root.x}`);
+  assert.ok(firstHop.labelX < 390, `first hop label ${firstHop.labelX}`);
+});
+
+test("根标签在圆点左侧右对齐，叶子 / 中间层在右侧，间距 8–10px", () => {
+  const layout = buildTreeChartLayout(shortTree());
+  const root = layout.byId.get("root");
+  assert.equal(root.labelAnchor, "end");
+  const rootGap = root.x - root.dotRadius - root.labelX;
+  assert.ok(rootGap >= 8 && rootGap <= 10, `root gap ${rootGap}`);
+  // 标签右边缘严格在圆点左边缘左侧：不压住根圆点。
+  assert.ok(root.labelX < root.x - root.dotRadius);
+
+  const middle = layout.byId.get("hop-1");
+  assert.equal(middle.labelAnchor, "start");
+  const middleGap = middle.labelX - (middle.x + middle.dotRadius);
+  assert.ok(middleGap >= 8 && middleGap <= 10, `middle gap ${middleGap}`);
+
+  const leaf = layout.byId.get("t-1");
+  assert.equal(leaf.labelAnchor, "start");
+  const leafGap = leaf.labelX - (leaf.x + leaf.dotRadius);
+  assert.ok(leafGap >= 8 && leafGap <= 10, `leaf gap ${leafGap}`);
+});
+
+test("所有标签与圆点的包围盒不相交（短树 / 折叠 +N / 长树 / 居中后）", () => {
+  assertLabelsClearDots(buildTreeChartLayout(shortTree()));
+  assertLabelsClearDots(buildTreeChartLayout(fixture()));
+  assertLabelsClearDots(
+    buildTreeChartLayout(shortTree(), { collapsedIds: new Set(["root"]) }),
+  );
+  assertLabelsClearDots(
+    buildTreeChartLayout(fixture(), { collapsedIds: new Set(["a"]) }),
+  );
+  assertLabelsClearDots(buildTreeChartLayout(longTree()));
+  assertLabelsClearDots(
+    buildTreeChartLayout(shortTree(), { availableWidth: 1440 }),
+  );
 });
 
 test("边宽 ∝ 链数：同一份布局里链数大的边更粗，范围 1.5–6", () => {
@@ -153,7 +302,7 @@ test("大图 O(n)：7 层 × 20 节点全部有有限坐标，边数保持 O(n)"
   const layout = buildTreeChartLayout(node);
   assert.equal(layout.nodes.length, 121);
   assert.equal(layout.edges.length, 120);
-  assert.ok(layout.width > 7 * 148);
+  assert.ok(layout.width > 6 * 148);
   for (const item of layout.nodes) {
     assert.ok(Number.isFinite(item.x));
     assert.ok(Number.isFinite(item.y));
