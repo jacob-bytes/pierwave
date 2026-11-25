@@ -208,6 +208,36 @@ export function portPolicySummary(policy?: PortPolicy | null): string {
 }
 
 /**
+ * 详情弹层里「允许的端口」的值：**不带「允许端口」前缀**。
+ *
+ * 标签已经写着「允许的端口」，值再写一遍「允许端口 30000-31000」就是
+ * 同义反复；这里只给范围 / 端口列表本身：
+ * - 无约束：`端口不受限制`；
+ * - 范围：`30000-31000`；
+ * - 额外端口：`443、8443`；
+ * - 两者：`30000-31000 · 443、8443`。
+ */
+export function portPolicyValue(policy?: PortPolicy | null): string {
+  const normalized = normalizePortPolicy(policy);
+  if (!normalized.constrained) {
+    return t("servers.portPolicy.summaryNone");
+  }
+
+  const ports = normalized.allow.join(t("common.listSeparator"));
+  const hasValidRange =
+    normalized.rangeOrdered &&
+    (normalized.start !== null || normalized.end !== null);
+
+  if (!hasValidRange) return ports;
+
+  const range = formatPortRangeText(
+    normalized.start ?? PORT_MIN,
+    normalized.end ?? PORT_MAX,
+  );
+  return normalized.allow.length > 0 ? `${range} · ${ports}` : range;
+}
+
+/**
  * 表单里「起始 / 结束端口」两个输入 → 提交值。
  *
  * - 两个都留空 = 不限制，返回 `{ start: null, end: null }`；

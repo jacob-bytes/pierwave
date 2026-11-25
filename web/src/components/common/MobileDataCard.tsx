@@ -1,6 +1,9 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { ChevronDownIcon } from "lucide-react";
 import { CopyButton } from "@/components/common/CopyButton";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 export type MobileDataField = {
@@ -26,6 +29,11 @@ export type MobileDataCardProps = {
   /** 操作按钮 / `⋯` 菜单，与桌面行共用同一份回调。 */
   actions?: ReactNode;
   fields: MobileDataField[];
+  /**
+   * 折叠的「更多」字段：配置类信息（允许端口、内网地址、网卡、模式等）。
+   * 不传 = 不渲染「更多」按钮，组件行为与之前完全一致，其它列表页无需改动。
+   */
+  moreFields?: MobileDataField[];
   /** 额外内容（例如转发链展开后的分组详情）。 */
   children?: ReactNode;
   className?: string;
@@ -44,9 +52,17 @@ export function MobileDataCard({
   badge,
   actions,
   fields,
+  moreFields,
   children,
   className,
 }: MobileDataCardProps) {
+  const { t } = useI18n();
+  // 展开状态只活在这个卡片实例里：刷新 / 翻页 / 重新挂载都回到默认收起。
+  // 刻意不做持久化——移动端列表的默认形态应该是可扫读的短卡，
+  // 上一次展开的卡片不应该在下次打开时把整屏撑长。
+  const [moreOpen, setMoreOpen] = useState(false);
+  const hasMore = moreFields !== undefined && moreFields.length > 0;
+
   return (
     <Card
       size="sm"
@@ -112,6 +128,48 @@ export function MobileDataCard({
           </div>
         ))}
       </dl>
+      {hasMore ? (
+        <div className="border-t border-border px-2">
+          <Button
+            variant="ghost"
+            size="xs"
+            className="w-full justify-center gap-1 font-normal text-muted-foreground"
+            aria-expanded={moreOpen}
+            data-slot="mobile-card-more-toggle"
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            {moreOpen ? t("common.showLess") : t("common.showMore")}
+            <ChevronDownIcon
+              aria-hidden="true"
+              className={cn(
+                "transition-transform duration-150",
+                moreOpen && "rotate-180",
+              )}
+            />
+          </Button>
+          {moreOpen ? (
+            <dl
+              data-slot="mobile-card-more"
+              className="space-y-1.5 px-1 pb-2.5"
+            >
+              {moreFields.map((field, index) => (
+                <div
+                  key={index}
+                  className={cn(
+                    "flex items-start justify-between gap-3 text-[13px]",
+                    field.className,
+                  )}
+                >
+                  <dt className="shrink-0 text-muted-foreground">
+                    {field.label}
+                  </dt>
+                  <dd className="min-w-0 text-right">{field.value}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
+        </div>
+      ) : null}
       {children ? (
         <div className="border-t border-border px-3 py-2.5">{children}</div>
       ) : null}

@@ -54,6 +54,8 @@ const zhCN = {
     refresh: "刷新",
     copy: "复制",
     copied: "已复制",
+    showMore: "更多",
+    showLess: "收起",
     copyFailed: "复制失败，请手动选择文本复制",
     none: "暂无",
     viewAll: "查看全部",
@@ -1026,7 +1028,12 @@ const zhCN = {
     list: "服务器列表",
     onlineCount: "在线 {online} / {total}",
     serviceAbnormal: "服务异常 {n}",
-    desc: "Agent 主动连入主控，无需开放入站端口；检测到待升级任务时列表每 15 秒自动刷新。在线但 Xray 停止会标红，窄屏可在「详情」查看负载与内存。",
+    descShort: "在线但 Xray 停止会标红。",
+    descMore:
+      "Agent 主动连入主控，无需开放入站端口；检测到待升级任务时列表每 15 秒自动刷新。窄屏可在「详情」查看负载与内存。",
+    aboutAria: "服务器列表说明",
+    filterAbnormalOn: "只看服务异常的服务器",
+    filterAbnormalOff: "取消异常筛选，显示全部服务器",
     country: "国家/地区",
     countryPlaceholder: "CN / US / JP",
     countrySearch: "搜索国家或代码",
@@ -1130,6 +1137,7 @@ const zhCN = {
       status: "状态",
       load: "负载（1 分钟）",
       latency: "网络延迟",
+      latencyValue: "{ms} ms",
       latencyHint: "Agent 到公网探测目标的 TCP 握手 RTT",
       rate: "当前速率",
       rateHint: "两次心跳的累计网卡字节差 / 时间差；只用于展示，不参与计费",
@@ -2926,6 +2934,7 @@ const zhCN = {
     pageNext: "下一页",
     limitedNodes: "已限速节点",
     speedLimit: {
+      label: "限速",
       badge: "限速 {mbps}M",
       badgeTitle:
         "下行带宽上限 {mbps} Mbps：由 tc 精确限制，只限制下行；修改后需重新应用配置",

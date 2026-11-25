@@ -5,7 +5,12 @@ import {
   RefreshCwIcon,
   ServerOffIcon,
 } from "lucide-react";
-import { EmptyState, ListError, SkeletonCard } from "@/components/common";
+import {
+  EmptyState,
+  ListError,
+  PageHeader,
+  SkeletonCard,
+} from "@/components/common";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -61,89 +66,92 @@ function ServerCard({ server }: { server: Server }) {
   return (
     <Link
       to={`/servers/${server.id}/nodes`}
-      className="group flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card p-4 transition-colors duration-150 hover:border-primary/40 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+      className="group flex h-full min-w-0 flex-col rounded-xl focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <NetworkIcon className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate font-medium">{server.name}</span>
-        </div>
-        <Badge
-          variant="outline"
-          className={cn(
-            "shrink-0 gap-1.5 border-transparent font-normal",
-            online
-              ? "bg-primary/10 text-primary"
-              : "bg-muted text-muted-foreground",
-          )}
-        >
-          <span
-            aria-hidden="true"
+      <Card className="h-full gap-0 p-4 transition-[background-color,box-shadow] duration-150 group-hover:bg-muted/40 group-hover:ring-primary/40">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <NetworkIcon className="size-4 shrink-0 text-muted-foreground" />
+            <span className="truncate font-medium">{server.name}</span>
+          </div>
+          <Badge
+            variant="outline"
             className={cn(
-              "size-1.5 rounded-full",
-              online ? "bg-primary" : "bg-muted-foreground/40",
-            )}
-          />
-          {online ? t("nodes.index.online") : t("nodes.index.offline")}
-        </Badge>
-      </div>
-
-      <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-        {server.address}
-      </p>
-
-      {group !== null || chips.protocols.length > 0 ? (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          {group !== null ? (
-            <span
-              title={t("nodes.index.group")}
-              aria-label={t("nodes.index.groupAria", { name: group })}
-              className="max-w-40 truncate rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
-            >
-              {group}
-            </span>
-          ) : null}
-          {chips.protocols.map((protocol) => (
-            <Badge
-              key={protocol}
-              variant="outline"
-              className="h-5 border-border/70 px-1.5 font-mono text-[11px] font-normal tracking-wide text-muted-foreground"
-            >
-              {protocol}
-            </Badge>
-          ))}
-          {chips.overflow > 0 ? (
-            <span
-              aria-label={t("nodes.index.moreProtocols", { n: chips.overflow })}
-              className="text-xs text-muted-foreground"
-            >
-              {t("nodes.index.protocolOverflow", { n: chips.overflow })}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mt-auto flex items-end justify-between gap-3 pt-4">
-        <div className="min-w-0 space-y-0.5">
-          <p
-            className={cn(
-              "truncate text-xs",
-              summary.state === "empty"
-                ? "text-muted-foreground"
-                : "text-foreground/80",
+              "shrink-0 gap-1.5 border-transparent font-normal",
+              online
+                ? "bg-primary/10 text-primary"
+                : "bg-muted text-muted-foreground",
             )}
           >
-            {summaryText(summary)}
-          </p>
-          <p className="truncate text-[11px] text-muted-foreground">
-            v{server.config_version} · {formatRelativeTime(server.last_seen_at)}
-          </p>
+            <span
+              aria-hidden="true"
+              className={cn(
+                "size-1.5 rounded-full",
+                online ? "bg-primary" : "bg-muted-foreground/40",
+              )}
+            />
+            {online ? t("nodes.index.online") : t("nodes.index.offline")}
+          </Badge>
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-primary transition-colors duration-150 group-hover:text-foreground">
-          {t("nodes.index.manage")}
-          <ArrowRightIcon className="size-3" />
-        </span>
-      </div>
+
+        <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+          {server.address}
+        </p>
+
+        {group !== null || chips.protocols.length > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            {group !== null ? (
+              <span
+                title={t("nodes.index.group")}
+                aria-label={t("nodes.index.groupAria", { name: group })}
+                className="max-w-40 truncate rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+              >
+                {group}
+              </span>
+            ) : null}
+            {chips.protocols.map((protocol) => (
+              <Badge
+                key={protocol}
+                variant="outline"
+                className="h-5 border-border/70 px-1.5 font-mono text-[11px] font-normal tracking-wide text-muted-foreground"
+              >
+                {protocol}
+              </Badge>
+            ))}
+            {chips.overflow > 0 ? (
+              <span
+                aria-label={t("nodes.index.moreProtocols", { n: chips.overflow })}
+                className="text-xs text-muted-foreground"
+              >
+                {t("nodes.index.protocolOverflow", { n: chips.overflow })}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="mt-auto flex items-end justify-between gap-3 pt-4">
+          <div className="min-w-0 space-y-0.5">
+            <p
+              className={cn(
+                "truncate text-xs",
+                summary.state === "empty"
+                  ? "text-muted-foreground"
+                  : "text-foreground/80",
+              )}
+            >
+              {summaryText(summary)}
+            </p>
+            <p className="truncate text-[11px] text-muted-foreground">
+              {t("servers.configVersion", { version: server.config_version })} ·{" "}
+              {formatRelativeTime(server.last_seen_at)}
+            </p>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-primary transition-colors duration-150 group-hover:text-foreground">
+            {t("nodes.index.manage")}
+            <ArrowRightIcon className="size-3" />
+          </span>
+        </div>
+      </Card>
     </Link>
   );
 }
@@ -172,26 +180,24 @@ export default function NodesIndexPage() {
   );
 
   return (
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl leading-tight font-semibold tracking-tight">{t("nodes.title")}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("nodes.index.subtitle")}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void servers.refetch()}
-          disabled={servers.isFetching}
-        >
-          <RefreshCwIcon
-            className={cn("size-3.5", servers.isFetching && "animate-spin")}
-          />
-          {t("common.refresh")}
-        </Button>
-      </div>
+    <div className="animate-enter space-y-6">
+      <PageHeader
+        title={t("nodes.title")}
+        description={t("nodes.index.subtitle")}
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void servers.refetch()}
+            disabled={servers.isFetching}
+          >
+            <RefreshCwIcon
+              className={cn("size-3.5", servers.isFetching && "animate-spin")}
+            />
+            {t("common.refresh")}
+          </Button>
+        }
+      />
 
       {servers.isPending ? (
         <LoadingCards />

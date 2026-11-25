@@ -14,6 +14,7 @@ import {
   parsePortRangeInput,
   portPolicyLabel,
   portPolicySummary,
+  portPolicyValue,
 } from "./portPolicy.ts";
 
 test("parsePortAllow accepts commas, whitespace and both separators, sorting and deduping", () => {
@@ -158,6 +159,39 @@ test("portPolicySummary is always non-empty and describes every policy shape", (
     portPolicySummary({ port_start: 30000, port_end: 31000, port_allow: [443, 8443] }),
     "Allowed ports 30000-31000; additionally allowed: 443, 8443",
   );
+});
+
+test("portPolicyValue drops the label prefix so detail rows do not repeat themselves", () => {
+  setCurrentLocale("zh-CN");
+  assert.equal(portPolicyValue({}), "端口不受限制");
+  assert.equal(
+    portPolicyValue({ port_start: 30000, port_end: 31000 }),
+    "30000-31000",
+  );
+  assert.equal(portPolicyValue({ port_allow: [443, 8443] }), "443、8443");
+  assert.equal(
+    portPolicyValue({ port_start: 30000, port_end: 31000, port_allow: [443] }),
+    "30000-31000 · 443",
+  );
+  // 单边范围按开放区间展示，与 portPolicyLabel 的口径一致。
+  assert.equal(portPolicyValue({ port_start: 30000 }), "30000-65535");
+  // 标签是「允许的端口」，值不能再以「允许端口」开头。
+  for (const policy of [
+    { port_start: 30000, port_end: 31000 },
+    { port_allow: [443] },
+    { port_start: 30000, port_end: 31000, port_allow: [443] },
+  ]) {
+    assert.ok(!portPolicyValue(policy).startsWith("允许端口"));
+    assert.ok(!portPolicyValue(policy).startsWith("允许自定义端口"));
+  }
+
+  setCurrentLocale("en");
+  assert.equal(portPolicyValue({}), "Ports are unrestricted");
+  assert.equal(
+    portPolicyValue({ port_start: 30000, port_end: 31000, port_allow: [443, 8443] }),
+    "30000-31000 · 443, 8443",
+  );
+  assert.ok(!portPolicyValue({ port_allow: [443] }).startsWith("Allowed"));
 });
 
 test("parsePortRangeInput treats blank as unlimited and rejects partial or inverted input", () => {

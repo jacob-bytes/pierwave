@@ -58,6 +58,8 @@ const en = {
     refresh: "Refresh",
     copy: "Copy",
     copied: "Copied",
+    showMore: "More",
+    showLess: "Less",
     copyFailed: "Could not copy. Select the text and copy it manually.",
     none: "None",
     viewAll: "View all",
@@ -1064,7 +1066,12 @@ const en = {
     list: "Server list",
     onlineCount: "Online {online} / {total}",
     serviceAbnormal: "Service errors {n}",
-    desc: "Agents connect out to the controller, so no inbound port is needed. The list refreshes every 15 seconds while an upgrade is pending. A server that is online but has Xray stopped is highlighted in red; on narrow screens, open Details to see load and memory.",
+    descShort: "A server that is online but has Xray stopped is marked red.",
+    descMore:
+      "Agents connect out to the controller, so no inbound port is needed. The list refreshes every 15 seconds while an upgrade is pending. On narrow screens, open Details for load and memory.",
+    aboutAria: "About this list",
+    filterAbnormalOn: "Show only servers with Xray stopped",
+    filterAbnormalOff: "Clear the service error filter and show all servers",
     country: "Country / region",
     countryPlaceholder: "CN / US / JP",
     countrySearch: "Search country or code",
@@ -1173,6 +1180,7 @@ const en = {
       status: "Status",
       load: "Load (1 min)",
       latency: "Network latency",
+      latencyValue: "{ms} ms",
       latencyHint: "TCP handshake RTT from the Agent to the public probe target",
       rate: "Current rate",
       rateHint:
@@ -3079,6 +3087,7 @@ const en = {
     pageNext: "Next",
     limitedNodes: "Speed-limited nodes",
     speedLimit: {
+      label: "Speed limit",
       badge: "Limit {mbps}M",
       badgeTitle:
         "Downstream bandwidth cap {mbps} Mbps: exact tc rate limit, downstream only; apply the config again after changes",

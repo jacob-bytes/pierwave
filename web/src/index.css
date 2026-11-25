@@ -545,6 +545,44 @@
   z-index: 30;
 }
 
+/*
+ * 服务器列表的名称列：紧贴复选框列固定，右侧用一道渐变阴影和滚动内容
+ * 分隔。用伪元素而不是 box-shadow —— 表格是 border-collapse: collapse，
+ * td 的 box-shadow 会被单元格边界裁掉，看起来像没有分隔。
+ * 颜色由 foreground 混出，不写死；亮暗主题都成立。
+ */
+[data-slot="table-head"].pw-sticky-name,
+[data-slot="table-cell"].pw-sticky-name {
+  position: sticky;
+}
+
+/*
+ * 「只看服务异常」选中态：实心 destructive + background 反色。
+ *
+ * 用属性选择器而不是 Tailwind class：ghost Button 的 hover 背景优先级更高，
+ * 鼠标点完还停在按钮上时，class 版选中态会被 hover 的 muted 背景盖掉。
+ */
+[data-slot="server-abnormal-filter"][data-active="true"],
+[data-slot="server-abnormal-filter"][data-active="true"]:hover {
+  background-color: var(--destructive);
+  color: var(--background);
+}
+
+[data-slot="table-head"].pw-sticky-name::after,
+[data-slot="table-cell"].pw-sticky-name::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  right: -12px;
+  width: 12px;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--foreground) 20%, transparent),
+    transparent
+  );
+}
+
 /* 骨架屏 shimmer：1.2s 循环，只在列表加载态使用 */
 @keyframes skeleton-shimmer {
   from {

@@ -13,7 +13,15 @@ import {
   TriangleAlertIcon,
   XIcon,
 } from "lucide-react";
-import { EmptyState, ListErrorRow, SkeletonTable } from "@/components/common";
+import {
+  EmptyState,
+  ListError,
+  ListErrorRow,
+  MobileDataCard,
+  PageHeader,
+  SkeletonCard,
+  SkeletonTable,
+} from "@/components/common";
 import { DeleteNodeDialog } from "@/components/nodes/DeleteNodeDialog";
 import { NodeFormDialog } from "@/components/nodes/NodeFormDialog";
 import {
@@ -62,6 +70,7 @@ import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
 import { nodeSummary } from "@/lib/protocols";
 import { portPairLabel } from "@/lib/publicPort";
+import { isSpeedLimited } from "@/lib/speed";
 import {
   clampNodePage,
   hasNodeFilters,
@@ -88,6 +97,7 @@ import {
 } from "@/lib/tcping";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { useIsDesktop } from "@/lib/useIsDesktop";
 import { t, useI18n } from "@/i18n";
 
 const COLUMN_COUNT = 7;
@@ -116,6 +126,14 @@ function nodeMetaTitle(node: Node): string {
   return [node.name, node.tag, node.region, ...(node.tags ?? [])]
     .filter((part): part is string => Boolean(part && String(part).trim()))
     .join(" · ");
+}
+
+/** 窄屏卡片副标题：标签 / 地区 / 额外标签，不含名称本身。 */
+function nodeCardMeta(node: Node): string | undefined {
+  const parts = [node.tag, node.region, ...(node.tags ?? [])]
+    .map((part) => (part ? String(part).trim() : ""))
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 /** 列表里的「7 天流量」单元格：点击打开详情 Sheet。 */
@@ -246,6 +264,7 @@ function NodeEnabledSwitch({
 
 export default function NodesPage() {
   useI18n();
+  const isDesktop = useIsDesktop();
   const { id: serverId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const servers = useServers();
@@ -394,61 +413,198 @@ export default function NodesPage() {
     });
   }
 
+  /** 桌面行与窄屏卡片共用同一份操作菜单。 */
+  function renderNodeActions(node: Node) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("nodes.actionsAria", { name: node.name })}
+          >
+            <MoreHorizontalIcon className="size-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-36">
+          <DropdownMenuItem onSelect={() => setFormState({ mode: "edit", node })}>
+            <PencilIcon className="size-3.5" />
+            {t("common.edit")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            variant="destructive"
+            onSelect={() => setDeleteTarget(node)}
+          >
+            <Trash2Icon className="size-3.5" />
+            {t("common.delete")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+
+  /**
+   * 窄屏卡片：名称 / 协议 / 启用状态 / 操作常驻，端口、流量、更新时间收进「更多」。
+   *
+   * 折叠复用 `MobileDataCard` 的 `moreFields`，与服务器页同一套交互；
+   * 探测结果只在有结果时占位置，idle / loading 不留空白边框。
+   */
+  function renderNodeCard(node: Node) {
+    const tcpingState = tcpingStates[node.id] ?? IDLE_TCPING;
+
+    return (
+      <MobileDataCard
+        key={node.id}
+        title={node.name}
+        subtitle={nodeCardMeta(node)}
+        subtitleMono={false}
+        badge={<NodeEnabledSwitch serverId={serverId} node={node} />}
+        actions={
+          <>
+            <NodeTcpingAction
+              node={node}
+              state={tcpingState}
+              onProbe={() => handleTcping(node)}
+            />
+            {renderNodeActions(node)}
+          </>
+        }
+        fields={[
+          {
+            label: t("nodes.columns.protocol"),
+            value: (
+              <span className="inline-flex flex-wrap items-center justify-end gap-1">
+                <Badge
+                  variant="outline"
+                  className="font-mono type-micro font-normal text-muted-foreground"
+                >
+                  {nodeSummary(node.protocol, node.transport, node.security)}
+                </Badge>
+                <SsMethodBadge node={node} />
+              </span>
+            ),
+          },
+        ]}
+        moreFields={[
+          {
+            label: t("nodes.columns.port"),
+            value: (
+              <span
+                className="font-mono tabular-nums text-muted-foreground"
+                title={
+                  node.public_port == null
+                    ? undefined
+                    : t("nodes.portPairTitle")
+                }
+              >
+                {portPairLabel(node.port, node.public_port)}
+              </span>
+            ),
+          },
+          {
+            label: t("nodes.traffic.column"),
+            value: (
+              <NodeTrafficCell
+                node={node}
+                traffic={trafficByNode.get(node.id)}
+                loading={traffic.isPending}
+                errorTitle={trafficErrorTitle}
+                onOpen={() => setTrafficTarget(node)}
+              />
+            ),
+          },
+          ...(isSpeedLimited(node.bandwidth_kbps)
+            ? [
+                {
+                  label: t("nodes.speedLimit.label"),
+                  value: <SpeedLimitBadge kbps={node.bandwidth_kbps} />,
+                },
+              ]
+            : []),
+          {
+            label: t("nodes.columns.updatedAt"),
+            value: (
+              <span
+                className="text-muted-foreground"
+                title={formatAbsoluteTime(nodeChangedAt(node))}
+              >
+                {formatRelativeTime(nodeChangedAt(node))}
+              </span>
+            ),
+          },
+        ]}
+        children={
+          tcpingState.status === "success" || tcpingState.status === "failure" ? (
+            <NodeTcpingResult state={tcpingState} />
+          ) : undefined
+        }
+      />
+    );
+  }
+
   // TooltipProvider 只在本页：Radix Tooltip 不进入应用根部，避免首屏 chunk 变大。
   return (
     <TooltipProvider delayDuration={200}>
-    <div className="animate-in space-y-6 fade-in-0 slide-in-from-bottom-1 duration-150">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <Link
-            to="/servers"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
-          >
-            <ArrowLeftIcon className="size-3" />
-            {t("nodes.backServers")}
-          </Link>
-          <h1 className="mt-1 flex min-w-0 items-center gap-2 text-xl leading-tight font-semibold tracking-tight">
-            <span className="shrink-0">{t("nodes.title")}</span>
-            <span className="text-muted-foreground">·</span>
-            {servers.isPending ? (
-              <Skeleton className="h-5 w-32" />
-            ) : (
-              <span className="truncate">{server?.name ?? t("nodes.unknownServer")}</span>
-            )}
-            {server ? (
-              <Badge
-                variant="secondary"
-                className="font-mono type-micro font-normal text-muted-foreground"
+    <div className="animate-enter space-y-6">
+      <div className="space-y-2">
+        <Link
+          to="/servers"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors duration-150 hover:text-foreground"
+        >
+          <ArrowLeftIcon className="size-3" />
+          {t("nodes.backServers")}
+        </Link>
+        <PageHeader
+          title={
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0">{t("nodes.title")}</span>
+              <span className="text-muted-foreground">·</span>
+              {servers.isPending ? (
+                <Skeleton className="h-5 w-32" />
+              ) : (
+                <span className="truncate">
+                  {server?.name ?? t("nodes.unknownServer")}
+                </span>
+              )}
+              {server ? (
+                <Badge
+                  variant="secondary"
+                  title={t("servers.detail.configVersion")}
+                  className="font-mono type-micro font-normal text-muted-foreground"
+                >
+                  {t("servers.configVersion", {
+                    version: server.config_version,
+                  })}
+                </Badge>
+              ) : null}
+            </span>
+          }
+          description={t("nodes.subtitle")}
+          actions={
+            <>
+              <Button
+                variant="outline"
+                onClick={() => setFormState({ mode: "create" })}
+                disabled={!serverId}
               >
-                v{server.config_version}
-              </Badge>
-            ) : null}
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("nodes.subtitle")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setFormState({ mode: "create" })}
-            disabled={!serverId}
-          >
-            <PlusIcon className="size-4" />
-            {t("nodes.add")}
-          </Button>
-          <Button
-            onClick={handleApply}
-            disabled={!serverId || apply.isPending}
-          >
-            {apply.isPending ? (
-              <RefreshCwIcon className="animate-spin" />
-            ) : (
-              <SendIcon />
-            )}
-            {apply.isPending ? t("nodes.applying") : t("nodes.apply")}
-          </Button>
-        </div>
+                <PlusIcon className="size-4" />
+                {t("nodes.add")}
+              </Button>
+              <Button
+                onClick={handleApply}
+                disabled={!serverId || apply.isPending}
+              >
+                {apply.isPending ? (
+                  <RefreshCwIcon className="animate-spin" />
+                ) : (
+                  <SendIcon />
+                )}
+                {apply.isPending ? t("nodes.applying") : t("nodes.apply")}
+              </Button>
+            </>
+          }
+        />
       </div>
 
       {warnings.length > 0 ? (
@@ -545,12 +701,19 @@ export default function NodesPage() {
         </CardHeader>
 
         <CardContent className="p-0" aria-busy={nodes.isPending}>
-          {nodes.isPending ? (
+          {nodes.isPending && isDesktop ? (
             <SkeletonTable rows={5} columns={COLUMN_COUNT} />
           ) : null}
-          <Table
-            className={cn("min-w-[900px]", nodes.isPending && "hidden")}
-          >
+          {nodes.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <SkeletonCard key={index} lines={4} />
+              ))}
+            </div>
+          ) : null}
+          {isDesktop ? (
+          <div className={cn(nodes.isPending && "hidden")}>
+          <Table className="min-w-[900px]">
             <TableCaption className="sr-only">{t("nodes.tableCaption")}</TableCaption>
             <TableHeader className="bg-muted/30">
               <TableRow>
@@ -568,6 +731,13 @@ export default function NodesPage() {
                 ].map(({ label, title }, index) => (
                   <TableHead
                     key={label}
+                    sticky={
+                      index === 0
+                        ? "left"
+                        : index === COLUMN_COUNT - 1
+                          ? "right"
+                          : undefined
+                    }
                     title={title}
                     className={cn(
                       "h-9 px-4 text-xs font-medium tracking-wide text-muted-foreground",
@@ -616,7 +786,7 @@ export default function NodesPage() {
               ) : (
                 items.map((node) => (
                   <TableRow key={node.id}>
-                    <TableCell className="max-w-72 px-4">
+                    <TableCell sticky="left" className="max-w-72 px-4">
                       {/* 40px 基线：名称 / 标签 / 徽标 / 探测按钮同一行；
                           地区与额外标签收进 title，不再各占一行。 */}
                       <div className="flex min-w-0 items-center gap-1.5">
@@ -704,42 +874,69 @@ export default function NodesPage() {
                         {formatRelativeTime(nodeChangedAt(node))}
                       </span>
                     </TableCell>
-                    <TableCell className="px-4">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={t("nodes.actionsAria", { name: node.name })}
-                          >
-                            <MoreHorizontalIcon className="size-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-36">
-                          <DropdownMenuItem
-                            onSelect={() =>
-                              setFormState({ mode: "edit", node })
-                            }
-                          >
-                            <PencilIcon className="size-3.5" />
-                            {t("common.edit")}
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            variant="destructive"
-                            onSelect={() => setDeleteTarget(node)}
-                          >
-                            <Trash2Icon className="size-3.5" />
-                            {t("common.delete")}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                    <TableCell sticky="right" className="px-4">
+                      {renderNodeActions(node)}
                     </TableCell>
                   </TableRow>
                 ))
               )}
             </TableBody>
           </Table>
+          </div>
+          ) : null}
+
+          {!nodes.isPending && !isDesktop ? (
+            <div className="space-y-3 p-3">
+              {showError ? (
+                <Card size="sm" className="py-0">
+                  <ListError
+                    title={t("nodes.loadFailed")}
+                    message={errorMessage}
+                    retrying={nodes.isFetching}
+                    onRetry={() => void nodes.refetch()}
+                  />
+                </Card>
+              ) : items.length === 0 ? (
+                filtersActive ? (
+                  <EmptyState
+                    size="sm"
+                    icon={NetworkIcon}
+                    title={t("nodes.filteredEmptyTitle")}
+                    description={t("nodes.filteredEmptyDesc")}
+                    action={
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={clearFilters}
+                      >
+                        {t("nodes.clearFilters")}
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <EmptyState
+                    size="sm"
+                    icon={NetworkIcon}
+                    title={t("nodes.emptyTitle")}
+                    description={t("nodes.emptyDesc")}
+                    action={
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setFormState({ mode: "create" })}
+                      >
+                        <PlusIcon className="size-3.5" />
+                        {t("nodes.emptyAction")}
+                      </Button>
+                    }
+                  />
+                )
+              ) : (
+                items.map(renderNodeCard)
+              )}
+            </div>
+          ) : null}
+
           {nodes.data && !showError ? (
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4">
               <p className="text-xs text-muted-foreground tabular-nums">

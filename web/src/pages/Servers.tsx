@@ -132,6 +132,7 @@ import {
   parsePortRangeInput,
   portPolicyLabel,
   portPolicySummary,
+  portPolicyValue,
 } from "@/lib/portPolicy";
 import { useAllNodes, useCreateServer, useServers } from "@/lib/queries";
 import {
@@ -615,7 +616,7 @@ function ServerDetailsPopover({ server }: { server: Server }) {
           {portLabel ? (
             <DetailRow
               label={t("servers.portPolicy.section")}
-              value={portPolicySummary(server)}
+              value={portPolicyValue(server)}
             />
           ) : null}
           {internalAddress ? (
@@ -654,7 +655,7 @@ function ServerDetailsPopover({ server }: { server: Server }) {
             value={
               server.latency_ms === null
                 ? t("common.notReported")
-                : t("servers.latencyValue", { ms: server.latency_ms })
+                : t("servers.detail.latencyValue", { ms: server.latency_ms })
             }
             tone={server.latency_ms === null ? "muted" : "default"}
           />
@@ -825,8 +826,11 @@ export default function ServersPage() {
   const tableColumns = serverTableColumns(t);
   const servers = useServers();
   const create = useCreateServer();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const highlightParam = searchParams.get("highlight")?.trim() || null;
+  // 「只看服务异常」写进 URL：刷新 / 分享链接后筛选状态还在，和分组下拉的
+  // 组件态区分开。非法值（不是 exactly abnormal）一律当未筛选。
+  const onlyAbnormal = searchParams.get("only") === "abnormal";
 
   const [createOpen, setCreateOpen] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
@@ -922,7 +926,7 @@ export default function ServersPage() {
       : GROUP_FILTER_ALL;
   }, [groupFilter, groupOptions]);
 
-  const visibleItems = useMemo(() => {
+  const groupFilteredItems = useMemo(() => {
     if (activeGroupFilter === GROUP_FILTER_ALL) return items;
     if (activeGroupFilter === GROUP_FILTER_UNGROUPED) {
       return items.filter(
@@ -933,6 +937,19 @@ export default function ServersPage() {
       (server) => normalizeGroupName(server.group_name) === activeGroupFilter,
     );
   }, [items, activeGroupFilter]);
+
+  // 异常数按当前分组算：筛选按钮只在「点了确实有结果」时出现。
+  const serviceDownCount = groupFilteredItems.filter(isServiceDown).length;
+  // URL 里有 only=abnormal 但当前分组没有异常时，按未筛选渲染，避免出现
+  // 一个看不到、也无法取消的隐形筛选。
+  const abnormalActive = onlyAbnormal && serviceDownCount > 0;
+  const visibleItems = useMemo(
+    () =>
+      abnormalActive
+        ? groupFilteredItems.filter(isServiceDown)
+        : groupFilteredItems,
+    [groupFilteredItems, abnormalActive],
+  );
 
   const eligibleIds = useMemo(() => selectableServerIds(items), [items]);
   // 列表刷新后可能有关掉「允许下发升级」的行：从这里起就丢掉失效 id，
@@ -991,6 +1008,50 @@ export default function ServersPage() {
     setBatchProgressOpen(true);
   }
 
+  /**
+   * 「只看服务异常」开关。
+   *
+   * 写 URL 而不是组件态：筛选后的列表可以直接刷新 / 分享 / 后退，
+   * 也避免 15 秒轮询刷新时把筛选悄悄清掉。
+   */
+  function toggleAbnormalFilter() {
+    const next = new URLSearchParams(searchParams);
+    if (abnormalActive) next.delete("only");
+    else next.set("only", "abnormal");
+    setSearchParams(next, { replace: true });
+  }
+
+  /**
+   * 切换分组时同步异常筛选：新分组没有异常就顺手把 only 去掉。
+   *
+   * 否则 URL 还写着 `only=abnormal`，但筛选按钮已经隐藏、列表却显示全部，
+   * 刷新后状态也对不上。新分组仍有异常时保留筛选。
+   */
+  function handleGroupFilterChange(value: string) {
+    setGroupFilter(value);
+    if (!searchParams.has("only")) return;
+    const scoped = items.filter((server) => {
+      if (value === GROUP_FILTER_ALL) return true;
+      const group = normalizeGroupName(server.group_name);
+      if (value === GROUP_FILTER_UNGROUPED) return group === null;
+      return group === value;
+    });
+    if (scoped.some(isServiceDown)) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("only");
+    setSearchParams(next, { replace: true });
+  }
+
+  /** 清空列表筛选：分组回到全部，URL 里的 only 也一并去掉。 */
+  function clearAllFilters() {
+    setGroupFilter(GROUP_FILTER_ALL);
+    if (searchParams.has("only")) {
+      const next = new URLSearchParams(searchParams);
+      next.delete("only");
+      setSearchParams(next, { replace: true });
+    }
+  }
+
   const editServer = items.find((server) => server.id === editServerId) ?? null;
   const upgradeServer =
     items.find((server) => server.id === upgradeServerId) ?? null;
@@ -1003,7 +1064,6 @@ export default function ServersPage() {
   const onlineCount = visibleItems.filter(
     (server) => server.status === "online",
   ).length;
-  const serviceDownCount = items.filter(isServiceDown).length;
   const showError = servers.isError && !servers.data;
   const isEmpty = servers.data !== undefined && !servers.isError && items.length === 0;
   const errorMessage = errorText(
@@ -1024,10 +1084,34 @@ export default function ServersPage() {
     { label: t("servers.createDialog.address"), value: address },
   ]);
 
+  /**
+   * 名称列：第一行名称 + 应用结果，第二行把分组 / 端口 / 网卡收成一条
+   * 13px 弱化文字（`香港 · 端口 30000-31000 · eth0`）。
+   *
+   * 端口和网卡是配置信息，不该各占一行把行高撑到 82px；只有网卡无法校验
+   * （未上报 / 已不在最新列表）才保留一个 warning 徽章提醒用户。
+   */
   function renderServerName(server: Server) {
     const serviceDown = isServiceDown(server);
     const groupName = normalizeGroupName(server.group_name);
     const portLabel = portPolicyLabel(server);
+    const nicName = nicLabel(server.nic_name);
+    const nicNeedsAttention =
+      nicName !== null && nicState(server) !== "verified";
+
+    const metaParts = [
+      groupName,
+      portLabel || null,
+      nicNeedsAttention ? null : nicName,
+    ].filter(Boolean) as string[];
+    const metaText = metaParts.join(" · ");
+    const metaTitle = [
+      groupName,
+      portLabel ? portPolicySummary(server) : null,
+      nicName,
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
     return (
       <div className="flex items-center gap-2">
@@ -1038,34 +1122,25 @@ export default function ServersPage() {
             serviceDown ? "bg-destructive" : "bg-transparent",
           )}
         />
-        <div className="min-w-0">
-          <div className="truncate font-medium" title={server.name}>
-            {server.name}
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate font-medium" title={server.name}>
+              {server.name}
+            </span>
+            {/* 应用结果与在线/离线分列：它在身份列，不占状态列。ok / null 不渲染。 */}
+            <ApplyStatusBadge server={server} className="shrink-0" />
           </div>
-          {/* 应用结果与在线/离线分列：它在身份列，不占状态列。ok / null 不渲染。 */}
-          <ApplyStatusBadge server={server} className="mt-0.5" />
-          {groupName ? (
-            <div
-              title={groupName}
-              className="max-w-40 truncate text-[13px] text-muted-foreground"
-            >
-              {groupName}
+          {metaText || nicNeedsAttention ? (
+            <div className="mt-0.5 flex min-w-0 items-center gap-1 text-[13px] text-muted-foreground">
+              {metaText ? (
+                <span className="truncate" title={metaTitle}>
+                  {metaText}
+                </span>
+              ) : null}
+              {nicNeedsAttention && nicName ? (
+                <NicBadge server={server} compact className="shrink-0" />
+              ) : null}
             </div>
-          ) : null}
-          {portLabel ? (
-            <Badge
-              variant="outline"
-              title={portPolicySummary(server)}
-              className="mt-0.5 h-4 px-1 type-micro font-normal whitespace-nowrap text-muted-foreground"
-            >
-              {portLabel}
-            </Badge>
-          ) : null}
-          {nicLabel(server.nic_name) ? (
-            <NicBadge
-              server={server}
-              className={cn("mt-0.5", portLabel && "ml-1")}
-            />
           ) : null}
         </div>
       </div>
@@ -1223,6 +1298,8 @@ export default function ServersPage() {
         id={`server-row-${server.id}`}
         data-state={selected ? "selected" : undefined}
         className={cn(
+          // 服务器行固定 64px：名称 + 一条 13px 配置/分组信息，两层就够。
+          "h-16",
           serviceDown && "bg-destructive/5 hover:bg-destructive/10",
           highlighted &&
             "ring-1 ring-inset transition-[box-shadow] duration-500",
@@ -1247,7 +1324,10 @@ export default function ServersPage() {
         >
           {renderServerCheckbox(server, selected)}
         </TableCell>
-        <TableCell className="max-w-56 px-2">
+        <TableCell
+          sticky="left"
+          className="pw-sticky-name left-10 max-w-56 px-2"
+        >
           {renderServerName(server)}
         </TableCell>
         <TableCell
@@ -1325,17 +1405,36 @@ export default function ServersPage() {
             {
               label: t("common.address"),
               value: (
-                <span className="inline-flex min-w-0 items-center justify-end gap-1">
-                  <span className="break-all font-mono">{server.address}</span>
+                <span className="inline-flex min-w-0 max-w-full items-center justify-end gap-1">
+                  <span
+                    className="min-w-0 truncate font-mono"
+                    title={server.address}
+                  >
+                    {server.address}
+                  </span>
                   <CopyButton
                     value={server.address}
                     label={server.address}
                     iconOnly
-                    className="shrink-0"
+                    className="shrink-0 max-sm:min-h-7"
                   />
                 </span>
               ),
             },
+            {
+              label: t("servers.detail.load"),
+              value: renderServerLoad(server),
+            },
+            {
+              label: t("servers.detail.memory"),
+              value: <MemoryCell server={server} />,
+            },
+            {
+              label: t("servers.detail.rate"),
+              value: <RateCell server={server} />,
+            },
+          ]}
+          moreFields={[
             ...(portLabel
               ? [
                   {
@@ -1345,7 +1444,7 @@ export default function ServersPage() {
                         title={portSummary}
                         className="inline-block max-w-40 truncate align-bottom text-muted-foreground"
                       >
-                        {portLabel}
+                        {portPolicyValue(server)}
                       </span>
                     ),
                   },
@@ -1395,18 +1494,6 @@ export default function ServersPage() {
                   },
                 ]
               : []),
-            {
-              label: t("servers.detail.load"),
-              value: renderServerLoad(server),
-            },
-            {
-              label: t("servers.detail.memory"),
-              value: <MemoryCell server={server} />,
-            },
-            {
-              label: t("servers.detail.rate"),
-              value: <RateCell server={server} />,
-            },
           ]}
         />
       </div>
@@ -1537,26 +1624,38 @@ export default function ServersPage() {
       <Card className="gap-0 overflow-hidden">
         <CardHeader className="border-b border-border">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="flex items-center gap-2 text-sm font-medium">
-              {t("servers.list")}
-              {servers.data ? (
-                <Badge
-                  variant="secondary"
-                  className="font-mono type-micro font-normal text-muted-foreground"
-                >
-                  {visibleItems.length}
-                </Badge>
-              ) : null}
-            </CardTitle>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                {t("servers.list")}
+                {servers.data ? (
+                  <Badge
+                    variant="secondary"
+                    className="font-mono type-micro font-normal text-muted-foreground"
+                  >
+                    {t("servers.onlineCount", {
+                      online: onlineCount,
+                      total: visibleItems.length,
+                    })}
+                  </Badge>
+                ) : null}
+              </CardTitle>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground"
+                    aria-label={t("servers.aboutAria")}
+                  >
+                    <InfoIcon className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-72">
+                  {t("servers.descMore")}
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
-              {servers.data ? (
-                <span className="text-xs text-muted-foreground">
-                  {t("servers.onlineCount", {
-                    online: onlineCount,
-                    total: visibleItems.length,
-                  })}
-                </span>
-              ) : null}
               {/*
                 加载中也把筛选区画出来（禁用），避免骨架 → 数据两套结构来回跳。
                 没有任何分组时才真正隐藏。
@@ -1579,7 +1678,7 @@ export default function ServersPage() {
                 serverGroups.some((group) => group.name !== null) ? (
                 <Select
                   value={activeGroupFilter}
-                  onValueChange={setGroupFilter}
+                  onValueChange={handleGroupFilterChange}
                 >
                   <SelectTrigger
                     className="h-8 w-36 text-xs"
@@ -1609,14 +1708,39 @@ export default function ServersPage() {
                 </Select>
               ) : null}
               {serviceDownCount > 0 ? (
-                <Badge
-                  variant="outline"
-                  title={t("servers.serviceAbnormalTitle")}
-                  className="gap-1 border-transparent bg-destructive/10 font-normal text-destructive"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-pressed={abnormalActive}
+                  data-slot="server-abnormal-filter"
+                  data-active={abnormalActive ? "true" : undefined}
+                  aria-label={
+                    abnormalActive
+                      ? t("servers.filterAbnormalOff")
+                      : t("servers.filterAbnormalOn")
+                  }
+                  title={
+                    abnormalActive
+                      ? t("servers.filterAbnormalOff")
+                      : t("servers.filterAbnormalOn")
+                  }
+                  onClick={toggleAbnormalFilter}
+                  className={cn(
+                    "gap-1 font-normal text-destructive transition-colors duration-150",
+                    abnormalActive
+                      ? // 选中态由 index.css 的 [data-active] 规则兜底：
+                        // ghost 按钮自带的 hover 背景优先级更高，纯 class 会被盖掉。
+                        "ring-1 ring-destructive/60"
+                      : "bg-destructive/10 hover:bg-destructive/15",
+                  )}
                 >
-                  <TriangleAlertIcon className="size-3" />
+                  {abnormalActive ? (
+                    <CheckIcon className="size-3" aria-hidden="true" />
+                  ) : (
+                    <TriangleAlertIcon className="size-3" aria-hidden="true" />
+                  )}
                   {t("servers.serviceAbnormal", { n: serviceDownCount })}
-                </Badge>
+                </Button>
               ) : null}
               <Button
                 variant="outline"
@@ -1643,8 +1767,8 @@ export default function ServersPage() {
               </Button>
             </div>
           </div>
-          <CardDescription className="text-xs">
-            {t("servers.desc")}
+          <CardDescription className="text-xs line-clamp-2">
+            {t("servers.descShort")}
           </CardDescription>
         </CardHeader>
 
@@ -1718,9 +1842,7 @@ export default function ServersPage() {
               ) : items.length === 0 ? (
                 <EmptyRow onCreate={openCreateDialog} />
               ) : visibleItems.length === 0 ? (
-                <FilterEmptyRow
-                  onClear={() => setGroupFilter(GROUP_FILTER_ALL)}
-                />
+                <FilterEmptyRow onClear={clearAllFilters} />
               ) : (
                 visibleItems.map(renderRow)
               )}
@@ -1763,7 +1885,7 @@ export default function ServersPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setGroupFilter(GROUP_FILTER_ALL)}
+                      onClick={clearAllFilters}
                     >
                       {t("servers.filterEmptyClear")}
                     </Button>

@@ -46,8 +46,10 @@ export function formatRelativeTime(
     return t("time.neverOnline");
 
   const diff = now - unixSeconds * 1_000;
-  // 未来时间（时钟偏差或数据写错）没有「多久以前」可言，直接给绝对时间。
-  if (diff < 0) return formatAbsoluteTime(unixSeconds);
+  // 未来时间（时钟偏差或数据写错）没有「多久以前」可言：按「刚刚」处理。
+  // 不能回退绝对时间——19 位时间戳会把「最后在线」列撑爆，而且未来时间本身
+  // 就说明这条数据不可信，绝对时间不会让它更可信。
+  if (diff < 0) return t("time.justNow");
 
   if (diff < MINUTE_MS) {
     if (!includeSeconds) return t("time.justNow");

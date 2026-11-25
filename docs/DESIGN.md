@@ -12,7 +12,7 @@
 |---|---|---|
 | background | `0.145 0.004 285` | 页面底 |
 | card | `0.175 0.005 285` | 卡片 / 表格容器 |
-| border | `1 0 0 / 8%`（`--border` 变量里表达） | 1px 分隔，不用阴影 |
+| border | `1 0 0 / 8%`（`--border` 变量里表达） | 1px 分隔；卡片另加极轻落影 |
 | muted-foreground | `0.70 0.015 285` | 次要文本 |
 | primary | `0.673 0.182 277`（indigo-500 dark） | 主按钮、在线态、焦点环 |
 | primary-foreground | `0.257 0.09 281` | primary 上的文字 |
@@ -27,8 +27,13 @@
 
 - 圆角 `--radius: 0.625rem`；卡片 12px，按钮/输入 8px，徽章全圆。
 - 表格行高 40px，`text-sm`，表头 `text-xs uppercase tracking-wide text-muted-foreground`。
-- 卡片用 1px border，**不用 box-shadow**；只有 Dialog / Dropdown 允许一层轻阴影（`shadow-lg/40`）。
+- 卡片用 1px ring（`ring-foreground/10`）+ 极轻落影 `shadow-card`，**不使用更重的阴影**；
+  Dialog / Dropdown 仍用一层轻阴影（`shadow-lg/40`）。
 - 间距走 4 的倍数，页面内边距 24px，卡片内 16–20px。
+
+**English**: Cards use a 1px ring (`ring-foreground/10`) plus the very light
+`shadow-card` elevation — never a heavier shadow. Only Dialog / Dropdown keep a
+single `shadow-lg/40` layer.
 
 ## 三、字号 / Typography
 

@@ -8,28 +8,24 @@ import { useI18n } from "@/i18n"
 /**
  * 表格容器统一处理窄屏横向裁切：
  * - `overflow-x-auto` + 显式滚动条（见 index.css），操作列可以滑到；
- * - 溢出时右侧出现渐隐遮罩与「左右滑动查看更多」提示，滚动到末尾后消失。
+ * - 溢出时在**表格右上角**出现一条「左右滑动查看更多」提示。
  *
- * 提示与遮罩都是绝对定位，不占据文档流，因此不会引入 layout shift。
+ * 提示放在滚动容器外、表格上方：它不会跟着内容一起滑走，也不会被右侧
+ * sticky 操作列（z-20）盖住——之前绝对定位在 wrapper 右下角时，提示正好
+ * 压在操作列下面，用户根本看不到。表格很长时页脚提示要滚到最底部才可见，
+ * 所以固定在上沿；只有这个表格确实溢出时才会出现。
  */
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   const { t } = useI18n()
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const [overflowing, setOverflowing] = React.useState(false)
-  const [atEnd, setAtEnd] = React.useState(false)
 
   React.useEffect(() => {
     const container = scrollRef.current
     if (!container) return
 
     const update = () => {
-      const overflowing = container.scrollWidth > container.clientWidth + 1
-      setOverflowing(overflowing)
-      setAtEnd(
-        !overflowing ||
-          container.scrollLeft + container.clientWidth >=
-            container.scrollWidth - 1,
-      )
+      setOverflowing(container.scrollWidth > container.clientWidth + 1)
     }
 
     update()
@@ -57,6 +53,17 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
 
   return (
     <div data-slot="table-shell" className="relative">
+      {overflowing ? (
+        <div
+          data-slot="table-scroll-hint"
+          className="relative z-10 flex items-center justify-end border-b border-border bg-card px-2 py-1.5"
+        >
+          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-0.5 type-micro whitespace-nowrap text-muted-foreground">
+            <ArrowLeftRightIcon className="size-3" aria-hidden="true" />
+            {t("common.tableScrollHint")}
+          </span>
+        </div>
+      ) : null}
       <div
         ref={scrollRef}
         data-slot="table-container"
@@ -72,24 +79,12 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
 
       {overflowing ? (
         <div
-          aria-hidden="true"
           data-slot="table-scroll-fade"
-          className={cn(
-            "pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-card via-card/70 to-transparent transition-opacity duration-150",
-            atEnd && "opacity-0",
-          )}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-card via-card/70 to-transparent"
         />
       ) : null}
 
-      {overflowing && !atEnd ? (
-        <div
-          data-slot="table-scroll-hint"
-          className="pointer-events-none absolute right-2 bottom-2 z-10 inline-flex items-center gap-1 rounded-full border border-border bg-popover/95 px-2 py-0.5 type-micro whitespace-nowrap text-muted-foreground shadow-sm"
-        >
-          <ArrowLeftRightIcon className="size-3" aria-hidden="true" />
-          {t("common.tableScrollHint")}
-        </div>
-      ) : null}
     </div>
   )
 }

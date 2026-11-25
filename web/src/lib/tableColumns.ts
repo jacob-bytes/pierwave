@@ -54,9 +54,12 @@ export function serverTableColumns(t: TFunction): ServerTableColumn[] {
     {
       key: "name",
       label: t("common.name"),
-      headClassName: "",
+      // 紧贴复选框列固定：复选框列 40px（w-10），所以 left-10。
+      // 右侧阴影由 index.css 的 .pw-sticky-name 画，滚动内容不会和名称混在一起。
+      headClassName: "left-10 w-48 pw-sticky-name",
       skeletonClassName: "w-48",
       skeletonWidth: "w-28",
+      sticky: "left",
     },
     {
       key: "address",

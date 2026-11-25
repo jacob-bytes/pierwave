@@ -1,0 +1,183 @@
+{
+  "base": "http://127.0.0.1:8787",
+  "servers": 15,
+  "online": 10,
+  "abnormal": 2,
+  "themes": {
+    "dark": {
+      "rowHeights": {
+        "min": 64,
+        "max": 64,
+        "count": 15
+      },
+      "titleBadge": "在线 10 / 15",
+      "descriptionLines": 1,
+      "stickyName": {
+        "position": "sticky",
+        "left": "40px",
+        "rectLeft": 304,
+        "visible": true
+      },
+      "scrollHint": {
+        "y": 246,
+        "height": 35,
+        "hit": true
+      },
+      "filter": {
+        "rows": 2,
+        "url": "http://127.0.0.1:8787/servers?only=abnormal",
+        "pressed": true
+      },
+      "filterRestoredRows": 15,
+      "detail": {
+        "latency": {
+          "label": "网络延迟",
+          "value": "52 ms"
+        },
+        "ports": {
+          "label": "允许的端口",
+          "value": "10000-60000"
+        },
+        "lastSeen": {
+          "label": "最后在线",
+          "value": "刚刚"
+        }
+      },
+      "mobile": {
+        "heightMin": 230,
+        "heightMax": 234,
+        "count": 15,
+        "expandedFirst": 450
+      }
+    },
+    "light": {
+      "rowHeights": {
+        "min": 64,
+        "max": 64,
+        "count": 15
+      },
+      "titleBadge": "在线 10 / 15",
+      "descriptionLines": 1,
+      "stickyName": {
+        "position": "sticky",
+        "left": "40px",
+        "rectLeft": 304,
+        "visible": true
+      },
+      "scrollHint": {
+        "y": 246,
+        "height": 35,
+        "hit": true
+      },
+      "filter": {
+        "rows": 2,
+        "url": "http://127.0.0.1:8787/servers?only=abnormal",
+        "pressed": true
+      },
+      "filterRestoredRows": 15,
+      "detail": {
+        "latency": {
+          "label": "网络延迟",
+          "value": "52 ms"
+        },
+        "ports": {
+          "label": "允许的端口",
+          "value": "10000-60000"
+        },
+        "lastSeen": {
+          "label": "最后在线",
+          "value": "刚刚"
+        }
+      },
+      "mobile": {
+        "heightMin": 230,
+        "heightMax": 234,
+        "count": 15,
+        "expandedFirst": 450
+      }
+    }
+  },
+  "assertions": [
+    {
+      "name": "dark: 行高 ~64px",
+      "ok": true,
+      "detail": "64–64px"
+    },
+    {
+      "name": "dark: 名称列 sticky",
+      "ok": true,
+      "detail": "left=40px, rectLeft=304"
+    },
+    {
+      "name": "dark: 滑动提示可见",
+      "ok": true,
+      "detail": "y=246, hit=true"
+    },
+    {
+      "name": "dark: 异常筛选",
+      "ok": true,
+      "detail": "2 rows, url=?only=abnormal"
+    },
+    {
+      "name": "dark: 详情弹层不重复",
+      "ok": true,
+      "detail": "latency=52 ms, ports=10000-60000"
+    },
+    {
+      "name": "dark: 未来 last_seen",
+      "ok": true,
+      "detail": "lastSeen=刚刚"
+    },
+    {
+      "name": "dark: 390 卡片 ≤240px",
+      "ok": true,
+      "detail": "max=234px (15 cards)"
+    },
+    {
+      "name": "dark: 390 异常筛选",
+      "ok": true,
+      "detail": "2 cards, url=?only=abnormal"
+    },
+    {
+      "name": "light: 行高 ~64px",
+      "ok": true,
+      "detail": "64–64px"
+    },
+    {
+      "name": "light: 名称列 sticky",
+      "ok": true,
+      "detail": "left=40px, rectLeft=304"
+    },
+    {
+      "name": "light: 滑动提示可见",
+      "ok": true,
+      "detail": "y=246, hit=true"
+    },
+    {
+      "name": "light: 异常筛选",
+      "ok": true,
+      "detail": "2 rows, url=?only=abnormal"
+    },
+    {
+      "name": "light: 详情弹层不重复",
+      "ok": true,
+      "detail": "latency=52 ms, ports=10000-60000"
+    },
+    {
+      "name": "light: 未来 last_seen",
+      "ok": true,
+      "detail": "lastSeen=刚刚"
+    },
+    {
+      "name": "light: 390 卡片 ≤240px",
+      "ok": true,
+      "detail": "max=234px (15 cards)"
+    },
+    {
+      "name": "light: 390 异常筛选",
+      "ok": true,
+      "detail": "2 cards, url=?only=abnormal"
+    }
+  ],
+  "ok": true
+}
