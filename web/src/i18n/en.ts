@@ -1066,9 +1066,8 @@ const en = {
     list: "Server list",
     onlineCount: "Online {online} / {total}",
     serviceAbnormal: "Service errors {n}",
-    descShort: "A server that is online but has Xray stopped is marked red.",
     descMore:
-      "Agents connect out to the controller, so no inbound port is needed. The list refreshes every 15 seconds while an upgrade is pending. On narrow screens, open Details for load and memory.",
+      "A server that is online but has Xray stopped is marked red. Agents connect out to the controller, so no inbound port is needed. The list refreshes every 15 seconds while an upgrade is pending. On narrow screens, open Details for load and memory.",
     aboutAria: "About this list",
     filterAbnormalOn: "Show only servers with Xray stopped",
     filterAbnormalOff: "Clear the service error filter and show all servers",

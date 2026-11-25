@@ -152,8 +152,9 @@ test("卡头：在线计数进标题徽章，异常徽章变成可切换筛选�
   const info = servers.indexOf('t("servers.aboutAria")');
   assert.ok(info > 0);
   assert.match(servers, /<TooltipContent className="max-w-72">\s*\{t\("servers\.descMore"\)\}/);
-  assert.match(servers, /t\("servers\.descShort"\)/);
-  assert.match(servers, /line-clamp-2/);
+  // 列表下方不再占一行说明：全部收进 ⓘ 的 tooltip。
+  assert.doesNotMatch(servers, /t\("servers\.descShort"\)/);
+  assert.doesNotMatch(servers, /line-clamp-2/);
   assert.doesNotMatch(servers, /t\("servers\.desc"\)/);
 });
 
@@ -204,7 +205,6 @@ test("详情弹层不再重复 label：端口值不带「允许端口」，延�
 
 test("新文案同时进了中英词典", () => {
   for (const key of [
-    "descShort",
     "descMore",
     "aboutAria",
     "filterAbnormalOn",
@@ -213,6 +213,11 @@ test("新文案同时进了中英词典", () => {
     assert.equal(typeof zh.servers[key], "string", `zh servers.${key}`);
     assert.equal(typeof en.servers[key], "string", `en servers.${key}`);
   }
+  // 「在线但 Xray 停止会标红」并入 descMore，不再单独占一行。
+  assert.match(zh.servers.descMore, /Xray 停止会标红/);
+  assert.match(en.servers.descMore, /Xray stopped is marked red/);
+  assert.equal(zh.servers.descShort, undefined);
+  assert.equal(en.servers.descShort, undefined);
   assert.equal(typeof zh.servers.detail.latencyValue, "string");
   assert.equal(typeof en.servers.detail.latencyValue, "string");
   assert.equal(typeof zh.common.showMore, "string");

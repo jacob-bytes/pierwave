@@ -1782,9 +1782,6 @@ export default function ServersPage() {
               </Button>
             </div>
           </div>
-          <CardDescription className="text-xs line-clamp-2">
-            {t("servers.descShort")}
-          </CardDescription>
         </CardHeader>
 
         {selectedIds.length > 0 ? (

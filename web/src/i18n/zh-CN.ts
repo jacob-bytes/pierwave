@@ -1028,9 +1028,8 @@ const zhCN = {
     list: "服务器列表",
     onlineCount: "在线 {online} / {total}",
     serviceAbnormal: "服务异常 {n}",
-    descShort: "在线但 Xray 停止会标红。",
     descMore:
-      "Agent 主动连入主控，无需开放入站端口；检测到待升级任务时列表每 15 秒自动刷新。窄屏可在「详情」查看负载与内存。",
+      "在线但 Xray 停止会标红。Agent 主动连入主控，无需开放入站端口；检测到待升级任务时列表每 15 秒自动刷新。窄屏可在「详情」查看负载与内存。",
     aboutAria: "服务器列表说明",
     filterAbnormalOn: "只看服务异常的服务器",
     filterAbnormalOff: "取消异常筛选，显示全部服务器",
