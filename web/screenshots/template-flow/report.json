@@ -1,10 +1,11 @@
 {
-  "base": "http://127.0.0.1:8787",
+  "base": "http://127.0.0.1:8795",
   "screenshots": [
     "3hop-1440-dark.png",
     "3hop-topology-1440-dark.png",
     "hover-path-1440-dark.png",
     "tooltip-1440-dark.png",
+    "tooltip-unavailable-1440-dark.png",
     "zoom-100-1440-dark.png",
     "zoom-50-1440-dark.png",
     "zoom-150-1440-dark.png",
@@ -16,8 +17,14 @@
     "expanded-fit-1440-dark.png",
     "collapsed-fit-1440-dark.png",
     "tooltip-fold-1440-dark.png",
+    "tooltip-merged-1440-dark.png",
     "6hop-1440-dark.png",
     "6hop-fit-1440-dark.png",
+    "fold-target-before-1440-dark.png",
+    "fold-target-after-1440-dark.png",
+    "dense-pills-hidden-1440-dark.png",
+    "dense-pills-hover-1440-dark.png",
+    "tooltip-pill-1440-dark.png",
     "6hop-390-dark.png",
     "empty-1440-dark.png",
     "old-master-1440-dark.png",
@@ -26,15 +33,33 @@
   "assertions": {
     "390": {
       "mode": "compact",
-      "scrollWidth": 1968,
+      "scrollWidth": 1872,
       "clientWidth": 342,
       "overflow": 0,
       "zoomBarVisible": false,
       "transform": "translate(0px, 0px) scale(1)",
       "paneTouch": "pan-y"
     },
+    "geometry": {
+      "0": {
+        "x": 24,
+        "minY": 24
+      },
+      "1": {
+        "x": 296,
+        "minY": 24
+      },
+      "2": {
+        "x": 568,
+        "minY": 24
+      },
+      "3": {
+        "x": 840,
+        "minY": 24
+      }
+    },
     "3hop": {
-      "zoom": 90,
+      "zoom": 92,
       "perColumn": {
         "0": 2,
         "1": 3,
@@ -44,26 +69,32 @@
       "pulseCount": 8,
       "dom": 309,
       "attributionFontSize": "12px",
+      "attributionColor": "oklch(0.7 0 285)",
+      "titleFontSize": 13,
+      "hostHeight": 384,
       "touchAction": "pan-y",
       "foldCards": 0,
       "targetFolds": 2,
-      "firstPaintMs": 394,
+      "firstPaintMs": 499,
       "chunkTiming": {
-        "name": "ChainTemplateFlow-D4f0R3dk.js",
-        "durationMs": 73,
-        "transferSize": 56134,
-        "decodedBodySize": 179892
+        "name": "ChainTemplateFlow-DxcWYaKh.js",
+        "durationMs": 106,
+        "transferSize": 57228,
+        "decodedBodySize": 184852
       }
     },
     "hover": {
       "hot": 6,
       "dim": 6
     },
+    "unavailablePill": {
+      "text": "东京-01 → 洛杉矶-02时延最近已知 140 ms链数1用户数1"
+    },
     "fonts": {
-      "title": 12,
-      "status": 11,
-      "subtitle": 11,
-      "pill": 11,
+      "title": 13,
+      "status": 12,
+      "subtitle": 12,
+      "pill": 12,
       "attribution": 12
     },
     "zoomButtons": {
@@ -71,40 +102,47 @@
       "100": true,
       "150": true
     },
-    "fitZoom": 88,
+    "fitZoom": 92,
     "wheel": {
-      "beforeWheelZoom": 88,
-      "afterWheelZoom": 88,
+      "beforeWheelZoom": 92,
+      "afterWheelZoom": 92,
       "scrollTop": 300,
-      "afterCtrlZoom": 139,
-      "afterMetaZoom": 89
+      "afterCtrlZoom": 145,
+      "afterMetaZoom": 92
     },
     "dblClick": {
-      "zoom": 89
+      "zoom": 92
     },
     "drag": {
       "beforeDrag": {
-        "transform": "translate(0px, 41.04px) scale(0.884)",
+        "transform": "translate(0px, 29.33px) scale(0.924)",
         "cards": 12
       },
       "afterDrag": {
-        "transform": "translate(-21.152px, 41.056px) scale(0.884)",
+        "transform": "translate(-21.92px, 29.376px) scale(0.924)",
         "cards": 12
       }
     },
     "tab": {
       "inCanvas": true,
       "tag": "DIV",
-      "focusable": 14
+      "focusable": 29
+    },
+    "lightAttribution": {
+      "color": "oklch(0.52 0 265.1)",
+      "rgb": null
     },
     "en": {
       "fit": "Fit to view",
-      "zoom": "90%",
+      "zoom": "92%",
       "aria": "香港-01, Entry, Online, 6 chains, 4 users"
     },
     "keyboard": {
       "foldsAfterEnter": 1,
       "foldsBefore": 2
+    },
+    "mergedPill": {
+      "text": "香港-01 → +3链数6用户数4来自已折叠的 3 条路径，共 6 条链"
     },
     "fold": {
       "collapsed": {
@@ -127,7 +165,11 @@
         "folds": 2,
         "reset": 0
       },
-      "dom": 434
+      "dom": 479
+    },
+    "rightHint": {
+      "columns": 3,
+      "afterPan": 0
     },
     "6hop": {
       "counts": {
@@ -139,9 +181,38 @@
         "5": 3,
         "6": 4
       },
-      "dom": 589,
+      "dom": 594,
       "zoom": 90,
-      "fitZoom": 50
+      "fitZoom": 52,
+      "hostHeight": 384,
+      "canvasCap": 520
+    },
+    "foldTargets": {
+      "before": {
+        "targets": 5,
+        "folds": 5
+      },
+      "after": {
+        "targets": 18,
+        "folds": 0
+      },
+      "clicks": 5,
+      "tallCanvas": {
+        "hostHeight": 520,
+        "cap": 520
+      }
+    },
+    "densePills": {
+      "dense": {
+        "total": 16,
+        "hidden": 16
+      },
+      "rail": "256",
+      "railState": {
+        "shown": 8,
+        "hidden": 0
+      },
+      "tooltip": "香港-01 → 东京-01时延20 ms链数8用户数1"
     },
     "empty": {
       "cards": 0,
@@ -158,21 +229,21 @@
     },
     "chunks": {
       "flowChunk": {
-        "file": "ChainTemplateFlow-D4f0R3dk.js",
-        "bytes": 179892
+        "file": "ChainTemplateFlow-DxcWYaKh.js",
+        "bytes": 184852
       },
       "mainChunk": {
-        "file": "index-BucJR-UU.js",
+        "file": "index-V3jlFspH.js",
         "bytes": 447827
       },
       "latencyChunk": {
-        "file": "ChainLatencyView-C7zCQ8ea.js",
-        "bytes": 115135
+        "file": "ChainLatencyView-D59Cy36S.js",
+        "bytes": 115937
       }
     }
   },
   "errors": [],
   "build": {
-    "generatedAt": "2026-11-25T17:48:33.234Z"
+    "generatedAt": "2026-11-26T09:39:41.801Z"
   }
 }

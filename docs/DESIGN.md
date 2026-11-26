@@ -102,21 +102,34 @@ column or its minimum width — do not shrink the text back.
 
 ### 画布缩放与字号下限 / Canvas zoom and the type floor
 
-**中文**：拓扑画布（React Flow）里的字号按 **100% 缩放** 计算：卡片标题 12px，
-状态、卡片第二行与时延药丸 11px —— 11px 仍是全站下限。缩小画布是「看全图」的
-手段，不是把字缩小的理由，所以默认视图缩放 **≥0.9 且不超过 1**：内容再大也停在
-0.9，由平移 / 390 下的横向滚动看全；交互缩放范围 0.4–1.6（按钮按 25% 整档步进，
-「适应窗口」可以低于 0.9）。React Flow 的署名保留，**12px + muted**，不隐藏，
-也不低于 11px。
+**中文**：拓扑画布（React Flow）里的字号按 **100% 缩放** 计算：卡片标题 **13px**，
+状态、卡片第二行与时延药丸 **12px**（全站下限仍是 11px，画布不再用 11px 的第二行）。
+缩小画布是「看全图」的手段，不是把字缩小的理由，所以默认视图缩放 **≥0.9 且不超过 1**：
+内容再大也停在 0.9，此时 13px 标题的实际字号仍有 **11.7px**。列间距 **80px**，
+卡片 **192×64**；画布高度上限 **min(640px, 视口高度 × 0.52)**，避免把弹窗撑到看不见标题。
+0.9 下右侧仍有列时，画布右缘渐隐并显示「右侧还有 N 列」，点击平移一屏；
+缩放或平移后提示消失或更新。同一竖线超过 **6 个**时延药丸默认隐藏，悬停该竖线
+或聚焦药丸才显示。交互缩放范围 0.4–1.6（按钮按 25% 整档步进，「适应窗口」可以低于
+0.9）。**触屏只保留按钮缩放；Safari 的捏合手势未验证**，不承诺画布内双指缩放。
+React Flow 的署名保留，**12px + 中性 muted 灰**（不跟随强调色），不隐藏，也不低于 11px。
 
 **English**: Type inside the topology canvas (React Flow) is measured at **100%
-zoom**: 12px card titles, 11px for status, the card's second line and the latency
-pill — 11px is still the global floor. Zooming out is how you see the whole graph,
-not a reason to shrink text, so the default viewport zoom is **≥0.9 and never above
-1**: large graphs stay at 0.9 and are panned (horizontally scrolled at 390) instead.
-Interactive zoom is 0.4–1.6 (the buttons step in whole 25% steps; "Fit to view" may
-go below 0.9). The React Flow attribution stays visible at **12px muted** — never
-hidden, never below 11px.
+zoom**: **13px** card titles and **12px** for status, the card's second line and
+the latency pill (11px is still the global floor, but the canvas no longer uses
+it for the second line). Zooming out is how you see the whole graph, not a
+reason to shrink text, so the default viewport zoom is **≥0.9 and never above
+1**: large graphs stay at 0.9, where a 13px title still renders at **11.7px**.
+Columns are **80px** apart with **192×64** cards; the canvas height is capped at
+**min(640px, viewport height × 0.52)** so it never pushes the dialog title off
+screen. When columns still overflow at 0.9, the right edge fades and shows
+"{n} more columns"; clicking pans one screen, and the hint updates or disappears
+after zoom/pan. More than **6** latency pills on one vertical rail are hidden by
+default and appear on rail hover or pill focus. Interactive zoom is 0.4–1.6 (the
+buttons step in whole 25% steps; "Fit to view" may go below 0.9). **Touch devices
+keep button zoom only; Safari pinch gestures are unverified**, so in-canvas
+two-finger zoom is not promised. The React Flow attribution stays visible at
+**12px in neutral muted grey** (never the accent colour), never hidden, never
+below 11px.
 
 ## 四、动效（「灵动」的唯一来源）
 

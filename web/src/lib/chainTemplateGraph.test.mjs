@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeChainTemplateDetail } from "./chainTemplateInsight.ts";
 import {
+  TEMPLATE_CANVAS_MAX_HEIGHT,
   TEMPLATE_CARD_HEIGHT,
   TEMPLATE_CARD_WIDTH,
   TEMPLATE_COLUMN_GAP,
@@ -11,12 +12,14 @@ import {
   TEMPLATE_MAX_ZOOM,
   TEMPLATE_MERGED_RAIL_OFFSET,
   TEMPLATE_MIN_ZOOM,
-  TEMPLATE_STATUS_RAIL_OFFSET,
   TEMPLATE_PADDING,
+  TEMPLATE_PILL_DENSE_LIMIT,
+  TEMPLATE_PILL_WIDTH,
   TEMPLATE_PULSE_LIMIT,
   TEMPLATE_ROW_GAP,
   buildTemplateGraph,
   clampTemplateZoom,
+  densePillRails,
   fitViewport,
   foldTemplateGraph,
   highlightTemplatePath,
@@ -24,6 +27,7 @@ import {
   layoutTemplateGraph,
   spreadPills,
   stepTemplateZoom,
+  templateCanvasHeight,
   templateEdgePath,
   templateEdgeWidth,
 } from "./chainTemplateGraph.ts";
@@ -491,6 +495,102 @@ test("foldTemplateGraph: 目标列每个上游至少 1 张，其余折成 +N 标
   assert.ok(expandedTargets.length > 1);
 });
 
+test("foldTemplateGraph: 上游成员被折叠时，目标 +N 仍能展开该组", () => {
+  // 第 1 跳 6 台（折叠成 4 + 1 张折叠卡），每台 3 个目标。
+  // 被折成员的目标只能挂在折叠卡上，分组键必须是折叠卡 id，而不是原始成员 id。
+  const HOP_COUNT = 6;
+  const TARGETS_PER_HOP = 3;
+  const hopMembers = Array.from({ length: HOP_COUNT }, (_, index) =>
+    member(`东京-0${index + 1}`, 3, 3, "online", `hop-${index + 1}`),
+  );
+  const edges = [];
+  const targets = [];
+  for (let hop = 0; hop < HOP_COUNT; hop += 1) {
+    edges.push(edge(0, "香港-01", 1, `东京-0${hop + 1}`, 3, 20, 3));
+    for (let slot = 0; slot < TARGETS_PER_HOP; slot += 1) {
+      const label = `10.0.${hop + 1}.${slot + 1}:443`;
+      edges.push(
+        edge(1, `东京-0${hop + 1}`, 2, label, TARGETS_PER_HOP - slot, 30, TARGETS_PER_HOP - slot),
+      );
+      targets.push({ host: `10.0.${hop + 1}.${slot + 1}`, port: 443, chains: 0, users: [] });
+    }
+  }
+  const graph = graphOf({
+    template: { id: "tpl-fold-targets", name: "折叠后的目标组", hops: 2 },
+    nodes: [
+      { seq: 0, role: "source", name: "入口", members: [member("香港-01", 18, 3)] },
+      { seq: 1, role: "hop", name: "东京", members: hopMembers },
+      { seq: 2, role: "target", name: "目标", members: [] },
+    ],
+    edges,
+    targets,
+    users: [],
+    series: [],
+    strategies: [],
+    unused_candidates: [],
+  });
+
+  const folded = foldTemplateGraph(graph);
+  const targetColumn = folded.columns.find((column) => column.role === "target");
+  assert.ok(targetColumn);
+  const foldCard = folded.columns
+    .flatMap((column) => column.cards)
+    .find((card) => card.kind === "fold");
+  assert.ok(foldCard, "第 1 跳应有折叠卡");
+
+  const groups = new Map();
+  for (const card of targetColumn.cards) {
+    assert.notEqual(card.upstreamId, null, "目标卡必须带上可展开的分组键");
+    const bucket = groups.get(card.upstreamId) ?? [];
+    bucket.push(card);
+    groups.set(card.upstreamId, bucket);
+  }
+  // 4 张可见成员卡 + 1 张折叠卡 = 5 个上游分组。
+  assert.equal(groups.size, 5);
+  assert.ok(
+    groups.has(foldCard.id),
+    `被折成员的目标组应挂在 ${foldCard.id} 上，实际 ${[...groups.keys()].join(", ")}`,
+  );
+
+  for (const [groupKey, cards] of groups) {
+    const first = cards[0];
+    // 折叠卡一组收下 2 台被折成员 × 3 个目标；普通组只有 1 台 × 3 个。
+    const groupSize =
+      groupKey === foldCard.id
+        ? (HOP_COUNT - TEMPLATE_FOLD_LIMIT) * TARGETS_PER_HOP
+        : TARGETS_PER_HOP;
+    assert.equal(first.hidden, groupSize - 1);
+    // 折叠目标 tooltip 的合计值：链数求和、用户数取最大值（用户可能重叠）。
+    const hiddenMembers = first.topNames.map((name) =>
+      graph.columns
+        .find((column) => column.role === "target")
+        .members.find((item) => item.name === name),
+    );
+    assert.equal(
+      first.hiddenChains,
+      hiddenMembers.reduce((sum, item) => sum + item.chains, 0),
+    );
+    assert.equal(
+      first.hiddenUsers,
+      hiddenMembers.reduce((max, item) => Math.max(max, item.users), 0),
+    );
+
+    const expanded = foldTemplateGraph(graph, {
+      expandedTargets: new Set([groupKey]),
+    });
+    const expandedColumn = expanded.columns.find((column) => column.role === "target");
+    const expandedCards = expandedColumn.cards.filter(
+      (card) => card.upstreamId === groupKey,
+    );
+    assert.equal(expandedCards.length, groupSize, `${groupKey} 组应展开全部目标`);
+    assert.equal(
+      expandedCards.reduce((sum, card) => sum + card.hidden, 0),
+      0,
+      `${groupKey} 组展开后不应再折叠目标`,
+    );
+  }
+});
+
 test("foldTemplateGraph: 被折成员的连线合并成一条虚线，宽度为链数之和", () => {
   const graph = buildTemplateGraph(wideDetail({ hops: 2, perColumn: 6 }));
   const folded = foldTemplateGraph(graph);
@@ -513,6 +613,8 @@ test("foldTemplateGraph: 被折成员的连线合并成一条虚线，宽度为�
   // 隐藏成员是 s-0-05 / s-0-06，分别 2 / 1 条链。
   assert.equal(merged.chains, 3);
   assert.equal(merged.users, 2);
+  // 合并虚线要能说清「来自几条路径」。
+  assert.equal(merged.paths, 2);
 
   // 可见成员之间的边不合并、保留时延。
   const normal = folded.edges.filter((item) => item.merged === false);
@@ -609,6 +711,61 @@ test("layoutTemplateGraph: 列 x 递增、同列同 x、卡片不重叠、连线
   assert.ok(layout.edges.filter((item) => item.pulse).length <= TEMPLATE_PULSE_LIMIT);
 });
 
+test("layoutTemplateGraph: 每列顶边统一上移到 TEMPLATE_PADDING，保持列内行号", () => {
+  // 第一张入口卡链数最高，但第 1 跳的第一张卡只接在第二张入口卡上：
+  // 旧算法会把后两列整体压低，左上角留下空白。
+  const graph = graphOf({
+    template: { id: "tpl-sink", name: "逐列下沉", hops: 2 },
+    nodes: [
+      {
+        seq: 0,
+        role: "source",
+        name: "入口",
+        members: [member("香港-01", 6, 6), member("香港-02", 3, 3)],
+      },
+      {
+        seq: 1,
+        role: "hop",
+        name: "东京",
+        members: [member("东京-01", 3, 3), member("东京-02", 1, 1)],
+      },
+      { seq: 2, role: "target", name: "目标", members: [] },
+    ],
+    edges: [
+      edge(0, "香港-02", 1, "东京-01", 3, 20),
+      edge(0, "香港-01", 1, "东京-02", 1, 20),
+      edge(1, "东京-01", 2, "1.1.1.1:443", 3, 20),
+    ],
+    targets: [{ host: "1.1.1.1", port: 443, chains: 3, users: [] }],
+    users: [],
+    series: [],
+    strategies: [],
+    unused_candidates: [],
+  });
+  const layout = layoutTemplateGraph(foldTemplateGraph(graph));
+  const byColumn = new Map();
+  for (const card of layout.cards) {
+    const bucket = byColumn.get(card.column) ?? [];
+    bucket.push(card);
+    byColumn.set(card.column, bucket);
+  }
+  assert.equal(byColumn.size, 3);
+  for (const cards of byColumn.values()) {
+    cards.sort((a, b) => a.y - b.y);
+    assert.equal(cards[0].y, TEMPLATE_PADDING, "每列第一张卡顶边都应是 TEMPLATE_PADDING");
+    for (let index = 1; index < cards.length; index += 1) {
+      assert.ok(
+        cards[index].y >= cards[index - 1].y + TEMPLATE_CARD_HEIGHT + TEMPLATE_ROW_GAP,
+        "列内行序与行距必须保持",
+      );
+    }
+  }
+  // 列距 80：四列模板在 0.9 缩放下仍能读清 13px 标题。
+  assert.equal(TEMPLATE_COLUMN_GAP, 80);
+  assert.equal(TEMPLATE_CARD_WIDTH, 192);
+  assert.equal(TEMPLATE_CARD_HEIGHT, 64);
+});
+
 test("layoutTemplateGraph: 时延药丸贴竖线，且同一竖线上互不重叠", () => {
   const graph = buildTemplateGraph(wideDetail({ hops: 2, perColumn: 6 }));
   const folded = foldTemplateGraph(graph);
@@ -618,7 +775,7 @@ test("layoutTemplateGraph: 时延药丸贴竖线，且同一竖线上互不重�
     .map((item) => item.pill);
   assert.ok(pills.length > 0);
   for (const pill of pills) {
-    assert.equal(pill.width, 40);
+    assert.equal(pill.width, TEMPLATE_PILL_WIDTH);
     assert.equal(pill.height, 18);
   }
   // 两两不重叠（同一竖线上的药丸被纯函数摊开）。
@@ -639,8 +796,7 @@ test("layoutTemplateGraph: 时延药丸贴竖线，且同一竖线上互不重�
   }
 });
 
-test("spreadPills: 同一落点的药丸被竖向摊开，互不重叠", () => {
-  const pills = [
+test("spreadPills: 同一落点的药丸被竖向摊开，互不重叠", () => {  const pills = [
     { id: "a", x: 100, y: 100, width: 40, height: 18 },
     { id: "b", x: 100, y: 100, width: 40, height: 18 },
     { id: "c", x: 100, y: 100, width: 40, height: 18 },
@@ -666,6 +822,65 @@ test("spreadPills: 同一落点的药丸被竖向摊开，互不重叠", () => {
   assert.equal(apart[1].y, 50);
 });
 
+test("layoutTemplateGraph: 同一竖线超过 6 个药丸标 pillDense，默认交给组件隐藏", () => {
+  const members = Array.from({ length: 7 }, (_, index) =>
+    member(`东京-0${index + 1}`, 7 - index, 2),
+  );
+  const edges = members.flatMap((item, index) => [
+    edge(0, "香港-01", 1, item.name, 7 - index, 20),
+    edge(1, item.name, 2, `10.0.0.${index + 1}:443`, 7 - index, 30),
+  ]);
+  const graph = graphOf({
+    template: { id: "tpl-dense", name: "密集药丸", hops: 2 },
+    nodes: [
+      { seq: 0, role: "source", name: "入口", members: [member("香港-01", 7, 7)] },
+      { seq: 1, role: "hop", name: "东京", members },
+      { seq: 2, role: "target", name: "目标", members: [] },
+    ],
+    edges,
+    targets: [],
+    users: [],
+    series: [],
+    strategies: [],
+    unused_candidates: [],
+  });
+  // 展开第 1 跳：7 条「入口 → 第 1 跳」边落在同一条竖线上。
+  const folded = foldTemplateGraph(graph, { expandedColumns: new Set([1]) });
+  const layout = layoutTemplateGraph(folded);
+  const pills = layout.edges
+    .filter((item) => item.pill !== null)
+    .map((item) => item.pill);
+  const counts = new Map();
+  for (const pill of pills) {
+    counts.set(pill.x, (counts.get(pill.x) ?? 0) + 1);
+  }
+  assert.ok(
+    [...counts.values()].some((count) => count > TEMPLATE_PILL_DENSE_LIMIT),
+    "应有超过 6 个药丸共用一条竖线",
+  );
+  const denseRails = new Set(densePillRails(pills));
+  assert.ok(denseRails.size > 0);
+  for (const edge of layout.edges) {
+    if (edge.pill === null) {
+      assert.equal(edge.pillDense, false);
+      continue;
+    }
+    assert.equal(edge.pillDense, denseRails.has(edge.pill.x));
+  }
+
+  // 6 个及以下不隐藏；正好 7 个才隐藏。
+  const makePills = (count) =>
+    Array.from({ length: count }, (_, index) => ({
+      id: `p${index}`,
+      x: 120,
+      y: 100 + index * 22,
+      width: TEMPLATE_PILL_WIDTH,
+      height: 18,
+    }));
+  assert.deepEqual(densePillRails(makePills(TEMPLATE_PILL_DENSE_LIMIT)), []);
+  assert.deepEqual(densePillRails(makePills(TEMPLATE_PILL_DENSE_LIMIT + 1)), [120]);
+});
+
 test("layoutTemplateGraph: 合并虚线的竖脊与正常连线错开，仍在列间空隙内", () => {
   const graph = buildTemplateGraph(wideDetail({ hops: 2, perColumn: 6 }));
   const folded = foldTemplateGraph(graph);
@@ -673,6 +888,10 @@ test("layoutTemplateGraph: 合并虚线的竖脊与正常连线错开，仍在�
   const merged = layout.edges.filter((item) => item.merged);
   const normal = layout.edges.filter((item) => !item.merged);
   assert.ok(merged.length > 0 && normal.length > 0);
+  for (const item of merged) {
+    assert.ok(item.sourceName.length > 0, "合并虚线的源端也要有可读名字");
+    assert.ok(item.targetName.length > 0, "合并虚线的目标端也要有可读名字");
+  }
   const foldCard = folded.columns[0].cards.find((card) => card.kind === "fold");
   const fromFold = merged.filter((item) => item.source === foldCard.id);
   const plain = normal.find(
@@ -787,6 +1006,16 @@ test("fitViewport: 能低于 0.9，最低 0.4，内容小于视口时不放大�
   });
   assert.equal(medium.zoom, 0.6);
   assert.equal(medium.x, (600 - 600) / 2);
+});
+
+test("templateCanvasHeight: 上限 min(640, 视口高度 × 0.52)，下限 320", () => {
+  assert.equal(templateCanvasHeight(1000, 1000), 520);
+  assert.equal(templateCanvasHeight(1000, 2000), TEMPLATE_CANVAS_MAX_HEIGHT);
+  assert.equal(templateCanvasHeight(400, 1000), 400);
+  assert.equal(templateCanvasHeight(300, 1000), 320);
+  // 极矮视口：上限优先，不强行撑到 320。
+  assert.equal(templateCanvasHeight(900, 400), 208);
+  assert.equal(templateCanvasHeight(900, 0), 0);
 });
 
 test("clampTemplateZoom: 按钮步进落回 0.4–1.6", () => {

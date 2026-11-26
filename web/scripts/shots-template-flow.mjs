@@ -5,26 +5,87 @@
 //   2) master 跑在 127.0.0.1:8787，且 admin 密码 devpass（隔离库 / 临时库都行）；
 //   3) 本脚本用 Playwright route 注入模板列表 / 详情 / 链路时延 mock，不依赖真实模板数据。
 //
-// 覆盖：3 跳 / 4 跳 / 6 跳、折叠 / 展开、hover 路径、tooltip、100% / 50% / 150% 缩放、
-// 390、亮暗、空态、旧主控降级、reduced-motion；并断言每列可见卡 ≤5、首屏缩放
-// 0.9–1、滚轮不缩放、Ctrl/⌘ 滚轮缩放、拖拽不丢图、折叠只展开本列、Tab 可达、
-// 动画边 ≤10、DOM ≤600、React Flow 署名 ≥12px。
+// 覆盖：3 跳 / 4 跳 / 6 跳、折叠 / 展开、hover 路径、卡片与药丸 / 合并虚线 tooltip、
+// 100% / 50% / 150% 缩放、折叠上游后的目标 +N、密集药丸、390、亮暗、空态、旧主控
+// 降级、reduced-motion；并断言每列可见卡 ≤5、首屏缩放 0.9–1 且标题折算 ≥11.7px、
+// 列顶对齐 / 列距 80 / 卡片 192×64、右侧提示、画布高度上限、滚轮不缩放、
+// Ctrl/⌘ 滚轮缩放、拖拽不丢图、折叠只展开本列、Tab 可达、动画边 ≤10、
+// DOM ≤600、React Flow 署名 12px 中性 muted 灰。
 //
 // 用法：node web/scripts/shots-template-flow.mjs [baseUrl]
+// 环境变量：PLAYWRIGHT_MODULE / CHROME_PATH / OUT_DIR / ADMIN_PASSWORD
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
-import { chromium } from "/Users/jlthzy/Documents/mmrust/.npm-cache/_npx/e78b33305587cb7c/node_modules/playwright/index.mjs";
 
 const BASE = process.argv[2] ?? "http://127.0.0.1:8787";
 const WEB = fileURLToPath(new URL("..", import.meta.url));
-const OUT = path.join(WEB, "screenshots", "template-flow");
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const ROOT = path.resolve(WEB, "..");
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "devpass";
+const OUT = process.env.OUT_DIR
+  ? path.resolve(process.env.OUT_DIR)
+  : path.join(WEB, "screenshots", "template-flow");
+const CHROME =
+  process.env.CHROME_PATH ??
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 mkdirSync(OUT, { recursive: true });
+
+/**
+ * Playwright 不在 web 的依赖里：优先用 `PLAYWRIGHT_MODULE` 指向的模块，
+ * 否则在仓库内的 `.npm-cache/_npx/*` 里找（本机沙箱把全局缓存指到仓库里），
+ * 最后回退到 `import("playwright")`。不再写死某台机器的 npx 哈希目录。
+ */
+async function loadPlaywright() {
+  const candidates = [];
+  if (process.env.PLAYWRIGHT_MODULE) candidates.push(process.env.PLAYWRIGHT_MODULE);
+  const npxRoot = path.join(ROOT, ".npm-cache", "_npx");
+  if (existsSync(npxRoot)) {
+    for (const entry of readdirSync(npxRoot)) {
+      candidates.push(
+        path.join(npxRoot, entry, "node_modules", "playwright", "index.mjs"),
+      );
+    }
+  }
+  for (const candidate of candidates) {
+    try {
+      if (!existsSync(candidate)) continue;
+      const mod = await import(pathToFileURL(candidate).href);
+      if (mod.chromium) return mod.chromium;
+    } catch {
+      /* try next */
+    }
+  }
+  const mod = await import("playwright");
+  return mod.chromium;
+}
+
+const chromium = await loadPlaywright();
 
 const NOW = Math.floor(Date.now() / 1000);
 const report = { base: BASE, screenshots: [], assertions: {}, errors: [] };
+
+/**
+ * 署名的「中性 muted 灰」判定：颜色可能序列化成 oklch（相对色解析后）
+ * 或 rgb。oklch 看 chroma 是否归零，rgb 看三通道差；不写死具体色值。
+ */
+function isNeutralColor(value) {
+  if (typeof value !== "string") return false;
+  const oklch = /^oklch\(([^)]+)\)/.exec(value);
+  if (oklch !== null) {
+    const parts = oklch[1].trim().split(/\s+/);
+    return Number.isFinite(Number(parts[1])) && Math.abs(Number(parts[1])) <= 0.005;
+  }
+  const rgb = /^rgba?\(([^)]+)\)/.exec(value);
+  if (rgb !== null) {
+    const channels = rgb[1]
+      .split(",")
+      .slice(0, 3)
+      .map((part) => Number(part.trim()));
+    return Math.max(...channels) - Math.min(...channels) <= 10;
+  }
+  return false;
+}
 
 /* ------------------------------------------------------------------ */
 /* 数据：3 / 4 / 6 跳模板 + 空模板                                     */
@@ -331,6 +392,113 @@ function detail6Hop() {
   };
 }
 
+/** 第 1 跳 6 台、每台 3 个目标：上游被折叠时，目标 +N 的分组键回归。 */
+function detail1HopWide() {
+  const HOP_COUNT = 6;
+  const TARGETS_PER_HOP = 3;
+  const nodes = [
+    {
+      seq: 0,
+      role: "source",
+      name: "香港入口",
+      members: [member("香港-01", 18, 3)],
+    },
+    {
+      seq: 1,
+      role: "hop",
+      name: "东京中转",
+      members: Array.from({ length: HOP_COUNT }, (_, index) =>
+        member(`东京-0${index + 1}`, 3, 3, "online", `hop-${index + 1}`),
+      ),
+    },
+    { seq: 2, role: "target", name: "目标", members: [] },
+  ];
+  const edges = [];
+  const targets = [];
+  for (let hop = 0; hop < HOP_COUNT; hop += 1) {
+    edges.push(edge(0, "香港-01", 1, `东京-0${hop + 1}`, 3, 20, 3));
+    for (let slot = 0; slot < TARGETS_PER_HOP; slot += 1) {
+      const label = `10.0.${hop + 1}.${slot + 1}:443`;
+      edges.push(
+        edge(
+          1,
+          `东京-0${hop + 1}`,
+          2,
+          label,
+          TARGETS_PER_HOP - slot,
+          30 + slot,
+          TARGETS_PER_HOP - slot,
+        ),
+      );
+      targets.push({
+        host: `10.0.${hop + 1}.${slot + 1}`,
+        port: 443,
+        chains: TARGETS_PER_HOP - slot,
+        users: [],
+      });
+    }
+  }
+  return {
+    template: {
+      id: "tpl-fold",
+      name: "香港 → 东京（6 台 × 3 目标）",
+      hops: 2,
+      created_at: NOW - 86400 * 2,
+    },
+    nodes,
+    edges,
+    targets,
+    users: [],
+    series: [],
+    strategies: [],
+    unused_candidates: [],
+  };
+}
+
+/** 第 1 跳 8 台：展开后入口竖线会有 8 个药丸，触发密集隐藏。 */
+function detailDense() {
+  const HOP_COUNT = 8;
+  const nodes = [
+    {
+      seq: 0,
+      role: "source",
+      name: "香港入口",
+      members: [member("香港-01", HOP_COUNT, 5)],
+    },
+    {
+      seq: 1,
+      role: "hop",
+      name: "东京中转",
+      members: Array.from({ length: HOP_COUNT }, (_, index) =>
+        member(`东京-0${index + 1}`, HOP_COUNT - index, 2),
+      ),
+    },
+    { seq: 2, role: "target", name: "目标", members: [] },
+  ];
+  const edges = [];
+  for (let hop = 0; hop < HOP_COUNT; hop += 1) {
+    edges.push(edge(0, "香港-01", 1, `东京-0${hop + 1}`, HOP_COUNT - hop, 20));
+    edges.push(
+      edge(1, `东京-0${hop + 1}`, 2, `10.9.9.${hop + 1}:443`, HOP_COUNT - hop, 30),
+    );
+  }
+  return {
+    template: {
+      id: "tpl-dense",
+      name: "香港 → 东京（8 台密集药丸）",
+      hops: 2,
+      created_at: NOW - 86400 * 1,
+    },
+    nodes,
+    edges,
+    targets: [],
+    users: [],
+    series: [],
+    strategies: [],
+    unused_candidates: [],
+  };
+}
+
 function detailEmpty() {
   return {
     template: { id: "tpl-empty", name: "备用模板（未建链）", hops: 2, created_at: NOW - 86400 * 30 },
@@ -403,6 +571,28 @@ const LIST_ITEMS = [
     strategies: [],
     targets: [],
   },
+  {
+    id: "tpl-fold",
+    name: "香港 → 东京（6 台 × 3 目标）",
+    hops: 2,
+    enabled: true,
+    chains: 18,
+    users: 3,
+    status: { kind: "ok", cause: null },
+    strategies: [strategy("ip_hashed", 18, 3)],
+    targets: [target("10.0.1.1", 443, 3)],
+  },
+  {
+    id: "tpl-dense",
+    name: "香港 → 东京（8 台密集药丸）",
+    hops: 2,
+    enabled: true,
+    chains: 8,
+    users: 2,
+    status: { kind: "ok", cause: null },
+    strategies: [strategy("ip_hashed", 8, 2)],
+    targets: [target("10.9.9.1", 443, 8)],
+  },
 ];
 
 const DETAILS = {
@@ -410,6 +600,8 @@ const DETAILS = {
   "tpl-4": detail4Hop,
   "tpl-6": detail6Hop,
   "tpl-empty": detailEmpty,
+  "tpl-fold": detail1HopWide,
+  "tpl-dense": detailDense,
 };
 
 function chainHealthPayload() {
@@ -487,7 +679,7 @@ async function mockApi(page, options = {}) {
 const login = await fetch(`${BASE}/api/v1/auth/login`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ username: "admin", password: "devpass" }),
+  body: JSON.stringify({ username: "admin", password: ADMIN_PASSWORD }),
 });
 if (!login.ok) throw new Error(`login failed: ${login.status}`);
 const cookie = login.headers
@@ -562,6 +754,8 @@ async function waitFlow(page) {
 
 async function shot(locator, file, options = {}) {
   await locator.scrollIntoViewIfNeeded();
+  // 清掉文本选择：亮色截图里选中「React」会变成一整块蓝，看起来像署名颜色错了。
+  await locator.evaluate(() => window.getSelection()?.removeAllRanges());
   await locator.screenshot({ path: path.join(OUT, file), ...options });
   report.screenshots.push(file);
   console.log(`saved ${file}`);
@@ -622,6 +816,35 @@ function cardCountsByColumn(page) {
     assert.ok(count <= 5, `第 ${column} 列可见卡 ${count} 张，超过 5`);
   }
 
+  // 列顶对齐 + 列距 80（卡片 192×64）。
+  const geometry = await page.evaluate(() => {
+    const byColumn = new Map();
+    for (const card of document.querySelectorAll("[data-template-flow-card]")) {
+      const node = card.closest(".react-flow__node");
+      if (node === null) continue;
+      const matrix = new DOMMatrixReadOnly(getComputedStyle(node).transform);
+      const column = Number(card.getAttribute("data-column"));
+      const entry = byColumn.get(column) ?? { x: matrix.m41, minY: Infinity };
+      entry.minY = Math.min(entry.minY, matrix.m42);
+      byColumn.set(column, entry);
+    }
+    return Object.fromEntries(
+      [...byColumn.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([column, value]) => [column, value]),
+    );
+  });
+  const columnKeys = Object.keys(geometry).map(Number).sort((a, b) => a - b);
+  for (const column of columnKeys) {
+    assert.equal(geometry[column].minY, 24, `第 ${column} 列顶边应统一在 y=24`);
+  }
+  for (let index = 1; index < columnKeys.length; index += 1) {
+    const gap =
+      geometry[columnKeys[index]].x - geometry[columnKeys[index - 1]].x;
+    assert.equal(gap, 192 + 80, `列距应为 80px（x 差 ${gap}）`);
+  }
+  report.assertions["geometry"] = geometry;
+
   const chunkTiming = await page.evaluate(() => {
     const entry = performance
       .getEntriesByType("resource")
@@ -649,25 +872,42 @@ function cardCountsByColumn(page) {
     const pane = document.querySelector(".react-flow__pane");
     const attributionStyle = attribution ? getComputedStyle(attribution) : null;
     const paneStyle = pane ? getComputedStyle(pane) : null;
+    const cardTitle = document.querySelector("[data-template-flow-card-title]");
+    const host = document.querySelector("[data-template-flow]");
+    const rgb = (value) => {
+      const match = /rgba?\(([^)]+)\)/.exec(value ?? "");
+      return match === null
+        ? null
+        : match[1].split(",").slice(0, 3).map((part) => Number(part.trim()));
+    };
     return {
       attributionFontSize: attributionStyle?.fontSize ?? null,
       attributionColor: attributionStyle?.color ?? null,
-      mutedColor: (() => {
-        const legend = document.querySelector(
-          "[data-template-topology-card] .text-muted-foreground",
-        );
-        return legend === null ? null : getComputedStyle(legend).color;
-      })(),
+      attributionRgb: rgb(attributionStyle?.color ?? ""),
+      titleFontSize: cardTitle === null ? null : parseFloat(getComputedStyle(cardTitle).fontSize),
+      hostHeight: host === null ? null : host.clientHeight,
       touchAction: paneStyle?.touchAction ?? null,
     };
   });
   assert.equal(style.attributionFontSize, "12px", "署名应为 12px");
-  assert.equal(
-    style.attributionColor,
-    style.mutedColor,
-    "署名应该用 muted-foreground",
+  assert.equal(style.titleFontSize, 13, "卡片标题应为 13px");
+  assert.ok(
+    isNeutralColor(style.attributionColor),
+    `署名应为中性 muted 灰，实际 ${style.attributionColor}`,
   );
   assert.equal(style.touchAction, "pan-y", "pane 需要 touch-action: pan-y");
+  // 默认缩放下的实际字号：13px × zoom。
+  assert.ok(
+    (style.titleFontSize ?? 0) * (zoom / 100) >= 11.7 - 1e-6,
+    `默认缩放 ${zoom}% 下标题实际 ${((style.titleFontSize ?? 0) * zoom) / 100}px，低于 11.7px`,
+  );
+  const canvasCap = await page.evaluate(() =>
+    Math.min(640, window.innerHeight * 0.52),
+  );
+  assert.ok(
+    style.hostHeight !== null && style.hostHeight <= canvasCap + 1,
+    `画布高度 ${style.hostHeight}px 超过上限 ${canvasCap}px`,
+  );
 
   const foldCards = await page.locator('[data-template-flow-card][data-kind="fold"]').count();
   const targetFolds = await page.locator("[data-template-flow-target-fold]").count();
@@ -689,6 +929,9 @@ function cardCountsByColumn(page) {
     pulseCount,
     dom,
     attributionFontSize: style.attributionFontSize,
+    attributionColor: style.attributionColor,
+    titleFontSize: style.titleFontSize,
+    hostHeight: style.hostHeight,
     touchAction: style.touchAction,
     foldCards,
     targetFolds,
@@ -717,14 +960,42 @@ function cardCountsByColumn(page) {
     .filter({ has: page.locator("[data-template-flow-target-fold]") })
     .first();
   await foldedTargetCard.hover();
-  const tooltip = page.locator('[data-slot="tooltip-content"]');
+  const tooltip = page.locator('[data-slot="tooltip-content"]').last();
   await tooltip.waitFor({ state: "visible" });
   await page.waitForTimeout(200);
   const tooltipText = (await tooltip.textContent()) ?? "";
   assert.ok(tooltipText.includes("被折叠的目标"), `tooltip 应列出被折叠目标：${tooltipText}`);
+  for (const label of ["合计", "条链", "个用户"]) {
+    assert.ok(tooltipText.includes(label), `折叠目标 tooltip 缺少「${label}」：${tooltipText}`);
+  }
   await page.screenshot({ path: path.join(OUT, "tooltip-1440-dark.png") });
   report.screenshots.push("tooltip-1440-dark.png");
   console.log("saved tooltip-1440-dark.png");
+
+  /* ---- 时延药丸 tooltip：不可用路径说「最近已知」 ---- */
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(200);
+  const unavailablePill = page
+    .locator('[data-template-flow-pill][data-unavailable="true"]')
+    .first();
+  if ((await unavailablePill.count()) > 0) {
+    // 键盘聚焦也能开 tooltip（药丸 tabIndex=0）；顺便截图。
+    await unavailablePill.focus();
+    await tooltip.waitFor({ state: "visible" });
+    await page.waitForTimeout(200);
+    const unavailableText = (await tooltip.textContent()) ?? "";
+    assert.ok(
+      unavailableText.includes("最近已知") || unavailableText.includes("不可用"),
+      `不可用药丸 tooltip 应说明最近已知：${unavailableText}`,
+    );
+    await page.screenshot({ path: path.join(OUT, "tooltip-unavailable-1440-dark.png") });
+    report.screenshots.push("tooltip-unavailable-1440-dark.png");
+    report.assertions["unavailablePill"] = {
+      text: unavailableText.slice(0, 80),
+    };
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(200);
+  }
 
   /* ---- 缩放 100% / 50% / 150% ---- */
   await page.mouse.move(5, 5);
@@ -744,13 +1015,10 @@ function cardCountsByColumn(page) {
       attribution: size(".react-flow__attribution"),
     };
   });
-  // 100% 缩放下所有 UI 文字 ≥11px，署名 ≥12px（字号下限见 DESIGN.md）。
-  for (const [key, value] of Object.entries(fonts)) {
-    const floor = key === "attribution" ? 12 : 11;
-    assert.ok(
-      value !== null && value >= floor,
-      `${key} 字号 ${value}px 低于 ${floor}px`,
-    );
+  // 100% 缩放下卡片标题 13px，状态 / 第二行 / 药丸 12px，署名 12px。
+  assert.equal(fonts.title, 13, "卡片标题应为 13px");
+  for (const key of ["status", "subtitle", "pill", "attribution"]) {
+    assert.equal(fonts[key], 12, `${key} 应为 12px`);
   }
   report.assertions["fonts"] = fonts;
   await shot(page.locator("[data-template-topology-card]"), "zoom-100-1440-dark.png");
@@ -884,6 +1152,21 @@ function cardCountsByColumn(page) {
     root.style.colorScheme = "light";
   });
   await page.waitForTimeout(500);
+  const lightAttribution = await page.evaluate(() => {
+    const link = document.querySelector(".react-flow__attribution a");
+    const attribution = document.querySelector(".react-flow__attribution");
+    const color = getComputedStyle(link ?? attribution).color;
+    const match = /rgba?\(([^)]+)\)/.exec(color);
+    const rgb = match === null
+      ? null
+      : match[1].split(",").slice(0, 3).map((part) => Number(part.trim()));
+    return { color, rgb };
+  });
+  assert.ok(
+    isNeutralColor(lightAttribution.color),
+    `亮色署名应为中性 muted 灰，实际 ${lightAttribution.color}`,
+  );
+  report.assertions["lightAttribution"] = lightAttribution;
   await shot(page.locator("[data-template-topology-card]"), "3hop-1440-light.png");
 
   report.errors.push(...errors.map((error) => `3hop: ${error}`));
@@ -999,7 +1282,7 @@ function cardCountsByColumn(page) {
   // 折叠卡 tooltip：列前 8 名 + 最差状态（截图放在折叠/展开之后，避免 tooltip 残留）。
   const foldCard = page.locator('[data-template-flow-card][data-kind="fold"]').first();
   await foldCard.hover();
-  const foldTooltip = page.locator('[data-slot="tooltip-content"]');
+  const foldTooltip = page.locator('[data-slot="tooltip-content"]').last();
   await foldTooltip.waitFor({ state: "visible" });
   await page.waitForTimeout(200);
   const foldTooltipText = (await foldTooltip.textContent()) ?? "";
@@ -1007,11 +1290,48 @@ function cardCountsByColumn(page) {
     foldTooltipText.includes("被折叠的成员"),
     `折叠卡 tooltip 应列出成员：${foldTooltipText}`,
   );
+  const foldSubtitles = await page
+    .locator(
+      '[data-template-flow-card][data-kind="fold"] [data-template-flow-card-subtitle]',
+    )
+    .allTextContents();
+  for (const subtitle of foldSubtitles) {
+    for (const label of ["条链", "用户"]) {
+      assert.ok(
+        subtitle.includes(label),
+        `折叠卡副标题应保留「${label}」：${subtitle}`,
+      );
+    }
+  }
+  assert.ok(
+    foldSubtitles.some((subtitle) => subtitle.includes("含")),
+    `含离线成员的折叠卡副标题应补离线台数：${foldSubtitles.join(" | ")}`,
+  );
   await page.screenshot({ path: path.join(OUT, "tooltip-fold-1440-dark.png") });
   report.screenshots.push("tooltip-fold-1440-dark.png");
   await page.keyboard.press("Escape");
   await page.mouse.move(5, 5);
   await page.waitForTimeout(300);
+
+  // 合并虚线 tooltip：来自几条被折路径、共几条链。
+  const mergedTrigger = page.locator("[data-template-flow-edge-trigger]").first();
+  if ((await mergedTrigger.count()) > 0) {
+    // 合并虚线是 L 形路径，bbox 中心不一定落在线上；用键盘聚焦更稳定。
+    await mergedTrigger.focus();
+    const mergedTooltip = page.locator('[data-slot="tooltip-content"]').last();
+    await mergedTooltip.waitFor({ state: "visible" });
+    await page.waitForTimeout(200);
+    const mergedText = (await mergedTooltip.textContent()) ?? "";
+    assert.ok(
+      mergedText.includes("来自已折叠") && mergedText.includes("条路径"),
+      `合并虚线 tooltip 应说明来源：${mergedText}`,
+    );
+    await page.screenshot({ path: path.join(OUT, "tooltip-merged-1440-dark.png") });
+    report.screenshots.push("tooltip-merged-1440-dark.png");
+    report.assertions["mergedPill"] = { text: mergedText.slice(0, 100) };
+    await page.mouse.move(5, 5);
+    await page.waitForTimeout(200);
+  }
 
   // 目标 +N 标签只展开这一组。
   const targetFold = page.locator("[data-template-flow-target-fold]").first();
@@ -1079,16 +1399,221 @@ function cardCountsByColumn(page) {
   assert.ok(dom <= 600, `6 跳画布 DOM ${dom} 个，超过 600`);
   const zoom = await zoomPercent(page);
   assert.ok(zoom >= 90 && zoom <= 100, `6 跳首屏缩放 ${zoom}% 不在 90–100%`);
+  // 默认 0.9 下右侧仍有列：右缘提示 + 点击平移一屏。
+  const hostHeight = await page.evaluate(
+    () => document.querySelector("[data-template-flow]").clientHeight,
+  );
+  const canvasCap = await page.evaluate(() =>
+    Math.min(640, window.innerHeight * 0.52),
+  );
+  assert.ok(
+    hostHeight <= canvasCap + 1,
+    `6 跳画布高度 ${hostHeight}px 超过上限 ${canvasCap}px`,
+  );
+  const more = page.locator("[data-template-flow-more]");
+  await more.waitFor({ state: "visible", timeout: 5000 });
+  const moreColumns = Number(await more.getAttribute("data-columns"));
+  assert.ok(moreColumns > 0, `右侧提示应有列数，实际 ${moreColumns}`);
   await shot(page.locator("[data-template-dialog]"), "6hop-1440-dark.png");
+  await more.click();
+  await page.waitForTimeout(450);
+  const moreAfterPan = await page.locator("[data-template-flow-more]").count();
+  assert.equal(moreAfterPan, 0, "平移一屏后右侧应无隐藏列，提示消失");
+  report.assertions["rightHint"] = { columns: moreColumns, afterPan: moreAfterPan };
   // 6 跳整图：适应窗口后能一眼看到「入口 → … → 目标」。
   await page.locator("[data-flow-zoom-fit]").click();
   await page.mouse.move(5, 5);
   await page.waitForTimeout(350);
   const fitZoom = await zoomPercent(page);
   await shot(page.locator("[data-template-topology-card]"), "6hop-fit-1440-dark.png");
-  report.assertions["6hop"] = { counts, dom, zoom, fitZoom };
+  report.assertions["6hop"] = { counts, dom, zoom, fitZoom, hostHeight, canvasCap };
   assert.deepEqual(errors, []);
   report.errors.push(...errors.map((error) => `6hop: ${error}`));
+  await context.close();
+}
+
+/* ------------------------------------------------------------------ */
+/* 3a) 折叠上游：每个目标 +N 都能展开（回归）                          */
+/* ------------------------------------------------------------------ */
+
+{
+  const { context, page, errors } = await newPage({
+    width: 1440,
+    height: 1000,
+    theme: "dark",
+  });
+  await openList(page);
+  await openDetail(page, 4);
+  await waitFlow(page);
+  const before = await page.evaluate(() => ({
+    targets: document.querySelectorAll(
+      "[data-template-flow-card][data-role='target']",
+    ).length,
+    folds: document.querySelectorAll("[data-template-flow-target-fold]").length,
+  }));
+  // 6 台里 4 台可见 + 1 张折叠卡 = 5 个上游组，每组都有 +N。
+  assert.equal(before.folds, 5, `折叠态应有 5 个 +N，实际 ${before.folds}`);
+  await shot(
+    page.locator("[data-template-topology-card]"),
+    "fold-target-before-1440-dark.png",
+  );
+
+  let clicks = 0;
+  while (clicks < 10) {
+    const fold = page.locator("[data-template-flow-target-fold]").first();
+    if ((await fold.count()) === 0) break;
+    await fold.click();
+    clicks += 1;
+    await page.waitForTimeout(250);
+  }
+  // 点击 +N 后指针停在最后一张卡上，会触发路径高亮；截图前移开。
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(300);
+  const after = await page.evaluate(() => ({
+    targets: document.querySelectorAll(
+      "[data-template-flow-card][data-role='target']",
+    ).length,
+    folds: document.querySelectorAll("[data-template-flow-target-fold]").length,
+  }));
+  assert.equal(after.folds, 0, "每个 +N 都应能展开，不能残留点不动的标签");
+  assert.equal(after.targets, 18, `全部展开后应有 18 张目标卡，实际 ${after.targets}`);
+  // 18 张目标卡远超视口：画布必须停在上限，而不是继续长高。
+  const tallCanvas = await page.evaluate(() => ({
+    hostHeight: document.querySelector("[data-template-flow]").clientHeight,
+    cap: Math.min(640, window.innerHeight * 0.52),
+  }));
+  assert.ok(
+    tallCanvas.hostHeight <= tallCanvas.cap + 1,
+    `高画布 ${tallCanvas.hostHeight}px 超过上限 ${tallCanvas.cap}px`,
+  );
+  assert.equal(
+    tallCanvas.hostHeight,
+    Math.round(tallCanvas.cap),
+    `内容超高时画布应停在上限 ${tallCanvas.cap}px`,
+  );
+  await shot(
+    page.locator("[data-template-topology-card]"),
+    "fold-target-after-1440-dark.png",
+  );
+  report.assertions["foldTargets"] = { before, after, clicks, tallCanvas };
+  assert.deepEqual(errors, []);
+  report.errors.push(...errors.map((error) => `foldTargets: ${error}`));
+  await context.close();
+}
+
+/* ------------------------------------------------------------------ */
+/* 3b) 展开后密集药丸：默认隐藏，悬停竖线 / 聚焦才显示                  */
+/* ------------------------------------------------------------------ */
+
+{
+  const { context, page, errors } = await newPage({
+    width: 1440,
+    height: 1000,
+    theme: "dark",
+  });
+  await openList(page);
+  await openDetail(page, 5);
+  await waitFlow(page);
+  // 展开第 1 跳：入口竖线会有 8 个药丸。
+  await page.locator('[data-template-flow-card][data-kind="fold"]').first().click();
+  await page.waitForTimeout(400);
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(300);
+  const dense = await page.evaluate(() => ({
+    total: document.querySelectorAll(
+      '[data-template-flow-pill][data-dense="true"]',
+    ).length,
+    hidden: document.querySelectorAll(
+      '[data-template-flow-pill][data-dense="true"][data-pill-hidden="true"]',
+    ).length,
+  }));
+  assert.ok(dense.total >= 8, `应有多条密集竖线，实际 ${dense.total} 个药丸`);
+  assert.equal(dense.hidden, dense.total, "密集药丸默认应全部隐藏");
+  await shot(
+    page.locator("[data-template-topology-card]"),
+    "dense-pills-hidden-1440-dark.png",
+  );
+
+  const firstHidden = page
+    .locator(
+      '[data-template-flow-pill][data-dense="true"][data-pill-hidden="true"]',
+    )
+    .first();
+  const rail = await firstHidden.getAttribute("data-rail");
+  // 悬停竖线本身（不是药丸）：HTML 16px 竖带覆盖整段连线。
+  const railBox = await page
+    .locator(`[data-template-flow-rail-hit][data-rail="${rail}"]`)
+    .first()
+    .boundingBox();
+  assert.ok(railBox !== null, "密集竖线应有可悬停的命中带");
+  await page.mouse.move(
+    railBox.x + railBox.width / 2,
+    railBox.y + railBox.height / 2,
+  );
+  await page.waitForTimeout(300);
+  const railState = await page.evaluate((railValue) => ({
+    shown: document.querySelectorAll(
+      `[data-template-flow-pill][data-rail="${railValue}"][data-pill-hidden="false"]`,
+    ).length,
+    hidden: document.querySelectorAll(
+      `[data-template-flow-pill][data-rail="${railValue}"][data-pill-hidden="true"]`,
+    ).length,
+  }), rail);
+  assert.ok(railState.shown > 6, `悬停竖线后该线药丸应显示，实际 ${railState.shown}`);
+  assert.equal(railState.hidden, 0, "同一条竖线的药丸应一起显示");
+  await shot(
+    page.locator("[data-template-topology-card]"),
+    "dense-pills-hover-1440-dark.png",
+  );
+
+  // 药丸 tooltip：时延、链数、用户数。
+  await page
+    .locator(`[data-template-flow-pill][data-rail="${rail}"]`)
+    .first()
+    .hover();
+  const pillTooltip = page.locator('[data-slot="tooltip-content"]').last();
+  await pillTooltip.waitFor({ state: "visible" });
+  await page.waitForTimeout(200);
+  const pillTextContent = (await pillTooltip.textContent()) ?? "";
+  for (const label of ["时延", "链数", "用户数"]) {
+    assert.ok(
+      pillTextContent.includes(label),
+      `药丸 tooltip 缺少「${label}」：${pillTextContent}`,
+    );
+  }
+  await page.screenshot({ path: path.join(OUT, "tooltip-pill-1440-dark.png") });
+  report.screenshots.push("tooltip-pill-1440-dark.png");
+  report.assertions["densePills"] = { dense, rail, railState, tooltip: pillTextContent.slice(0, 120) };
+
+  // 键盘：聚焦隐藏药丸也应让它显示。
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(400);
+  const hiddenAgain = page
+    .locator(
+      '[data-template-flow-pill][data-dense="true"][data-pill-hidden="true"]',
+    )
+    .first();
+  if ((await hiddenAgain.count()) > 0) {
+    // locator 会随属性变化重新解析，聚焦后断言同一竖线不再有隐藏药丸。
+    const focusRail = await hiddenAgain.getAttribute("data-rail");
+    await hiddenAgain.focus();
+    await page.waitForTimeout(250);
+    const focusState = await page.evaluate((railValue) => {
+      const active = document.activeElement;
+      return {
+        activeRail: active?.getAttribute?.("data-rail") ?? null,
+        activeHidden: active?.getAttribute?.("data-pill-hidden") ?? null,
+        hiddenOnRail: document.querySelectorAll(
+          `[data-template-flow-pill][data-rail="${railValue}"][data-pill-hidden="true"]`,
+        ).length,
+      };
+    }, focusRail);
+    assert.equal(focusState.activeRail, focusRail, "焦点应落在该竖线的药丸上");
+    assert.equal(focusState.activeHidden, "false", "聚焦的药丸应显示");
+    assert.equal(focusState.hiddenOnRail, 0, "同一竖线的药丸应一起显示");
+  }
+  assert.deepEqual(errors, []);
+  report.errors.push(...errors.map((error) => `densePills: ${error}`));
   await context.close();
 }
 

@@ -100,6 +100,12 @@ function CardTooltip({ card }: { card: FoldedCard }) {
             </li>
           ))}
         </ul>
+        <p className="mt-1 font-mono text-xs tabular-nums" data-template-flow-hidden-totals>
+          {t("overview.chainTemplateInsight.flowTargetHiddenTotals", {
+            chains: card.hiddenChains,
+            users: card.hiddenUsers,
+          })}
+        </p>
       </div>
     );
   }
@@ -147,17 +153,19 @@ function cardTexts(card: FoldedCard, translate: TFunction) {
     n: card.users,
   });
   if (card.kind === "fold") {
+    const offline =
+      card.offlineHidden > 0
+        ? ` · ${translate("overview.chainTemplateInsight.flowFoldOffline", {
+            n: card.offlineHidden,
+          })}`
+        : "";
     return {
       title: translate("overview.chainTemplateInsight.flowFoldMembers", {
         n: card.hidden,
       }),
-      subtitle:
-        card.offlineHidden > 0
-          ? `${role} · ${translate(
-              "overview.chainTemplateInsight.flowFoldOffline",
-              { n: card.offlineHidden },
-            )}`
-          : `${role} · ${chains} · ${users}`,
+      // 折叠卡先保留链数与用户数，再补离线台数：副标题不能只剩「含 N 台离线」。
+      // 不写角色（+N 台已经在标题里），192px 宽才放得下完整的离线台数。
+      subtitle: `${chains} · ${users}${offline}`,
     };
   }
   return {
@@ -217,7 +225,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
           event.stopPropagation();
           expandTargets();
         }}
-        className="ml-auto inline-flex shrink-0 items-center rounded-full border border-border px-1.5 py-0.5 text-[11px] leading-none text-foreground transition-colors duration-150 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+        className="ml-auto inline-flex shrink-0 items-center rounded-full border border-border px-1.5 py-0.5 text-xs leading-none text-foreground transition-colors duration-150 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
       >
         {t("overview.chainTemplateInsight.flowFoldTargets", {
           n: card.hidden,
@@ -281,7 +289,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
         />
         <span
           data-template-flow-card-title
-          className="truncate text-xs font-medium text-foreground"
+          className="truncate text-[13px] font-medium text-foreground"
           title={title}
         >
           {title}
@@ -296,7 +304,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
           <span
             data-template-flow-status-text
             className={cn(
-              "text-[11px] leading-none",
+              "text-xs leading-none",
               statusLabelClass(card.status),
             )}
           >
@@ -307,12 +315,12 @@ export const TemplateCardNode = memo(function TemplateCardNode({
       {badge === null ? (
         <span
           data-template-flow-card-subtitle
-          className="mt-1 truncate text-[11px] leading-none text-muted-foreground"
+          className="mt-1 truncate text-xs leading-none text-muted-foreground"
         >
           {subtitle}
         </span>
       ) : (
-        <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] leading-none text-muted-foreground">
+        <span className="mt-1 flex min-w-0 items-center gap-1.5 text-xs leading-none text-muted-foreground">
           <span data-template-flow-card-subtitle className="truncate">
             {subtitle}
           </span>

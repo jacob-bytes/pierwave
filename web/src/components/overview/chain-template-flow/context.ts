@@ -14,6 +14,10 @@ export interface TemplateFlowInteraction {
   activeId: string | null;
   activate: (id: string) => void;
   deactivate: () => void;
+  /** 当前悬停 / 聚焦的竖线 x：密集药丸只有这一条线默认显示。 */
+  activeRail: number | null;
+  activateRail: (railX: number) => void;
+  deactivateRail: () => void;
 }
 
 export const TemplateFlowInteractionContext =

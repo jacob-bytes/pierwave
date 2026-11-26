@@ -845,7 +845,7 @@
   }
 
   /*
-   * 时延药丸：白底贴在列间竖线上，11px（全站字号下限）。
+   * 时延药丸：白底贴在列间竖线上，12px（卡片第二行同档）。
    * 宽度 / 高度与布局里的碰撞盒一致（44×18），换字号要同步改纯逻辑常量。
    */
   .template-flow-pill {
@@ -862,11 +862,43 @@
     background: var(--card);
     color: var(--foreground);
     box-shadow: var(--card-shadow);
-    font-size: 11px;
+    font-size: 12px;
     font-variant-numeric: tabular-nums;
     line-height: 1;
-    pointer-events: none;
+    /* 药丸要能 hover / focus 看 tooltip；隐藏时由组件加 pointer-events-none。 */
+    pointer-events: auto;
+    cursor: help;
     white-space: nowrap;
+  }
+  /*
+   * 连线上的透明命中层：React Flow 的 SVG 连线层 pointer-events: none，
+   * 所以密集竖线与合并虚线的 hover / focus 入口放在 EdgeLabelRenderer 的
+   * HTML 层（16px 宽的竖带 / 线中点的小圆点）。
+   */
+  .template-flow-rail-hit {
+    position: absolute;
+    background: transparent;
+    pointer-events: auto;
+    cursor: help;
+  }
+  .template-flow-merged-hit {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 24px;
+    height: 20px;
+    border-radius: 999px;
+    background: transparent;
+    pointer-events: auto;
+    cursor: help;
+  }
+  .template-flow-merged-hit:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+  .template-flow-pill:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
   }
   .template-flow-pill[data-status="degraded"] {
     color: var(--warning);
@@ -888,15 +920,24 @@
     touch-action: pan-y !important;
   }
 
-  /* React Flow 署名保留，字号抬到 12px muted（低于 11px 不允许）。 */
+  /*
+   * React Flow 署名保留，字号抬到 12px、颜色取 muted 的中性灰（低于 11px 不允许）。
+   * 亮色主题的 --muted-foreground 带 0.035 蓝紫 chroma，直接用它看起来像链接色；
+   * `oklch(from …)` 把 chroma 归零，只借 muted 的明度。旧浏览器忽略第二行，
+   * 回退到 muted 变量本身。
+   */
   .react-flow__attribution {
     background: transparent !important;
-    color: var(--muted-foreground) !important;
     font-size: 12px !important;
     padding: 0 4px;
   }
+  .react-flow__attribution,
   .react-flow__attribution a {
-    color: inherit !important;
+    color: var(--muted-foreground) !important;
+    color: oklch(from var(--muted-foreground) l 0 h) !important;
+  }
+  .react-flow__attribution a {
+    text-decoration: none;
   }
   .react-flow__attribution a:hover {
     color: var(--foreground) !important;
