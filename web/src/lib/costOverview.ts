@@ -7,7 +7,9 @@
  * - 总开销 = 每台一个计费周期的价格（CNY）之和，一次性也计入；
  * - 本年度总开销 = 周期价格 / 周期月数 × 本年度剩余月数（当前月视为已付/已过）；
  *   一次性没有可信月数，不计入本年度；
+ * - 月均开销 = 每台周期价格 / 周期月数之和，一次性不计入；
  * - 未来 12 个月 = 按 `paid_until` 排期，已预付不重复；一次性按到期日计入；
+ *   与「月均 × 12」不是同一套口径，不相等是正常的；
  * - 排序 / Top 5 / 币种构成都用「一个周期的 CNY 价格」。
  *
  * 所有金额内部用 **CNY 分**：先把单台一个周期的价格折算成 CNY 分并四舍五入，
@@ -238,6 +240,17 @@ export interface CostOverview {
   totalCnyCents: number;
   /** 本年度剩余月份折算之和；不含一次性。 */
   currentYearCnyCents: number;
+  /**
+   * 月均开销：范围内每台「周期价格 / 周期月数」之和，一次性没有月数不计。
+   *
+   * 与 `next12CnyCents` 是两套口径，**不相等是正常的**：
+   * - 月均把周期价格均摊到每个月（年付 = 价/12、N 个月 = 价/N），是稳态月成本；
+   * - 未来 12 个月按 `paid_until` 排期累加：已预付的月份不重复计，年付可能
+   *   整个窗口只排一次，月付在预付未到期时也可能少于 12 次；一次性按到期日
+   *   一次性计入。
+   * 所以 `monthlyCnyCents * 12` 与 `next12CnyCents` 通常不相等，但量级接近。
+   */
+  monthlyCnyCents: number;
   /** 未来 12 个月排期之和；含一次性到期日。 */
   next12CnyCents: number;
   scope: CostScopeRow[];
@@ -1019,6 +1032,21 @@ export function buildCostOverview(
     (sum, row) => sum + row.currentYearCnyCents,
     0,
   );
+  // 月均：每台的周期价格 / 周期月数。一次性没有月数，按口径不计入；
+  // 未知币种在 scope 里已经被排除，和总额口径一致。先按分数累加、最后
+  // 四舍五入一次，避免多台年付各自取整后叠加出「分」级偏差。
+  // 与 next12 的差异见 CostOverview.monthlyCnyCents 的注释。
+  const monthlyCnyCents = Math.round(
+    scope.reduce(
+      (sum, row) =>
+        row.kind === "periodic" &&
+        row.cycleMonths !== null &&
+        row.cycleMonths > 0
+          ? sum + row.cycleCnyCents / row.cycleMonths
+          : sum,
+      0,
+    ),
+  );
 
   let next12CnyCents = 0;
   const calendarRows: CostCalendarRow[] = [];
@@ -1192,6 +1220,7 @@ export function buildCostOverview(
     remainingMonths,
     totalCnyCents,
     currentYearCnyCents,
+    monthlyCnyCents,
     next12CnyCents,
     scope,
     scopeCount: scope.length,

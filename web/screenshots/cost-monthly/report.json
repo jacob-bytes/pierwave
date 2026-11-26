@@ -1,0 +1,193 @@
+{
+  "generatedAt": "2026-11-26T12:34:23.618Z",
+  "viewports": {
+    "light-1440": {
+      "count": 4,
+      "columns": 4,
+      "rows": 1,
+      "rowStarts": 1,
+      "cellWidths": [
+        287
+      ],
+      "gridWidth": 1152,
+      "gap": "1px",
+      "firstRowBreak": 0,
+      "cells": [
+        {
+          "label": "总开销",
+          "value": "CNY 1,900.00",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "CNY 283.33",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "CNY 3,900.00",
+          "hint": "按到期日排期累加 · 月付计 12 次"
+        },
+        {
+          "label": "月均开销",
+          "value": "CNY 283.33",
+          "hint": "不含一次性"
+        }
+      ],
+      "overflowX": false
+    },
+    "dark-1440": {
+      "count": 4,
+      "columns": 4,
+      "rows": 1,
+      "rowStarts": 1,
+      "cellWidths": [
+        287
+      ],
+      "gridWidth": 1152,
+      "gap": "1px",
+      "firstRowBreak": 0,
+      "cells": [
+        {
+          "label": "总开销",
+          "value": "CNY 1,900.00",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "CNY 283.33",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "CNY 3,900.00",
+          "hint": "按到期日排期累加 · 月付计 12 次"
+        },
+        {
+          "label": "月均开销",
+          "value": "CNY 283.33",
+          "hint": "不含一次性"
+        }
+      ],
+      "overflowX": false
+    },
+    "light-390": {
+      "count": 4,
+      "columns": 2,
+      "rows": 2,
+      "rowStarts": 2,
+      "cellWidths": [
+        171
+      ],
+      "gridWidth": 342,
+      "gap": "1px",
+      "firstRowBreak": 0,
+      "cells": [
+        {
+          "label": "总开销",
+          "value": "CNY 1,900.00",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "CNY 283.33",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "CNY 3,900.00",
+          "hint": "按到期日排期累加 · 月付计 12 次"
+        },
+        {
+          "label": "月均开销",
+          "value": "CNY 283.33",
+          "hint": "不含一次性"
+        }
+      ],
+      "overflowX": false
+    },
+    "dark-390": {
+      "count": 4,
+      "columns": 2,
+      "rows": 2,
+      "rowStarts": 2,
+      "cellWidths": [
+        171
+      ],
+      "gridWidth": 342,
+      "gap": "1px",
+      "firstRowBreak": 0,
+      "cells": [
+        {
+          "label": "总开销",
+          "value": "CNY 1,900.00",
+          "hint": "在线且费用完整 · 各计一个周期"
+        },
+        {
+          "label": "本年度总开销",
+          "value": "CNY 283.33",
+          "hint": "按本年度剩余 1 个月折算"
+        },
+        {
+          "label": "未来 12 个月",
+          "value": "CNY 3,900.00",
+          "hint": "按到期日排期累加 · 月付计 12 次"
+        },
+        {
+          "label": "月均开销",
+          "value": "CNY 283.33",
+          "hint": "不含一次性"
+        }
+      ],
+      "overflowX": false
+    }
+  },
+  "assertions": {
+    "fourCells": true,
+    "desktopFourColumns": true,
+    "narrowTwoByTwo": true,
+    "monthlyValue": "CNY 283.33",
+    "monthlyExcludesOneTime": true,
+    "unknownCurrencyExcluded": true,
+    "next12HintZh": "按到期日排期累加 · 月付计 12 次",
+    "next12HintEn": "Due-date schedule · monthly ×12",
+    "monthlyTimes12DiffersFromNext12": true,
+    "noHorizontalOverflow": true
+  },
+  "english": {
+    "count": 4,
+    "columns": 4,
+    "rows": 1,
+    "rowStarts": 1,
+    "cellWidths": [
+      287
+    ],
+    "gridWidth": 1152,
+    "gap": "1px",
+    "firstRowBreak": 0,
+    "cells": [
+      {
+        "label": "Total cost",
+        "value": "CNY 1,900.00",
+        "hint": "Online + fully billed · 1 cycle"
+      },
+      {
+        "label": "This year",
+        "value": "CNY 283.33",
+        "hint": "Remaining 1 month"
+      },
+      {
+        "label": "Next 12 months",
+        "value": "CNY 3,900.00",
+        "hint": "Due-date schedule · monthly ×12"
+      },
+      {
+        "label": "Monthly average",
+        "value": "CNY 283.33",
+        "hint": "One-time excluded"
+      }
+    ],
+    "overflowX": false
+  },
+  "errors": []
+}

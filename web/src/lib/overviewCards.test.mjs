@@ -274,11 +274,15 @@ test("流量趋势 tab：趋势 / 分布 / 排行 / 告警，不含链健康与�
   );
 });
 
-test("成本 tab：三数字 / 12 个月开销柱状图 / Top 3 / 币种构成 / 一次性，不含流量与链卡", () => {
+test("成本 tab：四数字 / 12 个月开销柱状图 / Top 3 / 币种构成 / 一次性，不含流量与链卡", () => {
   assertIncludes(
     cost,
     [
       "overview.cost.total",
+      "overview.cost.currentYear",
+      "overview.cost.next12",
+      "overview.cost.monthly",
+      "overview.cost.monthlyHint",
       "overview.cost.calendarTitle",
       "overview.cost.topTitle",
       "overview.cost.mixTitle",

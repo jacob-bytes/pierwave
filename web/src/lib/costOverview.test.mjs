@@ -197,6 +197,79 @@ test("两台不同周期的服务器：总开销 = 一个周期价格之和", ()
   assert.equal(overview.top[0].share, (120000 / 130000) * 100);
 });
 
+test("月均开销：月付 / 年付 / 3 个月都按周期月数均摊", () => {
+  const overview = buildCostOverview(
+    [
+      billed("monthly", { price_cents: 10000 }),
+      billed("yearly", {
+        price_cents: 120000,
+        billing_cycle_count: 1,
+        billing_cycle_unit: "year",
+      }),
+      billed("quarterly", {
+        price_cents: 30000,
+        billing_cycle_count: 3,
+        billing_cycle_unit: "month",
+      }),
+      server("once", {
+        price_cents: 50000,
+        currency: "CNY",
+        billing_cycle_count: 1,
+        billing_cycle_unit: "once",
+      }),
+      server("unknown", {
+        price_cents: 32000,
+        currency: "AED",
+        billing_cycle_count: 1,
+        billing_cycle_unit: "month",
+      }),
+    ],
+    RATES.rates,
+    AUG,
+  );
+
+  // 100 + 1200/12 + 300/3 = 300；一次性没有月数、AED 无汇率都不进月均。
+  assert.equal(overview.monthlyCnyCents, 30000);
+  // 现有总额口径不变：一次性仍计入总额，未知币种仍不计入。
+  assert.equal(overview.totalCnyCents, 160000 + 50000);
+  assert.equal(overview.unknownCurrency.length, 1);
+});
+
+test("月均开销 × 12 与未来 12 个月口径不同，但量级接近", () => {
+  const overview = buildCostOverview(
+    [
+      billed("monthly", { price_cents: 10000, paid_until: "2027-01-31" }),
+      billed("yearly", {
+        price_cents: 120000,
+        billing_cycle_count: 1,
+        billing_cycle_unit: "year",
+        paid_until: "2026-09-01",
+      }),
+    ],
+    RATES.rates,
+    AUG,
+  );
+
+  // 月均 = 100 + 1200/12 = 200 → ×12 = 2400。
+  assert.equal(overview.monthlyCnyCents, 20000);
+  // 未来 12 个月：月付已预付到 2027-01，只排 7 次（700）；年付 9 月到期一次（1200）。
+  assert.equal(overview.next12CnyCents, 7 * 10000 + 120000);
+  assert.notEqual(
+    overview.monthlyCnyCents * 12,
+    overview.next12CnyCents,
+    "两套口径不应给出同一个数",
+  );
+  // 量级接近：不应差出一个数量级。
+  assert.ok(
+    overview.next12CnyCents >= overview.monthlyCnyCents * 6,
+    "next12 is an order of magnitude smaller than monthly × 12",
+  );
+  assert.ok(
+    overview.next12CnyCents <= overview.monthlyCnyCents * 24,
+    "next12 is an order of magnitude larger than monthly × 12",
+  );
+});
+
 test("8 月：1 年期 ¥1200 → 本年度 ¥400；剩余月数 4", () => {
   const overview = buildCostOverview(
     [
@@ -479,6 +552,7 @@ test("只有离线 / 未填费用时不显示正常视图；只有未知币种�
     AUG,
   );
   assert.equal(empty.hasData, false);
+  assert.equal(empty.monthlyCnyCents, 0);
 
   const unknownOnly = buildCostOverview(
     [
@@ -494,7 +568,11 @@ test("只有离线 / 未填费用时不显示正常视图；只有未知币种�
   );
   assert.equal(unknownOnly.hasData, true);
   assert.equal(unknownOnly.totalCnyCents, 0);
+  assert.equal(unknownOnly.monthlyCnyCents, 0);
   assert.equal(unknownOnly.unknownCurrency.length, 1);
+
+  const none = buildCostOverview([], RATES.rates, AUG);
+  assert.equal(none.monthlyCnyCents, 0);
 });
 
 test("buildRenewalMonth: 按 paid_until 归日、金额降序、摘要与空月", () => {

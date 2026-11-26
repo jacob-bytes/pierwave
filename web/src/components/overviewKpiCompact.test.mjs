@@ -89,7 +89,7 @@ test("KPI 骨架与真卡同 padding / 同行高，加载完成不变矮", () =>
   for (const [label, source, expected] of [
     ["OverviewInsight", insight, "<ChainKpiSkeletonGrid />"],
     ["ServerHealthView", server, "<ChainKpiSkeletonGrid cells={3} />"],
-    ["CostView", cost, "<ChainKpiSkeletonGrid cells={3} />"],
+    ["CostView", cost, "<ChainKpiSkeletonGrid cells={4} />"],
     ["ChainLatencyView", chainView, "<ChainKpiSkeletonGrid />"],
   ]) {
     assert.ok(source.includes(expected), `${label} skeleton out of sync`);

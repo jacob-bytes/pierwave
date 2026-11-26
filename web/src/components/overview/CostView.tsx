@@ -179,11 +179,11 @@ function CostBody({
 
   return (
     <div className="space-y-4 -mb-4" data-cost-view>
-      {/* 三个金额与资源状态共用同一套 KPI 栅格：首格「总开销」占满 390
-          的第一行，本年度 / 未来 12 个月落在第二行；桌面 2+1+1 补满 4 列。 */}
+      {/* 四个金额与资源状态共用同一套 KPI 栅格：四格不跨列，390 下 2×2、
+          桌面 4 列。月均是稳态口径（周期价 / 周期月数），与「未来 12 个月」
+          的到期日排期口径不同；两者差异见 costOverview.ts 的注释。 */}
       <ChainKpiGrid data-cost-kpis>
         <ChainKpiCell
-          className="col-span-2"
           label={t("overview.cost.total")}
           value={formatCny(overview.totalCnyCents, locale)}
           hint={t("overview.cost.totalHint")}
@@ -197,6 +197,11 @@ function CostBody({
           label={t("overview.cost.next12")}
           value={formatCny(overview.next12CnyCents, locale)}
           hint={t("overview.cost.next12Hint")}
+        />
+        <ChainKpiCell
+          label={t("overview.cost.monthly")}
+          value={formatCny(overview.monthlyCnyCents, locale)}
+          hint={t("overview.cost.monthlyHint")}
         />
       </ChainKpiGrid>
 
@@ -1876,7 +1881,7 @@ function EmptyCost() {
 function CostSkeleton() {
   return (
     <div className="space-y-4" aria-hidden="true">
-      <ChainKpiSkeletonGrid cells={3} />
+      <ChainKpiSkeletonGrid cells={4} />
       <Skeleton className="h-3 w-72 max-w-full" />
       <section className="grid gap-4 xl:grid-cols-3">
         <Skeleton className="h-[420px] w-full rounded-xl xl:col-span-2" />

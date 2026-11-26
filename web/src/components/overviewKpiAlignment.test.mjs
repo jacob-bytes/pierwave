@@ -87,20 +87,68 @@ test("KPI 唯一栅格：390 2×2、桌面 4 列、28px 数字、13px 副行、�
   }
 });
 
-test("三个指标的视图：首格 col-span-2 补满 4 列，390 占满第一行", () => {
-  for (const [label, source] of [
-    ["ServerHealthView", server],
-    ["CostView", cost],
+test("资源状态三格：首格 col-span-2 补满 4 列，390 占满第一行", () => {
+  const start = server.indexOf("<ChainKpiGrid");
+  const grid = server.slice(start, server.indexOf("</ChainKpiGrid>", start));
+  assert.match(grid, /className="col-span-2"/, "ServerHealthView");
+  assert.equal(
+    (grid.match(/<ChainKpiCell/g) ?? []).length,
+    3,
+    "ServerHealthView must render exactly three KPI cells",
+  );
+});
+
+test("成本四格：桌面 4 列、390 2×2，首格不再跨列", () => {
+  const start = cost.indexOf("<ChainKpiGrid");
+  const grid = cost.slice(start, cost.indexOf("</ChainKpiGrid>", start));
+  assert.equal(
+    (grid.match(/<ChainKpiCell/g) ?? []).length,
+    4,
+    "CostView must render exactly four KPI cells",
+  );
+  // 四格不额外跨列：共用栅格的 grid-cols-2 / sm:grid-cols-4 直接给出
+  // 390 2×2、桌面 4 列。
+  assert.ok(
+    !grid.includes("col-span-2"),
+    "four cost KPI cells must not span columns",
+  );
+  for (const key of [
+    "overview.cost.total",
+    "overview.cost.currentYear",
+    "overview.cost.next12",
+    "overview.cost.monthly",
   ]) {
-    const start = source.indexOf("<ChainKpiGrid");
-    const grid = source.slice(start, source.indexOf("</ChainKpiGrid>", start));
-    assert.match(grid, /className="col-span-2"/, label);
-    assert.equal(
-      (grid.match(/<ChainKpiCell/g) ?? []).length,
-      3,
-      `${label} must render exactly three KPI cells`,
-    );
+    assert.ok(grid.includes(key), `CostView KPI missing ${key}`);
   }
+  assert.match(kpi, /grid-cols-2/);
+  assert.match(kpi, /sm:grid-cols-4/);
+  // 月均副行必须写明不含一次性；未来 12 个月副行只保留一句短句。
+  assert.ok(grid.includes("overview.cost.monthlyHint"), "monthly hint missing");
+  assert.ok(grid.includes("overview.cost.next12Hint"), "next12 hint missing");
+  assert.ok(
+    zh.includes('monthly: "月均开销"'),
+    "zh-CN monthly label missing",
+  );
+  assert.ok(
+    en.includes('monthly: "Monthly average"'),
+    "en monthly label missing",
+  );
+  assert.ok(
+    zh.includes('monthlyHint: "不含一次性"'),
+    "zh-CN monthly hint missing",
+  );
+  assert.ok(
+    en.includes('monthlyHint: "One-time excluded"'),
+    "en monthly hint missing",
+  );
+  assert.ok(
+    zh.includes('next12Hint: "按到期日排期累加 · 月付计 12 次"'),
+    "zh-CN next12 hint missing",
+  );
+  assert.ok(
+    en.includes('next12Hint: "Due-date schedule · monthly ×12"'),
+    "en next12 hint missing",
+  );
   // 四指标的链路 / 模板子页不额外跨列，桌面就是四等分。
   assert.ok(!chainList.includes("col-span-2"));
   assert.ok(!templateKpi.includes("col-span-2"));
