@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Line,
   LineChart,
@@ -375,6 +375,24 @@ export function ChainSegmentTrendChart({
   );
   const usable = entries.filter((entry) => hasTrend(entry.points));
   const visible = usable.filter((entry) => !hidden.has(entry.segment.seq));
+  /*
+   * 与整链趋势同一口径：SVG 是 `role="application"` 的可聚焦节点，
+   * 没有名字时读屏只剩坐标刻度。窗口跟 bucket 走（>=1h 即 7d），段数取
+   * 图例当前可见的段，点图例隐藏/恢复时标签同步变化。
+   */
+  const chartLabel = `${t("overview.chainLatency.segmentChartAria", {
+    n: visible.length,
+  })} · ${t(
+    bucketSecs >= 3_600
+      ? "overview.chainLatency.range7d"
+      : "overview.chainLatency.range24",
+  )}`;
+  const applyChartLabel = useCallback(
+    (node: SVGSVGElement | null) => {
+      node?.setAttribute("aria-label", chartLabel);
+    },
+    [chartLabel],
+  );
 
   const data = useMemo<SegmentTrendRow[]>(() => {
     const timestamps = new Set<number>();
@@ -480,6 +498,7 @@ export function ChainSegmentTrendChart({
         <div className="h-[240px] w-full sm:h-[260px]">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart
+              ref={applyChartLabel}
               data={data}
               margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
             >

@@ -1109,8 +1109,9 @@ function assertTopCards(top, theme, width) {
   if (top.cards[2]?.hint !== "阻断 1 · 降级 2") {
     errors.push(`top ${theme}/${width}: chain hint ${top.cards[2]?.hint}`);
   }
-  if (top.globals !== 1) {
-    errors.push(`top ${theme}/${width}: ${top.globals} global tags`);
+  // 用户与套餐、转发链两张卡都是全局口径（新需求给转发链补上了「全局」标）。
+  if (top.globals !== 2) {
+    errors.push(`top ${theme}/${width}: ${top.globals} global tags, expected 2`);
   }
   for (const card of top.cards) {
     if (card.scrollWidth > card.clientWidth + 1) {

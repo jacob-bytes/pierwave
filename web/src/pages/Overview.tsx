@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -25,6 +25,18 @@ import { useOverviewScope } from "@/components/overview/useOverviewScope";
 import { useOverview, useOverviewStats, useTraffic } from "@/lib/queries";
 import { errorText } from "@/lib/errors";
 import { formatBytes } from "@/lib/format";
+import {
+  formatUpdatedClock,
+  forwardChainsKpiLink,
+  forwardChainsKpiTone,
+  kpiToneIconClass,
+  kpiToneTextClass,
+  onlineServersKpiLink,
+  onlineServersKpiTone,
+  todayTrafficKpiLink,
+  usersKpiLink,
+  type KpiTone,
+} from "@/lib/overviewKpiLinks";
 import { statsErrorText } from "@/lib/overviewErrors";
 import { OVERVIEW_TRAFFIC_DAYS } from "@/lib/overviewViews";
 import { trafficDayOverDay } from "@/lib/trafficDelta";
@@ -47,21 +59,27 @@ function ByteValue({ bytes }: { bytes: number }) {
 }
 
 function KpiCard({
+  to,
   label,
   icon: Icon,
   value,
   hint,
   delta,
   global,
+  tone = "neutral",
 }: {
+  /** 整卡跳转目标：`?view=...` 留在概览，`/...` 去其它页面。 */
+  to: string;
   label: string;
   icon: LucideIcon;
   value: ReactNode;
-  hint: string;
+  hint: ReactNode;
   /** 相对上一周期的变化百分比；没有可比数据时传 null 或省略。 */
   delta?: number | null;
   /** 该 KPI 不受服务器筛选影响（用户 / 套餐实例），加「全局」小字。 */
   global?: boolean;
+  /** 异常语义色；0 值时保持中性，只影响图标块与异常数字。 */
+  tone?: KpiTone;
 }) {
   const hasDelta = typeof delta === "number" && Number.isFinite(delta);
   const deltaText = !hasDelta
@@ -77,58 +95,75 @@ function KpiCard({
           });
 
   return (
-    <Card size="sm" data-kpi-card className="h-full gap-3">
-      <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
-        {/* 标签用普通文本而不是 CardDescription：后者会触发卡头的两行网格，
-            在只有标签 + 图标时多出一条 8px 空行。 */}
-        <p
-          data-kpi-label
-          className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-tight text-muted-foreground"
-        >
-          <span className="min-w-0">{label}</span>
-          {global ? (
-            <span
-              data-kpi-global
-              className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-[11px] leading-none text-muted-foreground"
-            >
-              {t("overview.scope.global")}
-            </span>
-          ) : null}
-        </p>
-        <div className="grid size-6 place-items-center rounded-md bg-primary/10 text-primary">
-          <Icon className="icon-sm" />
-        </div>
-      </CardHeader>
-      <CardContent className="flex flex-1 flex-col">
-        {/* leading-none 收紧 28px 数字的行距，字号与字重不变。 */}
-        <div
-          data-kpi-value
-          className="flex items-baseline text-[28px] leading-none font-medium tracking-tight tabular-nums"
-        >
-          {value}
-        </div>
-        {/* 底部对齐：有变化率时不会把同一行的其它卡片撑得高低不一。
-            宽屏把变化率并到说明同一行（说明靠左、变化率靠右），
-            放不下时才换行，避免四张卡被多出来的一行整体撑高。 */}
-        <div className="mt-auto flex flex-col gap-y-0.5 pt-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3 sm:gap-y-0">
-          {deltaText ? (
-            // 流量涨跌本身没有好坏：保持 muted，不用绿 / 红，也不加图标。
-            <p
-              data-kpi-delta
-              className="text-xs text-muted-foreground tabular-nums sm:ml-auto sm:whitespace-nowrap"
-            >
-              {deltaText}
-            </p>
-          ) : null}
+    <Link
+      to={to}
+      data-kpi-link
+      className="group flex h-full min-w-0 flex-col rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+    >
+      <Card
+        size="sm"
+        data-kpi-card
+        data-kpi-tone={tone}
+        className="h-full gap-3 transition-[background-color,box-shadow] duration-150 group-hover:bg-muted/40 group-hover:ring-primary/40"
+      >
+        <CardHeader className="grid-cols-[1fr_auto] items-center gap-2">
+          {/* 标签用普通文本而不是 CardDescription：后者会触发卡头的两行网格，
+              在只有标签 + 图标时多出一条 8px 空行。 */}
           <p
-            data-kpi-hint
-            className="text-xs text-muted-foreground sm:order-first sm:whitespace-nowrap"
+            data-kpi-label
+            className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs leading-tight text-muted-foreground"
           >
-            {hint}
+            <span className="min-w-0">{label}</span>
+            {global ? (
+              <span
+                data-kpi-global
+                className="shrink-0 rounded-sm bg-muted px-1 py-0.5 text-[11px] leading-none text-muted-foreground"
+              >
+                {t("overview.scope.global")}
+              </span>
+            ) : null}
           </p>
-        </div>
-      </CardContent>
-    </Card>
+          <div
+            data-kpi-icon
+            className={cn(
+              "grid size-6 place-items-center rounded-md",
+              kpiToneIconClass(tone),
+            )}
+          >
+            <Icon className="icon-sm" />
+          </div>
+        </CardHeader>
+        <CardContent className="flex flex-1 flex-col">
+          {/* leading-none 收紧 28px 数字的行距，字号与字重不变。 */}
+          <div
+            data-kpi-value
+            className="flex items-baseline text-[28px] leading-none font-medium tracking-tight tabular-nums"
+          >
+            {value}
+          </div>
+          {/* 底部对齐：有变化率时不会把同一行的其它卡片撑得高低不一。
+              宽屏把变化率并到说明同一行（说明靠左、变化率靠右），
+              放不下时才换行，避免四张卡被多出来的一行整体撑高。 */}
+          <div className="mt-auto flex flex-col gap-y-0.5 pt-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:justify-between sm:gap-x-3 sm:gap-y-0">
+            {deltaText ? (
+              // 流量涨跌本身没有好坏：保持 muted，不用绿 / 红，也不加图标。
+              <p
+                data-kpi-delta
+                className="text-xs text-muted-foreground tabular-nums sm:ml-auto sm:whitespace-nowrap"
+              >
+                {deltaText}
+              </p>
+            ) : null}
+            <p
+              data-kpi-hint
+              className="text-xs text-muted-foreground sm:order-first sm:whitespace-nowrap"
+            >
+              {hint}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    </Link>
   );
 }
 
@@ -210,7 +245,7 @@ function EmptyOverview() {
 }
 
 export default function OverviewPage() {
-  useI18n();
+  const { locale } = useI18n();
   // 全局 KPI 需要 stats、今日流量的日环比，以及聚合接口里的转发链计数；
   // 趋势 / 分布 / 排行等仍只在「流量」tab 里按需挂载，切到其它 tab 不请求。
   const statsQuery = useOverviewStats();
@@ -240,14 +275,35 @@ export default function OverviewPage() {
     activeServersFetching ||
     activeSettingsFetching;
 
+  // 页头「更新于 HH:MM」取本页 KPI 相关查询里最近一次成功刷新的时间。
+  // React Query 每次成功 refetch（含后台轮询）都会推进 `dataUpdatedAt`，
+  // 因此时间跟着数据走，不需要额外的定时器。
+  const lastUpdatedAt = Math.max(
+    statsQuery.dataUpdatedAt,
+    traffic.dataUpdatedAt,
+    chainsOverview.dataUpdatedAt,
+    scopedOverview.dataUpdatedAt,
+  );
+  const updatedLabel = t("overview.updatedAt", {
+    time: formatUpdatedClock(lastUpdatedAt, locale),
+  });
+
+  // 按钮请求中不 disabled（焦点会掉到 body），改用 ref 防同一时刻重复刷新。
+  const refreshInFlight = useRef(false);
   function refreshAll() {
-    void statsQuery.refetch();
-    void traffic.refetch();
-    // 只刷新当前 active 的 tab 查询，避免离开的 tab 被无关重拉。
-    void queryClient.refetchQueries({ queryKey: ["overview"], type: "active" });
-    void queryClient.refetchQueries({ queryKey: ["chains"], type: "active" });
-    void queryClient.refetchQueries({ queryKey: ["servers"], type: "active" });
-    void queryClient.refetchQueries({ queryKey: ["settings"], type: "active" });
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
+    void Promise.allSettled([
+      statsQuery.refetch(),
+      traffic.refetch(),
+      // 只刷新当前 active 的 tab 查询，避免离开的 tab 被无关重拉。
+      queryClient.refetchQueries({ queryKey: ["overview"], type: "active" }),
+      queryClient.refetchQueries({ queryKey: ["chains"], type: "active" }),
+      queryClient.refetchQueries({ queryKey: ["servers"], type: "active" }),
+      queryClient.refetchQueries({ queryKey: ["settings"], type: "active" }),
+    ]).finally(() => {
+      refreshInFlight.current = false;
+    });
   }
 
   const stats = statsQuery.data;
@@ -285,6 +341,9 @@ export default function OverviewPage() {
       ? scopedAggregate.kpi.traffic_month
       : stats?.traffic.month_bytes;
   const chains = chainsOverview.data?.chains;
+  // 旧主控可能还没有 `chains`；跳转 / 语义色按 0 处理，卡内仍显示「—」。
+  const chainBlocked = chains?.blocked ?? 0;
+  const chainDegraded = chains?.degraded ?? 0;
   const trafficHint = emptyScope
     ? t("overview.scope.emptyTitle")
     : scope.filtered
@@ -311,12 +370,12 @@ export default function OverviewPage() {
             variant="outline"
             size="sm"
             onClick={refreshAll}
-            disabled={refreshing}
+            aria-busy={refreshing}
           >
             <RefreshCwIcon
               className={cn("icon-md", refreshing && "animate-spin")}
             />
-            {t("common.refresh")}
+            <span>{updatedLabel}</span>
           </Button>
         }
       />
@@ -365,6 +424,8 @@ export default function OverviewPage() {
             data-overview-kpis
           >
             <KpiCard
+              to={onlineServersKpiLink(scopedOffline)}
+              tone={onlineServersKpiTone(scopedOffline)}
               label={t("overview.onlineServers")}
               icon={ServerIcon}
               value={
@@ -380,14 +441,22 @@ export default function OverviewPage() {
                 )
               }
               hint={
-                emptyScope
-                  ? t("overview.scope.emptyTitle")
-                  : scopedOffline > 0
-                    ? t("overview.offlineCount", { n: scopedOffline })
-                    : t("overview.allOnline")
+                emptyScope ? (
+                  t("overview.scope.emptyTitle")
+                ) : scopedOffline > 0 ? (
+                  <>
+                    <span className={kpiToneTextClass("destructive")}>
+                      {scopedOffline}
+                    </span>{" "}
+                    {t("overview.offlineUnit")}
+                  </>
+                ) : (
+                  t("overview.allOnline")
+                )
               }
             />
             <KpiCard
+              to={usersKpiLink()}
               label={t("overview.usersAndPackages")}
               icon={UsersIcon}
               value={
@@ -417,17 +486,38 @@ export default function OverviewPage() {
               global
             />
             <KpiCard
+              to={forwardChainsKpiLink(chainBlocked, chainDegraded)}
+              tone={forwardChainsKpiTone(chainBlocked, chainDegraded)}
               label={t("overview.forwardChains")}
               icon={WaypointsIcon}
               value={
                 <span data-kpi-chains-total>{chains?.total ?? "—"}</span>
               }
-              hint={t("overview.forwardChainsHint", {
-                blocked: chains?.blocked ?? "—",
-                degraded: chains?.degraded ?? "—",
-              })}
+              hint={
+                <>
+                  <span>{t("overview.chainBlocked")} </span>
+                  <span
+                    className={kpiToneTextClass(
+                      chainBlocked > 0 ? "destructive" : "neutral",
+                    )}
+                  >
+                    {chains ? chainBlocked : "—"}
+                  </span>
+                  <span aria-hidden="true"> · </span>
+                  <span>{t("overview.chainDegraded")} </span>
+                  <span
+                    className={kpiToneTextClass(
+                      chainDegraded > 0 ? "warning" : "neutral",
+                    )}
+                  >
+                    {chains ? chainDegraded : "—"}
+                  </span>
+                </>
+              }
+              global
             />
             <KpiCard
+              to={todayTrafficKpiLink()}
               label={t("overview.todayTraffic")}
               icon={ActivityIcon}
               value={

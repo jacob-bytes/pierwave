@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -34,6 +34,20 @@ const VIEW_META: readonly {
   { value: "chain", labelKey: "overview.views.chain" },
 ];
 
+/** 与 index.css 的吸顶断点保持一致（Tailwind `md` = 48rem）。 */
+const DESKTOP_QUERY = "(min-width: 48rem)";
+
+/**
+ * 切换主视图时把内容区滚回顶部。
+ *
+ * 整个后台只有 `#main-content` 一个滚动容器（见 AppShell），文档本身不可
+ * 滚动；改 `documentElement.scrollTop` 不会有任何效果。
+ */
+function scrollContentToTop() {
+  const scroller = document.getElementById("main-content");
+  if (scroller !== null) scroller.scrollTop = 0;
+}
+
 /** tab 内部的 loading 骨架：只占当前 tab 的内容区，不重复 KPI。 */
 function InsightFallback() {
   return (
@@ -68,8 +82,53 @@ export default function OverviewInsight({
   useI18n();
   const [searchParams, setSearchParams] = useSearchParams();
   const view = resolveOverviewView(searchParams.get("view"));
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const toolbarFrame = useRef(0);
+  const [toolbarStuck, setToolbarStuck] = useState(false);
+
+  /*
+   * `sticky` 本身由 index.css 在 md+ 提供；这里只量「是否已经贴住内容区
+   * 顶部」，用来开关分隔线与极淡背景。窄屏不吸顶，也就不该出现这两样，
+   * 所以 matchMedia 必须参与判断，而不是只看偏移。
+   */
+  useEffect(() => {
+    const toolbar = toolbarRef.current;
+    const scroller = document.getElementById("main-content");
+    if (toolbar === null || scroller === null) return;
+
+    const desktop = window.matchMedia(DESKTOP_QUERY);
+    const measure = () => {
+      toolbarFrame.current = 0;
+      // sticky 生效时 toolbar 的 top 正好等于滚动容器顶部。
+      const offset =
+        toolbar.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top;
+      setToolbarStuck(desktop.matches && offset <= 0.5);
+    };
+    const schedule = () => {
+      if (toolbarFrame.current !== 0) return;
+      toolbarFrame.current = window.requestAnimationFrame(measure);
+    };
+
+    measure();
+    // 滚动是主路径；resize / 断点变化会让 sticky 失效或生效，也要重算。
+    scroller.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    desktop.addEventListener("change", schedule);
+    return () => {
+      scroller.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      desktop.removeEventListener("change", schedule);
+      if (toolbarFrame.current !== 0) {
+        window.cancelAnimationFrame(toolbarFrame.current);
+        toolbarFrame.current = 0;
+      }
+    };
+  }, []);
 
   function handleViewChange(value: string) {
+    // 切视图从内容顶部重新开始看；滚动的是内容容器，不是文档。
+    if (resolveOverviewView(value) !== view) scrollContentToTop();
     // 函数式更新：与筛选同时发生时不会互相覆盖查询参数。
     setSearchParams(
       (previous) =>
@@ -81,7 +140,12 @@ export default function OverviewInsight({
   return (
     <div className="min-w-0" data-overview-insight>
       <Tabs value={view} onValueChange={handleViewChange} className="min-w-0 gap-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div
+          ref={toolbarRef}
+          data-overview-view-toolbar
+          data-stuck={toolbarStuck ? "true" : "false"}
+          className="flex min-w-0 flex-wrap items-center gap-2"
+        >
           <TabsList
             aria-label={t("overview.views.aria")}
             data-overview-view-tabs

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { WaypointsIcon } from "lucide-react";
 import {
   Dialog,
@@ -78,12 +78,44 @@ function TemplateDetailBody({
   );
 }
 
+/** 打开弹窗时真正持有焦点的元素；`body` 视作没有触发元素。 */
+function openerElement(): HTMLElement | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement)) return null;
+  if (active === document.body || active === document.documentElement) {
+    return null;
+  }
+  return active;
+}
+
+/**
+ * 关闭后把焦点还给打开弹窗的模板行；行被筛选 / 刷新移除时退到列表容器。
+ *
+ * 模板列表没有搜索框，所以直接落到 `[data-chain-template-list]`；容器不在
+ * Tab 序里，临时补 `tabindex=-1` 接住焦点。
+ */
+function focusAfterClose(trigger: HTMLElement | null) {
+  if (trigger !== null && trigger.isConnected) {
+    trigger.focus();
+    return;
+  }
+  const list =
+    document.querySelector<HTMLElement>("[data-chain-template-list]") ??
+    document.querySelector<HTMLElement>("[data-chain-template-page]");
+  if (list === null) return;
+  if (!list.hasAttribute("tabindex")) list.setAttribute("tabindex", "-1");
+  list.focus();
+}
+
 /**
  * 转发链模板详情弹窗：标题给模板名 + 跳数 + 链数/用户数，内容四块。
  *
  * 打开状态由列表决定；详情请求只在有选中项时发出。旧主控没有详情接口
  * （只有 404）时整块降级成「需要新版本主控」，不显示半张空图；403 是权限
  * 问题，仍然按错误态提示。
+ *
+ * 焦点行为与链路详情弹窗一致：打开落在标题，关闭回到触发行，行没了回到
+ * 列表容器。
  */
 export function ChainTemplateInsightDialog({
   item,
@@ -93,6 +125,16 @@ export function ChainTemplateInsightDialog({
   onClose: () => void;
 }) {
   useI18n();
+  const open = item !== null;
+  // 列表行按钮是触发元素：layout effect 早于 Radix 的焦点陷阱，记下的
+  // 还是行；`!== null` 挡住 StrictMode 第二次执行。
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const isOpenRef = useRef(open);
+  useLayoutEffect(() => {
+    isOpenRef.current = open;
+    if (!open || triggerRef.current !== null) return;
+    triggerRef.current = openerElement();
+  }, [open]);
   const [range, setRange] = useState<ChainTemplateUsageRange>("24h");
   const hours = range === "24h" ? 24 : 168;
   const query = useChainTemplateInsight(item?.id ?? null, hours);
@@ -108,20 +150,53 @@ export function ChainTemplateInsightDialog({
 
   return (
     <Dialog
-      open={item !== null}
-      onOpenChange={(open) => {
-        if (!open) onClose();
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
       }}
     >
       <DialogContent
         data-template-dialog
         className="flex max-h-[92dvh] w-[calc(100vw-0.5rem)] max-w-[1040px] flex-col gap-0 overflow-hidden p-0 sm:w-[calc(100vw-2rem)] sm:max-w-[1040px]"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          const container = event.currentTarget;
+          if (!(container instanceof HTMLElement)) return;
+          container
+            .querySelector<HTMLElement>('[data-slot="dialog-title"]')
+            ?.focus();
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const container = event.currentTarget;
+          // StrictMode 的假卸载：内容还在文档里，弹窗仍然开着。
+          if (
+            isOpenRef.current &&
+            container instanceof HTMLElement &&
+            container.isConnected
+          ) {
+            return;
+          }
+          const active = document.activeElement;
+          if (
+            active !== null &&
+            active !== document.body &&
+            active !== document.documentElement
+          ) {
+            triggerRef.current = null;
+            return;
+          }
+          const trigger = triggerRef.current;
+          triggerRef.current = null;
+          focusAfterClose(trigger);
+        }}
       >
         {item ? (
           <>
             <DialogHeader className="shrink-0 border-b border-border px-4 py-3 pr-12 text-left">
               <DialogTitle
-                className="truncate text-sm font-medium"
+                tabIndex={-1}
+                className="truncate rounded-sm text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
                 title={name}
               >
                 {name}

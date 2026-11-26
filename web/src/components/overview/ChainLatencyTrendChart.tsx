@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Line,
   LineChart,
@@ -293,6 +293,25 @@ export function ChainLatencyTrendChart({
     () => buildChainTrendData(selectedChains),
     [selectedChains],
   );
+  /*
+   * Recharts 把 SVG 标成 `role="application"` 并放进 Tab 序，但没有
+   * `aria-label` 时读屏只会念坐标刻度。标签里带窗口与可见链数，切 24h/7d
+   * 或在卡头勾选链时一起更新。Recharts 的类型里没有 `aria-label` 属性，
+   * 因此通过 SVG ref 落到那个真实可聚焦的节点上。
+   */
+  const chartLabel = `${t("overview.chainLatency.trendChartAria", {
+    n: selectedChains.length,
+  })} · ${t(
+    bucket >= 3_600
+      ? "overview.chainLatency.range7d"
+      : "overview.chainLatency.range24",
+  )}`;
+  const applyChartLabel = useCallback(
+    (node: SVGSVGElement | null) => {
+      node?.setAttribute("aria-label", chartLabel);
+    },
+    [chartLabel],
+  );
 
   /**
    * 时间轴跟详情里的整体时延图共用一套刻度：24h 每 4h、7d 每 1d。
@@ -427,6 +446,7 @@ export function ChainLatencyTrendChart({
             <div className="h-[220px] w-full min-w-0 sm:h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart
+                  ref={applyChartLabel}
                   data={chartRows}
                   margin={{ top: 8, right: 12, left: 8, bottom: 0 }}
                 >

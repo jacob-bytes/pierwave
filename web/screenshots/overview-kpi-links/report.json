@@ -1,0 +1,983 @@
+{
+  "generatedAt": "2026-11-26T15:33:26.667Z",
+  "top": {
+    "abnormal-dark-1440": {
+      "links": [
+        {
+          "tag": "A",
+          "href": "/servers?only=abnormal"
+        },
+        {
+          "tag": "A",
+          "href": "/users"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=chain&section=chains&status=blocked"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=traffic"
+        }
+      ],
+      "cards": [
+        {
+          "label": "在线服务器",
+          "value": "4/ 10",
+          "hint": "6 台离线",
+          "tone": "destructive",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-destructive/10 text-destructive",
+          "iconBg": "oklab(0.62 0.181262 0.0845237 / 0.1)",
+          "iconColor": "oklch(0.62 0.2 25)",
+          "hintSpans": [
+            {
+              "text": "6",
+              "className": "text-destructive",
+              "color": "oklch(0.62 0.2 25)"
+            }
+          ]
+        },
+        {
+          "label": "用户与套餐全局",
+          "value": "9 用户 / 7 实例",
+          "hint": "9 个用户 · 5 个套餐模板",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        },
+        {
+          "label": "转发链全局",
+          "value": "3",
+          "hint": "阻断 1 · 降级 2",
+          "tone": "destructive",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-destructive/10 text-destructive",
+          "iconBg": "oklab(0.62 0.181262 0.0845237 / 0.1)",
+          "iconColor": "oklch(0.62 0.2 25)",
+          "hintSpans": [
+            {
+              "text": "阻断",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "1",
+              "className": "text-destructive",
+              "color": "oklch(0.62 0.2 25)"
+            },
+            {
+              "text": "·",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "降级",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "2",
+              "className": "text-warning",
+              "color": "oklch(0.82 0.16 80)"
+            }
+          ]
+        },
+        {
+          "label": "今日流量",
+          "value": "32GB",
+          "hint": "本月 254 GB",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        }
+      ],
+      "globals": 2,
+      "overflow": 0,
+      "header": {
+        "text": "更新于 23:33",
+        "ariaBusy": "false",
+        "disabled": false
+      },
+      "shellRefresh": {
+        "title": "刷新",
+        "ariaLabel": "刷新"
+      }
+    },
+    "normal-dark-1440": {
+      "links": [
+        {
+          "tag": "A",
+          "href": "/?view=server"
+        },
+        {
+          "tag": "A",
+          "href": "/users"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=chain&section=chains"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=traffic"
+        }
+      ],
+      "cards": [
+        {
+          "label": "在线服务器",
+          "value": "10/ 10",
+          "hint": "全部在线",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        },
+        {
+          "label": "用户与套餐全局",
+          "value": "9 用户 / 7 实例",
+          "hint": "9 个用户 · 5 个套餐模板",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        },
+        {
+          "label": "转发链全局",
+          "value": "3",
+          "hint": "阻断 0 · 降级 0",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": [
+            {
+              "text": "阻断",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "0",
+              "className": "text-muted-foreground",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "·",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "降级",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "0",
+              "className": "text-muted-foreground",
+              "color": "oklch(0.7 0.015 285)"
+            }
+          ]
+        },
+        {
+          "label": "今日流量",
+          "value": "32GB",
+          "hint": "本月 254 GB",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        }
+      ],
+      "globals": 2,
+      "overflow": 0,
+      "header": {
+        "text": "更新于 23:33",
+        "ariaBusy": "false",
+        "disabled": false
+      },
+      "shellRefresh": {
+        "title": "刷新",
+        "ariaLabel": "刷新"
+      }
+    },
+    "abnormal-dark-390": {
+      "links": [
+        {
+          "tag": "A",
+          "href": "/servers?only=abnormal"
+        },
+        {
+          "tag": "A",
+          "href": "/users"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=chain&section=chains&status=blocked"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=traffic"
+        }
+      ],
+      "cards": [
+        {
+          "label": "在线服务器",
+          "value": "4/ 10",
+          "hint": "6 台离线",
+          "tone": "destructive",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-destructive/10 text-destructive",
+          "iconBg": "oklab(0.62 0.181262 0.0845237 / 0.1)",
+          "iconColor": "oklch(0.62 0.2 25)",
+          "hintSpans": [
+            {
+              "text": "6",
+              "className": "text-destructive",
+              "color": "oklch(0.62 0.2 25)"
+            }
+          ]
+        },
+        {
+          "label": "用户与套餐全局",
+          "value": "9 用户 / 7 实例",
+          "hint": "9 个用户 · 5 个套餐模板",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        },
+        {
+          "label": "转发链全局",
+          "value": "3",
+          "hint": "阻断 1 · 降级 2",
+          "tone": "destructive",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-destructive/10 text-destructive",
+          "iconBg": "oklab(0.62 0.181262 0.0845237 / 0.1)",
+          "iconColor": "oklch(0.62 0.2 25)",
+          "hintSpans": [
+            {
+              "text": "阻断",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "1",
+              "className": "text-destructive",
+              "color": "oklch(0.62 0.2 25)"
+            },
+            {
+              "text": "·",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "降级",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "2",
+              "className": "text-warning",
+              "color": "oklch(0.82 0.16 80)"
+            }
+          ]
+        },
+        {
+          "label": "今日流量",
+          "value": "32GB",
+          "hint": "本月 254 GB",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        }
+      ],
+      "globals": 2,
+      "overflow": 0,
+      "header": {
+        "text": "更新于 23:33",
+        "ariaBusy": "false",
+        "disabled": false
+      },
+      "shellRefresh": {
+        "title": "刷新",
+        "ariaLabel": "刷新"
+      }
+    },
+    "normal-dark-390": {
+      "links": [
+        {
+          "tag": "A",
+          "href": "/?view=server"
+        },
+        {
+          "tag": "A",
+          "href": "/users"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=chain&section=chains"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=traffic"
+        }
+      ],
+      "cards": [
+        {
+          "label": "在线服务器",
+          "value": "10/ 10",
+          "hint": "全部在线",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        },
+        {
+          "label": "用户与套餐全局",
+          "value": "9 用户 / 7 实例",
+          "hint": "9 个用户 · 5 个套餐模板",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        },
+        {
+          "label": "转发链全局",
+          "value": "3",
+          "hint": "阻断 0 · 降级 0",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": [
+            {
+              "text": "阻断",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "0",
+              "className": "text-muted-foreground",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "·",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "降级",
+              "className": "",
+              "color": "oklch(0.7 0.015 285)"
+            },
+            {
+              "text": "0",
+              "className": "text-muted-foreground",
+              "color": "oklch(0.7 0.015 285)"
+            }
+          ]
+        },
+        {
+          "label": "今日流量",
+          "value": "32GB",
+          "hint": "本月 254 GB",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.225 0.005 285)",
+          "iconColor": "oklch(0.7 0.015 285)",
+          "hintSpans": []
+        }
+      ],
+      "globals": 2,
+      "overflow": 0,
+      "header": {
+        "text": "更新于 23:33",
+        "ariaBusy": "false",
+        "disabled": false
+      },
+      "shellRefresh": {
+        "title": "刷新",
+        "ariaLabel": "刷新"
+      }
+    },
+    "abnormal-light-1440": {
+      "links": [
+        {
+          "tag": "A",
+          "href": "/servers?only=abnormal"
+        },
+        {
+          "tag": "A",
+          "href": "/users"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=chain&section=chains&status=blocked"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=traffic"
+        }
+      ],
+      "cards": [
+        {
+          "label": "在线服务器",
+          "value": "4/ 10",
+          "hint": "6 台离线",
+          "tone": "destructive",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-destructive/10 text-destructive",
+          "iconBg": "oklab(0.57 0.188049 0.0888904 / 0.1)",
+          "iconColor": "oklch(0.57 0.208 25.3)",
+          "hintSpans": [
+            {
+              "text": "6",
+              "className": "text-destructive",
+              "color": "oklch(0.57 0.208 25.3)"
+            }
+          ]
+        },
+        {
+          "label": "用户与套餐全局",
+          "value": "9 用户 / 7 实例",
+          "hint": "9 个用户 · 5 个套餐模板",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        },
+        {
+          "label": "转发链全局",
+          "value": "3",
+          "hint": "阻断 1 · 降级 2",
+          "tone": "destructive",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-destructive/10 text-destructive",
+          "iconBg": "oklab(0.57 0.188049 0.0888904 / 0.1)",
+          "iconColor": "oklch(0.57 0.208 25.3)",
+          "hintSpans": [
+            {
+              "text": "阻断",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "1",
+              "className": "text-destructive",
+              "color": "oklch(0.57 0.208 25.3)"
+            },
+            {
+              "text": "·",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "降级",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "2",
+              "className": "text-warning",
+              "color": "oklch(0.53 0.146 49)"
+            }
+          ]
+        },
+        {
+          "label": "今日流量",
+          "value": "32GB",
+          "hint": "本月 254 GB",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        }
+      ],
+      "globals": 2,
+      "overflow": 0,
+      "header": {
+        "text": "更新于 23:33",
+        "ariaBusy": "false",
+        "disabled": false
+      },
+      "shellRefresh": {
+        "title": "刷新",
+        "ariaLabel": "刷新"
+      }
+    },
+    "normal-light-1440": {
+      "links": [
+        {
+          "tag": "A",
+          "href": "/?view=server"
+        },
+        {
+          "tag": "A",
+          "href": "/users"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=chain&section=chains"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=traffic"
+        }
+      ],
+      "cards": [
+        {
+          "label": "在线服务器",
+          "value": "10/ 10",
+          "hint": "全部在线",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        },
+        {
+          "label": "用户与套餐全局",
+          "value": "9 用户 / 7 实例",
+          "hint": "9 个用户 · 5 个套餐模板",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        },
+        {
+          "label": "转发链全局",
+          "value": "3",
+          "hint": "阻断 0 · 降级 0",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": [
+            {
+              "text": "阻断",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "0",
+              "className": "text-muted-foreground",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "·",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "降级",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "0",
+              "className": "text-muted-foreground",
+              "color": "oklch(0.52 0.035 265.1)"
+            }
+          ]
+        },
+        {
+          "label": "今日流量",
+          "value": "32GB",
+          "hint": "本月 254 GB",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        }
+      ],
+      "globals": 2,
+      "overflow": 0,
+      "header": {
+        "text": "更新于 23:33",
+        "ariaBusy": "false",
+        "disabled": false
+      },
+      "shellRefresh": {
+        "title": "刷新",
+        "ariaLabel": "刷新"
+      }
+    },
+    "abnormal-light-390": {
+      "links": [
+        {
+          "tag": "A",
+          "href": "/servers?only=abnormal"
+        },
+        {
+          "tag": "A",
+          "href": "/users"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=chain&section=chains&status=blocked"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=traffic"
+        }
+      ],
+      "cards": [
+        {
+          "label": "在线服务器",
+          "value": "4/ 10",
+          "hint": "6 台离线",
+          "tone": "destructive",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-destructive/10 text-destructive",
+          "iconBg": "oklab(0.57 0.188049 0.0888904 / 0.1)",
+          "iconColor": "oklch(0.57 0.208 25.3)",
+          "hintSpans": [
+            {
+              "text": "6",
+              "className": "text-destructive",
+              "color": "oklch(0.57 0.208 25.3)"
+            }
+          ]
+        },
+        {
+          "label": "用户与套餐全局",
+          "value": "9 用户 / 7 实例",
+          "hint": "9 个用户 · 5 个套餐模板",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        },
+        {
+          "label": "转发链全局",
+          "value": "3",
+          "hint": "阻断 1 · 降级 2",
+          "tone": "destructive",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-destructive/10 text-destructive",
+          "iconBg": "oklab(0.57 0.188049 0.0888904 / 0.1)",
+          "iconColor": "oklch(0.57 0.208 25.3)",
+          "hintSpans": [
+            {
+              "text": "阻断",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "1",
+              "className": "text-destructive",
+              "color": "oklch(0.57 0.208 25.3)"
+            },
+            {
+              "text": "·",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "降级",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "2",
+              "className": "text-warning",
+              "color": "oklch(0.53 0.146 49)"
+            }
+          ]
+        },
+        {
+          "label": "今日流量",
+          "value": "32GB",
+          "hint": "本月 254 GB",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        }
+      ],
+      "globals": 2,
+      "overflow": 0,
+      "header": {
+        "text": "更新于 23:33",
+        "ariaBusy": "false",
+        "disabled": false
+      },
+      "shellRefresh": {
+        "title": "刷新",
+        "ariaLabel": "刷新"
+      }
+    },
+    "normal-light-390": {
+      "links": [
+        {
+          "tag": "A",
+          "href": "/?view=server"
+        },
+        {
+          "tag": "A",
+          "href": "/users"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=chain&section=chains"
+        },
+        {
+          "tag": "A",
+          "href": "/?view=traffic"
+        }
+      ],
+      "cards": [
+        {
+          "label": "在线服务器",
+          "value": "10/ 10",
+          "hint": "全部在线",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        },
+        {
+          "label": "用户与套餐全局",
+          "value": "9 用户 / 7 实例",
+          "hint": "9 个用户 · 5 个套餐模板",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        },
+        {
+          "label": "转发链全局",
+          "value": "3",
+          "hint": "阻断 0 · 降级 0",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": [
+            {
+              "text": "阻断",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "0",
+              "className": "text-muted-foreground",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "·",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "降级",
+              "className": "",
+              "color": "oklch(0.52 0.035 265.1)"
+            },
+            {
+              "text": "0",
+              "className": "text-muted-foreground",
+              "color": "oklch(0.52 0.035 265.1)"
+            }
+          ]
+        },
+        {
+          "label": "今日流量",
+          "value": "32GB",
+          "hint": "本月 254 GB",
+          "tone": "neutral",
+          "iconClass": "grid size-6 place-items-center rounded-md bg-muted text-muted-foreground",
+          "iconBg": "oklch(0.964 0.006 264.5)",
+          "iconColor": "oklch(0.52 0.035 265.1)",
+          "hintSpans": []
+        }
+      ],
+      "globals": 2,
+      "overflow": 0,
+      "header": {
+        "text": "更新于 23:33",
+        "ariaBusy": "false",
+        "disabled": false
+      },
+      "shellRefresh": {
+        "title": "刷新",
+        "ariaLabel": "刷新"
+      }
+    }
+  },
+  "skeleton": {},
+  "kpi": {},
+  "kpiHeights": {},
+  "kpiHeightSpread": {},
+  "tabs": {},
+  "navigation": {
+    "abnormal-0": "/servers?only=abnormal",
+    "abnormal-1": "/users",
+    "abnormal-2": "/?view=chain&section=chains&status=blocked",
+    "abnormal-3": "/?view=traffic",
+    "normal-0": "/?view=server",
+    "normal-1": "/users",
+    "normal-2": "/?view=chain&section=chains",
+    "normal-3": "/?view=traffic"
+  },
+  "keyboard": {
+    "abnormal-enter": "/?view=traffic",
+    "normal-enter": "/?view=traffic"
+  },
+  "refresh": {
+    "dark-1440": {
+      "initialRequests": 1,
+      "afterRequests": 2,
+      "idle": {
+        "text": "更新于 23:33",
+        "busy": "false",
+        "disabled": false
+      },
+      "busy": {
+        "busy": "true",
+        "disabled": false,
+        "focused": true
+      },
+      "settled": {
+        "text": "更新于 23:34",
+        "busy": "false",
+        "disabled": false
+      }
+    },
+    "dark-390": {
+      "initialRequests": 1,
+      "afterRequests": 2,
+      "idle": {
+        "text": "更新于 23:34",
+        "busy": "false",
+        "disabled": false
+      },
+      "busy": {
+        "busy": "true",
+        "disabled": false,
+        "focused": true
+      },
+      "settled": {
+        "text": "更新于 23:34",
+        "busy": "false",
+        "disabled": false
+      }
+    },
+    "light-1440": {
+      "initialRequests": 1,
+      "afterRequests": 2,
+      "idle": {
+        "text": "更新于 23:34",
+        "busy": "false",
+        "disabled": false
+      },
+      "busy": {
+        "busy": "true",
+        "disabled": false,
+        "focused": true
+      },
+      "settled": {
+        "text": "更新于 23:34",
+        "busy": "false",
+        "disabled": false
+      }
+    },
+    "light-390": {
+      "initialRequests": 1,
+      "afterRequests": 2,
+      "idle": {
+        "text": "更新于 23:34",
+        "busy": "false",
+        "disabled": false
+      },
+      "busy": {
+        "busy": "true",
+        "disabled": false,
+        "focused": true
+      },
+      "settled": {
+        "text": "更新于 23:34",
+        "busy": "false",
+        "disabled": false
+      }
+    }
+  },
+  "hover": {
+    "abnormal-dark-1440": {
+      "before": "oklch(0.175 0.005 285)",
+      "after": "oklab(0.225 0.0012941 -0.00482963 / 0.4)"
+    },
+    "normal-dark-1440": {
+      "before": "oklch(0.175 0.005 285)",
+      "after": "oklab(0.225 0.0012941 -0.00482963 / 0.4)"
+    },
+    "abnormal-dark-390": {
+      "before": "oklch(0.175 0.005 285)",
+      "after": "oklab(0.225 0.0012941 -0.00482963 / 0.4)"
+    },
+    "normal-dark-390": {
+      "before": "oklch(0.175 0.005 285)",
+      "after": "oklab(0.225 0.0012941 -0.00482963 / 0.4)"
+    },
+    "abnormal-light-1440": {
+      "before": "oklch(1 0 0)",
+      "after": "oklab(0.964 -0.000575074 -0.00597238 / 0.4)"
+    },
+    "normal-light-1440": {
+      "before": "oklch(1 0 0)",
+      "after": "oklab(0.964 -0.000575074 -0.00597238 / 0.4)"
+    },
+    "abnormal-light-390": {
+      "before": "oklch(1 0 0)",
+      "after": "oklab(0.964 -0.000575074 -0.00597238 / 0.4)"
+    },
+    "normal-light-390": {
+      "before": "oklch(1 0 0)",
+      "after": "oklab(0.964 -0.000575074 -0.00597238 / 0.4)"
+    }
+  },
+  "colors": {
+    "dark-1440": {
+      "abnormalOffline": "oklch(0.62 0.2 25)",
+      "normalMuted": null
+    },
+    "dark-390": {
+      "abnormalOffline": "oklch(0.62 0.2 25)",
+      "normalMuted": null
+    },
+    "light-1440": {
+      "abnormalOffline": "oklch(0.57 0.208 25.3)",
+      "normalMuted": null
+    },
+    "light-390": {
+      "abnormalOffline": "oklch(0.57 0.208 25.3)",
+      "normalMuted": null
+    }
+  },
+  "i18n": {
+    "en-abnormal": {
+      "header": "Updated 23:34",
+      "serverHint": "6 offline",
+      "chainHint": "Blocked 1 · degraded 2"
+    },
+    "en-normal": {
+      "header": "Updated 23:34",
+      "serverHint": "All online",
+      "chainHint": "Blocked 0 · degraded 0"
+    }
+  },
+  "errors": []
+}

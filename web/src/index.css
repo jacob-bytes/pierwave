@@ -430,6 +430,58 @@
   opacity: 1;
 }
 
+/*
+ * 概览视图 tab 行吸顶（仅 md+）。
+ *
+ * 内容区 `#main-content` 是唯一滚动容器：桌面端把「四个主视图 + 服务器
+ * 筛选 + 子页」整行吸在内容区顶部，滚到链路列表时仍能切视图。窄屏的
+ * 2×2 tab 本身很高，保持原来的静态行，不吸顶。
+ *
+ * - `data-stuck="true"` 由 OverviewInsight 量出（匹配 md 且已贴顶），
+ *   背景与 1px 分隔线只在此时出现，静止时不会多一条线；
+ * - 负外边距 + 同值内边距把背景铺满内容区，恰好停在 main 的 padding box
+ *   内，不制造横向滚动；
+ * - z-index 20 低于 Dropdown / Dialog / Select 的 50–60，弹层不受影响；
+ * - 不加 overflow，焦点环与锚点定位照常显示。
+ */
+@media (min-width: 48rem) {
+  [data-overview-view-toolbar] {
+    position: sticky;
+    /*
+     * main 的 p-6（1.5rem）会把 sticky 的 top:0 解释成内容盒顶部，
+     * 吸顶后会比内容区边框低 24px，露出上方滚过的内容。抵消这段
+     * padding，让工具栏正好贴在滚动容器顶部。
+     */
+    top: -1.5rem;
+    z-index: 20;
+    margin-inline: -1.5rem;
+    padding-inline: 1.5rem;
+    background-color: transparent;
+  }
+
+  [data-overview-view-toolbar][data-stuck="true"] {
+    background-color: color-mix(in oklab, var(--background) 88%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
+  [data-overview-view-toolbar]::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 1px;
+    /* 压在工具栏背景之上、内容之下：选中子页的 primary 下划线不会被盖掉。 */
+    z-index: -1;
+    pointer-events: none;
+    background-color: var(--border);
+    opacity: 0;
+  }
+
+  [data-overview-view-toolbar][data-stuck="true"]::after {
+    opacity: 1;
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

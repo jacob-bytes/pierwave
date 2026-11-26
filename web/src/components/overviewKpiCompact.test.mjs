@@ -157,7 +157,8 @@ test("顶部四卡：在线服务器 / 用户与套餐 / 转发链 / 今日流�
       "chains?.blocked",
       "chains?.degraded",
       "overview.forwardChains",
-      "overview.forwardChainsHint",
+      "overview.chainBlocked",
+      "overview.chainDegraded",
       "data-kpi-chains-total",
     ],
     "forward chain card",
@@ -170,9 +171,9 @@ test("顶部四卡：在线服务器 / 用户与套餐 / 转发链 / 今日流�
   assert.ok(!overview.includes('label={t("overview.users")}'));
   assert.ok(!overview.includes('label={t("overview.packageInstances")}'));
   assert.ok(!overview.includes("stats.users.active"));
-  // 「全局」只在合并卡上出现一次。
+  // 「全局」出现在合并卡与转发链卡上（转发链同样不受服务器筛选影响）。
   const globals = overview.match(/\n\s+global\n\s+\/>/g) ?? [];
-  assert.equal(globals.length, 1, "exactly one global tag on the top row");
+  assert.equal(globals.length, 2, "users and chains both carry the global tag");
 });
 
 test("新增 KPI 文案中英成对", () => {

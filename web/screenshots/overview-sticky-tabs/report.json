@@ -1,0 +1,1130 @@
+{
+  "generatedAt": "2026-11-26T15:23:18.099Z",
+  "themes": {
+    "dark": {
+      "theme": "dark",
+      "desktop": {
+        "unscrolled": {
+          "scrollTop": 0,
+          "scrollHeight": 1870,
+          "clientHeight": 844,
+          "scrollWidth": 1200,
+          "clientWidth": 1200,
+          "mainTop": 56,
+          "mainLeft": 240,
+          "top": 295.8,
+          "left": 240,
+          "width": 1200,
+          "height": 32,
+          "bottom": 327.8,
+          "stuck": "false",
+          "position": "sticky",
+          "zIndex": "20",
+          "marginInline": "-24px",
+          "paddingInline": "24px",
+          "background": "rgba(0, 0, 0, 0)",
+          "afterOpacity": "0",
+          "afterContent": "\"\"",
+          "afterHeight": "1px",
+          "afterBackground": "oklch(1 0 0 / 0.08)",
+          "afterBottom": "0px",
+          "documentOverflow": 0,
+          "dark": true
+        },
+        "flowOffsetAtTop": 239.8,
+        "maxScroll": 1026,
+        "stuck": {
+          "scrollTop": 500,
+          "scrollHeight": 1870,
+          "clientHeight": 844,
+          "scrollWidth": 1200,
+          "clientWidth": 1200,
+          "mainTop": 56,
+          "mainLeft": 240,
+          "top": 56,
+          "left": 240,
+          "width": 1200,
+          "height": 32,
+          "bottom": 88,
+          "stuck": "true",
+          "position": "sticky",
+          "zIndex": "20",
+          "marginInline": "-24px",
+          "paddingInline": "24px",
+          "background": "oklab(0.145 0.00103528 -0.0038637 / 0.88)",
+          "afterOpacity": "1",
+          "afterContent": "\"\"",
+          "afterHeight": "1px",
+          "afterBackground": "oklch(1 0 0 / 0.08)",
+          "afterBottom": "0px",
+          "documentOverflow": 0,
+          "dark": true
+        },
+        "deeper": {
+          "scrollTop": 740,
+          "scrollHeight": 1870,
+          "clientHeight": 844,
+          "scrollWidth": 1200,
+          "clientWidth": 1200,
+          "mainTop": 56,
+          "mainLeft": 240,
+          "top": 56,
+          "left": 240,
+          "width": 1200,
+          "height": 32,
+          "bottom": 88,
+          "stuck": "true",
+          "position": "sticky",
+          "zIndex": "20",
+          "marginInline": "-24px",
+          "paddingInline": "24px",
+          "background": "oklab(0.145 0.00103528 -0.0038637 / 0.88)",
+          "afterOpacity": "1",
+          "afterContent": "\"\"",
+          "afterHeight": "1px",
+          "afterBackground": "oklch(1 0 0 / 0.08)",
+          "afterBottom": "0px",
+          "documentOverflow": 0,
+          "dark": true
+        },
+        "popover": {
+          "visible": true,
+          "zIndex": "50",
+          "toolbarZ": "20"
+        },
+        "afterViewSwitch": {
+          "scrollTop": 0,
+          "scrollHeight": 1372,
+          "clientHeight": 844,
+          "scrollWidth": 1200,
+          "clientWidth": 1200,
+          "mainTop": 56,
+          "mainLeft": 240,
+          "top": 295.8,
+          "left": 240,
+          "width": 1200,
+          "height": 32,
+          "bottom": 327.8,
+          "stuck": "false",
+          "position": "sticky",
+          "zIndex": "20",
+          "marginInline": "-24px",
+          "paddingInline": "24px",
+          "background": "rgba(0, 0, 0, 0)",
+          "afterOpacity": "0",
+          "afterContent": "\"\"",
+          "afterHeight": "1px",
+          "afterBackground": "oklch(1 0 0 / 0.08)",
+          "afterBottom": "0px",
+          "documentOverflow": 0,
+          "dark": true
+        }
+      },
+      "mobile": {
+        "unscrolled": {
+          "scrollTop": 0,
+          "scrollHeight": 3564,
+          "clientHeight": 788,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "mainTop": 56,
+          "mainLeft": 0,
+          "top": 444.2,
+          "left": 24,
+          "width": 342,
+          "height": 116.8,
+          "bottom": 561,
+          "stuck": "false",
+          "position": "static",
+          "zIndex": "auto",
+          "marginInline": "0px",
+          "paddingInline": "0px",
+          "background": "rgba(0, 0, 0, 0)",
+          "afterOpacity": "1",
+          "afterContent": "none",
+          "afterHeight": "auto",
+          "afterBackground": "rgba(0, 0, 0, 0)",
+          "afterBottom": "auto",
+          "documentOverflow": 0,
+          "dark": true
+        },
+        "scrolled": {
+          "scrollTop": 688,
+          "scrollHeight": 3564,
+          "clientHeight": 788,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "mainTop": 56,
+          "mainLeft": 0,
+          "top": -243.8,
+          "left": 24,
+          "width": 342,
+          "height": 116.8,
+          "bottom": -127,
+          "stuck": "false",
+          "position": "static",
+          "zIndex": "auto",
+          "marginInline": "0px",
+          "paddingInline": "0px",
+          "background": "rgba(0, 0, 0, 0)",
+          "afterOpacity": "1",
+          "afterContent": "none",
+          "afterHeight": "auto",
+          "afterBackground": "rgba(0, 0, 0, 0)",
+          "afterBottom": "auto",
+          "documentOverflow": 0,
+          "dark": true
+        }
+      },
+      "shots": [
+        "desktop-top-dark-1440x900",
+        "desktop-stuck-dark-1440x900",
+        "mobile-top-dark-390x844",
+        "mobile-scrolled-dark-390x844"
+      ]
+    },
+    "light": {
+      "theme": "light",
+      "desktop": {
+        "unscrolled": {
+          "scrollTop": 0,
+          "scrollHeight": 1870,
+          "clientHeight": 844,
+          "scrollWidth": 1200,
+          "clientWidth": 1200,
+          "mainTop": 56,
+          "mainLeft": 240,
+          "top": 295.8,
+          "left": 240,
+          "width": 1200,
+          "height": 32,
+          "bottom": 327.8,
+          "stuck": "false",
+          "position": "sticky",
+          "zIndex": "20",
+          "marginInline": "-24px",
+          "paddingInline": "24px",
+          "background": "rgba(0, 0, 0, 0)",
+          "afterOpacity": "0",
+          "afterContent": "\"\"",
+          "afterHeight": "1px",
+          "afterBackground": "oklch(0.94 0.009 264.5)",
+          "afterBottom": "0px",
+          "documentOverflow": 0,
+          "dark": false
+        },
+        "flowOffsetAtTop": 239.8,
+        "maxScroll": 1026,
+        "stuck": {
+          "scrollTop": 500,
+          "scrollHeight": 1870,
+          "clientHeight": 844,
+          "scrollWidth": 1200,
+          "clientWidth": 1200,
+          "mainTop": 56,
+          "mainLeft": 240,
+          "top": 56,
+          "left": 240,
+          "width": 1200,
+          "height": 32,
+          "bottom": 88,
+          "stuck": "true",
+          "position": "sticky",
+          "zIndex": "20",
+          "marginInline": "-24px",
+          "paddingInline": "24px",
+          "background": "oklab(0.979 -0.000287537 -0.00298619 / 0.88)",
+          "afterOpacity": "1",
+          "afterContent": "\"\"",
+          "afterHeight": "1px",
+          "afterBackground": "oklch(0.94 0.009 264.5)",
+          "afterBottom": "0px",
+          "documentOverflow": 0,
+          "dark": false
+        },
+        "deeper": {
+          "scrollTop": 740,
+          "scrollHeight": 1870,
+          "clientHeight": 844,
+          "scrollWidth": 1200,
+          "clientWidth": 1200,
+          "mainTop": 56,
+          "mainLeft": 240,
+          "top": 56,
+          "left": 240,
+          "width": 1200,
+          "height": 32,
+          "bottom": 88,
+          "stuck": "true",
+          "position": "sticky",
+          "zIndex": "20",
+          "marginInline": "-24px",
+          "paddingInline": "24px",
+          "background": "oklab(0.979 -0.000287537 -0.00298619 / 0.88)",
+          "afterOpacity": "1",
+          "afterContent": "\"\"",
+          "afterHeight": "1px",
+          "afterBackground": "oklch(0.94 0.009 264.5)",
+          "afterBottom": "0px",
+          "documentOverflow": 0,
+          "dark": false
+        },
+        "popover": {
+          "visible": true,
+          "zIndex": "50",
+          "toolbarZ": "20"
+        },
+        "afterViewSwitch": {
+          "scrollTop": 0,
+          "scrollHeight": 1005,
+          "clientHeight": 844,
+          "scrollWidth": 1200,
+          "clientWidth": 1200,
+          "mainTop": 56,
+          "mainLeft": 240,
+          "top": 295.8,
+          "left": 240,
+          "width": 1200,
+          "height": 32,
+          "bottom": 327.8,
+          "stuck": "false",
+          "position": "sticky",
+          "zIndex": "20",
+          "marginInline": "-24px",
+          "paddingInline": "24px",
+          "background": "rgba(0, 0, 0, 0)",
+          "afterOpacity": "0",
+          "afterContent": "\"\"",
+          "afterHeight": "1px",
+          "afterBackground": "oklch(0.94 0.009 264.5)",
+          "afterBottom": "0px",
+          "documentOverflow": 0,
+          "dark": false
+        }
+      },
+      "mobile": {
+        "unscrolled": {
+          "scrollTop": 0,
+          "scrollHeight": 3564,
+          "clientHeight": 788,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "mainTop": 56,
+          "mainLeft": 0,
+          "top": 444.2,
+          "left": 24,
+          "width": 342,
+          "height": 116.8,
+          "bottom": 561,
+          "stuck": "false",
+          "position": "static",
+          "zIndex": "auto",
+          "marginInline": "0px",
+          "paddingInline": "0px",
+          "background": "rgba(0, 0, 0, 0)",
+          "afterOpacity": "1",
+          "afterContent": "none",
+          "afterHeight": "auto",
+          "afterBackground": "rgba(0, 0, 0, 0)",
+          "afterBottom": "auto",
+          "documentOverflow": 0,
+          "dark": false
+        },
+        "scrolled": {
+          "scrollTop": 688,
+          "scrollHeight": 3564,
+          "clientHeight": 788,
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "mainTop": 56,
+          "mainLeft": 0,
+          "top": -243.8,
+          "left": 24,
+          "width": 342,
+          "height": 116.8,
+          "bottom": -127,
+          "stuck": "false",
+          "position": "static",
+          "zIndex": "auto",
+          "marginInline": "0px",
+          "paddingInline": "0px",
+          "background": "rgba(0, 0, 0, 0)",
+          "afterOpacity": "1",
+          "afterContent": "none",
+          "afterHeight": "auto",
+          "afterBackground": "rgba(0, 0, 0, 0)",
+          "afterBottom": "auto",
+          "documentOverflow": 0,
+          "dark": false
+        }
+      },
+      "shots": [
+        "desktop-top-light-1440x900",
+        "desktop-stuck-light-1440x900",
+        "mobile-top-light-390x844",
+        "mobile-scrolled-light-390x844"
+      ]
+    }
+  },
+  "assertions": [
+    {
+      "ok": true,
+      "message": "dark desktop: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: theme applied",
+      "detail": {
+        "dark": true
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: starts unscrolled",
+      "detail": {
+        "scrollTop": 0
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: unscrolled is not stuck"
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: separator hidden before sticking",
+      "detail": {
+        "opacity": "0"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: no background before sticking",
+      "detail": {
+        "background": "rgba(0, 0, 0, 0)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: toolbar still in normal flow",
+      "detail": {
+        "top": 295.8,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: no horizontal overflow",
+      "detail": {
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: document never scrolls sideways",
+      "detail": {
+        "documentOverflow": 0
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: chain view is tall enough to pin the toolbar",
+      "detail": {
+        "maxScroll": 1026,
+        "flowOffsetAtTop": 239.8
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: stuck flag on"
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: toolbar pinned to content top",
+      "detail": {
+        "top": 56,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: position is sticky",
+      "detail": {
+        "position": "sticky"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: z-index stays below overlays",
+      "detail": {
+        "zIndex": "20"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: separator visible while stuck",
+      "detail": {
+        "opacity": "1"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: separator is exactly 1px",
+      "detail": {
+        "height": "1px"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: separator uses a theme token",
+      "detail": {
+        "background": "oklch(1 0 0 / 0.08)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: faint background appears",
+      "detail": {
+        "background": "oklab(0.145 0.00103528 -0.0038637 / 0.88)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: background starts at the content edge",
+      "detail": {
+        "left": 240,
+        "mainLeft": 240
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: full-bleed background adds no overflow",
+      "detail": {
+        "width": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: still no horizontal scroll",
+      "detail": {
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: stuck flag on"
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: toolbar pinned to content top",
+      "detail": {
+        "top": 56,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: toolbar top stays constant",
+      "detail": {
+        "before": 56,
+        "after": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: position is sticky",
+      "detail": {
+        "position": "sticky"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: z-index stays below overlays",
+      "detail": {
+        "zIndex": "20"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: separator visible while stuck",
+      "detail": {
+        "opacity": "1"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: separator is exactly 1px",
+      "detail": {
+        "height": "1px"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: separator uses a theme token",
+      "detail": {
+        "background": "oklch(1 0 0 / 0.08)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: faint background appears",
+      "detail": {
+        "background": "oklab(0.145 0.00103528 -0.0038637 / 0.88)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: background starts at the content edge",
+      "detail": {
+        "left": 240,
+        "mainLeft": 240
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: full-bleed background adds no overflow",
+      "detail": {
+        "width": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop scrolled: still no horizontal scroll",
+      "detail": {
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: server filter opens while stuck"
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: overlay sits above the sticky toolbar",
+      "detail": {
+        "visible": true,
+        "zIndex": "50",
+        "toolbarZ": "20"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: view switch resets scrollTop to 0",
+      "detail": {
+        "scrollTop": 0
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: view switch clears the stuck state"
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: separator hidden again after switching",
+      "detail": {
+        "opacity": "0"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark desktop: toolbar is back in normal flow after switching",
+      "detail": {
+        "top": 295.8,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: theme applied",
+      "detail": {
+        "dark": true
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: toolbar never sticks",
+      "detail": {
+        "position": "static"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: never enters stuck state"
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: separator pseudo-element does not exist",
+      "detail": {
+        "content": "none"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: no horizontal overflow",
+      "detail": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: no full-bleed negative margins",
+      "detail": {
+        "left": 24,
+        "mainLeft": 0
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: theme applied",
+      "detail": {
+        "dark": true
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: toolbar never sticks",
+      "detail": {
+        "position": "static"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: never enters stuck state"
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: separator pseudo-element does not exist",
+      "detail": {
+        "content": "none"
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: no horizontal overflow",
+      "detail": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile: toolbar scrolls away instead of sticking",
+      "detail": {
+        "top": -243.8,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "dark mobile scrolled: no horizontal overflow",
+      "detail": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "light desktop: theme applied",
+      "detail": {
+        "dark": false
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: starts unscrolled",
+      "detail": {
+        "scrollTop": 0
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: unscrolled is not stuck"
+    },
+    {
+      "ok": true,
+      "message": "light desktop: separator hidden before sticking",
+      "detail": {
+        "opacity": "0"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: no background before sticking",
+      "detail": {
+        "background": "rgba(0, 0, 0, 0)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: toolbar still in normal flow",
+      "detail": {
+        "top": 295.8,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: no horizontal overflow",
+      "detail": {
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: document never scrolls sideways",
+      "detail": {
+        "documentOverflow": 0
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: chain view is tall enough to pin the toolbar",
+      "detail": {
+        "maxScroll": 1026,
+        "flowOffsetAtTop": 239.8
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: stuck flag on"
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: toolbar pinned to content top",
+      "detail": {
+        "top": 56,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: position is sticky",
+      "detail": {
+        "position": "sticky"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: z-index stays below overlays",
+      "detail": {
+        "zIndex": "20"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: separator visible while stuck",
+      "detail": {
+        "opacity": "1"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: separator is exactly 1px",
+      "detail": {
+        "height": "1px"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: separator uses a theme token",
+      "detail": {
+        "background": "oklch(0.94 0.009 264.5)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: faint background appears",
+      "detail": {
+        "background": "oklab(0.979 -0.000287537 -0.00298619 / 0.88)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: background starts at the content edge",
+      "detail": {
+        "left": 240,
+        "mainLeft": 240
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: full-bleed background adds no overflow",
+      "detail": {
+        "width": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: still no horizontal scroll",
+      "detail": {
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: stuck flag on"
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: toolbar pinned to content top",
+      "detail": {
+        "top": 56,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: toolbar top stays constant",
+      "detail": {
+        "before": 56,
+        "after": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: position is sticky",
+      "detail": {
+        "position": "sticky"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: z-index stays below overlays",
+      "detail": {
+        "zIndex": "20"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: separator visible while stuck",
+      "detail": {
+        "opacity": "1"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: separator is exactly 1px",
+      "detail": {
+        "height": "1px"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: separator uses a theme token",
+      "detail": {
+        "background": "oklch(0.94 0.009 264.5)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: faint background appears",
+      "detail": {
+        "background": "oklab(0.979 -0.000287537 -0.00298619 / 0.88)"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: background starts at the content edge",
+      "detail": {
+        "left": 240,
+        "mainLeft": 240
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: full-bleed background adds no overflow",
+      "detail": {
+        "width": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop scrolled: still no horizontal scroll",
+      "detail": {
+        "scrollWidth": 1200,
+        "clientWidth": 1200
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: server filter opens while stuck"
+    },
+    {
+      "ok": true,
+      "message": "light desktop: overlay sits above the sticky toolbar",
+      "detail": {
+        "visible": true,
+        "zIndex": "50",
+        "toolbarZ": "20"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: view switch resets scrollTop to 0",
+      "detail": {
+        "scrollTop": 0
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: view switch clears the stuck state"
+    },
+    {
+      "ok": true,
+      "message": "light desktop: separator hidden again after switching",
+      "detail": {
+        "opacity": "0"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light desktop: toolbar is back in normal flow after switching",
+      "detail": {
+        "top": 295.8,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "light mobile: theme applied",
+      "detail": {
+        "dark": false
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: toolbar never sticks",
+      "detail": {
+        "position": "static"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: never enters stuck state"
+    },
+    {
+      "ok": true,
+      "message": "light mobile: separator pseudo-element does not exist",
+      "detail": {
+        "content": "none"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: no horizontal overflow",
+      "detail": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: no full-bleed negative margins",
+      "detail": {
+        "left": 24,
+        "mainLeft": 0
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: geometry readable"
+    },
+    {
+      "ok": true,
+      "message": "light mobile: theme applied",
+      "detail": {
+        "dark": false
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: toolbar never sticks",
+      "detail": {
+        "position": "static"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: never enters stuck state"
+    },
+    {
+      "ok": true,
+      "message": "light mobile: separator pseudo-element does not exist",
+      "detail": {
+        "content": "none"
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: no horizontal overflow",
+      "detail": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile: toolbar scrolls away instead of sticking",
+      "detail": {
+        "top": -243.8,
+        "mainTop": 56
+      }
+    },
+    {
+      "ok": true,
+      "message": "light mobile scrolled: no horizontal overflow",
+      "detail": {
+        "scrollWidth": 390,
+        "clientWidth": 390
+      }
+    },
+    {
+      "ok": true,
+      "message": "no uncaught page errors during the sticky-toolbar runs",
+      "detail": []
+    }
+  ],
+  "pageErrors": [],
+  "failures": []
+}
