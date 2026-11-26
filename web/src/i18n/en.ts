@@ -902,6 +902,7 @@ const en = {
       flowZoomIn: "Zoom in",
       flowZoomOut: "Zoom out",
       flowFit: "Fit to view",
+      flowFitHint: "Zoomed to {percent}%; use + to zoom in",
       flowReset: "Reset view",
       topologyAria: "Topology for chain template {name}: {nodes} nodes, {edges} paths",
       unusedTitle: "Unused members · {n}",

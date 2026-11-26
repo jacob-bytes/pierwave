@@ -11,6 +11,7 @@ import {
   TEMPLATE_MAX_ZOOM,
   TEMPLATE_MIN_ZOOM,
   buildTemplateGraph,
+  showsFitHint,
   type TemplateGraphUnusedMember,
 } from "@/lib/chainTemplateGraph";
 import { ChainTemplateFlowLazy } from "@/components/overview/chain-template-flow";
@@ -130,6 +131,20 @@ export function ChainTemplateTopology({
   // 空模板没有画布：缩放栏不出现，只留状态图例解释未使用成员的圆点。
   const zoomBar = graph.empty ? null : (
     <div data-template-flow-zoom className="hidden items-center gap-1 sm:flex">
+      {/*
+       * 自适应缩放低于 90% 时，百分比是唯一能说明「字为什么变小」的信息；
+       * 提示紧挨缩放栏，不新开一行，避免把卡片头部撑高。
+       */}
+      {showsFitHint(zoom) ? (
+        <span
+          data-template-fit-hint
+          className="mr-1 inline-flex items-center text-[11px] leading-none text-muted-foreground"
+        >
+          {translate("overview.chainTemplateInsight.flowFitHint", {
+            percent: zoomPercent,
+          })}
+        </span>
+      ) : null}
       <button
         type="button"
         data-flow-zoom-out

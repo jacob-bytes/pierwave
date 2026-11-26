@@ -8,9 +8,10 @@
 // 覆盖：3 跳 / 4 跳 / 6 跳、折叠 / 展开、hover 路径（卡片与连线）、药丸随路径
 // 一起压暗、卡片与药丸 / 合并虚线 tooltip、指针移入 tooltip 时高亮保持、
 // 100% / 50% / 150% 缩放、折叠上游后的目标 +N、密集药丸、390、
-// 亮暗、空态、旧主控降级、reduced-motion；并断言每列可见卡 ≤5、首屏缩放 0.9–1
-// 且标题折算 ≥11.7px、列顶对齐 / 列距 80 / 卡片 192×64、右缘提示（按卡片右边缘
-// 计数，半截列计入）、下缘提示（内容超高时出现，平移到底后消失）、画布高度上限、
+// 亮暗、空态、旧主控降级、reduced-motion；并断言每列可见卡 ≤5、首屏 = 适应窗口
+// （3/4/6 跳整图可见、缩放 = fit、居中误差 ≤1px、fit<0.9 时显示百分比提示）、
+// 列顶对齐 / 列距 80 / 卡片 192×64、右缘提示（按卡片右边缘计数，半截列计入）、
+// 下缘提示（内容超高时出现，平移到底后消失）、画布高度上限、
 // 滚轮不缩放、Ctrl/⌘ 滚轮缩放、拖拽不丢图、折叠只展开本列、Tab 可达、动画边 ≤10、
 // DOM ≤600、React Flow 署名 12px 中性 muted 灰、渐隐之上（z-index / 命中实测）；
 // reduced-motion 下平移动画 0ms；平移 / 缩放各采样 1 秒 rAF 帧数（无头 ≥30fps，
@@ -309,15 +310,19 @@ function detail4Hop() {
   };
 }
 
-/** 6 跳：每跳 3 台、目标 4 个 —— 深度 + 多层扇出，DOM 仍要 ≤600。 */
+/**
+ * 6 跳：入口 + 6 个中转 + 目标 = 8 列；每跳 2 台、目标 4 个 —— 深度 +
+ * 多层扇出，DOM 仍要 ≤600（3 台会顶到 669）。首屏 fit 必须一次看到全部 8 列。
+ */
 function detail6Hop() {
-  const perColumn = 3;
+  const perColumn = 2;
   const hops = 6;
+  const targetSeq = hops + 1;
   const targets = 4;
   const nodes = [];
   const edges = [];
-  for (let seq = 0; seq <= hops; seq += 1) {
-    const role = seq === 0 ? "source" : seq === hops ? "target" : "hop";
+  for (let seq = 0; seq <= targetSeq; seq += 1) {
+    const role = seq === 0 ? "source" : seq === targetSeq ? "target" : "hop";
     nodes.push({
       seq,
       role,
@@ -332,12 +337,12 @@ function detail6Hop() {
                 `s-${seq}-${String(index + 1).padStart(2, "0")}`,
                 10 - seq - index,
                 4 - index,
-                seq === 4 && index === 2 ? "offline" : "online",
+                seq === 4 && index === 1 ? "offline" : "online",
               ),
             ),
     });
   }
-  for (let seq = 1; seq <= hops; seq += 1) {
+  for (let seq = 1; seq <= targetSeq; seq += 1) {
     for (let index = 0; index < perColumn; index += 1) {
       edges.push(
         edge(
@@ -346,7 +351,7 @@ function detail6Hop() {
             ? `s-0-${String(index + 1).padStart(2, "0")}`
             : `s-${seq - 1}-${String(index + 1).padStart(2, "0")}`,
           seq,
-          seq === hops
+          seq === targetSeq
             ? `10.0.${seq}.${index + 1}:443`
             : `s-${seq}-${String(index + 1).padStart(2, "0")}`,
           10 - seq - index,
@@ -354,7 +359,7 @@ function detail6Hop() {
           3,
         ),
       );
-      if (seq < hops) {
+      if (seq < targetSeq) {
         edges.push(
           edge(
             seq - 1,
@@ -370,7 +375,7 @@ function detail6Hop() {
         );
       }
     }
-    if (seq === hops) {
+    if (seq === targetSeq) {
       // 目标列多一个上游：3 台 → 4 个目标，必然有 +N。
       edges.push(
         edge(
@@ -386,11 +391,16 @@ function detail6Hop() {
     }
   }
   return {
-    template: { id: "tpl-6", name: "香港 → 东京 → 洛杉矶 → 法兰克福 → 伦敦 → 圣保罗", hops: 6, created_at: NOW },
+    template: {
+      id: "tpl-6",
+      name: "香港 → 东京 → 洛杉矶 → 法兰克福 → 伦敦 → 圣保罗 → 悉尼",
+      hops: 6,
+      created_at: NOW,
+    },
     nodes,
     edges,
     targets: Array.from({ length: targets }, (_, index) =>
-      target(`10.0.${hops}.${index + 1}`, 443, targets - index),
+      target(`10.0.${targetSeq}.${index + 1}`, 443, targets - index),
     ),
     users: [],
     series: usageSeries(24),
@@ -557,7 +567,7 @@ const LIST_ITEMS = [
   },
   {
     id: "tpl-6",
-    name: "香港 → 东京 → 洛杉矶 → 法兰克福 → 伦敦 → 圣保罗",
+    name: "香港 → 东京 → 洛杉矶 → 法兰克福 → 伦敦 → 圣保罗 → 悉尼",
     hops: 6,
     enabled: true,
     chains: 20,
@@ -770,6 +780,142 @@ async function shot(locator, file, options = {}) {
 async function zoomPercent(page) {
   const text = await page.locator("[data-flow-zoom-value]").textContent();
   return Number((text ?? "0%").replace("%", ""));
+}
+
+/**
+ * 量首屏是否「适应窗口」：从卡片实测包围盒反推 fit，再和画布实际 zoom /
+ * 平移比较。完全独立于源码里的数字，防止实现和断言一起漂。
+ *
+ * 口径：卡片包围盒 + 24px 内边距 = 内容盒；fit = min(视口宽 / 内容盒宽,
+ * 视口高 / 内容盒高)，限制在 0.4–1；放得下时内容盒居中。
+ */
+async function measureFitViewport(page) {
+  return page.evaluate(() => {
+    const host = document.querySelector("[data-template-flow]");
+    const hostRect = host.getBoundingClientRect();
+    const width = host.clientWidth;
+    const height = host.clientHeight;
+    const viewport = document.querySelector(".react-flow__viewport");
+    const matrix = new DOMMatrixReadOnly(getComputedStyle(viewport).transform);
+    const zoom = matrix.a;
+    let minLeft = Number.POSITIVE_INFINITY;
+    let minTop = Number.POSITIVE_INFINITY;
+    let maxRight = Number.NEGATIVE_INFINITY;
+    let maxBottom = Number.NEGATIVE_INFINITY;
+    const columns = new Set();
+    let cards = 0;
+    let hiddenColumns = 0;
+    let hiddenRows = 0;
+    const byColumn = new Map();
+    for (const card of host.querySelectorAll("[data-template-flow-card]")) {
+      cards += 1;
+      const rect = card.getBoundingClientRect();
+      const left = rect.left - hostRect.left;
+      const top = rect.top - hostRect.top;
+      const right = rect.right - hostRect.left;
+      const bottom = rect.bottom - hostRect.top;
+      minLeft = Math.min(minLeft, left);
+      minTop = Math.min(minTop, top);
+      maxRight = Math.max(maxRight, right);
+      maxBottom = Math.max(maxBottom, bottom);
+      const column = Number(card.getAttribute("data-column"));
+      columns.add(column);
+      const entry = byColumn.get(column) ?? { left: Infinity, right: -Infinity };
+      entry.left = Math.min(entry.left, left);
+      entry.right = Math.max(entry.right, right);
+      byColumn.set(column, entry);
+    }
+    // 隐藏列 / 行：按卡片边界和画布可视区比较（0.5px 亚像素容差）。
+    for (const entry of byColumn.values()) {
+      if (entry.right > width + 0.5 || entry.left < -0.5) hiddenColumns += 1;
+    }
+    if (maxBottom > height + 0.5 || minTop < -0.5) hiddenRows = 1;
+    const contentWidth = (maxRight - minLeft) / zoom;
+    const contentHeight = (maxBottom - minTop) / zoom;
+    const layoutWidth = contentWidth + 48;
+    const layoutHeight = contentHeight + 48;
+    const rawFit = Math.min(width / layoutWidth, height / layoutHeight);
+    const expectedZoom = Math.min(1, Math.max(0.4, rawFit));
+    const fits =
+      layoutWidth * expectedZoom <= width + 0.5 &&
+      layoutHeight * expectedZoom <= height + 0.5;
+    const expectedLeft = fits
+      ? (width - layoutWidth * expectedZoom) / 2 + 24 * expectedZoom
+      : 24 * expectedZoom;
+    const expectedTop = fits
+      ? (height - layoutHeight * expectedZoom) / 2 + 24 * expectedZoom
+      : 24 * expectedZoom;
+    return {
+      columns: columns.size,
+      cards,
+      width,
+      height,
+      zoom,
+      expectedZoom,
+      rawFit,
+      fits,
+      centerErrorX: Math.abs(minLeft - expectedLeft),
+      centerErrorY: Math.abs(minTop - expectedTop),
+      hiddenColumns,
+      hiddenRows,
+      cardBox: {
+        left: Math.round(minLeft * 10) / 10,
+        top: Math.round(minTop * 10) / 10,
+        right: Math.round(maxRight * 10) / 10,
+        bottom: Math.round(maxBottom * 10) / 10,
+      },
+    };
+  });
+}
+
+/** 首屏整图可见 + 缩放 = fit + 居中；返回实测值写进 report。 */
+async function assertFitViewport(page, label) {
+  const metrics = await measureFitViewport(page);
+  assert.ok(metrics.cards > 0, `${label} 首屏应有卡片`);
+  assert.equal(
+    metrics.hiddenColumns,
+    0,
+    `${label} 首屏仍有 ${metrics.hiddenColumns} 列/卡在视口外：${JSON.stringify(metrics)}`,
+  );
+  assert.equal(
+    metrics.hiddenRows,
+    0,
+    `${label} 首屏仍有行在视口外：${JSON.stringify(metrics)}`,
+  );
+  assert.ok(
+    Math.abs(metrics.zoom - metrics.expectedZoom) <= 0.002,
+    `${label} 首屏缩放 ${metrics.zoom} 不等于 fit ${metrics.expectedZoom}`,
+  );
+  assert.ok(
+    metrics.centerErrorX <= 1,
+    `${label} 水平居中误差 ${metrics.centerErrorX}px > 1px`,
+  );
+  assert.ok(
+    metrics.centerErrorY <= 1,
+    `${label} 垂直居中误差 ${metrics.centerErrorY}px > 1px`,
+  );
+  return metrics;
+}
+
+/** fit < 0.9 时必须出现「已缩小到 X%，可点击 + 放大」；否则不出现。 */
+async function assertFitHint(page, metrics, label) {
+  const hint = page.locator("[data-template-fit-hint]");
+  const percent = await zoomPercent(page);
+  if (metrics.expectedZoom < 0.9) {
+    await hint.waitFor({ state: "visible", timeout: 5000 });
+    const text = ((await hint.textContent()) ?? "").trim();
+    assert.ok(
+      text.includes(`${percent}%`),
+      `${label} 缩放提示应含当前百分比 ${percent}%：${text}`,
+    );
+    return text;
+  }
+  assert.equal(
+    await hint.count(),
+    0,
+    `${label} fit ${Math.round(metrics.expectedZoom * 100)}% ≥90%，不应提示`,
+  );
+  return null;
 }
 
 async function clickZoom(page, selector, times = 1) {
@@ -1035,8 +1181,12 @@ function assertFps(label, result) {
   );
   await waitFlow(page);
 
+  // 首屏 = 适应窗口：3 跳 4 列整图可见、居中，缩放等于 fit（不再保底 0.9）。
+  const fitMetrics = await assertFitViewport(page, "3 跳");
   const zoom = await zoomPercent(page);
-  assert.ok(zoom >= 90 && zoom <= 100, `首屏缩放应在 90–100%，实际 ${zoom}%`);
+  assert.equal(zoom, Math.round(fitMetrics.expectedZoom * 100), "首屏缩放应等于 fit");
+  const fitHint = await assertFitHint(page, fitMetrics, "3 跳");
+  assert.equal(fitHint, null, "3 跳 fit≥90%，不应显示缩小提示");
 
   const counts = await cardCountsByColumn(page);
   for (const [column, count] of Object.entries(counts)) {
@@ -1123,11 +1273,8 @@ function assertFps(label, result) {
     `署名应为中性 muted 灰，实际 ${style.attributionColor}`,
   );
   assert.equal(style.touchAction, "pan-y", "pane 需要 touch-action: pan-y");
-  // 默认缩放下的实际字号：13px × zoom。
-  assert.ok(
-    (style.titleFontSize ?? 0) * (zoom / 100) >= 11.7 - 1e-6,
-    `默认缩放 ${zoom}% 下标题实际 ${((style.titleFontSize ?? 0) * zoom) / 100}px，低于 11.7px`,
-  );
+  // 字号规则以 100% 为基准：fit 缩放只按比例显示，不再承诺 ≥90%。
+  assert.equal(style.titleFontSize, 13, "100% 基准下卡片标题应为 13px");
   const canvasCap = await page.evaluate(() =>
     Math.min(640, window.innerHeight * 0.52),
   );
@@ -1158,6 +1305,8 @@ function assertFps(label, result) {
 
   report.assertions["3hop"] = {
     zoom,
+    fitViewport: fitMetrics,
+    fitHint,
     perColumn: counts,
     pulseCount,
     dom,
@@ -1622,8 +1771,22 @@ function assertFps(label, result) {
     .first()
     .getAttribute("aria-label");
   assert.ok((enCard ?? "").includes("Entry"), `英文卡片 aria：${enCard}`);
+  // 英文缩小提示：92% → 75% 后出现，适应窗口回到 92% 后消失。
+  await clickZoom(page, "[data-flow-zoom-out]");
+  const enHint = page.locator("[data-template-fit-hint]");
+  await enHint.waitFor({ state: "visible", timeout: 5000 });
+  const enHintText = ((await enHint.textContent()) ?? "").trim();
+  assert.equal(enHintText, "Zoomed to 75%; use + to zoom in", "英文缩小提示");
+  await page.locator("[data-flow-zoom-fit]").click();
+  await page.waitForTimeout(250);
+  assert.equal(await enHint.count(), 0, "回到 fit≥90% 后英文提示应消失");
   await shot(page.locator("[data-template-topology-card]"), "zoom-bar-1440-dark-en.png");
-  report.assertions["en"] = { fit: enFit, zoom: enZoom, aria: enCard };
+  report.assertions["en"] = {
+    fit: enFit,
+    zoom: enZoom,
+    aria: enCard,
+    fitHint: enHintText,
+  };
   assert.deepEqual(errors, []);
   await context.close();
 }
@@ -1641,6 +1804,10 @@ function assertFps(label, result) {
   await openList(page);
   await openDetail(page, 1);
   await waitFlow(page);
+  // 4 跳 5 列：首屏 fit 约 76%，整图可见并显示「已缩小到 X%」提示。
+  const fitMetrics = await assertFitViewport(page, "4 跳");
+  const fitHint = await assertFitHint(page, fitMetrics, "4 跳");
+  assert.ok(fitHint !== null, "4 跳 fit<90%，应显示缩小提示");
   await shot(page.locator("[data-template-dialog]"), "4hop-1440-dark.png");
   const collapsed = await cardCountsByColumn(page);
   const foldCount = await page
@@ -1687,7 +1854,7 @@ function assertFps(label, result) {
     foldsBefore: foldCount,
   };
 
-  // 整图（适应窗口）：5 列比 1040 的弹窗宽，默认 90% 需要平移才看得到目标列。
+  // 整图（适应窗口）：首屏已经是 fit；展开后再点一次，5 列仍全部可见。
   await page.locator("[data-flow-zoom-fit]").click();
   await page.mouse.move(5, 5);
   await page.waitForTimeout(350);
@@ -1807,6 +1974,8 @@ function assertFps(label, result) {
   );
   assert.ok(foldDom <= 600, `4 跳画布 DOM ${foldDom} 个，超过 600`);
   report.assertions["fold"] = {
+    fitViewport: fitMetrics,
+    fitHint,
     collapsed,
     expanded,
     foldColumn,
@@ -1833,7 +2002,7 @@ function assertFps(label, result) {
   await openDetail(page, 2);
   await waitFlow(page);
   const counts = await cardCountsByColumn(page);
-  assert.ok(Object.keys(counts).length >= 6, "6 跳应有 7 列");
+  assert.equal(Object.keys(counts).length, 8, "6 跳应有 8 列（入口 + 6 中转 + 目标）");
   for (const [column, count] of Object.entries(counts)) {
     assert.ok(count <= 5, `第 ${column} 列 ${count} 张卡，超过 5`);
   }
@@ -1852,9 +2021,29 @@ function assertFps(label, result) {
   const dom = domBreakdown.total;
   console.log("6hop dom", domBreakdown);
   assert.ok(dom <= 600, `6 跳画布 DOM ${dom} 个，超过 600`);
+  // 首屏 = 适应窗口：8 列（入口 + 6 跳 + 目标）整图可见、居中，缩放 = fit。
   const zoom = await zoomPercent(page);
-  assert.ok(zoom >= 90 && zoom <= 100, `6 跳首屏缩放 ${zoom}% 不在 90–100%`);
-  // 默认 0.9 下右侧仍有列：右缘提示 + 点击平移一屏。
+  const fitMetrics = await assertFitViewport(page, "6 跳");
+  assert.equal(zoom, Math.round(fitMetrics.expectedZoom * 100), "6 跳首屏缩放应等于 fit");
+  assert.equal(fitMetrics.columns, 8, `6 跳应有 8 列，实测 ${fitMetrics.columns} 列`);
+  const fitHint = await assertFitHint(page, fitMetrics, "6 跳");
+  assert.ok(fitHint !== null, "6 跳 fit<90%，应显示「已缩小到 X%」提示");
+  // 整图都在视口内：右缘 / 下缘提示都不该出现。
+  assert.equal(
+    await page.locator("[data-template-flow-more]").count(),
+    0,
+    "首屏 fit 后整图可见，不应出现右缘提示",
+  );
+  assert.equal(
+    await page.locator("[data-template-flow-more-below]").count(),
+    0,
+    "首屏 fit 后整图可见，不应出现下缘提示",
+  );
+  await shot(page.locator("[data-template-dialog]"), "6hop-1440-dark.png");
+  await shot(
+    page.locator("[data-template-topology-card]"),
+    "6hop-fit-hint-1440-dark.png",
+  );
   const hostHeight = await page.evaluate(
     () => document.querySelector("[data-template-flow]").clientHeight,
   );
@@ -1865,6 +2054,13 @@ function assertFps(label, result) {
     hostHeight <= canvasCap + 1,
     `6 跳画布高度 ${hostHeight}px 超过上限 ${canvasCap}px`,
   );
+
+  // 放大到 125% 制造溢出：右缘 / 下缘提示逻辑仍保留，并验证平移到最右。
+  await clickZoom(page, "[data-flow-zoom-in]", 4);
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(300);
+  const zoomedPercent = await zoomPercent(page);
+  assert.ok(zoomedPercent > zoom, `放大后 ${zoomedPercent}% 应高于首屏 ${zoom}%`);
   const more = page.locator("[data-template-flow-more]");
   await more.waitFor({ state: "visible", timeout: 5000 });
   const moreColumns = Number(await more.getAttribute("data-columns"));
@@ -1908,11 +2104,19 @@ function assertFps(label, result) {
     "220",
     "正常动效下平移 220ms",
   );
-  await shot(page.locator("[data-template-dialog]"), "6hop-1440-dark.png");
+  await shot(page.locator("[data-template-topology-card]"), "6hop-zoom-in-1440-dark.png");
+
+  /* ---- 帧率：平移 1 秒（放大态仍有平移空间） ---- */
+  await page.mouse.move(5, 5);
+  await startFpsSampler(page);
+  await panForFps(page);
+  const panFps = await finishFpsSampler(page);
+  assertFps("平移", panFps);
+
   // 一次一屏，直到右缘提示消失（半截列会多留一屏）。
   let rightPans = 0;
   while (
-    rightPans < 6 &&
+    rightPans < 8 &&
     (await page.locator("[data-template-flow-more]").count()) > 0
   ) {
     await page.locator("[data-template-flow-more]").click();
@@ -1938,20 +2142,35 @@ function assertFps(label, result) {
     truncated: rightEdges.truncated.length,
     partial: rightEdges.partial.length,
     pans: rightPans,
+    zoom: zoomedPercent,
   };
-  // 6 跳整图：适应窗口后能一眼看到「入口 → … → 目标」。
+
+  /* ---- 帧率：缩放 1 秒 ---- */
+  // 回到首屏的 fit，再点「+」：fit 之后放大仍按 25% 整档步进。
   await page.locator("[data-flow-zoom-fit]").click();
   await page.mouse.move(5, 5);
   await page.waitForTimeout(350);
-  const fitZoom = await zoomPercent(page);
+  const restored = await zoomPercent(page);
+  assert.equal(restored, zoom, "适应窗口应回到首屏 fit");
+  assert.equal(
+    await page.locator("[data-template-flow-more]").count(),
+    0,
+    "适应窗口后整图可见，右缘提示应消失",
+  );
+  assert.ok(
+    (await page.locator("[data-template-fit-hint]").textContent())?.includes(`${zoom}%`),
+    "适应窗口后提示仍应给出当前百分比",
+  );
   await shot(page.locator("[data-template-topology-card]"), "6hop-fit-1440-dark.png");
-
-  /* ---- 帧率：平移 1 秒、缩放 1 秒各采样 rAF 帧数 ---- */
+  await clickZoom(page, "[data-flow-zoom-in]", 3);
   await page.mouse.move(5, 5);
-  await startFpsSampler(page);
-  await panForFps(page);
-  const panFps = await finishFpsSampler(page);
-  assertFps("平移", panFps);
+  await page.waitForTimeout(300);
+  const afterFitZoomIn = await zoomPercent(page);
+  assert.ok(afterFitZoomIn > restored, `fit 后放大 ${afterFitZoomIn}% 应高于 ${restored}%`);
+  await shot(
+    page.locator("[data-template-topology-card]"),
+    "6hop-fit-zoom-in-1440-dark.png",
+  );
   await page.mouse.move(5, 5);
   await startFpsSampler(page);
   await zoomForFps(page);
@@ -1970,7 +2189,17 @@ function assertFps(label, result) {
   };
   await page.locator("[data-flow-zoom-fit]").click();
   await page.waitForTimeout(250);
-  report.assertions["6hop"] = { counts, dom, zoom, fitZoom, hostHeight, canvasCap };
+  report.assertions["6hop"] = {
+    counts,
+    dom,
+    zoom,
+    fitViewport: fitMetrics,
+    fitHint,
+    fitZoom: restored,
+    afterFitZoomIn,
+    hostHeight,
+    canvasCap,
+  };
   assert.deepEqual(errors, []);
   report.errors.push(...errors.map((error) => `6hop: ${error}`));
   await context.close();
@@ -2244,6 +2473,10 @@ function assertFps(label, result) {
   await openList(page);
   await openDetail(page, 2);
   await waitFlow(page);
+  // 首屏是整图 fit；放大到 125% 制造右侧溢出，再验证提示的计数口径。
+  await clickZoom(page, "[data-flow-zoom-in]", 4);
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(300);
 
   const measure = () =>
     page.evaluate(() => {
@@ -2275,7 +2508,7 @@ function assertFps(label, result) {
     });
 
   let state = await measure();
-  assert.ok(state.hint !== null, "6 跳首屏应有右缘提示");
+  assert.ok(state.hint !== null, "6 跳放大后应有右缘提示");
   assert.equal(
     state.hint,
     state.truncated.length,
@@ -2465,6 +2698,10 @@ function assertFps(label, result) {
   await openList(page);
   await openDetail(page, 2);
   await waitFlow(page);
+  // 首屏 fit 不溢出；放大到 125% 让右缘提示出现，再测 transl 动画时长。
+  await clickZoom(page, "[data-flow-zoom-in]", 4);
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(300);
   const more = page.locator("[data-template-flow-more]");
   await more.waitFor({ state: "visible", timeout: 5000 });
   assert.equal(

@@ -21,7 +21,10 @@
     "tooltip-fold-1440-dark.png",
     "tooltip-merged-1440-dark.png",
     "6hop-1440-dark.png",
+    "6hop-fit-hint-1440-dark.png",
+    "6hop-zoom-in-1440-dark.png",
     "6hop-fit-1440-dark.png",
+    "6hop-fit-zoom-in-1440-dark.png",
     "fold-target-before-1440-dark.png",
     "fold-target-after-1440-dark.png",
     "bottom-hint-attribution-1440-dark.png",
@@ -36,7 +39,7 @@
   "assertions": {
     "390": {
       "mode": "compact",
-      "scrollWidth": 1872,
+      "scrollWidth": 2144,
       "clientWidth": 342,
       "overflow": 0,
       "zoomBarVisible": false,
@@ -63,6 +66,27 @@
     },
     "3hop": {
       "zoom": 92,
+      "fitViewport": {
+        "columns": 4,
+        "cards": 12,
+        "width": 976,
+        "height": 384,
+        "zoom": 0.924,
+        "expectedZoom": 0.9242424258612053,
+        "rawFit": 0.9242424258612053,
+        "fits": true,
+        "centerErrorX": 0.1241815351904485,
+        "centerErrorY": 0.036848730390772744,
+        "hiddenColumns": 0,
+        "hiddenRows": 0,
+        "cardBox": {
+          "left": 22.3,
+          "top": 51.6,
+          "right": 953.7,
+          "bottom": 332.4
+        }
+      },
+      "fitHint": null,
       "perColumn": {
         "0": 2,
         "1": 3,
@@ -78,11 +102,11 @@
       "touchAction": "pan-y",
       "foldCards": 0,
       "targetFolds": 2,
-      "firstPaintMs": 582,
+      "firstPaintMs": 505,
       "chunkTiming": {
-        "name": "ChainTemplateFlow-Bv980Xj6.js",
-        "durationMs": 111,
-        "transferSize": 57697,
+        "name": "ChainTemplateFlow-DLGAJBUz.js",
+        "durationMs": 234,
+        "transferSize": 57703,
         "decodedBodySize": 186881
       }
     },
@@ -162,7 +186,7 @@
     },
     "drag": {
       "beforeDrag": {
-        "transform": "translate(0px, 29.33px) scale(0.924)",
+        "transform": "translate(0.13px, 29.38px) scale(0.924)",
         "cards": 12
       },
       "afterDrag": {
@@ -182,7 +206,8 @@
     "en": {
       "fit": "Fit to view",
       "zoom": "92%",
-      "aria": "香港-01, Entry, Online, 6 chains, 4 users"
+      "aria": "香港-01, Entry, Online, 6 chains, 4 users",
+      "fitHint": "Zoomed to 75%; use + to zoom in"
     },
     "keyboard": {
       "foldsAfterEnter": 1,
@@ -197,6 +222,27 @@
       "text": "香港-01 → +3链数6用户数4来自已折叠的 3 条路径，共 6 条链"
     },
     "fold": {
+      "fitViewport": {
+        "columns": 5,
+        "cards": 18,
+        "width": 976,
+        "height": 464,
+        "zoom": 0.734,
+        "expectedZoom": 0.7349396867862399,
+        "rawFit": 0.7349396867862399,
+        "fits": true,
+        "centerErrorX": 0.597455207559932,
+        "centerErrorY": 0.1804198354531934,
+        "hiddenColumns": 0,
+        "hiddenRows": 0,
+        "cardBox": {
+          "left": 18.2,
+          "top": 91.1,
+          "right": 957.8,
+          "bottom": 372.9
+        }
+      },
+      "fitHint": "已缩小到 73%，可点击 + 放大",
       "collapsed": {
         "0": 1,
         "1": 5,
@@ -222,16 +268,17 @@
     "rightHintAttribution": {
       "attributionZ": "6",
       "fadeZ": [
+        "5",
         "5"
       ],
       "rendererZ": "4",
       "sameStackingContext": true,
-      "coveredByFade": 1,
+      "coveredByFade": 2,
       "hitInsideAttribution": true,
       "hitTag": "A",
       "contentCovered": {
-        "x": 1144,
-        "y": 270,
+        "x": 1155,
+        "y": 356,
         "hitTag": "DIV",
         "hitInsideFade": true
       },
@@ -240,24 +287,48 @@
       "linkHeight": 16
     },
     "rightHint": {
-      "columns": 3,
-      "truncated": 3,
+      "columns": 5,
+      "truncated": 5,
       "partial": 0,
-      "pans": 1
+      "pans": 2,
+      "zoom": 125
     },
     "6hop": {
       "counts": {
-        "0": 3,
-        "1": 3,
-        "2": 3,
-        "3": 3,
-        "4": 3,
-        "5": 3,
-        "6": 4
+        "0": 2,
+        "1": 2,
+        "2": 2,
+        "3": 2,
+        "4": 2,
+        "5": 2,
+        "6": 2,
+        "7": 4
       },
-      "dom": 594,
-      "zoom": 90,
-      "fitZoom": 52,
+      "dom": 488,
+      "zoom": 46,
+      "fitViewport": {
+        "columns": 8,
+        "cards": 18,
+        "width": 976,
+        "height": 384,
+        "zoom": 0.455,
+        "expectedZoom": 0.4552238412919998,
+        "rawFit": 0.4552238412919998,
+        "fits": true,
+        "centerErrorX": 0.23463147110138038,
+        "centerErrorY": 0.03402387818557884,
+        "hiddenColumns": 0,
+        "hiddenRows": 0,
+        "cardBox": {
+          "left": 11.2,
+          "top": 122.8,
+          "right": 964.8,
+          "bottom": 261.2
+        }
+      },
+      "fitHint": "已缩小到 46%，可点击 + 放大",
+      "fitZoom": 46,
+      "afterFitZoomIn": 100,
       "hostHeight": 384,
       "canvasCap": 520
     },
@@ -315,14 +386,16 @@
     },
     "rightHintPartial": {
       "truncated": [
+        3,
         4,
         5,
-        6
+        6,
+        7
       ],
       "partial": [
-        4
+        3
       ],
-      "hint": 3
+      "hint": 5
     },
     "empty": {
       "cards": 0,
@@ -339,28 +412,28 @@
     },
     "reducedMotionPan": {
       "duration": "0",
-      "before": "translate(0px, 33.6px) scale(0.9)",
-      "after": "translate(-708.8px, 33.6px) scale(0.9)",
-      "settled": "translate(-708.8px, 33.6px) scale(0.9)"
+      "before": "translate(0.24px, 111.92px) scale(1.25)",
+      "after": "translate(-897.68px, 111.92px) scale(1.25)",
+      "settled": "translate(-897.68px, 111.92px) scale(1.25)"
     },
     "chunks": {
       "flowChunk": {
-        "file": "ChainTemplateFlow-Bv980Xj6.js",
+        "file": "ChainTemplateFlow-DLGAJBUz.js",
         "bytes": 186881
       },
       "mainChunk": {
-        "file": "index-CsKr8nAz.js",
+        "file": "index-C2-g5EzA.js",
         "bytes": 447835
       },
       "latencyChunk": {
-        "file": "ChainLatencyView-D_RNCXEM.js",
-        "bytes": 116498
+        "file": "ChainLatencyView-CHTTy2Iw.js",
+        "bytes": 117030
       }
     }
   },
   "fps": {
-    "pan": 60,
-    "zoom": 60.3,
+    "pan": 60.1,
+    "zoom": 60.1,
     "panFrames": 61,
     "zoomFrames": 61,
     "sampleMs": 1000,
@@ -370,6 +443,6 @@
   },
   "errors": [],
   "build": {
-    "generatedAt": "2026-11-26T11:25:41.340Z"
+    "generatedAt": "2026-11-26T12:19:04.524Z"
   }
 }

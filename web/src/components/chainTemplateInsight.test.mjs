@@ -180,6 +180,9 @@ test("拓扑：React Flow 卡片画布，懒加载 + 自定义缩放栏", () => 
       "data-flow-zoom-in",
       "data-flow-zoom-value",
       "data-flow-zoom-fit",
+      "data-template-fit-hint",
+      "showsFitHint(zoom)",
+      'translate("overview.chainTemplateInsight.flowFitHint"',
       'translate("overview.chainTemplateInsight.flowFit")',
       'translate("overview.chainTemplateInsight.flowZoomIn")',
       'translate("overview.chainTemplateInsight.flowZoomOut")',
@@ -322,8 +325,11 @@ test("手势：滚轮滚弹窗、Ctrl/⌘ 缩放、双击不缩放、平移有�
     [
       "export const TEMPLATE_MIN_ZOOM = 0.4",
       "export const TEMPLATE_MAX_ZOOM = 1.6",
-      "export const TEMPLATE_INITIAL_MIN_ZOOM = 0.9",
-      "clamp(fit, TEMPLATE_INITIAL_MIN_ZOOM, TEMPLATE_INITIAL_MAX_ZOOM)",
+      "export const TEMPLATE_FIT_HINT_ZOOM = 0.9",
+      "export function templateContentBounds(",
+      "export function templateFitZoom(",
+      "clamp(fit, TEMPLATE_MIN_ZOOM, TEMPLATE_FIT_MAX_ZOOM)",
+      "return fitViewport(layout, size);",
     ],
     "zoom bounds",
   );
@@ -782,6 +788,7 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     "flowZoomIn",
     "flowZoomOut",
     "flowFit",
+    "flowFitHint",
     "flowReset",
     "topologyAria",
     "unusedTitle",
@@ -810,6 +817,7 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     [
       'degraded: "降级"',
       'flowFit: "适应窗口"',
+      'flowFitHint: "已缩小到 {percent}%，可点击 + 放大"',
       'flowReset: "恢复默认"',
       'emptyTopologyTitle: "暂无流量"',
     ],
@@ -820,6 +828,7 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     [
       'degraded: "Degraded"',
       'flowFit: "Fit to view"',
+      'flowFitHint: "Zoomed to {percent}%; use + to zoom in"',
       'flowReset: "Reset view"',
       'emptyTopologyTitle: "No traffic yet"',
     ],

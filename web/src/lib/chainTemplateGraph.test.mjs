@@ -6,9 +6,9 @@ import {
   TEMPLATE_CARD_HEIGHT,
   TEMPLATE_CARD_WIDTH,
   TEMPLATE_COLUMN_GAP,
+  TEMPLATE_FIT_HINT_ZOOM,
+  TEMPLATE_FIT_MAX_ZOOM,
   TEMPLATE_FOLD_LIMIT,
-  TEMPLATE_INITIAL_MAX_ZOOM,
-  TEMPLATE_INITIAL_MIN_ZOOM,
   TEMPLATE_MAX_ZOOM,
   TEMPLATE_MERGED_RAIL_OFFSET,
   TEMPLATE_MIN_ZOOM,
@@ -29,11 +29,14 @@ import {
   highlightTemplatePath,
   initialViewport,
   layoutTemplateGraph,
+  showsFitHint,
   spreadPills,
   stepTemplateZoom,
   templateCanvasHeight,
+  templateContentBounds,
   templateEdgePath,
   templateEdgeWidth,
+  templateFitZoom,
   templatePanDuration,
 } from "./chainTemplateGraph.ts";
 
@@ -218,8 +221,7 @@ test("buildTemplateGraph: 0 链模板是空图，不画孤立入口", () => {
   assert.ok(layout.width > 0);
   assert.ok(layout.height > 0);
   const view = initialViewport(layout, { width: 800, height: 400 });
-  assert.equal(view.zoom, TEMPLATE_INITIAL_MAX_ZOOM);
-  assert.ok(view.zoom >= TEMPLATE_INITIAL_MIN_ZOOM);
+  assert.equal(view.zoom, TEMPLATE_FIT_MAX_ZOOM);
 });
 
 test("buildTemplateGraph: 入口列 / 各跳列 / 目标列，0 链成员不进图", () => {
@@ -959,22 +961,16 @@ const LAYOUT = {
   columns: [],
 };
 
-test("initialViewport: 0.4–1.6 内，首屏缩放 max(0.9, fit) 且不超过 1", () => {
-  // 内容很大：fit 很小 → 保底 0.9，入口列仍在左上。
-  const big = initialViewport(LAYOUT, { width: 800, height: 400 });
-  assert.equal(big.zoom, 0.9);
-  assert.ok(big.zoom >= 0.9 && big.zoom <= 1);
-  assert.equal(big.x, 0);
-  assert.equal(big.y, 0);
+test("initialViewport: 首屏 = 适应窗口，缩放不再保底 0.9", () => {
+  // 内容 1000×500、视口 800×400：fit 0.8，整图刚好铺满并居中。
+  const view = initialViewport(LAYOUT, { width: 800, height: 400 });
+  assert.equal(view.zoom, 0.8);
+  assert.equal(view.x, 0);
+  assert.equal(view.y, 0);
+  assert.deepEqual(view, fitViewport(LAYOUT, { width: 800, height: 400 }));
+  assert.equal(showsFitHint(view.zoom), true);
 
-  // 内容刚好放得下：fit 0.8 → 0.9。
-  const snug = initialViewport(
-    { ...LAYOUT, width: 1000, height: 500 },
-    { width: 800, height: 400 },
-  );
-  assert.equal(snug.zoom, 0.9);
-
-  // 内容很小：fit 4 → 封顶 1，居中。
+  // 内容很小：fit 4 → 封顶 1，居中，不显示「已缩小」提示。
   const small = initialViewport(
     { ...LAYOUT, width: 200, height: 100 },
     { width: 800, height: 400 },
@@ -982,6 +978,7 @@ test("initialViewport: 0.4–1.6 内，首屏缩放 max(0.9, fit) 且不超过 1
   assert.equal(small.zoom, 1);
   assert.equal(small.x, (800 - 200) / 2);
   assert.equal(small.y, (400 - 100) / 2);
+  assert.equal(showsFitHint(small.zoom), false);
 
   // 缩放值永远落在 0.4–1.6。
   for (const size of [
@@ -994,23 +991,99 @@ test("initialViewport: 0.4–1.6 内，首屏缩放 max(0.9, fit) 且不超过 1
   }
 });
 
-test("fitViewport: 能低于 0.9，最低 0.4，内容小于视口时不放大超过 1", () => {
+test("initialViewport: 3/4/6 跳首屏整图可见、缩放 = fit、居中误差 ≤1px", () => {
+  // 1440 弹窗 1040 - 卡片内边距后约 1008；3 跳画布高度约 384，这里取更宽的 520。
+  const size = { width: 1008, height: 520 };
+  const expectedHops = new Map([
+    [3, 4],
+    [4, 5],
+    [6, 7],
+  ]);
+  for (const hops of [3, 4, 6]) {
+    const graph = buildTemplateGraph(wideDetail({ hops, perColumn: 3 }));
+    const layout = layoutTemplateGraph(foldTemplateGraph(graph));
+    assert.equal(layout.columns.length, expectedHops.get(hops));
+    const bounds = templateContentBounds(layout);
+    const fit = templateFitZoom(layout, size);
+    const view = initialViewport(layout, size);
+
+    // 缩放 = fit，而且首屏与「适应窗口」按钮完全一致。
+    assert.equal(view.zoom, fit);
+    assert.deepEqual(view, fitViewport(layout, size));
+    // 布局尺寸本身就是「内容包围盒 + 24px 内边距」。
+    assert.equal(bounds.width, layout.width);
+    assert.equal(bounds.height, layout.height);
+    // 这 3 个 fixture 的 fit 都高于 0.4 下限，整图必须放得下。
+    assert.ok(fit > TEMPLATE_MIN_ZOOM);
+
+    const left = view.x + bounds.x * view.zoom;
+    const top = view.y + bounds.y * view.zoom;
+    const scaledWidth = bounds.width * view.zoom;
+    const scaledHeight = bounds.height * view.zoom;
+    assert.ok(left >= -0.5, `${hops} 跳左边缘被裁 ${left}px`);
+    assert.ok(top >= -0.5, `${hops} 跳上边缘被裁 ${top}px`);
+    assert.ok(left + scaledWidth <= size.width + 0.5, `${hops} 跳右边缘被裁`);
+    assert.ok(top + scaledHeight <= size.height + 0.5, `${hops} 跳下边缘被裁`);
+    // 居中：两侧留白误差 ≤1px。
+    assert.ok(
+      Math.abs(left - (size.width - scaledWidth) / 2) <= 1,
+      `${hops} 跳水平居中误差 ${left - (size.width - scaledWidth) / 2}px`,
+    );
+    assert.ok(
+      Math.abs(top - (size.height - scaledHeight) / 2) <= 1,
+      `${hops} 跳垂直居中误差 ${top - (size.height - scaledHeight) / 2}px`,
+    );
+    // 每张卡都落在视口内：没有隐藏列 / 行。
+    for (const card of layout.cards) {
+      const cardLeft = view.x + card.x * view.zoom;
+      const cardTop = view.y + card.y * view.zoom;
+      assert.ok(cardLeft >= -0.5, `${hops} 跳 ${card.id} 在视口左侧外`);
+      assert.ok(cardTop >= -0.5, `${hops} 跳 ${card.id} 在视口上方外`);
+      assert.ok(
+        cardLeft + card.width * view.zoom <= size.width + 0.5,
+        `${hops} 跳 ${card.id} 在视口右侧外`,
+      );
+      assert.ok(
+        cardTop + card.height * view.zoom <= size.height + 0.5,
+        `${hops} 跳 ${card.id} 在视口下方外`,
+      );
+    }
+    assert.equal(hiddenRightColumns(layout, size, view), 0);
+    assert.equal(hasHiddenContentBelow(layout, size, view), false);
+    // 3 跳 95% ≥ 90% 不提示；4 跳 75% / 6 跳 47% 必须提示。
+    assert.equal(showsFitHint(fit), hops !== 3, `${hops} 跳提示阈值不符`);
+  }
+});
+
+test("fitViewport: 能缩到 0.4，内容小于视口时不放大超过 1", () => {
   const huge = fitViewport({ ...LAYOUT, width: 4000, height: 4000 }, {
     width: 400,
     height: 400,
   });
   assert.equal(huge.zoom, TEMPLATE_MIN_ZOOM);
+  // 到下限仍放不下：贴内容起点，入口列可见，由右缘 / 下缘提示平移。
+  assert.equal(huge.x, 0);
+  assert.equal(huge.y, 0);
   const tiny = fitViewport({ ...LAYOUT, width: 100, height: 50 }, {
     width: 800,
     height: 400,
   });
-  assert.equal(tiny.zoom, 1);
+  assert.equal(tiny.zoom, TEMPLATE_FIT_MAX_ZOOM);
   const medium = fitViewport({ ...LAYOUT, width: 1000, height: 500 }, {
     width: 600,
     height: 300,
   });
   assert.equal(medium.zoom, 0.6);
   assert.equal(medium.x, (600 - 600) / 2);
+});
+
+test("fitHint: 自适应缩放 <0.9 才提示", () => {
+  assert.equal(TEMPLATE_FIT_HINT_ZOOM, 0.9);
+  assert.equal(showsFitHint(0.4), true);
+  assert.equal(showsFitHint(0.899), true);
+  assert.equal(showsFitHint(0.9), false);
+  assert.equal(showsFitHint(0.954), false);
+  assert.equal(showsFitHint(Number.NaN), false);
 });
 
 test("templateCanvasHeight: 上限 min(640, 视口高度 × 0.52)，下限 320", () => {

@@ -7,7 +7,8 @@
  *   foldTemplateGraph(graph)   → 每列 ≤4 张成员卡 + 1 张折叠卡；目标列每个上游
  *                                至少留 1 张，其余折成目标卡上的 `+N` 标签
  *   layoutTemplateGraph(folded)→ 列 x / 行 y / 直角折线路径 / 时延药丸落点
- *   initialViewport(layout, size) → 0.4–1.6 内的首屏视口（≥0.9 且 ≤1）
+ *   initialViewport(layout, size) → 首屏视口 = 适应窗口（按内容包围盒 + 内边距，
+ *                                居中；0.4 起、最高 100%）
  *
  * 折叠语义与旧树图一致：只收 `chains > 0` 的实际路径；被折成员的连线按
  * 「同一目的地」合并成一条虚线（宽度 = 链数之和，无时延、不脉冲）。
@@ -39,7 +40,7 @@ export const TEMPLATE_PULSE_LIMIT = 10;
 
 export const TEMPLATE_CARD_WIDTH = 192;
 export const TEMPLATE_CARD_HEIGHT = 64;
-/** 列间空隙：正好放直角折线的竖线与时延药丸（80px 让 4 列在 0.9 下仍读得清）。 */
+/** 列间空隙：正好放直角折线的竖线与时延药丸（80px 在 100% 下不挤字）。 */
 export const TEMPLATE_COLUMN_GAP = 80;
 export const TEMPLATE_ROW_GAP = 16;
 export const TEMPLATE_PADDING = 24;
@@ -73,10 +74,16 @@ export const TEMPLATE_EDGE_MAX_WIDTH = 6;
 /** 交互缩放边界（滚轮 / 按钮 / 捏合）。 */
 export const TEMPLATE_MIN_ZOOM = 0.4;
 export const TEMPLATE_MAX_ZOOM = 1.6;
-/** 首屏缩放下限：内容再大也不缩到 0.9 以下，改由平移 / 横向滚动看全。 */
-export const TEMPLATE_INITIAL_MIN_ZOOM = 0.9;
-/** 首屏缩放上限：内容很小也不放大超过 1（100% 下的 11px 才是真下限）。 */
-export const TEMPLATE_INITIAL_MAX_ZOOM = 1;
+/**
+ * 首屏 / 「适应窗口」的缩放上限：内容很小也不把卡片放大到 100% 以上。
+ * 字号以 100% 为基准，放大只改变观看距离，不改变字号规则。
+ */
+export const TEMPLATE_FIT_MAX_ZOOM = 1;
+/**
+ * 自适应缩放低于该值时，界面在缩放栏旁给出「已缩小到 X%，可点击 + 放大」
+ * 的轻提示：默认不再承诺「≥90%」，用户必须能看见当前百分比。
+ */
+export const TEMPLATE_FIT_HINT_ZOOM = 0.9;
 /** 缩放栏的按钮步进：±25%，100 → 50 / 150 都是整步。 */
 export const TEMPLATE_ZOOM_STEP = 0.25;
 /** 「右侧 / 下方还有」的平移步长：一屏的 92%，留一点重叠不切掉整列。 */
@@ -362,6 +369,12 @@ function weightedP50(
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/** 视口平移取 0.01px；把 `-0` 归一成 `0`，测试与序列化都不出现负零。 */
+function roundViewport(value: number): number {
+  const rounded = round2(value);
+  return rounded === 0 ? 0 : rounded;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -1422,61 +1435,120 @@ export function templateCanvasHeight(
   return Math.min(Math.max(TEMPLATE_CANVAS_MIN_HEIGHT, contentHeight), cap);
 }
 
-function viewportFor(
+export interface TemplateContentBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * 内容包围盒 + 内边距（流坐标）：所有卡片的最小 / 最大边界各外扩
+ * `TEMPLATE_PADDING`。布局本身已经按这个口径留白，空图则退回布局尺寸。
+ *
+ * 「适应窗口」按这个盒子计算，所以整图（含第一列与最后一列、第一行与
+ * 最后一行）都会落在视口里；不是只看画布的 `width` / `height`。
+ */
+export function templateContentBounds(
   layout: TemplateGraphLayout,
-  size: TemplateSize,
-  zoom: number,
-  alwaysCenter: boolean,
-): TemplateViewport {
-  const width = Math.max(1, layout.width);
-  const height = Math.max(1, layout.height);
-  const scaledWidth = width * zoom;
-  const scaledHeight = height * zoom;
-  const fitsX = scaledWidth <= size.width;
-  const fitsY = scaledHeight <= size.height;
+): TemplateContentBounds {
+  if (layout.cards.length === 0) {
+    return {
+      x: 0,
+      y: 0,
+      width: Math.max(1, layout.width),
+      height: Math.max(1, layout.height),
+    };
+  }
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const card of layout.cards) {
+    minX = Math.min(minX, card.x);
+    minY = Math.min(minY, card.y);
+    maxX = Math.max(maxX, card.x + card.width);
+    maxY = Math.max(maxY, card.y + card.height);
+  }
   return {
-    x: round2(fitsX || alwaysCenter ? (size.width - scaledWidth) / 2 : 0),
-    y: round2(fitsY || alwaysCenter ? (size.height - scaledHeight) / 2 : 0),
-    zoom: Math.round(zoom * 1000) / 1000,
+    x: round2(minX - TEMPLATE_PADDING),
+    y: round2(minY - TEMPLATE_PADDING),
+    width: round2(maxX - minX + TEMPLATE_PADDING * 2),
+    height: round2(maxY - minY + TEMPLATE_PADDING * 2),
   };
 }
 
-/** 首屏视口：`max(0.9, fit)` 且不超过 1；内容过大时从左上角开始（入口列可见）。 */
+/**
+ * 「适应窗口」的目标缩放：内容包围盒（含内边距）完整放进视口。
+ *
+ * 下限 `TEMPLATE_MIN_ZOOM`（0.4）：再大也只能拖 / 平移，同时保留右缘 /
+ * 下缘提示；上限 1：内容很小时不把卡片放大到 100% 以上。结果向下取到
+ * 0.001，避免四舍五入后比视口多出半像素、把最后一列算成「被裁掉」。
+ */
+export function templateFitZoom(
+  layout: TemplateGraphLayout,
+  size: TemplateSize,
+): number {
+  const bounds = templateContentBounds(layout);
+  const fit = Math.min(
+    Math.max(1, size.width) / bounds.width,
+    Math.max(1, size.height) / bounds.height,
+  );
+  const capped = clamp(fit, TEMPLATE_MIN_ZOOM, TEMPLATE_FIT_MAX_ZOOM);
+  return Math.floor(capped * 1000 + 1e-9) / 1000;
+}
+
+/** 缩放低于 90% 时显示「已缩小到 X%，可点击 + 放大」的轻提示。 */
+export function showsFitHint(zoom: number): boolean {
+  return Number.isFinite(zoom) && zoom < TEMPLATE_FIT_HINT_ZOOM - 1e-9;
+}
+
+/**
+ * 视口：内容放得下的轴居中；放不下的轴贴内容起点（入口列 / 顶行可见），
+ * 交给右缘 / 下缘提示平移，而不是把入口也裁到屏幕外。
+ */
+function viewportFor(
+  bounds: TemplateContentBounds,
+  size: TemplateSize,
+  zoom: number,
+): TemplateViewport {
+  const scaledWidth = bounds.width * zoom;
+  const scaledHeight = bounds.height * zoom;
+  const fitsX = scaledWidth <= Math.max(1, size.width) + VIEWPORT_EDGE_EPSILON;
+  const fitsY = scaledHeight <= Math.max(1, size.height) + VIEWPORT_EDGE_EPSILON;
+  return {
+    x: roundViewport(
+      fitsX ? (size.width - scaledWidth) / 2 - bounds.x * zoom : -bounds.x * zoom,
+    ),
+    y: roundViewport(
+      fitsY ? (size.height - scaledHeight) / 2 - bounds.y * zoom : -bounds.y * zoom,
+    ),
+    zoom,
+  };
+}
+
+/**
+ * 首屏视口 = 适应窗口：按内容包围盒 + 内边距计算，居中显示整张图。
+ * 与「适应窗口」按钮共用同一实现，打开时的画面和点按钮后完全一致。
+ */
 export function initialViewport(
   layout: TemplateGraphLayout,
   size: TemplateSize,
 ): TemplateViewport {
-  const width = Math.max(1, layout.width);
-  const height = Math.max(1, layout.height);
-  const fit = Math.min(
-    Math.max(1, size.width) / width,
-    Math.max(1, size.height) / height,
-  );
-  const zoom = clamp(fit, TEMPLATE_INITIAL_MIN_ZOOM, TEMPLATE_INITIAL_MAX_ZOOM);
-  return viewportFor(layout, size, zoom, false);
+  return fitViewport(layout, size);
 }
 
-/** 「适应窗口」：可以缩到 0.4 看全，但内容小时不放大超过 1。 */
+/** 「适应窗口」：整图可见；最低 0.4，内容很小时不放大超过 1。 */
 export function fitViewport(
   layout: TemplateGraphLayout,
   size: TemplateSize,
 ): TemplateViewport {
-  const width = Math.max(1, layout.width);
-  const height = Math.max(1, layout.height);
-  const fit = Math.min(
-    Math.max(1, size.width) / width,
-    Math.max(1, size.height) / height,
-  );
-  return viewportFor(
-    layout,
-    size,
-    clamp(fit, TEMPLATE_MIN_ZOOM, TEMPLATE_INITIAL_MAX_ZOOM),
-    true,
-  );
+  const bounds = templateContentBounds(layout);
+  return viewportFor(bounds, size, templateFitZoom(layout, size));
 }
 
 export function clampTemplateZoom(zoom: number): number {
-  if (!Number.isFinite(zoom)) return TEMPLATE_INITIAL_MAX_ZOOM;
+  if (!Number.isFinite(zoom)) return TEMPLATE_FIT_MAX_ZOOM;
   return round2(clamp(zoom, TEMPLATE_MIN_ZOOM, TEMPLATE_MAX_ZOOM));
 }
 
@@ -1543,11 +1615,11 @@ export function hasHiddenContentBelow(
 
 /**
  * 缩放栏按钮：吸附到 25% 的整数档（100 → 125 → 150，100 → 75 → 50）。
- * 首屏是 fit 出来的 91% 之类的值时，一次「+」就落在 100%，用户看到的
+ * 首屏是 fit 出来的 47% / 91% 之类的值时，一次「+」就落在 50% / 100%，用户看到的
  * 百分比始终是整档，不会出现 116% 这种读数。
  */
 export function stepTemplateZoom(zoom: number, direction: 1 | -1): number {
-  if (!Number.isFinite(zoom)) return TEMPLATE_INITIAL_MAX_ZOOM;
+  if (!Number.isFinite(zoom)) return TEMPLATE_FIT_MAX_ZOOM;
   const step = TEMPLATE_ZOOM_STEP;
   const snapped =
     direction > 0

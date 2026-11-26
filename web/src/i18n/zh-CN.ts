@@ -874,6 +874,7 @@ const zhCN = {
       flowZoomIn: "放大",
       flowZoomOut: "缩小",
       flowFit: "适应窗口",
+      flowFitHint: "已缩小到 {percent}%，可点击 + 放大",
       flowReset: "恢复默认",
       topologyAria: "转发链模板 {name} 的拓扑：{nodes} 个节点，{edges} 条路径",
       unusedTitle: "未使用的成员 · {n}",

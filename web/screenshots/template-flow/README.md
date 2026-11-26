@@ -12,7 +12,8 @@
 - 页面由 `web/scripts/shots-template-flow.mjs` 用 Playwright 的 `page.route`
   注入 mock：模板列表 `/api/v1/overview/chain-templates`、详情与链路时延
   `/api/v1/overview/chain-health`。不依赖真实模板、真实转发链或 Agent 上报。
-- 3 跳模板含降级 / 离线成员与 6 个目标；4 跳与 6 跳覆盖折叠卡与多列；
+- 3 跳模板含降级 / 离线成员与 6 个目标；4 跳与 6 跳覆盖折叠卡与多列
+  （6 跳 = 入口 + 6 个中转 + 目标，共 8 列，首屏必须整图可见）；
   「6 台 × 3 目标」模板覆盖上游被折叠时的目标 `+N` 展开；「8 台」模板在展开后
   覆盖同一竖线超过 6 个药丸的密集隐藏；空模板没有任何链；旧主控用详情接口 404 模拟。
 - 主控库里至少要有一台服务器（否则总览是「新装空态」，不会渲染转发链 tab）。
@@ -66,7 +67,11 @@ node web/scripts/shots-template-flow.mjs
 ### 主要产物
 
 - `3hop-1440-dark.png` / `3hop-1440-light.png`：字号、列距、署名颜色；
-- `4hop-1440-dark.png`：5 列 + 右缘「右侧还有 N 列」提示；
+- `4hop-1440-dark.png`：5 列首屏整图可见（fit 约 76%），缩放栏给出「已缩小到
+  X%，可点击 + 放大」提示；
+- `6hop-1440-dark.png` / `6hop-fit-hint-1440-dark.png`：8 列首屏整图可见与
+  缩小提示；`6hop-fit-1440-dark.png` 是「适应窗口」；`6hop-zoom-in-1440-dark.png` /
+  `6hop-fit-zoom-in-1440-dark.png` 是放大后与 fit 后再放大；
 - `fold-target-before-1440-dark.png` / `fold-target-after-1440-dark.png`：
   上游折叠时目标 `+N` 的前后对比；
 - `dense-pills-hidden-1440-dark.png` / `dense-pills-hover-1440-dark.png`：
@@ -89,7 +94,10 @@ node web/scripts/shots-template-flow.mjs
 脚本在截图的同时断言（失败即退出，不写半套报告）：
 
 - 每列可见卡片 ≤ 5（4 张成员 + 1 张折叠卡）；
-- 首屏缩放 90–100%，且卡片标题按缩放折算后仍 ≥ 11.7px；
+- 首屏 = 适应窗口：3 / 4 / 6 跳的整张图（全部列与行）都在视口内，缩放等于
+  fit，内容盒居中误差 ≤ 1px；
+- 自适应缩放 < 90% 时缩放栏旁出现「已缩小到 X%，可点击 + 放大」轻提示并含当前
+  百分比；≥ 90% 时不出现；
 - 卡片标题 13px，状态 / 第二行 / 时延药丸 12px，React Flow 署名 12px；
 - React Flow 署名是中性 muted 灰，不跟随链接蓝 / 强调色；
 - 同一竖线的药丸超过 6 个时默认隐藏，悬停竖线后出现；
@@ -97,8 +105,9 @@ node web/scripts/shots-template-flow.mjs
 - 合并虚线 tooltip 显示「来自已折叠的 N 条路径，共 X 条链」；
 - 折叠卡 / 目标 `+N` 只展开自己那一组；上游被折叠时每个 `+N` 仍能展开；
 - 每列顶边对齐（第一张卡 y = 24），列间距 80px、卡片 192×64；
-- 右缘提示按「列内卡片的右边缘是否超出视口」计数：只露出半截的列也计入（3c
-  块会把视口边界拖进列内再断言），卡片右边缘刚好贴住视口右缘时不计；
+- 首屏整图可见时右缘 / 下缘提示都不出现；放大到 125% 后提示重新出现，且按
+  「列内卡片的右边缘是否超出视口」计数：只露出半截的列也计入（3c 块会把视口
+  边界拖进列内再断言），卡片右边缘刚好贴住视口右缘时不计；
 - 点「右侧还有 N 列」一次平移一屏（220ms），平移到最右后提示消失，且没有卡片
   右边缘还留在视口外；
 - 内容超出画布下缘时出现下缘渐隐 +「下方还有内容」；点一次下一屏，到底后消失；
@@ -145,7 +154,8 @@ empty state, old-controller fallback, reduced motion and pan / zoom frame rates.
   template detail and chain health (`/api/v1/overview/chain-health`). No real
   templates, chains or Agent reports are needed.
 - The 3-hop fixture includes degraded/offline members and six targets; the 4-hop
-  and 6-hop fixtures cover folded cards and many columns; the "6 nodes × 3
+  and 6-hop fixtures cover folded cards and many columns (6 hops = entry + 6
+  intermediate hops + target, 8 columns, all visible on the first screen); the "6 nodes × 3
   targets" fixture covers expanding target `+N` groups whose upstream member is
   folded; the "8 nodes" fixture covers hiding more than 6 pills on one rail
   after expanding; the empty fixture has no chains; the old-controller case is a
@@ -208,7 +218,12 @@ back to `import("playwright")` — no hard-coded npx hash directory.
 
 - `3hop-1440-dark.png` / `3hop-1440-light.png`: type sizes, column gap,
   attribution colour;
-- `4hop-1440-dark.png`: five columns plus the "{n} more columns" hint;
+- `4hop-1440-dark.png`: five columns fully visible on the first screen (fit ≈
+  76%) plus the "Zoomed to {percent}%; use + to zoom in" hint;
+- `6hop-1440-dark.png` / `6hop-fit-hint-1440-dark.png`: all 8 columns fit on the
+  first screen plus the zoom hint; `6hop-fit-1440-dark.png` is fit-to-view;
+  `6hop-zoom-in-1440-dark.png` / `6hop-fit-zoom-in-1440-dark.png` show zooming
+  in after opening and after fit;
 - `fold-target-before-1440-dark.png` / `fold-target-after-1440-dark.png`:
   target `+N` before/after when the upstream member is folded;
 - `dense-pills-hidden-1440-dark.png` / `dense-pills-hover-1440-dark.png`:
@@ -234,8 +249,12 @@ The script asserts while capturing (a failure exits non-zero and no partial
 report is written):
 
 - at most 5 visible cards per column (4 members + 1 folded card);
-- initial zoom is 90–100%, and the card title still measures ≥ 11.7px after the
-  zoom is applied;
+- the initial view is fit-to-view: for 3 / 4 / 6 hops the whole graph (every
+  column and row) is inside the viewport, the zoom equals fit, and the content
+  box is centred within 1px;
+- when the fit zoom is < 90%, a lightweight "Zoomed to {percent}%; use + to zoom
+  in" hint appears next to the zoom bar with the current percentage; at ≥ 90% it
+  is absent;
 - 13px card titles, 12px status / second line / latency pills, 12px React Flow
   attribution;
 - the React Flow attribution is neutral muted grey, not link blue / the accent;
@@ -248,10 +267,12 @@ report is written):
   when the upstream member itself is folded;
 - every column's top card is aligned at y = 24, with 80px column gaps and
   192×64 cards;
-- the right-edge hint counts columns whose **card right edge** is past the
-  viewport, including half-visible ones (block 3c drags the boundary into a
-  column before asserting); a column whose card right edge sits exactly on the
-  viewport edge does not count;
+- with the whole graph visible at fit, neither the right-edge nor the bottom
+  hint appears; after zooming to 125% they return, and the right-edge hint
+  counts columns whose **card right edge** is past the viewport, including
+  half-visible ones (block 3c drags the boundary into a column before
+  asserting); a column whose card right edge sits exactly on the viewport edge
+  does not count;
 - clicking "{n} more columns" pans one screen (220ms); at the far right the hint
   disappears and no card right edge is left outside the viewport;
 - when content overflows the bottom, a bottom fade and a "more content below"
