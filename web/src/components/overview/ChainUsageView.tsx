@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRightLeftIcon, ChartColumnIcon } from "lucide-react";
-import {
-  EmptyState,
-  ListError,
-  PageHeader,
-} from "@/components/common";
+import { EmptyState, ListError } from "@/components/common";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
@@ -197,7 +193,18 @@ function ForwardRows({
   );
 }
 
-export default function ForwardUsagePage() {
+/**
+ * 链路时延 › 转发用量子页。
+ *
+ * 内容沿用原独立页「转发用量」：7/30/90 天窗口、每日明细、按转发聚合与
+ * 用户筛选、loading / empty / error / 正常四态。页面级标题去掉了：二级
+ * tab 已经写着「转发用量」。
+ *
+ * **不接受服务器筛选**：后端 `/api/v1/forward-traffic` 还没有 `server_ids`，
+ * 这里既不传该参数，也不显示「筛选生效」之类的暗示，避免把全局筛选误当成
+ * 已经作用在用量上。筛选控件只是窗口与用户。
+ */
+export function ChainUsageView() {
   const { t } = useI18n();
   const [days, setDays] = useState<ForwardUsageWindow>(7);
   const [userFilter, setUserFilter] = useState("");
@@ -227,11 +234,14 @@ export default function ForwardUsagePage() {
   const totals = data ? sumUsageDays(data.days) : { bytes: 0, weighted: 0 };
 
   return (
-    <div className="animate-enter space-y-6">
-      <PageHeader
-        title={t("forwardUsage.title")}
-        actions={<WindowSwitcher value={days} onChange={setDays} />}
-      />
+    <div className="animate-enter space-y-4" data-chain-usage>
+      {/* 窗口只作用于用量接口自己的 days 参数，不参与全局服务器筛选。 */}
+      <div
+        className="flex flex-wrap items-center justify-end gap-2"
+        data-chain-usage-toolbar
+      >
+        <WindowSwitcher value={days} onChange={setDays} />
+      </div>
 
       {usage.isPending && !data ? (
         <div className="space-y-4" aria-busy="true">

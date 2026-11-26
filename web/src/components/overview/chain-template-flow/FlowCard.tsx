@@ -147,7 +147,6 @@ function roleLabel(card: FoldedCard, translate: TFunction): string {
 }
 
 function cardTexts(card: FoldedCard, translate: TFunction) {
-  const role = roleLabel(card, translate);
   const chains = translate("overview.chainTemplateInsight.flowChains", {
     n: card.chains,
   });
@@ -170,17 +169,17 @@ function cardTexts(card: FoldedCard, translate: TFunction) {
       subtitle: `${chains} · ${users}${offline}`,
     };
   }
+  // 列名交给列头（每列顶部一次），卡片副标题只留链数与用户数；
+  // aria-label 与折叠卡 tooltip 仍带列名，读屏与悬停信息不丢。
   return {
     title: card.name,
     subtitle:
-      card.kind === "target" && card.hidden > 0
-        ? `${role} · ${chains}`
-        : `${role} · ${chains} · ${users}`,
+      card.kind === "target" && card.hidden > 0 ? chains : `${chains} · ${users}`,
   };
 }
 
 /**
- * 一张拓扑卡：`[图标] 名称 ● 状态` / `第 N 跳 · X 条链 · Y 用户`。
+ * 一张拓扑卡：`[图标] 名称 ● 状态` / `X 条链 · Y 用户`（列名由列头承担）。
  *
  * 四种角色靠图标区分（入口 / 成员 / 目标 / 折叠）。折叠卡整张可点 / Enter /
  * 空格展开这一列；目标卡上的 `+N 个目标` 是卡内小标签，点它只展开这一组上游。

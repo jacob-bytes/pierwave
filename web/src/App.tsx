@@ -12,6 +12,7 @@ import { ListError, PageSkeleton } from "@/components/common";
 import { StatusRouteSkeleton } from "@/components/status/StatusSkeleton";
 import { StatusDetailRouteSkeleton } from "@/components/status/StatusDetailSkeleton";
 import { Card, CardContent } from "@/components/ui/card";
+import { CHAIN_USAGE_URL } from "@/lib/chainSections";
 import { isUnauthorized, useMe } from "@/lib/queries";
 import {
   isPublicStatusPath,
@@ -37,7 +38,6 @@ const SettingsPage = lazy(() => import("@/pages/Settings"));
 const NodesPage = lazy(() => import("@/pages/Nodes"));
 const OutboundsPage = lazy(() => import("@/pages/Outbounds"));
 const ForwardsPage = lazy(() => import("@/pages/Forwards"));
-const ForwardUsagePage = lazy(() => import("@/pages/ForwardUsage"));
 const ChainsPage = lazy(() => import("@/pages/Chains"));
 const ChainTemplatesPage = lazy(() => import("@/pages/ChainTemplates"));
 const NodesIndexPage = lazy(() => import("@/pages/NodesIndex"));
@@ -194,7 +194,11 @@ function AuthenticatedApp() {
             <Route path="servers/:id/forwards" element={<ForwardsPage />} />
             <Route path="chains" element={<ChainsPage />} />
             <Route path="chain-templates" element={<ChainTemplatesPage />} />
-            <Route path="forward-usage" element={<ForwardUsagePage />} />
+            {/* 转发用量已并入概览 → 链路时延的第三个子页：旧书签跳到对应 URL。 */}
+            <Route
+              path="forward-usage"
+              element={<Navigate to={CHAIN_USAGE_URL} replace />}
+            />
             <Route path="nodes" element={<NodesIndexPage />} />
             <Route path="users" element={<UsersPage />} />
             <Route path="subscriptions" element={<SubscriptionsPage />} />

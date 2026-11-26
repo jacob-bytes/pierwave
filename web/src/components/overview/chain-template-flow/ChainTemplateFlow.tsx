@@ -46,6 +46,7 @@ import {
   type TemplateViewport,
 } from "@/lib/chainTemplateGraph";
 import { TemplateCardNode } from "./FlowCard";
+import { TemplateColumnHeaderNode } from "./FlowColumnHeader";
 import { TemplateEdgeLayer } from "./FlowEdge";
 import {
   TemplateFlowInteractionContext,
@@ -66,7 +67,10 @@ export interface ChainTemplateFlowProps {
   onReady: (api: TemplateFlowApi | null) => void;
 }
 
-const nodeTypes: NodeTypes = { templateCard: TemplateCardNode };
+const nodeTypes: NodeTypes = {
+  templateCard: TemplateCardNode,
+  templateColumnHeader: TemplateColumnHeaderNode,
+};
 const edgeTypes: EdgeTypes = { templateEdge: TemplateEdgeLayer };
 
 /** 移动端断点与 Tailwind `sm` 对齐：<640 不缩放，1 倍 + 横向滚动。 */
@@ -231,8 +235,8 @@ function FlowCanvas({
 
   /* ---------------- 节点 / 连线 ---------------- */
   const nodes = useMemo<Node[]>(
-    () =>
-      layout.cards.map((card) => ({
+    () => [
+      ...layout.cards.map((card) => ({
         id: card.id,
         type: "templateCard",
         position: { x: card.x, y: card.y },
@@ -249,7 +253,23 @@ function FlowCanvas({
         focusable: false,
         connectable: false,
       })),
-    [layout.cards, onExpandColumn, onExpandTargets],
+      // 列头也是节点：跟着画布缩放 / 平移，但不可拖、不可选、不可聚焦、
+      // 不可连线，也不带 `data-template-flow-card`（卡片计数不含它）。
+      ...layout.headers.map((header) => ({
+        id: `header:${header.seq}`,
+        type: "templateColumnHeader",
+        position: { x: header.x, y: header.y },
+        data: { header },
+        width: header.width,
+        height: header.height,
+        style: { width: header.width, height: header.height },
+        draggable: false,
+        selectable: false,
+        focusable: false,
+        connectable: false,
+      })),
+    ],
+    [layout.cards, layout.headers, onExpandColumn, onExpandTargets],
   );
 
   const edges = useMemo<Edge[]>(

@@ -7,7 +7,10 @@ import {
 } from "@/components/ui/tooltip";
 import { useI18n, type TFunction } from "@/i18n";
 import { formatMs } from "@/lib/chainHealth";
-import type { TemplateLayoutEdge } from "@/lib/chainTemplateGraph";
+import {
+  templatePulseWidth,
+  type TemplateLayoutEdge,
+} from "@/lib/chainTemplateGraph";
 import { cn } from "@/lib/utils";
 import { TemplateFlowInteractionContext } from "./context";
 
@@ -204,7 +207,7 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
           className="template-flow-pulse"
           d={edge.path}
           pathLength={100}
-          strokeWidth={Math.max(3, edge.width * 0.9)}
+          strokeWidth={templatePulseWidth(edge.width)}
           style={{ animationDelay: `${pulseDelay(edge.sourceSeq).toFixed(3)}s` }}
         />
       ) : null}
@@ -214,7 +217,7 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
         data-end="source"
         cx={edge.x1}
         cy={edge.y1}
-        r={2.4}
+        r={2}
         className="template-flow-dot"
       />
       <circle
@@ -223,7 +226,7 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
         data-end="target"
         cx={edge.x2}
         cy={edge.y2}
-        r={2.4}
+        r={2}
         className="template-flow-dot"
       />
       {/*

@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ChainKpiSkeletonGrid } from "@/components/overview/ChainKpi";
 import { ChainLatencyDetailDialog } from "@/components/overview/ChainLatencyDetailDialog";
 import { ChainTemplateInsightList } from "@/components/overview/ChainTemplateInsightList";
+import { ChainUsageView } from "@/components/overview/ChainUsageView";
 import { ChainLatencyList } from "@/components/overview/ChainLatencyList";
 import { PanelError } from "@/components/overview/PanelError";
 import { resolveChainSection } from "@/lib/chainSections";
@@ -42,10 +43,10 @@ function ScopeWarning() {
 /**
  * 「链路时延」tab：KPI + 趋势图 + 链路表格。
  *
- * 内容再分两个子页（转发链 / 转发模板），子 tab 由 `ChainSectionTabs` 渲染在
- * 主 tab 行、服务器筛选器右侧；URL 是子页的唯一来源：
- * `?view=chain&section=chains|templates`，默认「转发链」不写参数。离开本 tab
- * 时 `applyOverviewView` 会清掉 `section`，刷新 / 分享仍保持当前子页。
+ * 内容再分三个子页（转发链 / 转发模板 / 转发用量），子 tab 由
+ * `ChainSectionTabs` 渲染在主 tab 行、服务器筛选器右侧；URL 是子页的唯一来源：
+ * `?view=chain&section=chains|templates|usage`，默认「转发链」不写参数。离开
+ * 本 tab 时 `applyOverviewView` 会清掉 `section`，刷新 / 分享仍保持当前子页。
  *
  * 详情不再替换整页，而是列表之上的一层居中弹窗；`?chain=<id>` 只作为
  * 深链接兼容保留（刷新 / 分享时直接打开弹窗），关闭弹窗即清理该参数，
@@ -161,7 +162,8 @@ export default function ChainLatencyView({
     );
   }
 
-  // 两个子页互不占位：转发链子页只拼自己的四态，模板子页整块交给模板列表。
+  // 三个子页互不占位：转发链子页只拼自己的四态，模板 / 用量子页整块交给
+  // 各自的列表。
   let chainsContent: ReactNode;
   if (selectedIds.length === 0) {
     chainsContent = (
@@ -224,6 +226,16 @@ export default function ChainLatencyView({
     return (
       <div data-chain-sections>
         <ChainTemplateInsightList />
+      </div>
+    );
+  }
+
+  // 用量子页不接服务器筛选：`/api/v1/forward-traffic` 尚无 server_ids，
+  // 这里不传 selectedIds，也不显示筛选生效提示。
+  if (section === "usage") {
+    return (
+      <div data-chain-sections>
+        <ChainUsageView />
       </div>
     );
   }

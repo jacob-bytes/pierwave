@@ -781,6 +781,10 @@
   [data-template-flow-card] {
     pointer-events: auto;
   }
+  /* 列头是只读标注：随画布缩放平移，但不接指针、不参与 hover / 点击 / Tab。 */
+  [data-template-flow-column-header] {
+    pointer-events: none;
+  }
   [data-template-flow-card],
   [data-template-flow-edge-group] {
     transition: opacity 150ms ease-out;
@@ -841,7 +845,7 @@
   }
   .template-flow-dot {
     fill: var(--card);
-    stroke-width: 1.4;
+    stroke-width: 1.2;
   }
 
   /*

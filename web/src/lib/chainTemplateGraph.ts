@@ -44,6 +44,13 @@ export const TEMPLATE_CARD_HEIGHT = 64;
 export const TEMPLATE_COLUMN_GAP = 80;
 export const TEMPLATE_ROW_GAP = 16;
 export const TEMPLATE_PADDING = 24;
+/**
+ * 每列顶部的列头（`第 N 跳` + `4 / 7 台`）：32px 高，从 24 起，
+ * 卡片从 56 开始。列头随画布缩放平移，不参与高亮、不可点。
+ */
+export const TEMPLATE_COLUMN_HEADER_HEIGHT = 32;
+export const TEMPLATE_COLUMN_TOP =
+  TEMPLATE_PADDING + TEMPLATE_COLUMN_HEADER_HEIGHT;
 
 /** 时延药丸固定盒子：落点由纯函数决定，不依赖字体测量。 */
 export const TEMPLATE_PILL_WIDTH = 44;
@@ -69,7 +76,13 @@ export const TEMPLATE_MERGED_RAIL_OFFSET = 14;
  */
 export const TEMPLATE_STATUS_RAIL_OFFSET = 10;
 export const TEMPLATE_EDGE_MIN_WIDTH = 1.5;
-export const TEMPLATE_EDGE_MAX_WIDTH = 6;
+/** 最粗 4：连线是背景信息，不能比卡片标题更抢眼。 */
+export const TEMPLATE_EDGE_MAX_WIDTH = 4;
+/**
+ * 脉冲亮划的宽度 = 线宽 × 0.7，且不细于最细线宽：亮划始终比线窄，
+ * 看起来像「线上跑的光」而不是「第二条更亮的线」。
+ */
+export const TEMPLATE_PULSE_WIDTH_RATIO = 0.7;
 
 /** 交互缩放边界（滚轮 / 按钮 / 捏合）。 */
 export const TEMPLATE_MIN_ZOOM = 0.4;
@@ -200,6 +213,8 @@ export interface FoldedColumn {
   seq: number;
   role: "entry" | "hop" | "target";
   cards: FoldedCard[];
+  /** 折叠前成员数（入口 / 中间跳）或目标数（目标列）：列头的 `shown / total`。 */
+  total: number;
 }
 
 export interface FoldedEdge {
@@ -294,10 +309,28 @@ export interface TemplateLayoutColumn {
   count: number;
 }
 
+/**
+ * 每列顶部的列头：`第 N 跳` + `4 / 7 台`（目标列 `4 / 7 个`）。
+ * 与卡片同宽、左边缘对齐；`shown` 是非折叠卡数，`total` 是折叠前总数。
+ */
+export interface TemplateLayoutHeader {
+  seq: number;
+  role: "entry" | "hop" | "target";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** 可见（非折叠）卡片数。 */
+  shown: number;
+  /** 折叠前成员 / 目标总数。 */
+  total: number;
+}
+
 export interface TemplateGraphLayout {
   cards: TemplateLayoutCard[];
   edges: TemplateLayoutEdge[];
   columns: TemplateLayoutColumn[];
+  headers: TemplateLayoutHeader[];
   width: number;
   height: number;
 }
@@ -922,7 +955,12 @@ export function foldTemplateGraph(
       foldColumns.push(column.seq);
       hiddenMembers += hidden.length;
     }
-    foldedColumns.push({ seq: column.seq, role: column.role, cards: visible });
+    foldedColumns.push({
+      seq: column.seq,
+      role: column.role,
+      cards: visible,
+      total: column.members.length,
+    });
   }
 
   /* ---------------- 目标列：每个上游至少 1 张，其余 +N ---------------- */
@@ -1025,6 +1063,8 @@ export function foldTemplateGraph(
       seq: graphTargetColumn.seq,
       role: "target",
       cards: targetCards,
+      // 目标列的 total 是折叠前的目标总数，不是上游分组数。
+      total: graphTargets.length,
     });
   }
 
@@ -1180,6 +1220,17 @@ export function templateEdgeWidth(chains: number, maxChains: number): number {
   );
 }
 
+/**
+ * 脉冲亮划的 `strokeWidth`：线宽的 0.7，最细仍是 `TEMPLATE_EDGE_MIN_WIDTH`。
+ * 非有限数退回最细，不把 NaN 写进 SVG；线宽 ≥ 1.5 时结果永远 ≤ 线宽。
+ */
+export function templatePulseWidth(edgeWidth: number): number {
+  if (!Number.isFinite(edgeWidth)) return TEMPLATE_EDGE_MIN_WIDTH;
+  return round2(
+    Math.max(TEMPLATE_EDGE_MIN_WIDTH, edgeWidth * TEMPLATE_PULSE_WIDTH_RATIO),
+  );
+}
+
 function rectsOverlap(a: TemplatePill, b: TemplatePill): boolean {
   return (
     Math.abs(a.x - b.x) < (a.width + b.width) / 2 + TEMPLATE_PILL_GAP / 2 &&
@@ -1249,11 +1300,13 @@ export function layoutTemplateGraph(
     TEMPLATE_PADDING + index * (TEMPLATE_CARD_WIDTH + TEMPLATE_COLUMN_GAP);
 
   const cards: TemplateLayoutCard[] = [];
+  const headers: TemplateLayoutHeader[] = [];
   const cardById = new Map<string, TemplateLayoutCard>();
   let maxHeight = TEMPLATE_PADDING * 2;
 
   for (const [index, column] of columns.entries()) {
-    let cursor = TEMPLATE_PADDING;
+    // 卡片从列头下方开始：列头 32px 占 TEMPLATE_PADDING 之上那一段。
+    let cursor = TEMPLATE_COLUMN_TOP;
     const x = columnX(index);
     const columnCards: TemplateLayoutCard[] = [];
     for (const card of column.cards) {
@@ -1287,11 +1340,21 @@ export function layoutTemplateGraph(
       (min, card) => Math.min(min, card.y),
       Number.POSITIVE_INFINITY,
     );
-    const shift = Number.isFinite(minY) ? TEMPLATE_PADDING - minY : 0;
+    const shift = Number.isFinite(minY) ? TEMPLATE_COLUMN_TOP - minY : 0;
     for (const card of columnCards) {
       card.y += shift;
       maxHeight = Math.max(maxHeight, card.y + card.height + TEMPLATE_PADDING);
     }
+    headers.push({
+      seq: column.seq,
+      role: column.role,
+      x,
+      y: TEMPLATE_PADDING,
+      width: TEMPLATE_CARD_WIDTH,
+      height: TEMPLATE_COLUMN_HEADER_HEIGHT,
+      shown: column.cards.filter((card) => card.kind !== "fold").length,
+      total: column.total,
+    });
   }
 
   const width =
@@ -1410,6 +1473,7 @@ export function layoutTemplateGraph(
       x: columnX(index),
       count: column.cards.length,
     })),
+    headers,
     width,
     height,
   };
@@ -1443,11 +1507,12 @@ export interface TemplateContentBounds {
 }
 
 /**
- * 内容包围盒 + 内边距（流坐标）：所有卡片的最小 / 最大边界各外扩
+ * 内容包围盒 + 内边距（流坐标）：所有卡片 / 列头的最小 / 最大边界各外扩
  * `TEMPLATE_PADDING`。布局本身已经按这个口径留白，空图则退回布局尺寸。
  *
  * 「适应窗口」按这个盒子计算，所以整图（含第一列与最后一列、第一行与
- * 最后一行）都会落在视口里；不是只看画布的 `width` / `height`。
+ * 最后一行）都会落在视口里；不是只看画布的 `width` / `height`。列头在
+ * 卡片上方 32px，必须一起入盒，否则 fit 会把列头切掉一截。
  */
 export function templateContentBounds(
   layout: TemplateGraphLayout,
@@ -1460,6 +1525,9 @@ export function templateContentBounds(
       height: Math.max(1, layout.height),
     };
   }
+  // 纯逻辑测试里会手写没有 headers 的布局对象：缺省当空数组。
+  const headers =
+    (layout as { headers?: readonly TemplateLayoutHeader[] }).headers ?? [];
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
@@ -1469,6 +1537,12 @@ export function templateContentBounds(
     minY = Math.min(minY, card.y);
     maxX = Math.max(maxX, card.x + card.width);
     maxY = Math.max(maxY, card.y + card.height);
+  }
+  for (const header of headers) {
+    minX = Math.min(minX, header.x);
+    minY = Math.min(minY, header.y);
+    maxX = Math.max(maxX, header.x + header.width);
+    maxY = Math.max(maxY, header.y + header.height);
   }
   return {
     x: round2(minX - TEMPLATE_PADDING),

@@ -3,9 +3,10 @@
 ## 中文
 
 这组截图覆盖转发链模板详情里的 React Flow 拓扑画布：3 / 4 / 6 跳、折叠与展开、
-卡片与连线 hover 路径（药丸跟着一起压暗）、时延药丸 tooltip 与「指针移入 tooltip
-时高亮保持」、100% / 50% / 150% 缩放、右缘 / 下缘「还有内容」提示（含渐隐之上的
-署名）、390、亮暗、空态、旧主控降级、reduced-motion 与平移 / 缩放帧率。
+每列顶部的列头（列名 + `4 / 7 台`）、卡片与连线 hover 路径（药丸跟着一起压暗）、
+时延药丸 tooltip 与「指针移入 tooltip 时高亮保持」、100% / 50% / 150% 缩放、
+右缘 / 下缘「还有内容」提示（含渐隐之上的署名）、390、亮暗、空态、旧主控降级、
+reduced-motion 与平移 / 缩放帧率。
 
 ### 数据来源
 
@@ -18,8 +19,8 @@
   覆盖同一竖线超过 6 个药丸的密集隐藏；空模板没有任何链；旧主控用详情接口 404 模拟。
 - 主控库里至少要有一台服务器（否则总览是「新装空态」，不会渲染转发链 tab）。
 - 每次运行会把断言结果写到本目录的 `report.json`（截图清单、缩放、每列卡片数、
-  字体大小、tooltip、右缘 / 下缘提示、帧率、chunk 大小等）；帧率在 `fps.pan` /
-  `fps.zoom`，同时记录采样帧数、目标值与无头门槛。
+  列头数量与文案、字体大小、tooltip、右缘 / 下缘提示、帧率、chunk 大小等）；
+  帧率在 `fps.pan` / `fps.zoom`，同时记录采样帧数、目标值与无头门槛。
 
 ### 复现命令
 
@@ -66,11 +67,12 @@ node web/scripts/shots-template-flow.mjs
 
 ### 主要产物
 
-- `3hop-1440-dark.png` / `3hop-1440-light.png`：字号、列距、署名颜色；
-- `4hop-1440-dark.png`：5 列首屏整图可见（fit 约 76%），缩放栏给出「已缩小到
-  X%，可点击 + 放大」提示；
-- `6hop-1440-dark.png` / `6hop-fit-hint-1440-dark.png`：8 列首屏整图可见与
-  缩小提示；`6hop-fit-1440-dark.png` 是「适应窗口」；`6hop-zoom-in-1440-dark.png` /
+- `3hop-1440-dark.png` / `3hop-1440-light.png`：字号、列距、署名颜色，以及
+  每列顶部的列头（列名 + 台数 / 目标数，折叠列写 `4 / 6 台`）；
+- `4hop-1440-dark.png`：5 列首屏整图可见（fit 约 73%），折叠列头显示
+  `4 / 7 台`，缩放栏给出「已缩小到 X%，可点击 + 放大」提示；
+- `6hop-1440-dark.png` / `6hop-fit-hint-1440-dark.png`：8 列（含 8 个列头）
+  首屏整图可见与缩小提示；`6hop-fit-1440-dark.png` 是「适应窗口」；`6hop-zoom-in-1440-dark.png` /
   `6hop-fit-zoom-in-1440-dark.png` 是放大后与 fit 后再放大；
 - `fold-target-before-1440-dark.png` / `fold-target-after-1440-dark.png`：
   上游折叠时目标 `+N` 的前后对比；
@@ -104,7 +106,12 @@ node web/scripts/shots-template-flow.mjs
 - 时延药丸可聚焦，tooltip 含时延、链数、用户数；不可用路径显示「最近已知」；
 - 合并虚线 tooltip 显示「来自已折叠的 N 条路径，共 X 条链」；
 - 折叠卡 / 目标 `+N` 只展开自己那一组；上游被折叠时每个 `+N` 仍能展开；
-- 每列顶边对齐（第一张卡 y = 24），列间距 80px、卡片 192×64；
+- 每列顶部有一个列头：y = 24、高 32px、与卡片左边缘对齐；第一张卡 y = 56，
+  列间距 80px、卡片 192×64；列头文案按「目标列 `4 / 6 个`、其余列 `4 / 7 台`」，
+  折叠时写 `shown / total`，只有一个时写单数；列头不可 Tab / 点击、不参与高亮
+  （卡片被压暗时仍是不透明 1）、卡片计数不含列头；空模板不渲染列头；
+- 所有连线宽度 1.5–4（按链数），脉冲亮划 = 0.7 × 线宽且不粗于线，连接点
+  半径 2、描边 1.2；
 - 首屏整图可见时右缘 / 下缘提示都不出现；放大到 125% 后提示重新出现，且按
   「列内卡片的右边缘是否超出视口」计数：只露出半截的列也计入（3c 块会把视口
   边界拖进列内再断言），卡片右边缘刚好贴住视口右缘时不计；
@@ -116,8 +123,9 @@ node web/scripts/shots-template-flow.mjs
 - 普通滚轮滚弹窗、Ctrl / ⌘ + 滚轮缩放、拖拽平移不丢图、双击不缩放；
 - 390 固定 1 倍 + 横向滚动、页面不横向溢出、缩放栏隐藏；
 - 390 的画布仍是单指竖滑滚弹窗（`touch-action: pan-y`）；
-- 折叠卡 tooltip 标题含「第 N 跳」（卡片标题仍只有 `+N 台`），卡片副标题仍保留
-  「X 条链 · Y 用户 · 含 N 台离线」；
+- 折叠卡 tooltip 标题含「第 N 跳」（卡片标题仍只有 `+N 台`），折叠卡副标题仍保留
+  「X 条链 · Y 用户 · 含 N 台离线」；普通卡片的副标题只写「X 条链 · Y 用户」，
+  不再重复列名（列头承担），aria-label 仍带列名；
 - 药丸 / 合并虚线 hover 或聚焦都会点亮该连线到入口的路径，其余压到 35%；脉冲
   边仍 ≤ 10，键盘仍可 Tab 到药丸与合并虚线；
 - 药丸随路径一起压暗：压暗药丸数与「有药丸的压暗连线」数一致，每颗药丸的
@@ -141,11 +149,12 @@ node web/scripts/shots-template-flow.mjs
 ## English
 
 These screenshots cover the React Flow topology canvas in the chain-template
-detail dialog: 3 / 4 / 6 hops, folding and expanding, card and link hover paths
-(pills dim with the path), latency-pill tooltips and the highlight staying lit
-while the pointer is over a tooltip, 100% / 50% / 150% zoom, the right/bottom
-"more content" hints (with the attribution above the fade), 390px, light/dark,
-empty state, old-controller fallback, reduced motion and pan / zoom frame rates.
+detail dialog: 3 / 4 / 6 hops, folding and expanding, the per-column headers
+(name + `4 / 7 nodes`), card and link hover paths (pills dim with the path),
+latency-pill tooltips and the highlight staying lit while the pointer is over a
+tooltip, 100% / 50% / 150% zoom, the right/bottom "more content" hints (with the
+attribution above the fade), 390px, light/dark, empty state, old-controller
+fallback, reduced motion and pan / zoom frame rates.
 
 ### Where the data comes from
 
@@ -163,9 +172,10 @@ empty state, old-controller fallback, reduced motion and pan / zoom frame rates.
 - The controller database needs at least one server, otherwise the overview
   stays in the "new install" empty state and never renders the chain tabs.
 - Every run writes `report.json` in this directory (screenshot list, zoom,
-  per-column card counts, font sizes, tooltips, overflow hints, frame rates,
-  chunk sizes, …); frame rates live in `fps.pan` / `fps.zoom` together with the
-  sampled frame counts, the target and the headless floor.
+  per-column card counts, header count and copy, font sizes, tooltips, overflow
+  hints, frame rates, chunk sizes, …); frame rates live in `fps.pan` /
+  `fps.zoom` together with the sampled frame counts, the target and the
+  headless floor.
 
 ### Reproduce
 
@@ -217,11 +227,14 @@ back to `import("playwright")` — no hard-coded npx hash directory.
 ### Main outputs
 
 - `3hop-1440-dark.png` / `3hop-1440-light.png`: type sizes, column gap,
-  attribution colour;
+  attribution colour and the per-column headers (name + node/target count,
+  `4 / 6 nodes` on the folded target column);
 - `4hop-1440-dark.png`: five columns fully visible on the first screen (fit ≈
-  76%) plus the "Zoomed to {percent}%; use + to zoom in" hint;
-- `6hop-1440-dark.png` / `6hop-fit-hint-1440-dark.png`: all 8 columns fit on the
-  first screen plus the zoom hint; `6hop-fit-1440-dark.png` is fit-to-view;
+  73%), folded headers read `4 / 7 nodes`, plus the "Zoomed to {percent}%; use +
+  to zoom in" hint;
+- `6hop-1440-dark.png` / `6hop-fit-hint-1440-dark.png`: all 8 columns (and their
+  8 headers) fit on the first screen plus the zoom hint; `6hop-fit-1440-dark.png`
+  is fit-to-view;
   `6hop-zoom-in-1440-dark.png` / `6hop-fit-zoom-in-1440-dark.png` show zooming
   in after opening and after fit;
 - `fold-target-before-1440-dark.png` / `fold-target-after-1440-dark.png`:
@@ -265,8 +278,16 @@ report is written):
 - merged dashed lines say "folded from N paths · X chains total";
 - folded cards / target `+N` only expand their own group; every `+N` still works
   when the upstream member itself is folded;
-- every column's top card is aligned at y = 24, with 80px column gaps and
-  192×64 cards;
+- every column has a header at y = 24, 32px tall and left-aligned with its
+  cards; the first card is at y = 56, with 80px column gaps and 192×64 cards.
+  Header copy follows "target columns `4 / 6 targets`, other columns
+  `4 / 7 nodes`", shows `shown / total` when folded and the singular when only
+  one is shown; headers are not tabbable or clickable, never highlighted (still
+  opacity 1 while cards dim), and the card count excludes them; the empty
+  template renders no headers;
+- every link is 1.5–4px wide by chain count, the pulse stroke is 0.7× the link
+  width and never wider than the link, and connection dots are r 2 with a 1.2
+  stroke;
 - with the whole graph visible at fit, neither the right-edge nor the bottom
   hint appears; after zooming to 125% they return, and the right-edge hint
   counts columns whose **card right edge** is past the viewport, including
@@ -287,7 +308,9 @@ report is written):
 - at 390px single-finger vertical scrolling still scrolls the dialog
   (`touch-action: pan-y`);
 - the folded-card tooltip title includes "Hop N" (the card title itself stays
-  "+N nodes") and the card subtitle still shows chains / users / offline nodes;
+  "+N nodes") and its subtitle still shows chains / users / offline nodes;
+  regular card subtitles only show chains / users and no longer repeat the
+  column name (the header does), while the aria-label still carries it;
 - hovering or focusing a pill / merged line lights that link's path to the entry
   and fades the rest to 35%; still at most 10 pulsing edges, and pills and merged
   lines stay keyboard reachable;

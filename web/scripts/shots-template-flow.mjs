@@ -10,8 +10,9 @@
 // 100% / 50% / 150% 缩放、折叠上游后的目标 +N、密集药丸、390、
 // 亮暗、空态、旧主控降级、reduced-motion；并断言每列可见卡 ≤5、首屏 = 适应窗口
 // （3/4/6 跳整图可见、缩放 = fit、居中误差 ≤1px、fit<0.9 时显示百分比提示）、
-// 列顶对齐 / 列距 80 / 卡片 192×64、右缘提示（按卡片右边缘计数，半截列计入）、
-// 下缘提示（内容超高时出现，平移到底后消失）、画布高度上限、
+// 列头（每列一个、y=24、卡片从 56 起、shown / total、不可 Tab / 点击、不参与高亮）、
+// 列距 80 / 卡片 192×64、连线宽度 1.5–4 且脉冲亮划不粗于线、右缘提示（按卡片
+// 右边缘计数，半截列计入）、下缘提示（内容超高时出现，平移到底后消失）、画布高度上限、
 // 滚轮不缩放、Ctrl/⌘ 滚轮缩放、拖拽不丢图、折叠只展开本列、Tab 可达、动画边 ≤10、
 // DOM ≤600、React Flow 署名 12px 中性 muted 灰、渐隐之上（z-index / 命中实测）；
 // reduced-motion 下平移动画 0ms；平移 / 缩放各采样 1 秒 rAF 帧数（无头 ≥30fps，
@@ -37,6 +38,20 @@ const CHROME =
 /** 默认无头（CI / 截图机）；`HEADED=1` 时开有头窗口，帧率门槛按真机的 45fps。 */
 const HEADLESS = process.env.HEADED !== "1";
 mkdirSync(OUT, { recursive: true });
+
+/**
+ * 与 `chainTemplateGraph.ts` 对齐的几何常量：卡片 192×64、列距 80、
+ * 内边距 24；每列顶部还有 32px 列头，卡片从 56 起。
+ */
+const CARD_WIDTH = 192;
+const CARD_HEIGHT = 64;
+const COLUMN_GAP = 80;
+const PADDING = 24;
+const COLUMN_HEADER_HEIGHT = 32;
+const COLUMN_TOP = PADDING + COLUMN_HEADER_HEIGHT;
+/** 连线宽度上下限：最细 1.5、最粗 4。 */
+const EDGE_MIN_WIDTH = 1.5;
+const EDGE_MAX_WIDTH = 4;
 
 /**
  * Playwright 不在 web 的依赖里：优先用 `PLAYWRIGHT_MODULE` 指向的模块，
@@ -786,11 +801,12 @@ async function zoomPercent(page) {
  * 量首屏是否「适应窗口」：从卡片实测包围盒反推 fit，再和画布实际 zoom /
  * 平移比较。完全独立于源码里的数字，防止实现和断言一起漂。
  *
- * 口径：卡片包围盒 + 24px 内边距 = 内容盒；fit = min(视口宽 / 内容盒宽,
- * 视口高 / 内容盒高)，限制在 0.4–1；放得下时内容盒居中。
+ * 口径：卡片包围盒 + 24px 内边距 = 内容盒，但每列卡片上方还压着 32px 列头，
+ * 所以内容盒顶边到卡片顶边是 56px（= 24 + 32）：fit 高度要加 32，居中后
+ * 卡片顶边的偏移是 56 × zoom。列头也随内容盒一起进 fit，不会被切掉。
  */
 async function measureFitViewport(page) {
-  return page.evaluate(() => {
+  return page.evaluate(({ padding, headerHeight, columnTop }) => {
     const host = document.querySelector("[data-template-flow]");
     const hostRect = host.getBoundingClientRect();
     const width = host.clientWidth;
@@ -832,19 +848,20 @@ async function measureFitViewport(page) {
     if (maxBottom > height + 0.5 || minTop < -0.5) hiddenRows = 1;
     const contentWidth = (maxRight - minLeft) / zoom;
     const contentHeight = (maxBottom - minTop) / zoom;
-    const layoutWidth = contentWidth + 48;
-    const layoutHeight = contentHeight + 48;
+    const layoutWidth = contentWidth + padding * 2;
+    // 卡片顶边 = 内边距 + 列头高度；列头属于内容盒，不能从 top 裁掉。
+    const layoutHeight = contentHeight + padding * 2 + headerHeight;
     const rawFit = Math.min(width / layoutWidth, height / layoutHeight);
     const expectedZoom = Math.min(1, Math.max(0.4, rawFit));
     const fits =
       layoutWidth * expectedZoom <= width + 0.5 &&
       layoutHeight * expectedZoom <= height + 0.5;
     const expectedLeft = fits
-      ? (width - layoutWidth * expectedZoom) / 2 + 24 * expectedZoom
-      : 24 * expectedZoom;
+      ? (width - layoutWidth * expectedZoom) / 2 + padding * expectedZoom
+      : padding * expectedZoom;
     const expectedTop = fits
-      ? (height - layoutHeight * expectedZoom) / 2 + 24 * expectedZoom
-      : 24 * expectedZoom;
+      ? (height - layoutHeight * expectedZoom) / 2 + columnTop * expectedZoom
+      : columnTop * expectedZoom;
     return {
       columns: columns.size,
       cards,
@@ -865,7 +882,7 @@ async function measureFitViewport(page) {
         bottom: Math.round(maxBottom * 10) / 10,
       },
     };
-  });
+  }, { padding: PADDING, headerHeight: COLUMN_HEADER_HEIGHT, columnTop: COLUMN_TOP });
 }
 
 /** 首屏整图可见 + 缩放 = fit + 居中；返回实测值写进 report。 */
@@ -934,6 +951,138 @@ function cardCountsByColumn(page) {
     }
     return counts;
   });
+}
+
+/**
+ * 列头验收：每列一个、与卡片左边缘对齐、y = 24（卡片从 56 起）。
+ *
+ * 计数文案规则：目标列用 Targets、其余列用 Nodes；`shown < total` 用
+ * Folded（`4 / 7 台`）；否则 `shown === 1` 用 One。列头不可 Tab / 点击、
+ * 不参与高亮（无 data-hot）、不带 data-template-flow-card，卡片计数不含它。
+ */
+async function assertColumnHeaders(
+  page,
+  label,
+  locale = "zh",
+  { expectFolded = true } = {},
+) {
+  const state = await page.evaluate(() => {
+    const host = document.querySelector("[data-template-flow]");
+    const matrixOf = (element) => {
+      const node = element.closest(".react-flow__node");
+      return new DOMMatrixReadOnly(getComputedStyle(node).transform);
+    };
+    const headers = [
+      ...host.querySelectorAll("[data-template-flow-column-header]"),
+    ].map((element) => ({
+      column: Number(element.getAttribute("data-column")),
+      role: element.getAttribute("data-role"),
+      shown: Number(element.getAttribute("data-shown")),
+      total: Number(element.getAttribute("data-total")),
+      label: (
+        element.querySelector("[data-template-flow-column-label]")?.textContent ??
+        ""
+      ).trim(),
+      count: (
+        element.querySelector("[data-template-flow-column-count]")?.textContent ??
+        ""
+      ).trim(),
+      x: matrixOf(element).m41,
+      y: matrixOf(element).m42,
+      cardMarked: element.hasAttribute("data-template-flow-card"),
+      hot: element.hasAttribute("data-hot"),
+      ariaHidden: element.getAttribute("aria-hidden"),
+      tabIndex: element.tabIndex,
+      pointerEvents: getComputedStyle(element).pointerEvents,
+      focusableInside: element.querySelectorAll(
+        "[tabindex='0'], button, a[href]",
+      ).length,
+    }));
+    const columns = {};
+    for (const card of host.querySelectorAll("[data-template-flow-card]")) {
+      const column = Number(card.getAttribute("data-column"));
+      columns[column] = matrixOf(card).m41;
+    }
+    return {
+      headers,
+      columns,
+      cards: host.querySelectorAll("[data-template-flow-card]").length,
+      nodes: host.querySelectorAll(".react-flow__node").length,
+    };
+  });
+  assert.ok(state.headers.length > 0, `${label} 应有列头`);
+  assert.equal(
+    state.headers.length,
+    Object.keys(state.columns).length,
+    `${label} 列头数 ${state.headers.length} 应等于列数 ${Object.keys(state.columns).length}`,
+  );
+  assert.equal(
+    state.nodes,
+    state.cards + state.headers.length,
+    `${label} 节点 = 卡片 + 列头；卡片计数不应含列头`,
+  );
+  const units =
+    locale === "en"
+      ? { target: ["targets", "target"], node: ["nodes", "node"] }
+      : { target: ["个", "个"], node: ["台", "台"] };
+  const labelPattern =
+    locale === "en" ? /^(Entry|Target|Hop \d+)$/ : /^(入口|目标|第 \d+ 跳)$/;
+  let folded = 0;
+  for (const header of state.headers) {
+    assert.equal(
+      header.cardMarked,
+      false,
+      `${label} 第 ${header.column} 列列头不能带 data-template-flow-card`,
+    );
+    assert.equal(header.hot, false, `${label} 列头不参与高亮（无 data-hot）`);
+    assert.equal(header.ariaHidden, "true", `${label} 列头应 aria-hidden`);
+    assert.equal(header.tabIndex, -1, `${label} 列头不可 Tab 到`);
+    assert.equal(header.pointerEvents, "none", `${label} 列头不接指针`);
+    assert.equal(
+      header.focusableInside,
+      0,
+      `${label} 列头内部不应有可聚焦元素`,
+    );
+    assert.equal(
+      header.y,
+      PADDING,
+      `${label} 第 ${header.column} 列列头顶边应在 y=${PADDING}`,
+    );
+    assert.ok(
+      Math.abs(header.x - state.columns[header.column]) < 0.01,
+      `${label} 第 ${header.column} 列列头应与卡片左边缘对齐`,
+    );
+    assert.match(
+      header.label,
+      labelPattern,
+      `${label} 第 ${header.column} 列列名：${header.label}`,
+    );
+    const unit = header.role === "target" ? units.target : units.node;
+    if (header.shown < header.total) {
+      folded += 1;
+      assert.match(
+        header.count,
+        new RegExp(`^${header.shown} / ${header.total} ${unit[0]}$`),
+        `${label} 第 ${header.column} 列折叠计数：${header.count}`,
+      );
+    } else if (header.shown === 1) {
+      assert.match(
+        header.count,
+        new RegExp(`^1 ${unit[1]}$`),
+        `${label} 第 ${header.column} 列单数计数：${header.count}`,
+      );
+    } else {
+      assert.match(
+        header.count,
+        new RegExp(`^${header.shown} ${unit[0]}$`),
+        `${label} 第 ${header.column} 列计数：${header.count}`,
+      );
+    }
+  }
+  if (expectFolded) {
+    assert.ok(folded > 0, `${label} 应有折叠列头（shown / total）`);
+  }
+  return state;
 }
 
 /**
@@ -1213,14 +1362,36 @@ function assertFps(label, result) {
   });
   const columnKeys = Object.keys(geometry).map(Number).sort((a, b) => a - b);
   for (const column of columnKeys) {
-    assert.equal(geometry[column].minY, 24, `第 ${column} 列顶边应统一在 y=24`);
+    assert.equal(
+      geometry[column].minY,
+      COLUMN_TOP,
+      `第 ${column} 列卡片顶边应统一在 y=${COLUMN_TOP}（列头下方）`,
+    );
   }
   for (let index = 1; index < columnKeys.length; index += 1) {
     const gap =
       geometry[columnKeys[index]].x - geometry[columnKeys[index - 1]].x;
-    assert.equal(gap, 192 + 80, `列距应为 80px（x 差 ${gap}）`);
+    assert.equal(
+      gap,
+      CARD_WIDTH + COLUMN_GAP,
+      `列距应为 ${COLUMN_GAP}px（x 差 ${gap}）`,
+    );
   }
   report.assertions["geometry"] = geometry;
+
+  // 列头：每列一个、y=24、不可 Tab / 点击、不参与高亮；折叠列显示 shown / total。
+  const headerState = await assertColumnHeaders(page, "3 跳");
+  report.assertions["columnHeaders"] = {
+    count: headerState.headers.length,
+    rows: headerState.headers.map((header) => ({
+      column: header.column,
+      role: header.role,
+      shown: header.shown,
+      total: header.total,
+      label: header.label,
+      count: header.count,
+    })),
+  };
 
   const chunkTiming = await page.evaluate(() => {
     const entry = performance
@@ -1238,6 +1409,51 @@ function assertFps(label, result) {
   const pulseCount = await page.locator(".template-flow-pulse").count();
   assert.ok(pulseCount > 0, "应有脉冲边");
   assert.ok(pulseCount <= 10, `动画边 ${pulseCount} 条，超过 10`);
+
+  // 连线变细：所有连线 1.5–4；脉冲亮划 = 0.7 × 线宽且不粗于线。
+  const edgeWidths = await page.evaluate(() => {
+    const widths = [
+      ...document.querySelectorAll("[data-template-flow-edge]"),
+    ].map((path) => Number(path.getAttribute("data-width")));
+    const pulses = [
+      ...document.querySelectorAll("[data-template-flow-edge]"),
+    ]
+      .map((path) => {
+        const group = path.closest("[data-template-flow-edge-group]");
+        const pulse = group?.querySelector("[data-template-flow-pulse]");
+        if (!pulse) return null;
+        return {
+          edge: Number(path.getAttribute("data-width")),
+          pulse: Number(pulse.getAttribute("stroke-width")),
+        };
+      })
+      .filter((item) => item !== null);
+    return { widths, pulses };
+  });
+  assert.ok(edgeWidths.widths.length > 0, "应有连线");
+  for (const width of edgeWidths.widths) {
+    assert.ok(
+      width >= EDGE_MIN_WIDTH && width <= EDGE_MAX_WIDTH,
+      `连线宽度 ${width} 超出 ${EDGE_MIN_WIDTH}–${EDGE_MAX_WIDTH}`,
+    );
+  }
+  assert.equal(
+    Math.max(...edgeWidths.widths),
+    EDGE_MAX_WIDTH,
+    "链数最高的连线应到最粗 4",
+  );
+  assert.ok(edgeWidths.pulses.length > 0, "应有脉冲亮划");
+  for (const item of edgeWidths.pulses) {
+    assert.ok(
+      item.pulse <= item.edge + 1e-9,
+      `脉冲 stroke ${item.pulse} 不应粗于线宽 ${item.edge}`,
+    );
+    assert.ok(
+      item.pulse >= EDGE_MIN_WIDTH - 1e-9,
+      `脉冲 stroke ${item.pulse} 不应细于 ${EDGE_MIN_WIDTH}`,
+    );
+  }
+  report.assertions["edgeWidths"] = edgeWidths;
 
   const dom = await page.evaluate(
     () => document.querySelectorAll("[data-template-flow] *").length,
@@ -1331,6 +1547,22 @@ function assertFps(label, result) {
   }));
   assert.ok(hot.dim > 0, "hover 时应压暗非路径卡片");
   assert.ok(hot.hot >= 2, "hover 时应点亮到入口的路径");
+  // 列头不参与高亮：卡片被压暗时列头仍是 100% 不透明、没有 data-hot。
+  const headerHoverState = await page.evaluate(() => {
+    const headers = [
+      ...document.querySelectorAll("[data-template-flow-column-header]"),
+    ];
+    return {
+      count: headers.length,
+      hot: headers.filter((header) => header.hasAttribute("data-hot")).length,
+      dim: headers.filter((header) => getComputedStyle(header).opacity !== "1")
+        .length,
+    };
+  });
+  assert.ok(headerHoverState.count > 0, "hover 时应仍有列头");
+  assert.equal(headerHoverState.hot, 0, "列头不参与高亮（不带 data-hot）");
+  assert.equal(headerHoverState.dim, 0, "悬停卡片时列头仍是 opacity 1");
+  report.assertions["headerHover"] = headerHoverState;
   await shot(page.locator("[data-template-dialog]"), "hover-path-1440-dark.png");
   report.assertions["hover"] = hot;
 
@@ -1705,10 +1937,15 @@ function assertFps(label, result) {
       focusable: document.querySelectorAll(
         "[data-template-flow] [tabindex='0'], [data-template-flow] button",
       ).length,
+      headerFocusable: document.querySelectorAll(
+        "[data-template-flow-column-header][tabindex='0'], [data-template-flow-column-header] [tabindex='0'], [data-template-flow-column-header] button",
+      ).length,
     };
   });
   assert.ok(tabbed.inCanvas, "焦点应能落在画布卡片上");
   assert.ok(tabbed.focusable >= 4, "画布内应有可 Tab 到的卡片");
+  // 列头是只读标注：不增加 Tab 停靠点，Tab 顺序与卡片 + 药丸一致。
+  assert.equal(tabbed.headerFocusable, 0, "列头不应进入 Tab 顺序");
   report.assertions["tab"] = tabbed;
 
   /* ---- 亮色主题 ---- */
@@ -1771,6 +2008,13 @@ function assertFps(label, result) {
     .first()
     .getAttribute("aria-label");
   assert.ok((enCard ?? "").includes("Entry"), `英文卡片 aria：${enCard}`);
+  // 列头也要有英文：Entry / Hop N / Target + `nodes` / `targets`。
+  const enHeaders = await assertColumnHeaders(page, "英文", "en");
+  report.assertions["enHeaders"] = enHeaders.headers.map((header) => ({
+    column: header.column,
+    label: header.label,
+    count: header.count,
+  }));
   // 英文缩小提示：92% → 75% 后出现，适应窗口回到 92% 后消失。
   await clickZoom(page, "[data-flow-zoom-out]");
   const enHint = page.locator("[data-template-fit-hint]");
@@ -1804,10 +2048,19 @@ function assertFps(label, result) {
   await openList(page);
   await openDetail(page, 1);
   await waitFlow(page);
-  // 4 跳 5 列：首屏 fit 约 76%，整图可见并显示「已缩小到 X%」提示。
+  // 4 跳 5 列：首屏 fit 约 73%，整图可见并显示「已缩小到 X%」提示。
   const fitMetrics = await assertFitViewport(page, "4 跳");
   const fitHint = await assertFitHint(page, fitMetrics, "4 跳");
   assert.ok(fitHint !== null, "4 跳 fit<90%，应显示缩小提示");
+  // 折叠列头：第 1 / 第 3 跳 7 台折成 4 + 折叠卡，列头应写 `4 / 7 台`。
+  const headerState = await assertColumnHeaders(page, "4 跳");
+  report.assertions["columnHeaders4hop"] = headerState.headers.map((header) => ({
+    column: header.column,
+    role: header.role,
+    shown: header.shown,
+    total: header.total,
+    count: header.count,
+  }));
   await shot(page.locator("[data-template-dialog]"), "4hop-1440-dark.png");
   const collapsed = await cardCountsByColumn(page);
   const foldCount = await page
@@ -2026,6 +2279,11 @@ function assertFps(label, result) {
   const fitMetrics = await assertFitViewport(page, "6 跳");
   assert.equal(zoom, Math.round(fitMetrics.expectedZoom * 100), "6 跳首屏缩放应等于 fit");
   assert.equal(fitMetrics.columns, 8, `6 跳应有 8 列，实测 ${fitMetrics.columns} 列`);
+  const headerState = await assertColumnHeaders(page, "6 跳", "zh", {
+    expectFolded: false,
+  });
+  assert.equal(headerState.headers.length, 8, "6 跳应有 8 个列头");
+  report.assertions["columnHeaders6hop"] = headerState.headers.length;
   const fitHint = await assertFitHint(page, fitMetrics, "6 跳");
   assert.ok(fitHint !== null, "6 跳 fit<90%，应显示「已缩小到 X%」提示");
   // 整图都在视口内：右缘 / 下缘提示都不该出现。
@@ -2613,10 +2871,12 @@ function assertFps(label, result) {
   await page.waitForTimeout(200);
   const empty = await page.evaluate(() => ({
     cards: document.querySelectorAll("[data-template-flow-card]").length,
+    headers: document.querySelectorAll("[data-template-flow-column-header]").length,
     text: document.querySelector("[data-template-topology]")?.textContent ?? "",
     unused: document.querySelectorAll("[data-template-unused-member]").length,
   }));
   assert.equal(empty.cards, 0, "空态不应渲染卡片");
+  assert.equal(empty.headers, 0, "空模板不应渲染列头");
   assert.ok(empty.text.length > 0, "空态应有文案");
   assert.ok(empty.unused >= 1, "未使用候选仍要列出来");
   await shot(page.locator("[data-template-topology-card]"), "empty-1440-dark.png");

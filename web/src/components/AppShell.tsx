@@ -10,7 +10,6 @@ import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import type { LucideIcon } from "lucide-react";
 import {
   BracesIcon,
-  ChartColumnIcon,
   CheckIcon,
   ChevronRightIcon,
   ChevronsUpDownIcon,
@@ -113,7 +112,10 @@ const accountNav: NavItem[] = [
   { to: "/packages", labelKey: "nav.packages", icon: PackageIcon },
 ];
 
-/** 转发链与链模板：都是「流量怎么走」，单独一组。 */
+/**
+ * 转发链与链模板：都是「流量怎么走」，单独一组。
+ * 「转发用量」已并入概览 → 链路时延的第三个子页，这里不再单列入口。
+ */
 const forwardingNav: NavItem[] = [
   { to: "/chains", labelKey: "nav.chains", icon: WorkflowIcon },
   {
@@ -124,11 +126,6 @@ const forwardingNav: NavItem[] = [
     activeWhen: (pathname) =>
       pathname === "/chain-templates" ||
       pathname.startsWith("/chain-templates/"),
-  },
-  {
-    to: "/forward-usage",
-    labelKey: "nav.forwardUsage",
-    icon: ChartColumnIcon,
   },
 ];
 

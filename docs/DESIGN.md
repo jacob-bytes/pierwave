@@ -118,6 +118,13 @@ column or its minimum width — do not shrink the text back.
 画布内双指缩放。React Flow 的署名保留，**12px + 中性 muted 灰**（不跟随强调色），
 不隐藏，也不低于 11px。
 
+每列顶部有一条 **32px** 高的列头：从顶端 **24px** 处开始、与卡片同宽，卡片从
+**56px** 起；列名与台数（目标列写「个」）都在这里给出，折叠时写 `4 / 7 台`。
+卡片第二行只保留链数与用户数，不再重复列名（列头已经说明）；aria-label 与
+折叠卡 tooltip 仍带列名。列头随画布缩放平移，**不可点击、不可 Tab、不参与高亮**，
+右缘 / 下缘提示只按卡片判断。连线宽度 **1.5–4**（按链数），脉冲亮划 = 线宽 × **0.7**
+且不粗于线，连接点半径 **2**、描边 **1.2**。
+
 **English**: The topology canvas (React Flow) defaults to **fit to view**: the
 zoom is derived from the content bounding box plus a **24px** padding and the
 result is centred, so every column and row is visible on open; the "Fit to view"
@@ -141,6 +148,17 @@ or pill focus. **Touch devices keep button zoom only; Safari pinch gestures are
 unverified**, so in-canvas two-finger zoom is not promised. The React Flow
 attribution stays visible at **12px in neutral muted grey** (never the accent
 colour), never hidden, never below 11px.
+
+Each column starts with a **32px** header at y **24px**, the same width as a
+card, and cards begin at **56px**. The header carries the column name and the
+node count ("targets" on the target column), or `4 / 7 nodes` when folded. The
+card's second line keeps only chains and users and no longer repeats the column
+name (the header does); the aria-label and the folded-card tooltip still include
+it. Headers scale and pan with the canvas, are **not clickable, not tabbable
+and never highlighted**, and the right/bottom hints count cards only. Links are
+**1.5–4px** wide by chain count, the pulse stroke is **0.7×** the link width and
+never wider than the link, and the connection dots are **r 2** with a **1.2**
+stroke.
 
 ## 四、动效（「灵动」的唯一来源）
 

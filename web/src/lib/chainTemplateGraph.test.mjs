@@ -6,6 +6,10 @@ import {
   TEMPLATE_CARD_HEIGHT,
   TEMPLATE_CARD_WIDTH,
   TEMPLATE_COLUMN_GAP,
+  TEMPLATE_COLUMN_HEADER_HEIGHT,
+  TEMPLATE_COLUMN_TOP,
+  TEMPLATE_EDGE_MAX_WIDTH,
+  TEMPLATE_EDGE_MIN_WIDTH,
   TEMPLATE_FIT_HINT_ZOOM,
   TEMPLATE_FIT_MAX_ZOOM,
   TEMPLATE_FOLD_LIMIT,
@@ -17,6 +21,7 @@ import {
   TEMPLATE_PILL_DENSE_LIMIT,
   TEMPLATE_PILL_WIDTH,
   TEMPLATE_PULSE_LIMIT,
+  TEMPLATE_PULSE_WIDTH_RATIO,
   TEMPLATE_ROW_GAP,
   buildTemplateGraph,
   clampTemplateZoom,
@@ -38,6 +43,7 @@ import {
   templateEdgeWidth,
   templateFitZoom,
   templatePanDuration,
+  templatePulseWidth,
 } from "./chainTemplateGraph.ts";
 
 /* ------------------------------------------------------------------ */
@@ -217,6 +223,8 @@ test("buildTemplateGraph: 0 链模板是空图，不画孤立入口", () => {
   const layout = layoutTemplateGraph(folded);
   assert.equal(layout.cards.length, 0);
   assert.equal(layout.edges.length, 0);
+  // 空模板没有列，也就没有列头。
+  assert.deepEqual(layout.headers, []);
   // 空图仍然给出合法尺寸 / 视口，组件不必再判空。
   assert.ok(layout.width > 0);
   assert.ok(layout.height > 0);
@@ -712,13 +720,16 @@ test("layoutTemplateGraph: 列 x 递增、同列同 x、卡片不重叠、连线
     assert.equal(item.y2, target.y + target.height / 2);
     assert.ok(item.path.startsWith("M "));
     assert.ok(!item.path.includes("NaN"));
-    assert.ok(item.width >= 1.5 && item.width <= 6);
+    assert.ok(
+      item.width >= TEMPLATE_EDGE_MIN_WIDTH && item.width <= TEMPLATE_EDGE_MAX_WIDTH,
+      `连线宽度 ${item.width} 超出 ${TEMPLATE_EDGE_MIN_WIDTH}–${TEMPLATE_EDGE_MAX_WIDTH}`,
+    );
   }
   // 动画边上限：同一时刻只有 Top N 条在动。
   assert.ok(layout.edges.filter((item) => item.pulse).length <= TEMPLATE_PULSE_LIMIT);
 });
 
-test("layoutTemplateGraph: 每列顶边统一上移到 TEMPLATE_PADDING，保持列内行号", () => {
+test("layoutTemplateGraph: 每列顶边统一上移到 TEMPLATE_COLUMN_TOP，保持列内行号", () => {
   // 第一张入口卡链数最高，但第 1 跳的第一张卡只接在第二张入口卡上：
   // 旧算法会把后两列整体压低，左上角留下空白。
   const graph = graphOf({
@@ -759,7 +770,11 @@ test("layoutTemplateGraph: 每列顶边统一上移到 TEMPLATE_PADDING，保持
   assert.equal(byColumn.size, 3);
   for (const cards of byColumn.values()) {
     cards.sort((a, b) => a.y - b.y);
-    assert.equal(cards[0].y, TEMPLATE_PADDING, "每列第一张卡顶边都应是 TEMPLATE_PADDING");
+    assert.equal(
+      cards[0].y,
+      TEMPLATE_COLUMN_TOP,
+      "每列第一张卡顶边都应是 TEMPLATE_COLUMN_TOP（列头下方）",
+    );
     for (let index = 1; index < cards.length; index += 1) {
       assert.ok(
         cards[index].y >= cards[index - 1].y + TEMPLATE_CARD_HEIGHT + TEMPLATE_ROW_GAP,
@@ -771,6 +786,107 @@ test("layoutTemplateGraph: 每列顶边统一上移到 TEMPLATE_PADDING，保持
   assert.equal(TEMPLATE_COLUMN_GAP, 80);
   assert.equal(TEMPLATE_CARD_WIDTH, 192);
   assert.equal(TEMPLATE_CARD_HEIGHT, 64);
+});
+
+test("列头：每列一个、y=24、宽 192、高 32，卡片从 56 起", () => {
+  const graph = buildTemplateGraph(wideDetail({ hops: 3, perColumn: 6 }));
+  const layout = layoutTemplateGraph(foldTemplateGraph(graph));
+  assert.equal(layout.headers.length, layout.columns.length);
+  const foldedBySeq = new Map(
+    foldTemplateGraph(graph).columns.map((column) => [column.seq, column]),
+  );
+  for (const [index, header] of layout.headers.entries()) {
+    const column = layout.columns[index];
+    assert.equal(header.seq, column.seq, "列头与列一一对应");
+    assert.equal(header.x, column.x, "列头 x = 该列卡片 x");
+    assert.equal(header.y, TEMPLATE_PADDING);
+    assert.equal(header.width, TEMPLATE_CARD_WIDTH);
+    assert.equal(header.height, TEMPLATE_COLUMN_HEADER_HEIGHT);
+    assert.equal(header.role, foldedBySeq.get(header.seq).role);
+    // 逻辑列头底边正好接上第一张卡（无额外间距）。
+    assert.equal(header.y + header.height, TEMPLATE_COLUMN_TOP);
+    assert.equal(
+      layout.cards.filter((card) => card.column === index)[0].y,
+      TEMPLATE_COLUMN_TOP,
+    );
+  }
+  // 折叠列：shown < total，total 是折叠前成员数。
+  const entryHeader = layout.headers.find((header) => header.role === "entry");
+  assert.equal(entryHeader.total, 6);
+  assert.equal(entryHeader.shown, TEMPLATE_FOLD_LIMIT);
+  assert.ok(entryHeader.shown < entryHeader.total);
+  // 目标列：total = 折叠前目标数，shown = 可见目标卡数。
+  const targetHeader = layout.headers.find((header) => header.role === "target");
+  assert.equal(targetHeader.total, 6);
+  assert.equal(targetHeader.shown, 5);
+  assert.ok(targetHeader.shown < targetHeader.total);
+});
+
+test("FoldedColumn.total: 入口 / 中间跳 / 目标三类列记录折叠前成员数", () => {
+  const folded = foldTemplateGraph(graphOf(detail()));
+  const bySeq = new Map(folded.columns.map((column) => [column.seq, column]));
+  // detail()：入口 1 台、第 1 跳 2 台（0 链成员不算）、第 2 跳 1 台、目标 2 个。
+  assert.equal(bySeq.get(0).role, "entry");
+  assert.equal(bySeq.get(0).total, 1);
+  assert.equal(bySeq.get(0).cards.length, 1);
+  assert.equal(bySeq.get(1).role, "hop");
+  assert.equal(bySeq.get(1).total, 2);
+  assert.equal(bySeq.get(1).cards.length, 2);
+  assert.equal(bySeq.get(2).role, "hop");
+  assert.equal(bySeq.get(2).total, 1);
+  assert.equal(bySeq.get(3).role, "target");
+  assert.equal(bySeq.get(3).total, 2);
+  assert.equal(bySeq.get(3).cards.length, 2);
+
+  // 折叠后：入口 / 中间跳的 total 仍是折叠前成员数，shown 只数非折叠卡。
+  const wide = foldTemplateGraph(
+    buildTemplateGraph(wideDetail({ hops: 2, perColumn: 6 })),
+  );
+  for (const column of wide.columns) {
+    assert.equal(column.total, 6, `${column.role} 列的 total 是折叠前成员数`);
+    if (column.role === "target") {
+      assert.equal(column.cards.some((card) => card.kind === "fold"), false);
+    } else {
+      const shown = column.cards.filter((card) => card.kind !== "fold").length;
+      assert.equal(shown, TEMPLATE_FOLD_LIMIT);
+      assert.ok(shown < column.total);
+    }
+  }
+});
+
+test("layoutTemplateGraph: 高度自然增加 32（列头占位），内容盒含列头", () => {
+  // 单列单卡：卡片 64 高，上下各 24 内边距，再加 32 的列头 = 144。
+  const graph = graphOf({
+    template: { id: "tpl-one", name: "单列", hops: 1 },
+    nodes: [
+      { seq: 0, role: "source", name: "入口", members: [member("香港-01", 2, 1)] },
+      { seq: 1, role: "target", name: "目标", members: [] },
+    ],
+    edges: [],
+    targets: [],
+    users: [],
+    series: [],
+    strategies: [],
+    unused_candidates: [],
+  });
+  const layout = layoutTemplateGraph(foldTemplateGraph(graph));
+  assert.equal(layout.cards.length, 1);
+  assert.equal(layout.headers.length, 1);
+  assert.equal(
+    layout.height,
+    TEMPLATE_PADDING + TEMPLATE_COLUMN_HEADER_HEIGHT + TEMPLATE_CARD_HEIGHT + TEMPLATE_PADDING,
+  );
+  // 去掉列头就是旧高度：正是 +32。
+  assert.equal(
+    layout.height - (TEMPLATE_PADDING + TEMPLATE_CARD_HEIGHT + TEMPLATE_PADDING),
+    TEMPLATE_COLUMN_HEADER_HEIGHT,
+  );
+  // 内容包围盒含列头：顶边留白仍是 24，第一张卡距顶边 56。
+  const bounds = templateContentBounds(layout);
+  assert.equal(bounds.y, 0);
+  assert.equal(bounds.height, layout.height);
+  assert.equal(bounds.width, layout.width);
+  assert.equal(layout.cards[0].y - bounds.y, TEMPLATE_COLUMN_TOP);
 });
 
 test("layoutTemplateGraph: 时延药丸贴竖线，且同一竖线上互不重叠", () => {
@@ -941,12 +1057,45 @@ test("templateEdgePath: 直角折线带 8px 圆角，直线退化为单段", () 
   assert.ok(!tight.includes("NaN"));
 });
 
-test("templateEdgeWidth: 链数越大越粗，有上下限", () => {
-  assert.equal(templateEdgeWidth(0, 10), 1.5);
-  assert.equal(templateEdgeWidth(10, 10), 6);
-  assert.equal(templateEdgeWidth(5, 10), 3.75);
+test("templateEdgeWidth: 链数越大越粗，有上下限（最粗 4）", () => {
+  assert.equal(TEMPLATE_EDGE_MIN_WIDTH, 1.5);
+  assert.equal(TEMPLATE_EDGE_MAX_WIDTH, 4);
+  assert.equal(templateEdgeWidth(0, 10), TEMPLATE_EDGE_MIN_WIDTH);
+  assert.equal(templateEdgeWidth(10, 10), TEMPLATE_EDGE_MAX_WIDTH);
+  assert.equal(templateEdgeWidth(5, 10), 2.75);
   assert.ok(templateEdgeWidth(3, 10) < templateEdgeWidth(8, 10));
-  assert.equal(templateEdgeWidth(5, 0), 1.5);
+  assert.equal(templateEdgeWidth(5, 0), TEMPLATE_EDGE_MIN_WIDTH);
+  assert.equal(templateEdgeWidth(Number.NaN, 10), TEMPLATE_EDGE_MIN_WIDTH);
+  assert.equal(templateEdgeWidth(10, Number.NaN), TEMPLATE_EDGE_MIN_WIDTH);
+});
+
+test("templatePulseWidth: 0.7×线宽、下限 1.5，且永远不粗于线宽", () => {
+  assert.equal(TEMPLATE_PULSE_WIDTH_RATIO, 0.7);
+  assert.equal(templatePulseWidth(4), 2.8);
+  assert.equal(templatePulseWidth(2.8), 1.96);
+  assert.equal(templatePulseWidth(10), 7);
+  // 下限：1.5 × 0.7 = 1.05 → 1.5。
+  assert.equal(templatePulseWidth(TEMPLATE_EDGE_MIN_WIDTH), TEMPLATE_EDGE_MIN_WIDTH);
+  assert.equal(templatePulseWidth(0), TEMPLATE_EDGE_MIN_WIDTH);
+  // 非有限数退回最细，不把 NaN 写进 SVG。
+  assert.equal(templatePulseWidth(Number.NaN), TEMPLATE_EDGE_MIN_WIDTH);
+  assert.equal(templatePulseWidth(Number.POSITIVE_INFINITY), TEMPLATE_EDGE_MIN_WIDTH);
+  assert.equal(
+    templatePulseWidth(Number.NEGATIVE_INFINITY),
+    TEMPLATE_EDGE_MIN_WIDTH,
+  );
+  // 实际线宽区间内（1.5–4）：亮划永远 ≤ 线宽，避免脉冲看起来比线还粗。
+  for (
+    let width = TEMPLATE_EDGE_MIN_WIDTH;
+    width <= TEMPLATE_EDGE_MAX_WIDTH + 1e-9;
+    width += 0.05
+  ) {
+    const pulse = templatePulseWidth(width);
+    assert.ok(
+      pulse <= width + 1e-9,
+      `线宽 ${width.toFixed(2)} 的脉冲 ${pulse} 比线还粗`,
+    );
+  }
 });
 
 /* ------------------------------------------------------------------ */

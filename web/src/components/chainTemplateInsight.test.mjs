@@ -26,6 +26,9 @@ const flowCard = read(
 const flowEdge = read(
   "../components/overview/chain-template-flow/FlowEdge.tsx",
 );
+const flowColumnHeader = read(
+  "../components/overview/chain-template-flow/FlowColumnHeader.tsx",
+);
 const flowContext = read(
   "../components/overview/chain-template-flow/context.ts",
 );
@@ -298,6 +301,102 @@ test("连线：直角折线 + 圆角 8 + 两端小圆点 + 合并虚线 + 时延
       ".template-flow-pill {",
     ],
     "edge css",
+  );
+});
+
+test("列头：每列一个不可交互节点，随缩放平移、不参与高亮", () => {
+  // 纯逻辑：列头高度 / 顶边 / 类型 / 布局字段。
+  assertIncludes(
+    graphLib,
+    [
+      "export const TEMPLATE_COLUMN_HEADER_HEIGHT = 32",
+      "export const TEMPLATE_COLUMN_TOP =",
+      "TEMPLATE_PADDING + TEMPLATE_COLUMN_HEADER_HEIGHT",
+      "export interface TemplateLayoutHeader {",
+      "shown: number;",
+      "total: number;",
+      "headers: TemplateLayoutHeader[];",
+      "let cursor = TEMPLATE_COLUMN_TOP;",
+      "TEMPLATE_COLUMN_TOP - minY",
+    ],
+    "column header layout",
+  );
+  // 列头节点：注册类型、来自 layout.headers、四个交互标志全 false。
+  assertIncludes(
+    flowCanvas,
+    [
+      "FlowColumnHeader",
+      "templateColumnHeader:",
+      "layout.headers",
+      'type: "templateColumnHeader"',
+    ],
+    "column header nodes",
+  );
+  const headerNodeStart = flowCanvas.indexOf(
+    "layout.headers.map((header) => ({",
+  );
+  assert.ok(headerNodeStart >= 0, "列头节点必须由 layout.headers 生成");
+  const headerNode = flowCanvas.slice(
+    headerNodeStart,
+    flowCanvas.indexOf("})),", headerNodeStart),
+  );
+  for (const flag of [
+    "draggable: false",
+    "selectable: false",
+    "focusable: false",
+    "connectable: false",
+  ]) {
+    assert.ok(headerNode.includes(flag), `列头节点缺少 ${flag}`);
+  }
+  // 列头 DOM：aria-hidden、四个 data 属性、三段文字，不带头像高亮 / 卡片标记。
+  assertIncludes(
+    flowColumnHeader,
+    [
+      "data-template-flow-column-header",
+      "data-column={header.seq}",
+      "data-role={header.role}",
+      "data-shown={header.shown}",
+      "data-total={header.total}",
+      'aria-hidden="true"',
+      "data-template-flow-column-label",
+      "data-template-flow-column-count",
+      "data-template-flow-column-rule",
+      'translate("overview.chainTemplateInsight.flowColumnNodes"',
+      'translate("overview.chainTemplateInsight.flowColumnNodesOne"',
+      'translate("overview.chainTemplateInsight.flowColumnNodesFolded"',
+      'translate("overview.chainTemplateInsight.flowColumnTargets"',
+      'translate("overview.chainTemplateInsight.flowColumnTargetsOne"',
+      'translate("overview.chainTemplateInsight.flowColumnTargetsFolded"',
+    ],
+    "column header dom",
+  );
+  assertExcludes(
+    flowColumnHeader,
+    ["data-template-flow-card", "data-hot", "tabIndex"],
+    "column header interaction",
+  );
+  // 列头只读、不可点：CSS 明确 pointer-events: none。
+  assertIncludes(
+    css,
+    ["[data-template-flow-column-header] {", "pointer-events: none;"],
+    "column header css",
+  );
+  // 卡片副标题不再重复列名；aria-label 与折叠卡 tooltip 仍保留列名。
+  assertExcludes(
+    flowCard,
+    ["`${role} · ${chains} · ${users}`", "`${role} · ${chains}`"],
+    "card subtitle role prefix",
+  );
+  assertIncludes(
+    flowCard,
+    [
+      "subtitle: `${chains} · ${users}${offline}`",
+      "subtitle:\n      card.kind === \"target\" && card.hidden > 0",
+      ": `${chains} · ${users}`,",
+      "role: roleLabel(card, t),",
+      "{roleLabel(card, t)}",
+    ],
+    "card subtitle without role",
   );
 });
 
@@ -785,6 +884,12 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     "flowMoreColumnsAria",
     "flowMoreBelow",
     "flowMoreBelowAria",
+    "flowColumnNodes",
+    "flowColumnNodesOne",
+    "flowColumnNodesFolded",
+    "flowColumnTargets",
+    "flowColumnTargetsOne",
+    "flowColumnTargetsFolded",
     "flowZoomIn",
     "flowZoomOut",
     "flowFit",
@@ -820,6 +925,12 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
       'flowFitHint: "已缩小到 {percent}%，可点击 + 放大"',
       'flowReset: "恢复默认"',
       'emptyTopologyTitle: "暂无流量"',
+      'flowColumnNodes: "{n} 台"',
+      'flowColumnNodesOne: "1 台"',
+      'flowColumnNodesFolded: "{shown} / {total} 台"',
+      'flowColumnTargets: "{n} 个"',
+      'flowColumnTargetsOne: "1 个"',
+      'flowColumnTargetsFolded: "{shown} / {total} 个"',
     ],
     "zh new keys",
   );
@@ -831,6 +942,12 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
       'flowFitHint: "Zoomed to {percent}%; use + to zoom in"',
       'flowReset: "Reset view"',
       'emptyTopologyTitle: "No traffic yet"',
+      'flowColumnNodes: "{n} nodes"',
+      'flowColumnNodesOne: "1 node"',
+      'flowColumnNodesFolded: "{shown} / {total} nodes"',
+      'flowColumnTargets: "{n} targets"',
+      'flowColumnTargetsOne: "1 target"',
+      'flowColumnTargetsFolded: "{shown} / {total} targets"',
     ],
     "en new keys",
   );
