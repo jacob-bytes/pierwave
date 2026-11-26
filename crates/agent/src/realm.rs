@@ -1591,16 +1591,25 @@ mod tests {
         );
 
         // 空闲：探针必须报「未监听」，并且自己立刻释放端口。
-        let free_port = {
-            let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            i64::from(probe.local_addr().unwrap().port())
-        };
-        assert!(
-            !probe_listening("127.0.0.1", free_port).await,
-            "没人监听时绑定成功 = 未监听"
-        );
-        std::net::TcpListener::bind(("127.0.0.1", free_port as u16))
-            .expect("探针必须立刻释放端口，否则 realm 之后会绑不上");
+        //
+        // 端口释放后到重新绑定之间有一小段空窗，并行的其它测试可能刚好
+        // 抢到这个临时端口。换一个端口重试，而不是把偶发冲突当成失败。
+        let mut released = false;
+        for _ in 0..5 {
+            let free_port = {
+                let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                i64::from(probe.local_addr().unwrap().port())
+            };
+            assert!(
+                !probe_listening("127.0.0.1", free_port).await,
+                "没人监听时绑定成功 = 未监听"
+            );
+            if std::net::TcpListener::bind(("127.0.0.1", free_port as u16)).is_ok() {
+                released = true;
+                break;
+            }
+        }
+        assert!(released, "探针必须立刻释放端口，否则 realm 之后会绑不上");
     }
 
     /// 明文规则必须进入 TCP 探测；带 `remote_transport = "tls;sni=…"` 的规则继续
