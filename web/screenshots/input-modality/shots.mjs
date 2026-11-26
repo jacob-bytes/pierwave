@@ -5,16 +5,19 @@
  * 覆盖 / Covers:
  * - 点击概览「转发模板」子 tab 后：activeElement 仍匹配 `:focus-visible`，
  *   但计算样式 `outline-style: none`（没有 2px 蓝框）；
- * - 按 Tab 离开 tablist、Shift+Tab 回到子 tab 后：`outline-style: solid`，
- *   2px 焦点环恢复，`<html data-input>` 为 `keyboard`；
+ * - 再按 Tab 进入主面板（`[role="tabpanel"]`）：面板由 `index.css` 的统一规则
+ *   描边（`outline-style: solid`、2px、偏移 2px），`<html data-input>` 为 `keyboard`；
+ * - 鼠标点击面板内容区空白：`<html data-input>` 回到 `pointer`，面板仍持有焦点，
+ *   但统一焦点环被 `html[data-input="pointer"] :focus-visible` 清掉（`none`）；
+ * - 按 Shift+Tab 回到子 tab 后：2px 焦点环恢复；
  * - 登录页输入框：鼠标点击不描边、键盘 Tab 后描边（不被误伤）；
- * - 1440 × 亮 / 暗四张图。
+ * - 1440 × 亮 / 暗，子 tab 与主面板各两张图。
  *
  * 用 Playwright 直接服务 `web/dist` 并在浏览器里 mock API，不需要主控 / 数据库。
  *
- * 用法 / Usage:
- *   cd web && npm run build
- *   node screenshots/input-modality/shots.mjs
+ * 用法 / Usage（仓库根执行 / run from the repo root）:
+ *   make web-build
+ *   node web/screenshots/input-modality/shots.mjs
  */
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
@@ -493,10 +496,63 @@ function readFocus(page) {
       focusVisible: active?.matches?.(":focus-visible") ?? false,
       outlineStyle: style?.outlineStyle ?? null,
       outlineWidth: style?.outlineWidth ?? null,
+      outlineOffset: style?.outlineOffset ?? null,
       outlineColor: style?.outlineColor ?? null,
       boxShadow: style?.boxShadow ?? null,
     };
   });
+}
+
+/** 读当前可见 tabpanel 自身的焦点环 + 指针模态（面板可能不是 activeElement）。 */
+function readPanelFocus(page) {
+  return page.evaluate(() => {
+    const panel = [...document.querySelectorAll('[role="tabpanel"]')].find(
+      (candidate) => candidate.getClientRects().length > 0,
+    );
+    if (!panel) return null;
+    const style = getComputedStyle(panel);
+    return {
+      modality: document.documentElement.dataset.input ?? null,
+      tag: panel.tagName,
+      focused: document.activeElement === panel,
+      focusVisible: panel.matches(":focus-visible"),
+      outlineStyle: style.outlineStyle,
+      outlineWidth: style.outlineWidth,
+      outlineOffset: style.outlineOffset,
+      outlineColor: style.outlineColor,
+    };
+  });
+}
+
+/**
+ * 点面板内容区的非交互空白：面板可聚焦，点它自己的内容区才不会把焦点
+ * 交给别的控件。从右下角向内找第一个不在链接 / 按钮 / 输入框里的点。
+ */
+async function clickPanelBlank(page) {
+  const point = await page.evaluate(() => {
+    const panel = [...document.querySelectorAll('[role="tabpanel"]')].find(
+      (candidate) => candidate.getClientRects().length > 0,
+    );
+    if (!panel) return null;
+    panel.scrollIntoView({ block: "center" });
+    const rect = panel.getBoundingClientRect();
+    const focusable =
+      'a,button,input,select,textarea,[role="button"],[role="tab"],[role="link"],[contenteditable="true"]';
+    const lastX = Math.min(rect.right, window.innerWidth) - 2;
+    const lastY = Math.min(rect.bottom, window.innerHeight) - 2;
+    for (let y = lastY; y > Math.max(rect.top, 0) + 1; y -= 2) {
+      for (let x = lastX; x > Math.max(rect.left, 0) + 1; x -= 2) {
+        const element = document.elementFromPoint(x, y);
+        if (!element || !panel.contains(element) || element === panel) continue;
+        if (element.closest(focusable)) continue;
+        return { x, y };
+      }
+    }
+    return null;
+  });
+  assert.ok(point, "找不到面板内容区的空白点 / no blank spot inside the tab panel");
+  await page.mouse.click(point.x, point.y);
+  return point;
 }
 
 /** box-shadow 里有非透明层才算「看得见的 ring」；全透明层等于没有。 */
@@ -571,9 +627,35 @@ for (const theme of ["dark", "light"]) {
   );
   await screenshot(page, `no-ring-after-click-1440-${theme}`);
 
-  // 2) 键盘：Tab 离开 tablist（roving tabindex），Shift+Tab 回到同一个子 tab。
-  //    keydown 把 html 切到 keyboard，焦点环恢复。
+  // 2) 键盘继续 Tab：焦点从子 tab 进入主面板（Radix tabpanel，tabIndex=0）。
+  //    keydown 把 html 切到 keyboard，index.css 的统一规则命中面板：2px + 偏移 2px。
   await page.keyboard.press("Tab");
+  await settle(page);
+  const panelTabbed = await readPanelFocus(page);
+  record(`键盘 Tab 到面板后 / panel after Tab (${theme})`, panelTabbed);
+  assert.equal(panelTabbed.modality, "keyboard");
+  assert.equal(panelTabbed.tag, "DIV");
+  assert.equal(panelTabbed.focused, true, "Tab 应把焦点交给面板");
+  assert.equal(panelTabbed.focusVisible, true);
+  assert.equal(panelTabbed.outlineStyle, "solid", "键盘模态下面板必须有焦点环");
+  assert.equal(panelTabbed.outlineWidth, "2px");
+  assert.equal(panelTabbed.outlineOffset, "2px");
+  assert.notEqual(panelTabbed.outlineColor, "rgba(0, 0, 0, 0)");
+  await screenshot(page, `panel-ring-after-tab-1440-${theme}`);
+
+  // 3) 焦点还在面板上时用鼠标点面板内容区空白：面板仍是 activeElement、
+  //    仍匹配 `:focus-visible`，但指针模态的全局规则把环清掉，只剩 `none`。
+  await clickPanelBlank(page);
+  await settle(page);
+  const panelClicked = await readPanelFocus(page);
+  record(`点击面板空白后 / panel after click (${theme})`, panelClicked);
+  assert.equal(panelClicked.modality, "pointer");
+  assert.equal(panelClicked.focused, true, "点击面板内容后焦点仍应在面板上");
+  assert.equal(panelClicked.focusVisible, true);
+  assert.equal(panelClicked.outlineStyle, "none", "指针模态下面板不应描边");
+  await screenshot(page, `panel-no-ring-after-click-1440-${theme}`);
+
+  // 4) Shift+Tab 回到同一个子 tab：焦点环留在 tab 上，面板让出焦点。
   await page.keyboard.press("Shift+Tab");
   await settle(page);
   const tabbed = await readFocus(page);

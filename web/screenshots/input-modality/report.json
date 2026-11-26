@@ -1,10 +1,14 @@
 {
-  "generatedAt": "2026-11-26T13:20:21.105Z",
-  "base": "http://127.0.0.1:56075",
+  "generatedAt": "2026-11-26T14:12:22.256Z",
+  "base": "http://127.0.0.1:58676",
   "shots": [
     "no-ring-after-click-1440-dark",
+    "panel-ring-after-tab-1440-dark",
+    "panel-no-ring-after-click-1440-dark",
     "ring-after-tab-1440-dark",
     "no-ring-after-click-1440-light",
+    "panel-ring-after-tab-1440-light",
+    "panel-no-ring-after-click-1440-light",
     "ring-after-tab-1440-light"
   ],
   "checks": [
@@ -16,8 +20,31 @@
       "focusVisible": true,
       "outlineStyle": "none",
       "outlineWidth": "3px",
+      "outlineOffset": "2px",
       "outlineColor": "oklch(0.662 0.179 264.6)",
       "boxShadow": "none"
+    },
+    {
+      "label": "键盘 Tab 到面板后 / panel after Tab (dark)",
+      "modality": "keyboard",
+      "tag": "DIV",
+      "focused": true,
+      "focusVisible": true,
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineOffset": "2px",
+      "outlineColor": "oklch(0.74 0.16 264.6)"
+    },
+    {
+      "label": "点击面板空白后 / panel after click (dark)",
+      "modality": "pointer",
+      "tag": "DIV",
+      "focused": true,
+      "focusVisible": true,
+      "outlineStyle": "none",
+      "outlineWidth": "3px",
+      "outlineOffset": "2px",
+      "outlineColor": "oklch(0.965 0.003 285)"
     },
     {
       "label": "键盘 Tab 后 / after Tab (dark)",
@@ -27,6 +54,7 @@
       "focusVisible": true,
       "outlineStyle": "solid",
       "outlineWidth": "2px",
+      "outlineOffset": "2px",
       "outlineColor": "oklch(0.74 0.16 264.6)",
       "boxShadow": "none"
     },
@@ -38,8 +66,31 @@
       "focusVisible": true,
       "outlineStyle": "none",
       "outlineWidth": "3px",
+      "outlineOffset": "2px",
       "outlineColor": "oklch(0.424 0.199 265.638)",
       "boxShadow": "none"
+    },
+    {
+      "label": "键盘 Tab 到面板后 / panel after Tab (light)",
+      "modality": "keyboard",
+      "tag": "DIV",
+      "focused": true,
+      "focusVisible": true,
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineOffset": "2px",
+      "outlineColor": "oklch(0.42 0.2 265.6)"
+    },
+    {
+      "label": "点击面板空白后 / panel after click (light)",
+      "modality": "pointer",
+      "tag": "DIV",
+      "focused": true,
+      "focusVisible": true,
+      "outlineStyle": "none",
+      "outlineWidth": "3px",
+      "outlineOffset": "2px",
+      "outlineColor": "oklch(0.253 0.03 267.4)"
     },
     {
       "label": "键盘 Tab 后 / after Tab (light)",
@@ -49,6 +100,7 @@
       "focusVisible": true,
       "outlineStyle": "solid",
       "outlineWidth": "2px",
+      "outlineOffset": "2px",
       "outlineColor": "oklch(0.42 0.2 265.6)",
       "boxShadow": "none"
     },
@@ -60,6 +112,7 @@
       "focusVisible": true,
       "outlineStyle": "none",
       "outlineWidth": "3px",
+      "outlineOffset": "2px",
       "outlineColor": "oklch(0.965 0.003 285)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
     },
@@ -71,6 +124,7 @@
       "focusVisible": true,
       "outlineStyle": "solid",
       "outlineWidth": "2px",
+      "outlineOffset": "2px",
       "outlineColor": "oklch(0.74 0.16 264.6)",
       "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklch(0.74 0.16 264.6) 0px 0px 0px 3px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
     }

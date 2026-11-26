@@ -29,7 +29,7 @@ tooltip 时高亮保持」、100% / 50% / 150% 缩放、右缘 / 下缘「还有
 
 ```bash
 # 1) 构建前端
-cd web && npm run build && cd ..
+make web-build
 
 # 2) 起一个可登录的主控（示例用临时库，密码 devpass）
 CARGO_HOME=$PWD/.cargo-home cargo build -q -p pierwave-master
@@ -202,7 +202,7 @@ fallback, reduced motion and pan / zoom frame rates.
 
 ```bash
 # 1) Build the SPA
-cd web && npm run build && cd ..
+make web-build
 
 # 2) Start a controller you can log into (temporary DB, password devpass)
 CARGO_HOME=$PWD/.cargo-home cargo build -q -p pierwave-master

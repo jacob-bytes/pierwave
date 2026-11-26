@@ -487,8 +487,10 @@
 /*
  * 指针模态下不画焦点环。
  *
- * Chromium 在鼠标点击 tab / 文本输入框后仍会让 activeElement 匹配
- * `:focus-visible`，2px 焦点环会被误读成「选中态」（概览的子 tab 尤其明显）。
+ * 鼠标点击概览的子 tab 后 activeElement 仍匹配 `:focus-visible`，真正原因是
+ * Radix Tabs 在 `onMouseDown` 里显式调用了 `focus()`（脚本聚焦），不是 Chromium
+ * 的指针启发式；文本输入框则是 Chromium 对可输入控件的固有判定。两者都会让
+ * 2px 焦点环被误读成「选中态」（子 tab 尤其明显）。
  * `data-input` 由 `web/src/lib/inputModality.ts` 全局维护：
  * pointerdown → pointer，keydown → keyboard。键盘模态下本规则不匹配，
  * 上面那条统一焦点环照常生效，Tab / 方向键导航不会失去焦点提示。

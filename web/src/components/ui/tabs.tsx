@@ -119,9 +119,10 @@ function TabsContent({
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"
-      // Radix 的 tabpanel 可聚焦，但它是内容容器、没有可操作项：
-      // 给面板加焦点环会在切换 tab 时于整块内容外描一圈 2px 边框，
-      // 看起来像布局错误。焦点提示留在 tab 本身上，面板不再描边。
+      // Radix 的 tabpanel 可聚焦，但焦点环不在这里单独声明（`outline-none`
+      // 只是基础重置，index.css 里未分层的统一规则优先级更高）：键盘焦点
+      // 进入面板时由那条规则画出 2px 环、偏移 2px；指针模态下由
+      // `html[data-input="pointer"] :focus-visible` 清掉。
       className={cn("flex-1 text-sm outline-none", className)}
       {...props}
     />

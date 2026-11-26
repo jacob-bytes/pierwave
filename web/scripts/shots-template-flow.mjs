@@ -1,7 +1,7 @@
 // 转发链模板拓扑（React Flow 画布）的截图 + 运行时断言。
 //
 // 前置：
-//   1) 生产构建已在 web/dist（`cd web && npm run build`）；
+//   1) 生产构建已在 web/dist（在仓库根执行 `make web-build`）；
 //   2) master 跑在 127.0.0.1:8787，且 admin 密码 devpass（隔离库 / 临时库都行）；
 //   3) 本脚本用 Playwright route 注入模板列表 / 详情 / 链路时延 mock，不依赖真实模板数据。
 //
