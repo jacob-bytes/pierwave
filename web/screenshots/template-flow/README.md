@@ -3,8 +3,9 @@
 ## 中文
 
 这组截图覆盖转发链模板详情里的 React Flow 拓扑画布：3 / 4 / 6 跳、折叠与展开、
-卡片与连线 hover 路径、时延药丸 tooltip、100% / 50% / 150% 缩放、右缘 / 下缘
-「还有内容」提示、390、亮暗、空态、旧主控降级、reduced-motion 与平移 / 缩放帧率。
+卡片与连线 hover 路径（药丸跟着一起压暗）、时延药丸 tooltip 与「指针移入 tooltip
+时高亮保持」、100% / 50% / 150% 缩放、右缘 / 下缘「还有内容」提示（含渐隐之上的
+署名）、390、亮暗、空态、旧主控降级、reduced-motion 与平移 / 缩放帧率。
 
 ### 数据来源
 
@@ -71,11 +72,15 @@ node web/scripts/shots-template-flow.mjs
 - `dense-pills-hidden-1440-dark.png` / `dense-pills-hover-1440-dark.png`：
   同一竖线 8 个药丸默认隐藏 / 悬停显示；
 - `hover-path-1440-dark.png` / `hover-edge-1440-dark.png`：卡片 hover 与药丸
-  hover 都会点亮到入口的路径，其余 35% 淡出；
+  hover 都会点亮到入口的路径，其余 35% 淡出；连线 hover 时路径外的药丸
+  也一起压暗；
 - `tooltip-pill-1440-dark.png`、`tooltip-unavailable-1440-dark.png`、
   `tooltip-merged-1440-dark.png`：时延 / 最近已知 / 合并虚线 tooltip；
+- `tooltip-retained-1440-dark.png`：指针从药丸移进 tooltip 后路径仍保持高亮；
 - `zoom-150-1440-dark.png`、`fold-target-after-1440-dark.png`、密集药丸两张：
   内容超出画布下缘时的下缘渐隐与「下方还有内容」按钮；
+- `bottom-hint-attribution-1440-dark.png`：下缘渐隐之上的右下角署名
+  （渐隐盖内容，但署名不被压暗）；
 - `6hop-390-dark.png`：390 固定 1 倍 + 横向滚动；
 - `report.json`：本次运行的断言、截图清单与帧率（`fps.pan` / `fps.zoom`）。
 
@@ -106,6 +111,13 @@ node web/scripts/shots-template-flow.mjs
   「X 条链 · Y 用户 · 含 N 台离线」；
 - 药丸 / 合并虚线 hover 或聚焦都会点亮该连线到入口的路径，其余压到 35%；脉冲
   边仍 ≤ 10，键盘仍可 Tab 到药丸与合并虚线；
+- 药丸随路径一起压暗：压暗药丸数与「有药丸的压暗连线」数一致，每颗药丸的
+  `data-hot` 与实测 opacity 都和它自己那条连线一致（压暗 35%、高亮 100%），
+  密集隐藏的药丸不会被这条规则提前显示；
+- tooltip 打开期间高亮保持：指针从药丸移到 tooltip 上后连线 / 药丸仍是高亮
+  100%、其余卡片仍压暗；指针离开药丸与 tooltip 后高亮统一清除，tooltip 关闭；
+- 右缘 / 下缘渐隐出现时，署名与渐隐在同一个 stacking context，署名 z-index
+  更高；把渐隐临时改成可命中后用 `elementFromPoint` 实测署名是最上层、可点；
 - `prefers-reduced-motion: reduce` 下「右侧 / 下方还有」的平移是瞬时的（0ms，
   3 帧内到终点），脉冲静止但仍可见；其它动效照旧；
 - 帧率：平移 / 缩放各连续 1 秒用 rAF 计帧。默认无头 Chrome（软件合成、没有
@@ -120,10 +132,11 @@ node web/scripts/shots-template-flow.mjs
 ## English
 
 These screenshots cover the React Flow topology canvas in the chain-template
-detail dialog: 3 / 4 / 6 hops, folding and expanding, card and link hover paths,
-latency-pill tooltips, 100% / 50% / 150% zoom, the right/bottom "more content"
-hints, 390px, light/dark, empty state, old-controller fallback, reduced motion and
-pan / zoom frame rates.
+detail dialog: 3 / 4 / 6 hops, folding and expanding, card and link hover paths
+(pills dim with the path), latency-pill tooltips and the highlight staying lit
+while the pointer is over a tooltip, 100% / 50% / 150% zoom, the right/bottom
+"more content" hints (with the attribution above the fade), 390px, light/dark,
+empty state, old-controller fallback, reduced motion and pan / zoom frame rates.
 
 ### Where the data comes from
 
@@ -202,10 +215,15 @@ back to `import("playwright")` — no hard-coded npx hash directory.
   eight pills on one rail hidden by default / revealed on hover;
 - `hover-path-1440-dark.png` / `hover-edge-1440-dark.png`: hovering a card and
   hovering a pill both light the path to the entry and fade the rest to 35%;
+  pills outside the hovered link dim with it;
 - `tooltip-pill-1440-dark.png`, `tooltip-unavailable-1440-dark.png`,
   `tooltip-merged-1440-dark.png`: latency, last-known and merged-line tooltips;
+- `tooltip-retained-1440-dark.png`: the path stays highlighted after the pointer
+  moves from the pill into its tooltip;
 - `zoom-150-1440-dark.png`, `fold-target-after-1440-dark.png` and both dense-pill
   shots: the bottom fade and "more content below" button when content overflows;
+- `bottom-hint-attribution-1440-dark.png`: the bottom-right attribution above the
+  bottom fade (the fade covers content, not the attribution);
 - `6hop-390-dark.png`: 390px, fixed 1× with horizontal scrolling;
 - `report.json`: assertions, screenshot list and frame rates (`fps.pan` /
   `fps.zoom`) for the run.
@@ -252,6 +270,17 @@ report is written):
 - hovering or focusing a pill / merged line lights that link's path to the entry
   and fades the rest to 35%; still at most 10 pulsing edges, and pills and merged
   lines stay keyboard reachable;
+- pills dim with the path: the number of dimmed pills equals the number of dimmed
+  links that have a pill, and every pill's `data-hot` and measured opacity match
+  its own link (35% dimmed, 100% highlighted); hidden dense pills are not revealed
+  by this rule;
+- the highlight stays lit while the tooltip is open: after the pointer moves from
+  the pill onto the tooltip the link and pill are still at 100% and the other
+  cards stay dimmed; leaving both the pill and the tooltip clears the highlight
+  and closes the tooltip;
+- when the right/bottom fades appear, the attribution shares their stacking
+  context with a higher z-index; with the fade temporarily made hit-testable,
+  `elementFromPoint` proves the attribution is on top and clickable;
 - under `prefers-reduced-motion: reduce` the right/bottom pans are instant (0ms,
   reaches the target within 3 frames) while the pulse stays static but visible;
   every other animation is unchanged;

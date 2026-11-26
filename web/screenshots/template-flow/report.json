@@ -5,6 +5,7 @@
     "3hop-topology-1440-dark.png",
     "hover-path-1440-dark.png",
     "hover-edge-1440-dark.png",
+    "tooltip-retained-1440-dark.png",
     "tooltip-1440-dark.png",
     "tooltip-unavailable-1440-dark.png",
     "zoom-100-1440-dark.png",
@@ -23,6 +24,7 @@
     "6hop-fit-1440-dark.png",
     "fold-target-before-1440-dark.png",
     "fold-target-after-1440-dark.png",
+    "bottom-hint-attribution-1440-dark.png",
     "dense-pills-hidden-1440-dark.png",
     "dense-pills-hover-1440-dark.png",
     "tooltip-pill-1440-dark.png",
@@ -76,12 +78,12 @@
       "touchAction": "pan-y",
       "foldCards": 0,
       "targetFolds": 2,
-      "firstPaintMs": 445,
+      "firstPaintMs": 582,
       "chunkTiming": {
-        "name": "ChainTemplateFlow-BbdEkzUo.js",
-        "durationMs": 126,
-        "transferSize": 57585,
-        "decodedBodySize": 186490
+        "name": "ChainTemplateFlow-Bv980Xj6.js",
+        "durationMs": 111,
+        "transferSize": 57697,
+        "decodedBodySize": 186881
       }
     },
     "hover": {
@@ -93,6 +95,44 @@
       "edgeDim": 14,
       "cardHot": 2,
       "cardDim": 10
+    },
+    "pillDim": {
+      "total": 15,
+      "visible": 15,
+      "dim": 14,
+      "hot": 1,
+      "dimEdgesWithPill": 14,
+      "mismatched": [],
+      "opacityMismatched": [],
+      "dimOpacity": 0.35,
+      "hotOpacity": 1
+    },
+    "tooltipRetention": {
+      "edgeId": "fold-edge:0:e:0:香港-01->h:1:东京-01",
+      "before": {
+        "groupHot": "true",
+        "groupOpacity": 1,
+        "pillHot": "true",
+        "pillOpacity": 1,
+        "cardHot": 2,
+        "cardDim": 10
+      },
+      "whileInTooltip": {
+        "groupHot": "true",
+        "groupOpacity": 1,
+        "pillHot": "true",
+        "pillOpacity": 1,
+        "cardHot": 2,
+        "cardDim": 10
+      },
+      "after": {
+        "groupHot": null,
+        "groupOpacity": 1,
+        "pillHot": null,
+        "pillOpacity": 1,
+        "cardHot": 0,
+        "cardDim": 0
+      }
     },
     "unavailablePill": {
       "text": "东京-01 → 洛杉矶-02时延最近已知 140 ms链数1用户数1"
@@ -179,6 +219,26 @@
       },
       "dom": 479
     },
+    "rightHintAttribution": {
+      "attributionZ": "6",
+      "fadeZ": [
+        "5"
+      ],
+      "rendererZ": "4",
+      "sameStackingContext": true,
+      "coveredByFade": 1,
+      "hitInsideAttribution": true,
+      "hitTag": "A",
+      "contentCovered": {
+        "x": 1144,
+        "y": 270,
+        "hitTag": "DIV",
+        "hitInsideFade": true
+      },
+      "linkText": "React Flow",
+      "linkWidth": 62,
+      "linkHeight": 16
+    },
     "rightHint": {
       "columns": 3,
       "truncated": 3,
@@ -200,6 +260,26 @@
       "fitZoom": 52,
       "hostHeight": 384,
       "canvasCap": 520
+    },
+    "bottomHintAttribution": {
+      "attributionZ": "6",
+      "fadeZ": [
+        "5"
+      ],
+      "rendererZ": "4",
+      "sameStackingContext": true,
+      "coveredByFade": 1,
+      "hitInsideAttribution": true,
+      "hitTag": "A",
+      "contentCovered": {
+        "x": 992,
+        "y": 670,
+        "hitTag": "DIV",
+        "hitInsideFade": true
+      },
+      "linkText": "React Flow",
+      "linkWidth": 62,
+      "linkHeight": 16
     },
     "foldTargets": {
       "before": {
@@ -265,22 +345,22 @@
     },
     "chunks": {
       "flowChunk": {
-        "file": "ChainTemplateFlow-BbdEkzUo.js",
-        "bytes": 186490
+        "file": "ChainTemplateFlow-Bv980Xj6.js",
+        "bytes": 186881
       },
       "mainChunk": {
-        "file": "index-MRPADtMm.js",
+        "file": "index-CsKr8nAz.js",
         "bytes": 447835
       },
       "latencyChunk": {
-        "file": "ChainLatencyView-DBGcaNeO.js",
+        "file": "ChainLatencyView-D_RNCXEM.js",
         "bytes": 116498
       }
     }
   },
   "fps": {
-    "pan": 60.1,
-    "zoom": 60.2,
+    "pan": 60,
+    "zoom": 60.3,
     "panFrames": 61,
     "zoomFrames": 61,
     "sampleMs": 1000,
@@ -290,6 +370,6 @@
   },
   "errors": [],
   "build": {
-    "generatedAt": "2026-11-26T10:38:53.961Z"
+    "generatedAt": "2026-11-26T11:25:41.340Z"
   }
 }

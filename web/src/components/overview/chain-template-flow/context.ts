@@ -17,7 +17,11 @@ export interface TemplateFlowInteraction {
   /** 当前 hover / focus 的连线 id（时延药丸 / 合并虚线）。 */
   activeEdgeId: string | null;
   activateEdge: (id: string) => void;
-  deactivateEdge: () => void;
+  /**
+   * 清除连线高亮。传 id 时只清自己：tooltip 关闭可能晚于下一条连线点亮，
+   * 不能把别人的高亮一起清掉。
+   */
+  deactivateEdge: (id?: string) => void;
   /** 当前悬停 / 聚焦的竖线 x：密集药丸只有这一条线默认显示。 */
   activeRail: number | null;
   activateRail: (railX: number) => void;

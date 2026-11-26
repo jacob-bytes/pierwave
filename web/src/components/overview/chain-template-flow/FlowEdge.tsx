@@ -1,4 +1,4 @@
-import { useContext } from "react";
+import { useContext, useRef } from "react";
 import { EdgeLabelRenderer, type EdgeProps } from "@xyflow/react";
 import {
   Tooltip,
@@ -106,6 +106,12 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
   const { t } = useI18n();
   const edge = (data as unknown as TemplateEdgeData | undefined)?.edge;
   const interaction = useContext(TemplateFlowInteractionContext);
+  // tooltip 打开期间保留高亮：指针从药丸 / 合并虚线移到 tooltip 上时不再
+  // 「tooltip 还开着、路径已经灭了」。ref 不参与渲染，避免 tooltip 开合
+  // 反过来重置 Radix 的开启计时。
+  const tooltipOpen = useRef(false);
+  const triggerRef = useRef<HTMLDivElement | null>(null);
+  const railHitRef = useRef<HTMLDivElement | null>(null);
   if (edge === undefined) return null;
   const hot = interaction?.highlight?.edges.has(edge.id) ?? false;
   const dimmed = interaction !== null && interaction.highlight !== null && !hot;
@@ -137,13 +143,33 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
   //
   // 这里会触发 context 更新，但药丸的 DOM 引用不变（同一个元素、同一个
   // TooltipTrigger），Radix 的开启计时不会被重置。
-  const onEdgeFocus = (): void => {
+  const activateHighlight = (): void => {
     interaction?.activateEdge(edge.id);
     if (dense && pill !== null) interaction?.activateRail(pill.x);
   };
-  const onEdgeBlur = (): void => {
-    interaction?.deactivateEdge();
+  const clearHighlight = (): void => {
+    interaction?.deactivateEdge(edge.id);
     if (dense) interaction?.deactivateRail();
+  };
+  const onEdgeBlur = (): void => clearHighlight();
+  // 指针离开药丸：tooltip 还开着就先留着高亮（指针多半正移向 tooltip）；
+  // tooltip 关闭时再统一清。没开 tooltip 时立刻清，悬停语义不变。
+  const onPointerLeaveEdge = (): void => {
+    if (tooltipOpen.current) return;
+    clearHighlight();
+  };
+  const onTooltipOpenChange = (open: boolean): void => {
+    tooltipOpen.current = open;
+    if (open) return;
+    // Esc 关闭时指针还停在药丸上：高亮留给 pointerleave，别闪一下。
+    if (triggerRef.current?.matches(":hover")) return;
+    // 下一条连线可能已经点亮（tooltip 关闭晚于新 tooltip 打开）：只清自己。
+    if (interaction?.activeEdgeId !== edge.id) return;
+    interaction.deactivateEdge(edge.id);
+    // 指针可能移回竖线命中带：命中带还悬着就让它自己的 leave 清。
+    if (dense && !railHitRef.current?.matches(":hover")) {
+      interaction.deactivateRail();
+    }
   };
 
   const edgePath = (
@@ -207,6 +233,7 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
       {dense && pill !== null ? (
         <EdgeLabelRenderer>
           <div
+            ref={railHitRef}
             data-template-flow-rail-hit
             data-rail={pill.x}
             aria-hidden="true"
@@ -227,9 +254,10 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
       ) : null}
       {pill === null && edge.merged ? (
         <EdgeLabelRenderer>
-          <Tooltip>
+          <Tooltip onOpenChange={onTooltipOpenChange}>
             <TooltipTrigger asChild>
               <div
+                ref={triggerRef}
                 data-template-flow-edge-trigger
                 tabIndex={0}
                 role="note"
@@ -238,9 +266,9 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
                 style={{
                   transform: `translate(-50%, -50%) translate(${edge.railX}px, ${(edge.y1 + edge.y2) / 2}px)`,
                 }}
-                onPointerEnter={onEdgeFocus}
-                onPointerLeave={onEdgeBlur}
-                onFocus={onEdgeFocus}
+                onPointerEnter={activateHighlight}
+                onPointerLeave={onPointerLeaveEdge}
+                onFocus={activateHighlight}
                 onBlur={onEdgeBlur}
               />
             </TooltipTrigger>
@@ -248,6 +276,7 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
               side="top"
               sideOffset={6}
               className="max-w-64 bg-foreground text-background"
+              onPointerEnter={activateHighlight}
             >
               <EdgeTooltip edge={edge} latency={latency} translate={t} />
             </TooltipContent>
@@ -256,15 +285,18 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
       ) : null}
       {pill !== null ? (
         <EdgeLabelRenderer>
-          <Tooltip>
+          <Tooltip onOpenChange={onTooltipOpenChange}>
             <TooltipTrigger asChild>
               <div
+                ref={triggerRef}
                 data-template-flow-pill
+                data-edge-id={edge.id}
                 data-status={edge.status}
                 data-unavailable={edge.unavailable ? "true" : "false"}
                 data-dense={edge.pillDense ? "true" : "false"}
                 data-pill-hidden={pillVisible ? "false" : "true"}
                 data-rail={pill.x}
+                data-hot={hotAttribute}
                 tabIndex={0}
                 role="note"
                 aria-label={aria}
@@ -272,10 +304,10 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
                   "template-flow-pill nodrag nopan transition-opacity duration-150",
                   !pillVisible && "pointer-events-none opacity-0",
                 )}
-                onFocusCapture={onEdgeFocus}
+                onFocusCapture={activateHighlight}
                 onBlurCapture={onEdgeBlur}
-                onPointerEnter={onEdgeFocus}
-                onPointerLeave={onEdgeBlur}
+                onPointerEnter={activateHighlight}
+                onPointerLeave={onPointerLeaveEdge}
                 style={{
                   transform: `translate(-50%, -50%) translate(${pill.x}px, ${pill.y}px)`,
                 }}
@@ -287,6 +319,7 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
               side="top"
               sideOffset={6}
               className="max-w-64 bg-foreground text-background"
+              onPointerEnter={activateHighlight}
             >
               <EdgeTooltip edge={edge} latency={latency} translate={t} />
             </TooltipContent>

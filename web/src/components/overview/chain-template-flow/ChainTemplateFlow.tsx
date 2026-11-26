@@ -72,7 +72,11 @@ const edgeTypes: EdgeTypes = { templateEdge: TemplateEdgeLayer };
 /** 移动端断点与 Tailwind `sm` 对齐：<640 不缩放，1 倍 + 横向滚动。 */
 const COMPACT_QUERY = "(max-width: 639px)";
 
-/** 「右侧 / 下方还有」按钮共用的外观：同尺寸、同焦点环。 */
+/**
+ * 「右侧 / 下方还有」按钮共用的外观：同尺寸、同焦点环。
+ * 与渐隐层同在 React Flow 根节点的 stacking context 里；z-20 高于署名
+ * （z-index 6），按钮永远可点。
+ */
 const HINT_BUTTON_CLASS =
   "absolute z-20 inline-flex items-center gap-0.5 rounded-full border border-border bg-background/90 px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-card backdrop-blur transition-colors duration-150 hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none";
 
@@ -149,7 +153,10 @@ function FlowCanvas({
       deactivate: () => setActiveId(null),
       activeEdgeId,
       activateEdge: (id: string) => setActiveEdgeId(id),
-      deactivateEdge: () => setActiveEdgeId(null),
+      deactivateEdge: (id?: string) =>
+        setActiveEdgeId((current) =>
+          id === undefined || current === id ? null : current,
+        ),
       activeRail,
       activateRail,
       deactivateRail,
@@ -450,72 +457,81 @@ function FlowCanvas({
                 size={1}
                 color="var(--border)"
               />
+              {/*
+               * 渐隐 / 平移提示放在 React Flow 根节点内部：署名
+               * （`.react-flow__attribution`）也在这个 stacking context 里，
+               * 只有同一层才能用 z-index 把署名抬到渐隐之上；放在根节点外面
+               * 时 z-10 会整块压暗右下角的署名（渐隐本身仍盖住画布内容）。
+               */}
+              {!compact && hiddenRight > 0 ? (
+                <>
+                  {/* 右缘渐隐：告诉用户画布在视口外还有内容，而不是图就到这里。 */}
+                  <div
+                    data-template-flow-fade
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 right-0 z-[5] w-20"
+                    style={{
+                      background:
+                        "linear-gradient(to left, var(--background), transparent)",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    data-template-flow-more
+                    data-columns={hiddenRight}
+                    data-pan-duration={panDuration}
+                    onClick={panRight}
+                    aria-label={translate(
+                      "overview.chainTemplateInsight.flowMoreColumnsAria",
+                      { n: hiddenRight },
+                    )}
+                    className={cn(HINT_BUTTON_CLASS, "right-2 bottom-7")}
+                  >
+                    <span>
+                      {translate("overview.chainTemplateInsight.flowMoreColumns", {
+                        n: hiddenRight,
+                      })}
+                    </span>
+                    <ChevronRightIcon aria-hidden="true" className="icon-sm" />
+                  </button>
+                </>
+              ) : null}
+              {!compact && hiddenBelow ? (
+                <>
+                  {/* 下缘渐隐：与右缘同构，画布高度被上限卡住时提示下方还有卡片。 */}
+                  <div
+                    data-template-flow-fade-below
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-16"
+                    style={{
+                      background:
+                        "linear-gradient(to top, var(--background), transparent)",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    data-template-flow-more-below
+                    data-pan-duration={panDuration}
+                    onClick={panBelow}
+                    aria-label={translate(
+                      "overview.chainTemplateInsight.flowMoreBelowAria",
+                    )}
+                    className={cn(
+                      HINT_BUTTON_CLASS,
+                      "bottom-2 left-1/2 -translate-x-1/2",
+                    )}
+                  >
+                    <span>
+                      {translate("overview.chainTemplateInsight.flowMoreBelow")}
+                    </span>
+                    <ChevronDownIcon aria-hidden="true" className="icon-sm" />
+                  </button>
+                </>
+              ) : null}
             </ReactFlow>
             </div>
           </TemplateFlowInteractionContext.Provider>
         </TooltipProvider>
-      ) : null}
-      {!compact && hiddenRight > 0 ? (
-        <>
-          {/* 右缘渐隐：告诉用户画布在视口外还有内容，而不是图就到这里。 */}
-          <div
-            data-template-flow-fade
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-0 z-10 w-20"
-            style={{
-              background:
-                "linear-gradient(to left, var(--background), transparent)",
-            }}
-          />
-          <button
-            type="button"
-            data-template-flow-more
-            data-columns={hiddenRight}
-            data-pan-duration={panDuration}
-            onClick={panRight}
-            aria-label={translate(
-              "overview.chainTemplateInsight.flowMoreColumnsAria",
-              { n: hiddenRight },
-            )}
-            className={cn(HINT_BUTTON_CLASS, "right-2 bottom-7")}
-          >
-            <span>
-              {translate("overview.chainTemplateInsight.flowMoreColumns", {
-                n: hiddenRight,
-              })}
-            </span>
-            <ChevronRightIcon aria-hidden="true" className="icon-sm" />
-          </button>
-        </>
-      ) : null}
-      {!compact && hiddenBelow ? (
-        <>
-          {/* 下缘渐隐：与右缘同构，画布高度被上限卡住时提示下方还有卡片。 */}
-          <div
-            data-template-flow-fade-below
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-16"
-            style={{
-              background:
-                "linear-gradient(to top, var(--background), transparent)",
-            }}
-          />
-          <button
-            type="button"
-            data-template-flow-more-below
-            data-pan-duration={panDuration}
-            onClick={panBelow}
-            aria-label={translate(
-              "overview.chainTemplateInsight.flowMoreBelowAria",
-            )}
-            className={cn(HINT_BUTTON_CLASS, "bottom-2 left-1/2 -translate-x-1/2")}
-          >
-            <span>
-              {translate("overview.chainTemplateInsight.flowMoreBelow")}
-            </span>
-            <ChevronDownIcon aria-hidden="true" className="icon-sm" />
-          </button>
-        </>
       ) : null}
     </div>
   );

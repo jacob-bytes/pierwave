@@ -906,6 +906,18 @@
   .template-flow-pill[data-status="offline"] {
     color: var(--destructive);
   }
+  /*
+   * 药丸跟着路径一起压暗：高亮时路径外的药丸压到 35%，与连线用同一个
+   * `data-hot` 口径、同一个 150ms 过渡；被点亮路径上的药丸保持正常对比度。
+   * 密集隐藏的药丸（`data-pill-hidden="true"`）仍由组件的 `opacity-0` 藏住，
+   * 不会被这条规则提前显示。
+   */
+  [data-template-flow-pill][data-hot="false"]:not([data-pill-hidden="true"]) {
+    opacity: 0.35;
+  }
+  [data-template-flow-pill][data-hot="true"] {
+    opacity: 1;
+  }
 
   /*
    * 触屏单指滚动弹窗：React Flow 默认给 pane 加 `touch-action: none`，
@@ -930,6 +942,11 @@
     background: transparent !important;
     font-size: 12px !important;
     padding: 0 4px;
+    /*
+     * 右缘 / 下缘渐隐在 React Flow 根节点内是 z-5（渐隐要盖住内容），署名是
+     * 同一层的 panel：抬到 z-6，平移到最下 / 最右时右下角仍可读、可点。
+     */
+    z-index: 6 !important;
   }
   .react-flow__attribution,
   .react-flow__attribution a {

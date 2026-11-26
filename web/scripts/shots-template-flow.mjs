@@ -5,14 +5,16 @@
 //   2) master 跑在 127.0.0.1:8787，且 admin 密码 devpass（隔离库 / 临时库都行）；
 //   3) 本脚本用 Playwright route 注入模板列表 / 详情 / 链路时延 mock，不依赖真实模板数据。
 //
-// 覆盖：3 跳 / 4 跳 / 6 跳、折叠 / 展开、hover 路径（卡片与连线）、卡片与药丸 /
-// 合并虚线 tooltip、100% / 50% / 150% 缩放、折叠上游后的目标 +N、密集药丸、390、
+// 覆盖：3 跳 / 4 跳 / 6 跳、折叠 / 展开、hover 路径（卡片与连线）、药丸随路径
+// 一起压暗、卡片与药丸 / 合并虚线 tooltip、指针移入 tooltip 时高亮保持、
+// 100% / 50% / 150% 缩放、折叠上游后的目标 +N、密集药丸、390、
 // 亮暗、空态、旧主控降级、reduced-motion；并断言每列可见卡 ≤5、首屏缩放 0.9–1
 // 且标题折算 ≥11.7px、列顶对齐 / 列距 80 / 卡片 192×64、右缘提示（按卡片右边缘
 // 计数，半截列计入）、下缘提示（内容超高时出现，平移到底后消失）、画布高度上限、
 // 滚轮不缩放、Ctrl/⌘ 滚轮缩放、拖拽不丢图、折叠只展开本列、Tab 可达、动画边 ≤10、
-// DOM ≤600、React Flow 署名 12px 中性 muted 灰；reduced-motion 下平移动画 0ms；
-// 平移 / 缩放各采样 1 秒 rAF 帧数（无头 ≥30fps，真机目标 ≥45fps）。
+// DOM ≤600、React Flow 署名 12px 中性 muted 灰、渐隐之上（z-index / 命中实测）；
+// reduced-motion 下平移动画 0ms；平移 / 缩放各采样 1 秒 rAF 帧数（无头 ≥30fps，
+// 真机目标 ≥45fps）。
 //
 // 用法：node web/scripts/shots-template-flow.mjs [baseUrl]
 // 环境变量：PLAYWRIGHT_MODULE / CHROME_PATH / OUT_DIR / ADMIN_PASSWORD / HEADED
@@ -788,6 +790,128 @@ function cardCountsByColumn(page) {
   });
 }
 
+/**
+ * 右下角署名的层级实测。渐隐层在 React Flow 根节点内 z-5，署名必须在同一个
+ * stacking context 里且有更高的 z-index。把渐隐临时改成可命中后调用
+ * elementFromPoint：如果署名画在渐隐之上，命中结果就是署名里的链接；
+ * 只改 pointer-events、不动视觉，测完立刻还原。
+ */
+async function attributionLayer(page) {
+  return page.evaluate(() => {
+    const attribution = document.querySelector(".react-flow__attribution");
+    const link = attribution?.querySelector("a") ?? null;
+    const fades = [
+      ...document.querySelectorAll(
+        "[data-template-flow-fade], [data-template-flow-fade-below]",
+      ),
+    ];
+    if (attribution === null || link === null || fades.length === 0) return null;
+    const rect = link.getBoundingClientRect();
+    const px = rect.left + rect.width / 2;
+    const py = rect.top + rect.height / 2;
+    const saved = fades.map((fade) => fade.style.pointerEvents);
+    fades.forEach((fade) => {
+      fade.style.pointerEvents = "auto";
+    });
+    const topmost = document.elementFromPoint(px, py);
+    // 「渐隐仍要覆盖内容」：找一块被渐隐压住的卡片区域，取该点最上层元素。
+    // 渐隐在 z-5、内容渲染层在 z-4，命中结果应是渐隐层而不是卡片。
+    let contentCovered = null;
+    for (const fade of fades) {
+      const fadeRect = fade.getBoundingClientRect();
+      for (const card of document.querySelectorAll("[data-template-flow-card]")) {
+        const rect = card.getBoundingClientRect();
+        const left = Math.max(fadeRect.left, rect.left);
+        const right = Math.min(fadeRect.right, rect.right);
+        const top = Math.max(fadeRect.top, rect.top);
+        const bottom = Math.min(fadeRect.bottom, rect.bottom);
+        if (right - left < 12 || bottom - top < 8) continue;
+        const x = (left + right) / 2;
+        const y = top + Math.min(4, (bottom - top) / 2);
+        const hit = document.elementFromPoint(x, y);
+        contentCovered = {
+          x: Math.round(x),
+          y: Math.round(y),
+          hitTag: hit?.tagName ?? null,
+          hitInsideFade:
+            hit !== null &&
+            fades.some((item) => item === hit || item.contains(hit)),
+        };
+        break;
+      }
+      if (contentCovered !== null) break;
+    }
+    fades.forEach((fade, index) => {
+      fade.style.pointerEvents = saved[index];
+    });
+    const flowRoot = attribution.closest(".react-flow");
+    const renderer = document.querySelector(".react-flow__renderer");
+    const coveredByFade = fades.filter((fade) => {
+      const box = fade.getBoundingClientRect();
+      return (
+        box.left <= px && px <= box.right && box.top <= py && py <= box.bottom
+      );
+    });
+    return {
+      attributionZ: getComputedStyle(attribution).zIndex,
+      fadeZ: fades.map((fade) => getComputedStyle(fade).zIndex),
+      rendererZ: renderer === null ? null : getComputedStyle(renderer).zIndex,
+      sameStackingContext:
+        flowRoot !== null &&
+        fades.every((fade) => fade.closest(".react-flow") === flowRoot),
+      coveredByFade: coveredByFade.length,
+      hitInsideAttribution: topmost !== null && attribution.contains(topmost),
+      hitTag: topmost?.tagName ?? null,
+      contentCovered,
+      linkText: (link.textContent ?? "").trim(),
+      linkWidth: Math.round(rect.width),
+      linkHeight: Math.round(rect.height),
+    };
+  });
+}
+
+function assertAttributionAboveFade(state, label) {
+  assert.ok(state !== null, `${label}：应能测到署名与渐隐层`);
+  assert.equal(state.attributionZ, "6", `${label}：署名 z-index 应为 6`);
+  for (const z of state.fadeZ) {
+    assert.equal(z, "5", `${label}：渐隐层 z-index 应为 5`);
+  }
+  assert.ok(
+    state.fadeZ.every((z) => Number(state.attributionZ) > Number(z)),
+    `${label}：署名应高于渐隐层（${state.attributionZ} vs ${state.fadeZ.join(",")}）`,
+  );
+  assert.ok(
+    state.sameStackingContext,
+    `${label}：署名与渐隐应在同一个 stacking context，z-index 才可比`,
+  );
+  assert.ok(
+    state.rendererZ !== null &&
+      state.fadeZ.every((z) => Number(z) > Number(state.rendererZ)),
+    `${label}：渐隐应盖在内容渲染层之上（${state.fadeZ.join(",")} vs ${state.rendererZ}）`,
+  );
+  assert.ok(
+    state.coveredByFade > 0,
+    `${label}：署名应落在渐隐覆盖范围内，测的才是覆盖关系`,
+  );
+  assert.ok(
+    state.hitInsideAttribution,
+    `${label}：署名应是该点最上层且可命中，实际命中 ${state.hitTag}`,
+  );
+  assert.ok(
+    state.contentCovered !== null,
+    `${label}：应能找到被渐隐覆盖的卡片区域`,
+  );
+  assert.ok(
+    state.contentCovered?.hitInsideFade,
+    `${label}：渐隐应盖住内容，实际命中 ${state.contentCovered?.hitTag}`,
+  );
+  assert.equal(state.linkText, "React Flow", `${label}：署名文案应保留`);
+  assert.ok(
+    state.linkWidth > 0 && state.linkHeight > 0,
+    `${label}：署名应有可点尺寸`,
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* 帧率采样：动作持续约 1 秒，用 rAF 计帧                                */
 /* ------------------------------------------------------------------ */
@@ -1084,10 +1208,159 @@ function assertFps(label, result) {
   assert.ok(edgeHot.edgeDim > 0, "hover 药丸应压暗其它连线");
   assert.ok(edgeHot.cardHot >= 2, "hover 药丸应点亮路径上的卡片");
   assert.ok(edgeHot.cardDim > 0, "hover 药丸应压暗路径外的卡片");
+  // 药丸跟着连线一起压暗：每颗药丸的 data-hot / 实测 opacity 都要与它自己
+  // 那条连线一致，压暗数量也要等于「有药丸的压暗连线」数。
+  const pillParity = await page.evaluate(() => {
+    const groups = new Map();
+    for (const edge of document.querySelectorAll("[data-template-flow-edge]")) {
+      const id = edge.getAttribute("data-edge-id");
+      const group = edge.closest("[data-template-flow-edge-group]");
+      if (id !== null && group !== null) groups.set(id, group);
+    }
+    const rows = [...document.querySelectorAll("[data-template-flow-pill]")].map(
+      (pill) => {
+        const edgeId = pill.getAttribute("data-edge-id");
+        const group = edgeId === null ? null : (groups.get(edgeId) ?? null);
+        const hidden = pill.getAttribute("data-pill-hidden") === "true";
+        return {
+          edgeId,
+          hidden,
+          pillHot: pill.getAttribute("data-hot"),
+          edgeHot: group?.getAttribute("data-hot") ?? null,
+          pillOpacity: Number(getComputedStyle(pill).opacity),
+          edgeOpacity:
+            group === null ? null : Number(getComputedStyle(group).opacity),
+        };
+      },
+    );
+    const visible = rows.filter((row) => !row.hidden);
+    const pillEdgeIds = new Set(rows.map((row) => row.edgeId));
+    const dimEdgesWithPill = [...groups.entries()].filter(
+      ([id, group]) =>
+        group.getAttribute("data-hot") === "false" && pillEdgeIds.has(id),
+    ).length;
+    return {
+      total: rows.length,
+      visible: visible.length,
+      dim: visible.filter((row) => row.pillHot === "false").length,
+      hot: visible.filter((row) => row.pillHot === "true").length,
+      dimEdgesWithPill,
+      mismatched: visible
+        .filter((row) => row.pillHot !== row.edgeHot)
+        .map((row) => row.edgeId),
+      opacityMismatched: visible
+        .filter((row) => Math.abs(row.pillOpacity - row.edgeOpacity) > 0.01)
+        .map((row) => ({
+          edgeId: row.edgeId,
+          pill: row.pillOpacity,
+          edge: row.edgeOpacity,
+        })),
+      dimOpacity: visible.find((row) => row.pillHot === "false")?.pillOpacity ?? null,
+      hotOpacity: visible.find((row) => row.pillHot === "true")?.pillOpacity ?? null,
+    };
+  });
+  assert.ok(pillParity.dim > 0, "hover 药丸时应压暗其它连线上的药丸");
+  assert.ok(pillParity.hot >= 1, "被点亮路径上的药丸应保持正常对比度");
+  assert.equal(
+    pillParity.mismatched.length,
+    0,
+    `药丸高亮应与连线一致：${pillParity.mismatched.join(", ")}`,
+  );
+  assert.equal(
+    pillParity.opacityMismatched.length,
+    0,
+    `药丸透明度应与连线一致：${JSON.stringify(pillParity.opacityMismatched)}`,
+  );
+  assert.equal(
+    pillParity.dim,
+    pillParity.dimEdgesWithPill,
+    `压暗药丸数应等于有药丸的压暗连线数：${JSON.stringify(pillParity)}`,
+  );
+  assert.equal(pillParity.dimOpacity, 0.35, "压暗药丸应与连线一样到 35%");
+  assert.equal(pillParity.hotOpacity, 1, "被点亮路径上的药丸应保持 100%");
   await shot(page.locator("[data-template-dialog]"), "hover-edge-1440-dark.png");
   report.assertions["edgeHover"] = edgeHot;
+  report.assertions["pillDim"] = pillParity;
   await page.mouse.move(5, 5);
   await page.waitForTimeout(300);
+
+  /* ---- 指针移入 tooltip：高亮保持，离开药丸与 tooltip 后统一清除 ---- */
+  const retainedPill = page.locator("[data-template-flow-pill]").first();
+  await retainedPill.hover();
+  const retainedTooltip = page.locator('[data-slot="tooltip-content"]').last();
+  await retainedTooltip.waitFor({ state: "visible" });
+  await page.waitForTimeout(250);
+  const retainedEdgeId = await retainedPill.getAttribute("data-edge-id");
+  assert.ok(retainedEdgeId !== null, "药丸应带 data-edge-id，才能与连线对齐");
+  const readHighlight = (edgeId) =>
+    page.evaluate((id) => {
+      const edge = [...document.querySelectorAll("[data-template-flow-edge]")].find(
+        (item) => item.getAttribute("data-edge-id") === id,
+      );
+      const group = edge?.closest("[data-template-flow-edge-group]") ?? null;
+      const pill =
+        [...document.querySelectorAll("[data-template-flow-pill]")].find(
+          (item) => item.getAttribute("data-edge-id") === id,
+        ) ?? null;
+      return {
+        groupHot: group?.getAttribute("data-hot") ?? null,
+        groupOpacity:
+          group === null ? null : Number(getComputedStyle(group).opacity),
+        pillHot: pill?.getAttribute("data-hot") ?? null,
+        pillOpacity:
+          pill === null ? null : Number(getComputedStyle(pill).opacity),
+        cardHot: document.querySelectorAll(
+          '[data-template-flow-card][data-hot="true"]',
+        ).length,
+        cardDim: document.querySelectorAll(
+          '[data-template-flow-card][data-hot="false"]',
+        ).length,
+      };
+    }, edgeId);
+  const beforeTooltipMove = await readHighlight(retainedEdgeId);
+  assert.equal(beforeTooltipMove.groupHot, "true", "hover 药丸应点亮这条连线");
+  const tooltipBox = await retainedTooltip.boundingBox();
+  assert.ok(tooltipBox !== null, "药丸 tooltip 应有可测的尺寸");
+  // 真实指针从药丸移到 tooltip 上：不应触发「tooltip 还开着、路径灭了」。
+  await page.mouse.move(
+    tooltipBox.x + tooltipBox.width / 2,
+    tooltipBox.y + tooltipBox.height / 2,
+    { steps: 8 },
+  );
+  await page.waitForTimeout(300);
+  assert.ok(await retainedTooltip.isVisible(), "指针移入 tooltip 后应保持打开");
+  const whileInTooltip = await readHighlight(retainedEdgeId);
+  assert.equal(whileInTooltip.groupHot, "true", "tooltip 打开期间连线高亮应保持");
+  assert.equal(whileInTooltip.pillHot, "true", "tooltip 打开期间药丸高亮应保持");
+  assert.equal(whileInTooltip.groupOpacity, 1, "高亮连线不应被压暗");
+  assert.equal(whileInTooltip.pillOpacity, 1, "高亮药丸不应被压暗");
+  assert.ok(whileInTooltip.cardDim > 0, "tooltip 打开期间其余卡片仍应压暗");
+  await page.screenshot({ path: path.join(OUT, "tooltip-retained-1440-dark.png") });
+  report.screenshots.push("tooltip-retained-1440-dark.png");
+  console.log("saved tooltip-retained-1440-dark.png");
+  report.assertions["tooltipRetention"] = {
+    edgeId: retainedEdgeId,
+    before: beforeTooltipMove,
+    whileInTooltip,
+  };
+  // 离开药丸与 tooltip：高亮统一清除，不残留到下一次 hover。用连续指针
+  // 移动（而不是瞬移）：Radix 在离开 tooltip 后要靠后续 pointermove 才关闭。
+  await page.mouse.move(5, 5, { steps: 12 });
+  await page.waitForTimeout(500);
+  const afterTooltipLeave = await readHighlight(retainedEdgeId);
+  assert.equal(
+    afterTooltipLeave.groupHot,
+    null,
+    "离开药丸与 tooltip 后应清除连线高亮",
+  );
+  assert.equal(
+    afterTooltipLeave.pillHot,
+    null,
+    "离开药丸与 tooltip 后应清除药丸高亮",
+  );
+  assert.equal(afterTooltipLeave.cardHot, 0, "离开后不应残留高亮卡片");
+  assert.ok(await retainedTooltip.isHidden(), "离开后 tooltip 应关闭");
+  report.assertions["tooltipRetention"].after = afterTooltipLeave;
 
   /* ---- tooltip ---- */
   await page.mouse.move(5, 5);
@@ -1596,6 +1869,10 @@ function assertFps(label, result) {
   await more.waitFor({ state: "visible", timeout: 5000 });
   const moreColumns = Number(await more.getAttribute("data-columns"));
   assert.ok(moreColumns > 0, `右侧提示应有列数，实际 ${moreColumns}`);
+  // 右缘渐隐不能把右下角的署名压暗：署名在同一个 stacking context 里更高。
+  const attributionRight = await attributionLayer(page);
+  assertAttributionAboveFade(attributionRight, "右缘提示");
+  report.assertions["rightHintAttribution"] = attributionRight;
   // 计数口径：按列内卡片的右边缘是否超出视口，半截露出的列也要计入。
   const rightEdges = await page.evaluate(() => {
     const host = document.querySelector("[data-template-flow]");
@@ -1783,6 +2060,14 @@ function assertFps(label, result) {
   assert.ok(belowState.overflow > 1, `下方应还有内容，溢出 ${belowState.overflow}px`);
   assert.equal(belowState.duration, "220", "正常动效下平移 220ms");
   assert.equal(belowState.fade, 1, "底部提示应带下缘渐隐");
+  // 下缘渐隐同样只盖内容：署名在渐隐之上，保持可读、可点。
+  const attributionBelow = await attributionLayer(page);
+  assertAttributionAboveFade(attributionBelow, "下缘提示");
+  report.assertions["bottomHintAttribution"] = attributionBelow;
+  await shot(
+    page.locator("[data-template-topology-card]"),
+    "bottom-hint-attribution-1440-dark.png",
+  );
   await below.click();
   await page.waitForTimeout(350);
   const afterOneBelow = await page.evaluate(() => ({

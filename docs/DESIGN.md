@@ -108,9 +108,11 @@ column or its minimum width — do not shrink the text back.
 内容再大也停在 0.9，此时 13px 标题的实际字号仍有 **11.7px**。列间距 **80px**，
 卡片 **192×64**；画布高度上限 **min(640px, 视口高度 × 0.52)**，避免把弹窗撑到看不见标题。
 0.9 下右侧仍有列时，画布右缘渐隐并显示「右侧还有 N 列」，点击平移一屏；
-缩放或平移后提示消失或更新。同一竖线超过 **6 个**时延药丸默认隐藏，悬停该竖线
-或聚焦药丸才显示。交互缩放范围 0.4–1.6（按钮按 25% 整档步进，「适应窗口」可以低于
-0.9）。**触屏只保留按钮缩放；Safari 的捏合手势未验证**，不承诺画布内双指缩放。
+缩放或平移后提示消失或更新。内容超出画布时右侧与下方都有渐隐提示与平移按钮，
+渐隐只盖内容，右下角的 React Flow 署名始终在渐隐之上、保持可读可点。同一竖线
+超过 **6 个**时延药丸默认隐藏，悬停该竖线或聚焦药丸才显示。交互缩放范围
+0.4–1.6（按钮按 25% 整档步进，「适应窗口」可以低于 0.9）。**触屏只保留按钮
+缩放；Safari 的捏合手势未验证**，不承诺画布内双指缩放。
 React Flow 的署名保留，**12px + 中性 muted 灰**（不跟随强调色），不隐藏，也不低于 11px。
 
 **English**: Type inside the topology canvas (React Flow) is measured at **100%
@@ -123,13 +125,16 @@ Columns are **80px** apart with **192×64** cards; the canvas height is capped a
 **min(640px, viewport height × 0.52)** so it never pushes the dialog title off
 screen. When columns still overflow at 0.9, the right edge fades and shows
 "{n} more columns"; clicking pans one screen, and the hint updates or disappears
-after zoom/pan. More than **6** latency pills on one vertical rail are hidden by
-default and appear on rail hover or pill focus. Interactive zoom is 0.4–1.6 (the
-buttons step in whole 25% steps; "Fit to view" may go below 0.9). **Touch devices
-keep button zoom only; Safari pinch gestures are unverified**, so in-canvas
-two-finger zoom is not promised. The React Flow attribution stays visible at
-**12px in neutral muted grey** (never the accent colour), never hidden, never
-below 11px.
+after zoom/pan. When content overflows, both the right edge and the bottom edge
+get a fade hint and a pan button; the fades cover only the content, so the
+React Flow attribution in the bottom-right corner always stays above them and
+remains readable and clickable. More than **6** latency pills on one vertical
+rail are hidden by default and appear on rail hover or pill focus. Interactive
+zoom is 0.4–1.6 (the buttons step in whole 25% steps; "Fit to view" may go below
+0.9). **Touch devices keep button zoom only; Safari pinch gestures are
+unverified**, so in-canvas two-finger zoom is not promised. The React Flow
+attribution stays visible at **12px in neutral muted grey** (never the accent
+colour), never hidden, never below 11px.
 
 ## 四、动效（「灵动」的唯一来源）
 

@@ -933,18 +933,44 @@ test("画布收尾：底部提示 / 减弱动效平移 / 折叠卡跳数 / 连�
   // 连线 hover / focus 点亮到入口：与卡片同一个 highlight 集合。
   assertIncludes(
     flowContext,
-    ["activeEdgeId", "activateEdge", "deactivateEdge"],
+    ["activeEdgeId", "activateEdge", "deactivateEdge", "id?: string"],
     "edge interaction context",
   );
   assertIncludes(
     flowEdge,
     [
       "activateEdge(edge.id)",
-      "deactivateEdge()",
-      "onPointerEnter={onEdgeFocus}",
-      "onFocus={onEdgeFocus}",
+      "deactivateEdge(edge.id)",
+      "onPointerEnter={activateHighlight}",
+      "onFocus={activateHighlight}",
+      "onOpenChange={onTooltipOpenChange}",
+      'matches(":hover")',
+      "data-hot={hotAttribute}",
+      "data-edge-id={edge.id}",
     ],
     "edge highlight wiring",
+  );
+  // 药丸跟着路径一起压暗：与连线共用 data-hot，隐藏的密集药丸不被提前显示。
+  assertIncludes(
+    css,
+    [
+      '[data-template-flow-pill][data-hot="false"]:not([data-pill-hidden="true"])',
+      '[data-template-flow-pill][data-hot="true"]',
+    ],
+    "pill dim styling",
+  );
+  // 渐隐层必须留在 React Flow 根节点内（与署名同一个 stacking context），
+  // 署名再抬到 z-6，才能既盖内容又不压暗署名。
+  assert.ok(
+    flowCanvas.indexOf("data-template-flow-fade-below") <
+      flowCanvas.indexOf("</ReactFlow>"),
+    "fade layers must live inside the React Flow root",
+  );
+  assertIncludes(flowCanvas, ["z-[5]"], "fade z-index inside the flow root");
+  assertIncludes(
+    css,
+    [".react-flow__attribution {", "z-index: 6 !important;"],
+    "attribution stacking",
   );
   assertIncludes(
     graphLib,
