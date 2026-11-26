@@ -485,6 +485,24 @@
 }
 
 /*
+ * 指针模态下不画焦点环。
+ *
+ * Chromium 在鼠标点击 tab / 文本输入框后仍会让 activeElement 匹配
+ * `:focus-visible`，2px 焦点环会被误读成「选中态」（概览的子 tab 尤其明显）。
+ * `data-input` 由 `web/src/lib/inputModality.ts` 全局维护：
+ * pointerdown → pointer，keydown → keyboard。键盘模态下本规则不匹配，
+ * 上面那条统一焦点环照常生效，Tab / 方向键导航不会失去焦点提示。
+ *
+ * 不限定元素类型，是为了让登录页输入框也遵守同一口径；Tailwind 的 ring
+ * 走 box-shadow，只关 outline 会留下第二圈蓝，所以把 ring 的变量一起清零。
+ */
+html[data-input="pointer"] :focus-visible {
+  outline: none;
+  --tw-ring-shadow: 0 0 #0000;
+  --tw-inset-ring-shadow: 0 0 #0000;
+}
+
+/*
  * 横向可滚动表格要让人「看得见」还有内容：
  * 显式画出一条细滚动条（macOS 默认会隐藏），并让容器始终可横向拖动。
  */

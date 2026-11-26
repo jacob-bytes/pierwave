@@ -9,7 +9,10 @@ import {
 import { useI18n, type TFunction } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { FoldedCard } from "@/lib/chainTemplateGraph";
-import type { ChainTemplateMemberStatus } from "@/lib/chainTemplateInsight";
+import {
+  templateFlowCountKey,
+  type ChainTemplateMemberStatus,
+} from "@/lib/chainTemplateInsight";
 import { TemplateFlowInteractionContext } from "./context";
 
 export type TemplateCardData = {
@@ -147,10 +150,10 @@ function roleLabel(card: FoldedCard, translate: TFunction): string {
 }
 
 function cardTexts(card: FoldedCard, translate: TFunction) {
-  const chains = translate("overview.chainTemplateInsight.flowChains", {
+  const chains = translate(templateFlowCountKey("chains", card.chains), {
     n: card.chains,
   });
-  const users = translate("overview.chainTemplateInsight.usersValue", {
+  const users = translate(templateFlowCountKey("users", card.users), {
     n: card.users,
   });
   if (card.kind === "fold") {
@@ -161,9 +164,10 @@ function cardTexts(card: FoldedCard, translate: TFunction) {
           })}`
         : "";
     return {
-      title: translate("overview.chainTemplateInsight.flowFoldMembers", {
-        n: card.hidden,
-      }),
+      title: translate(
+        templateFlowCountKey("foldMembers", card.hidden),
+        { n: card.hidden },
+      ),
       // 折叠卡先保留链数与用户数，再补离线台数：副标题不能只剩「含 N 台离线」。
       // 不写角色（+N 台已经在标题里），192px 宽才放得下完整的离线台数。
       subtitle: `${chains} · ${users}${offline}`,
@@ -219,7 +223,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
         type="button"
         data-template-flow-target-fold
         data-count={card.hidden}
-        aria-label={t("overview.chainTemplateInsight.flowTargetFoldAria", {
+        aria-label={t(templateFlowCountKey("targetFoldAria", card.hidden), {
           n: card.hidden,
         })}
         onClick={(event) => {
@@ -228,7 +232,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
         }}
         className="ml-auto inline-flex shrink-0 items-center rounded-full border border-border px-1.5 py-0.5 text-xs leading-none text-foreground transition-colors duration-150 hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
       >
-        {t("overview.chainTemplateInsight.flowFoldTargets", {
+        {t(templateFlowCountKey("foldTargets", card.hidden), {
           n: card.hidden,
         })}
       </button>

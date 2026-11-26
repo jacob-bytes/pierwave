@@ -3,10 +3,11 @@
 ## 中文
 
 这组截图覆盖转发链模板详情里的 React Flow 拓扑画布：3 / 4 / 6 跳、折叠与展开、
-每列顶部的列头（列名 + `4 / 7 台`）、卡片与连线 hover 路径（药丸跟着一起压暗）、
-时延药丸 tooltip 与「指针移入 tooltip 时高亮保持」、100% / 50% / 150% 缩放、
-右缘 / 下缘「还有内容」提示（含渐隐之上的署名）、390、亮暗、空态、旧主控降级、
-reduced-motion 与平移 / 缩放帧率。
+每列顶部的列头（列名 + `4 / 7 台`，细线距卡片 6px、列名/计数对比度实测）、
+卡片与连线 hover 路径（药丸跟着一起压暗）、时延药丸 tooltip 与「指针移入
+tooltip 时高亮保持」、100% / 50% / 150% 缩放、右缘 / 下缘「还有内容」提示
+（含渐隐之上的署名）、390、亮暗、英文单数（`1 node` / `1 target` /
+`1 chain · 1 user`）、空态、旧主控降级、reduced-motion 与平移 / 缩放帧率。
 
 ### 数据来源
 
@@ -16,11 +17,13 @@ reduced-motion 与平移 / 缩放帧率。
 - 3 跳模板含降级 / 离线成员与 6 个目标；4 跳与 6 跳覆盖折叠卡与多列
   （6 跳 = 入口 + 6 个中转 + 目标，共 8 列，首屏必须整图可见）；
   「6 台 × 3 目标」模板覆盖上游被折叠时的目标 `+N` 展开；「8 台」模板在展开后
-  覆盖同一竖线超过 6 个药丸的密集隐藏；空模板没有任何链；旧主控用详情接口 404 模拟。
+  覆盖同一竖线超过 6 个药丸的密集隐藏；「4 跳单台」模板入口 1 台、目标 1 个，
+  用来验证英文单数；空模板没有任何链；旧主控用详情接口 404 模拟。
 - 主控库里至少要有一台服务器（否则总览是「新装空态」，不会渲染转发链 tab）。
 - 每次运行会把断言结果写到本目录的 `report.json`（截图清单、缩放、每列卡片数、
-  列头数量与文案、字体大小、tooltip、右缘 / 下缘提示、帧率、chunk 大小等）；
-  帧率在 `fps.pan` / `fps.zoom`，同时记录采样帧数、目标值与无头门槛。
+  列头数量与文案、列头细线间距 / 列名与计数对比度、英文单数、字体大小、tooltip、
+  右缘 / 下缘提示、帧率、chunk 大小等）；帧率在 `fps.pan` / `fps.zoom`，
+  同时记录采样帧数、目标值与无头门槛。
 
 ### 复现命令
 
@@ -69,6 +72,13 @@ node web/scripts/shots-template-flow.mjs
 
 - `3hop-1440-dark.png` / `3hop-1440-light.png`：字号、列距、署名颜色，以及
   每列顶部的列头（列名 + 台数 / 目标数，折叠列写 `4 / 6 台`）；
+- `column-header-closeup-1440-dark.png` / `column-header-closeup-1440-light.png`：
+  100% 下的列头特写：文字 → 细线 → 6px → 卡片，亮暗各一张；
+- `column-header-gap-6px-1440-dark.png`：同一特写加临时标尺，直接标出细线到
+  卡片顶边的 6px；
+- `singular-en-1440-dark.png`、`singular-entry-en-1440-dark.png`、
+  `singular-target-en-1440-dark.png`：英文单数入口列 `1 node`、目标列
+  `1 target`，卡片副标题 `1 chain · 1 user`，弹窗徽标 `1 chain` / `1 user`；
 - `4hop-1440-dark.png`：5 列首屏整图可见（fit 约 73%），折叠列头显示
   `4 / 7 台`，缩放栏给出「已缩小到 X%，可点击 + 放大」提示；
 - `6hop-1440-dark.png` / `6hop-fit-hint-1440-dark.png`：8 列（含 8 个列头）
@@ -110,6 +120,14 @@ node web/scripts/shots-template-flow.mjs
   列间距 80px、卡片 192×64；列头文案按「目标列 `4 / 6 个`、其余列 `4 / 7 台`」，
   折叠时写 `shown / total`，只有一个时写单数；列头不可 Tab / 点击、不参与高亮
   （卡片被压暗时仍是不透明 1）、卡片计数不含列头；空模板不渲染列头；
+- 列头细线到卡片顶边实测 6px（100% 与 fit 缩放都换算回画布坐标断言），
+  文字到细线约 4px；列名与计数同色（`text-muted-foreground`），列名
+  `font-medium`(500)、计数 400，两者对卡片背景的实测对比度亮色 / 暗色都 ≥ 4.5:1
+  （`report.json` 的 `headerStyle` / `headerStyleLight` / `headerStyleAt100`）；
+- 英文单数：4 跳单台夹具的入口列写 `1 node`、目标列写 `1 target`（不是
+  nodes / targets），卡片副标题 `1 chain · 1 user`、弹窗徽标 `1 chain` /
+  `1 user`；`+1 target` / `+1 node` 由单测覆盖键选择，中文文案保持
+  「1 条链 · 1 用户」；
 - 所有连线宽度 1.5–4（按链数），脉冲亮划 = 0.7 × 线宽且不粗于线，连接点
   半径 2、描边 1.2；
 - 首屏整图可见时右缘 / 下缘提示都不出现；放大到 125% 后提示重新出现，且按
@@ -150,10 +168,12 @@ node web/scripts/shots-template-flow.mjs
 
 These screenshots cover the React Flow topology canvas in the chain-template
 detail dialog: 3 / 4 / 6 hops, folding and expanding, the per-column headers
-(name + `4 / 7 nodes`), card and link hover paths (pills dim with the path),
-latency-pill tooltips and the highlight staying lit while the pointer is over a
-tooltip, 100% / 50% / 150% zoom, the right/bottom "more content" hints (with the
-attribution above the fade), 390px, light/dark, empty state, old-controller
+(name + `4 / 7 nodes`, the rule 6px above the cards, measured name/count
+contrast), card and link hover paths (pills dim with the path), latency-pill
+tooltips and the highlight staying lit while the pointer is over a tooltip,
+100% / 50% / 150% zoom, the right/bottom "more content" hints (with the
+attribution above the fade), 390px, light/dark, English singulars
+(`1 node` / `1 target` / `1 chain · 1 user`), empty state, old-controller
 fallback, reduced motion and pan / zoom frame rates.
 
 ### Where the data comes from
@@ -167,15 +187,16 @@ fallback, reduced motion and pan / zoom frame rates.
   intermediate hops + target, 8 columns, all visible on the first screen); the "6 nodes × 3
   targets" fixture covers expanding target `+N` groups whose upstream member is
   folded; the "8 nodes" fixture covers hiding more than 6 pills on one rail
-  after expanding; the empty fixture has no chains; the old-controller case is a
-  404 detail response.
+  after expanding; the "4-hop single" fixture has exactly one entry and one
+  target for the English singular checks; the empty fixture has no chains; the
+  old-controller case is a 404 detail response.
 - The controller database needs at least one server, otherwise the overview
   stays in the "new install" empty state and never renders the chain tabs.
 - Every run writes `report.json` in this directory (screenshot list, zoom,
-  per-column card counts, header count and copy, font sizes, tooltips, overflow
-  hints, frame rates, chunk sizes, …); frame rates live in `fps.pan` /
-  `fps.zoom` together with the sampled frame counts, the target and the
-  headless floor.
+  per-column card counts, header count and copy, rule-to-card gap and measured
+  name/count contrast, English singulars, font sizes, tooltips, overflow hints,
+  frame rates, chunk sizes, …); frame rates live in `fps.pan` / `fps.zoom`
+  together with the sampled frame counts, the target and the headless floor.
 
 ### Reproduce
 
@@ -229,6 +250,14 @@ back to `import("playwright")` — no hard-coded npx hash directory.
 - `3hop-1440-dark.png` / `3hop-1440-light.png`: type sizes, column gap,
   attribution colour and the per-column headers (name + node/target count,
   `4 / 6 nodes` on the folded target column);
+- `column-header-closeup-1440-dark.png` / `column-header-closeup-1440-light.png`:
+  the header at 100% — text → rule → 6px → card — in both themes;
+- `column-header-gap-6px-1440-dark.png`: the same close-up with a temporary
+  ruler marking the 6px between the rule and the card top;
+- `singular-en-1440-dark.png`, `singular-entry-en-1440-dark.png`,
+  `singular-target-en-1440-dark.png`: English singulars `1 node` (entry),
+  `1 target` (target), card subtitle `1 chain · 1 user`, dialog badges
+  `1 chain` / `1 user`;
 - `4hop-1440-dark.png`: five columns fully visible on the first screen (fit ≈
   73%), folded headers read `4 / 7 nodes`, plus the "Zoomed to {percent}%; use +
   to zoom in" hint;
@@ -285,6 +314,17 @@ report is written):
   one is shown; headers are not tabbable or clickable, never highlighted (still
   opacity 1 while cards dim), and the card count excludes them; the empty
   template renders no headers;
+- the header rule is 6px above the card top (asserted at both 100% and fit zoom
+  after converting back to canvas coordinates) and about 4px below the text;
+  name and count share the same colour (`text-muted-foreground`), the name uses
+  `font-medium` (500) and the count 400, and both measure ≥ 4.5:1 against the
+  card background in both themes (`headerStyle` / `headerStyleLight` /
+  `headerStyleAt100` in `report.json`);
+- English singulars: the 4-hop single fixture renders `1 node` on the entry
+  column and `1 target` on the target column (never nodes / targets), the card
+  subtitle is `1 chain · 1 user` and the dialog badges read `1 chain` /
+  `1 user`; `+1 target` / `+1 node` key selection is covered by unit tests and
+  the Chinese copy stays 「1 条链 · 1 用户」;
 - every link is 1.5–4px wide by chain count, the pulse stroke is 0.7× the link
   width and never wider than the link, and connection dots are r 2 with a 1.2
   stroke;

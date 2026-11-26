@@ -1,7 +1,11 @@
 import { memo } from "react";
 import type { NodeProps } from "@xyflow/react";
 import { useI18n, type TFunction } from "@/i18n";
-import type { TemplateLayoutHeader } from "@/lib/chainTemplateGraph";
+import {
+  TEMPLATE_COLUMN_LABEL_PADDING,
+  TEMPLATE_COLUMN_RULE_GAP,
+  type TemplateLayoutHeader,
+} from "@/lib/chainTemplateGraph";
 
 export type TemplateHeaderData = {
   header: TemplateLayoutHeader;
@@ -60,7 +64,9 @@ function headerCount(
 /**
  * 每列顶部的只读列头：`第 1 跳` + `4 / 7 台`，底下一条 1px 分隔线。
  *
- * 左边缘与卡片对齐（没有卡片那 12px 内缩），12px muted、数量更淡。
+ * 左边缘与卡片对齐（没有卡片那 12px 内缩），12px muted；列名与计数同色，
+ * 只靠字重区分（列名 500 / 计数 400）。细线距卡片顶边 6px，列头 32px
+ * 高度与卡片 y=56 不变，视觉顺序是「文字 → 细线 → 6px → 卡片」。
  * 它是 React Flow 的节点，所以随画布缩放 / 平移；但 `aria-hidden`、
  * `pointer-events: none`、节点不可聚焦不可选，不参与 hover 高亮，
  * 也不带卡片标记，卡片计数与 Tab 顺序都不受影响。
@@ -78,21 +84,23 @@ export const TemplateColumnHeaderNode = memo(function TemplateColumnHeaderNode({
       data-shown={header.shown}
       data-total={header.total}
       aria-hidden="true"
-      className="relative flex h-full w-full items-end gap-1.5 pb-1 text-xs leading-none text-muted-foreground"
+      className="relative flex h-full w-full items-end gap-1.5 text-xs leading-none text-muted-foreground"
+      style={{ paddingBottom: TEMPLATE_COLUMN_LABEL_PADDING }}
     >
-      <span data-template-flow-column-label className="truncate">
+      <span data-template-flow-column-label className="truncate font-medium">
         {headerLabel(header, t)}
       </span>
       <span
         data-template-flow-column-count
-        className="shrink-0 text-muted-foreground/50 tabular-nums"
+        className="shrink-0 text-muted-foreground tabular-nums"
       >
         {headerCount(header, t)}
       </span>
       <span
         data-template-flow-column-rule
         aria-hidden="true"
-        className="absolute inset-x-0 bottom-0 h-px bg-border"
+        className="absolute inset-x-0 h-px bg-border"
+        style={{ bottom: TEMPLATE_COLUMN_RULE_GAP }}
       />
     </div>
   );

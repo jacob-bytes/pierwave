@@ -9,10 +9,16 @@
     "tooltip-1440-dark.png",
     "tooltip-unavailable-1440-dark.png",
     "zoom-100-1440-dark.png",
+    "column-header-closeup-1440-dark.png",
+    "column-header-gap-6px-1440-dark.png",
     "zoom-50-1440-dark.png",
     "zoom-150-1440-dark.png",
     "3hop-1440-light.png",
+    "column-header-closeup-1440-light.png",
     "zoom-bar-1440-dark-en.png",
+    "singular-en-1440-dark.png",
+    "singular-entry-en-1440-dark.png",
+    "singular-target-en-1440-dark.png",
     "4hop-1440-dark.png",
     "collapsed-1440-dark.png",
     "expanded-1440-dark.png",
@@ -100,6 +106,26 @@
           "count": "4 / 6 个"
         }
       ]
+    },
+    "headerStyle": {
+      "column": "0",
+      "zoom": 0.92,
+      "headerTop": 24,
+      "headerHeight": 32,
+      "cardTop": 56,
+      "ruleToCardGap": 6,
+      "labelToRuleGap": 4,
+      "ruleHeight": 1,
+      "labelColor": "oklch(0.7 0.015 285)",
+      "countColor": "oklch(0.7 0.015 285)",
+      "labelWeight": "500",
+      "countWeight": "400",
+      "fontSize": 12,
+      "cardBackground": "oklch(0.175 0.005 285)",
+      "contrastLabel": 7.08,
+      "contrastCount": 7.08,
+      "labelText": "入口",
+      "countText": "2 台"
     },
     "edgeWidths": {
       "widths": [
@@ -192,12 +218,12 @@
       "touchAction": "pan-y",
       "foldCards": 0,
       "targetFolds": 2,
-      "firstPaintMs": 463,
+      "firstPaintMs": 437,
       "chunkTiming": {
-        "name": "ChainTemplateFlow-a-9nufwq.js",
-        "durationMs": 249,
-        "transferSize": 57984,
-        "decodedBodySize": 188496
+        "name": "ChainTemplateFlow-oXNx7TVF.js",
+        "durationMs": 119,
+        "transferSize": 57995,
+        "decodedBodySize": 188427
       }
     },
     "headerHover": {
@@ -263,6 +289,31 @@
       "pill": 12,
       "attribution": 12
     },
+    "headerStyleAt100": {
+      "column": "0",
+      "zoom": 1,
+      "headerTop": 24,
+      "headerHeight": 32,
+      "cardTop": 56,
+      "ruleToCardGap": 6,
+      "labelToRuleGap": 4,
+      "ruleHeight": 1,
+      "labelColor": "oklch(0.7 0.015 285)",
+      "countColor": "oklch(0.7 0.015 285)",
+      "labelWeight": "500",
+      "countWeight": "400",
+      "fontSize": 12,
+      "cardBackground": "oklch(0.175 0.005 285)",
+      "contrastLabel": 7.08,
+      "contrastCount": 7.08,
+      "labelText": "入口",
+      "countText": "2 台"
+    },
+    "headerGapAnnotation": {
+      "gap": 6,
+      "ruleBottom": 291,
+      "cardTop": 297
+    },
     "zoomButtons": {
       "50": true,
       "100": true,
@@ -299,6 +350,26 @@
       "color": "oklch(0.52 0 265.1)",
       "rgb": null
     },
+    "headerStyleLight": {
+      "column": "0",
+      "zoom": 1,
+      "headerTop": 24,
+      "headerHeight": 32,
+      "cardTop": 56,
+      "ruleToCardGap": 6,
+      "labelToRuleGap": 4,
+      "ruleHeight": 1,
+      "labelColor": "oklch(0.52 0.035 265.1)",
+      "countColor": "oklch(0.52 0.035 265.1)",
+      "labelWeight": "500",
+      "countWeight": "400",
+      "fontSize": 12,
+      "cardBackground": "oklch(1 0 0)",
+      "contrastLabel": 5.51,
+      "contrastCount": 5.51,
+      "labelText": "入口",
+      "countText": "2 台"
+    },
     "enHeaders": [
       {
         "column": 0,
@@ -326,6 +397,55 @@
       "zoom": "92%",
       "aria": "香港-01, Entry, Online, 6 chains, 4 users",
       "fitHint": "Zoomed to 75%; use + to zoom in"
+    },
+    "enSingular": {
+      "headers": [
+        {
+          "column": 0,
+          "role": "entry",
+          "label": "Entry",
+          "count": "1 node"
+        },
+        {
+          "column": 1,
+          "role": "hop",
+          "label": "Hop 1",
+          "count": "1 node"
+        },
+        {
+          "column": 2,
+          "role": "hop",
+          "label": "Hop 2",
+          "count": "1 node"
+        },
+        {
+          "column": 3,
+          "role": "hop",
+          "label": "Hop 3",
+          "count": "1 node"
+        },
+        {
+          "column": 4,
+          "role": "target",
+          "label": "Target",
+          "count": "1 target"
+        }
+      ],
+      "entry": "1 node",
+      "target": "1 target",
+      "meta": [
+        "4 hops",
+        "1 chain",
+        "1 user"
+      ],
+      "cardSubtitle": "1 chain · 1 user",
+      "cardSubtitles": [
+        "1 chain · 1 user",
+        "1 chain · 1 user",
+        "1 chain · 1 user",
+        "1 chain · 1 user",
+        "1 chain · 1 user"
+      ]
     },
     "columnHeaders4hop": [
       {
@@ -575,23 +695,23 @@
     },
     "chunks": {
       "flowChunk": {
-        "file": "ChainTemplateFlow-BAuxtqwC.js",
-        "bytes": 188496
+        "file": "ChainTemplateFlow-oXNx7TVF.js",
+        "bytes": 188427
       },
       "mainChunk": {
-        "file": "index-CeMO-Nu3.js",
-        "bytes": 447786
+        "file": "index-zTBw5NJi.js",
+        "bytes": 448222
       },
       "latencyChunk": {
-        "file": "ChainLatencyView-D7mCnN5t.js",
-        "bytes": 123092
+        "file": "ChainLatencyView-BDIcfhnQ.js",
+        "bytes": 123065
       }
     }
   },
   "fps": {
-    "pan": 60.1,
+    "pan": 60,
     "zoom": 60,
-    "panFrames": 61,
+    "panFrames": 60,
     "zoomFrames": 61,
     "sampleMs": 1000,
     "target": 45,
@@ -600,6 +720,6 @@
   },
   "errors": [],
   "build": {
-    "generatedAt": "2026-11-26T12:44:58.912Z"
+    "generatedAt": "2026-11-26T13:26:16.709Z"
   }
 }

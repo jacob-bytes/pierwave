@@ -10,7 +10,9 @@
 // 100% / 50% / 150% 缩放、折叠上游后的目标 +N、密集药丸、390、
 // 亮暗、空态、旧主控降级、reduced-motion；并断言每列可见卡 ≤5、首屏 = 适应窗口
 // （3/4/6 跳整图可见、缩放 = fit、居中误差 ≤1px、fit<0.9 时显示百分比提示）、
-// 列头（每列一个、y=24、卡片从 56 起、shown / total、不可 Tab / 点击、不参与高亮）、
+// 列头（每列一个、y=24、卡片从 56 起、shown / total、不可 Tab / 点击、不参与高亮、
+// 细线到卡片 6px、文字到细线约 4px、列名 / 计数同色且对比度 ≥4.5:1）、
+// 英文单数（4 跳单台：1 node / 1 target、1 chain · 1 user、+1 target 键由单测覆盖）、
 // 列距 80 / 卡片 192×64、连线宽度 1.5–4 且脉冲亮划不粗于线、右缘提示（按卡片
 // 右边缘计数，半截列计入）、下缘提示（内容超高时出现，平移到底后消失）、画布高度上限、
 // 滚轮不缩放、Ctrl/⌘ 滚轮缩放、拖拽不丢图、折叠只展开本列、Tab 可达、动画边 ≤10、
@@ -49,6 +51,10 @@ const COLUMN_GAP = 80;
 const PADDING = 24;
 const COLUMN_HEADER_HEIGHT = 32;
 const COLUMN_TOP = PADDING + COLUMN_HEADER_HEIGHT;
+/** 列头细线到卡片顶边的间距（列头 32px 与卡片 y=56 都不动）。 */
+const COLUMN_RULE_GAP = 6;
+/** 列名 / 计数对卡片背景的最低对比度（小号 12px 文字）。 */
+const CONTRAST_MIN = 4.5;
 /** 连线宽度上下限：最细 1.5、最粗 4。 */
 const EDGE_MIN_WIDTH = 1.5;
 const EDGE_MAX_WIDTH = 4;
@@ -423,6 +429,67 @@ function detail6Hop() {
   };
 }
 
+/**
+ * 4 跳单台夹具：入口正好 1 台、目标正好 1 个，用来断言英文列头写
+ * `1 node` / `1 target`（不是 nodes / targets），以及卡片副标题
+ * `1 chain · 1 user`。整条链只有 1 条，所有卡片的链数 / 用户数都是 1。
+ */
+function detail4HopSingle() {
+  const nodes = [
+    {
+      seq: 0,
+      role: "source",
+      name: "香港入口",
+      members: [member("香港-01", 1, 1)],
+    },
+    {
+      seq: 1,
+      role: "hop",
+      name: "东京中转",
+      members: [member("东京-01", 1, 1)],
+    },
+    {
+      seq: 2,
+      role: "hop",
+      name: "洛杉矶中转",
+      members: [member("洛杉矶-01", 1, 1)],
+    },
+    {
+      seq: 3,
+      role: "hop",
+      name: "法兰克福中转",
+      members: [member("法兰克福-01", 1, 1)],
+    },
+    {
+      seq: 4,
+      role: "target",
+      name: "目标",
+      members: [member("172.16.9.1:8443", 1, 1)],
+    },
+  ];
+  const edges = [
+    edge(0, "香港-01", 1, "东京-01", 1, 11, 1),
+    edge(1, "东京-01", 2, "洛杉矶-01", 1, 42, 1),
+    edge(2, "洛杉矶-01", 3, "法兰克福-01", 1, 96, 1),
+    edge(3, "法兰克福-01", 4, "172.16.9.1:8443", 1, 151, 1),
+  ];
+  return {
+    template: {
+      id: "tpl-4-single",
+      name: "香港 → 东京 → 洛杉矶 → 法兰克福（单台）",
+      hops: 4,
+      created_at: NOW - 86400 * 3,
+    },
+    nodes,
+    edges,
+    targets: [target("172.16.9.1", 8443, 1)],
+    users: [],
+    series: usageSeries(24),
+    strategies: [strategy("failover", 1, 1)],
+    unused_candidates: [],
+  };
+}
+
 /** 第 1 跳 6 台、每台 3 个目标：上游被折叠时，目标 +N 的分组键回归。 */
 function detail1HopWide() {
   const HOP_COUNT = 6;
@@ -624,11 +691,23 @@ const LIST_ITEMS = [
     strategies: [strategy("ip_hashed", 8, 2)],
     targets: [target("10.9.9.1", 443, 8)],
   },
+  {
+    id: "tpl-4-single",
+    name: "香港 → 东京 → 洛杉矶 → 法兰克福（单台）",
+    hops: 4,
+    enabled: true,
+    chains: 1,
+    users: 1,
+    status: { kind: "ok", cause: null },
+    strategies: [strategy("failover", 1, 1)],
+    targets: [target("172.16.9.1", 8443, 1)],
+  },
 ];
 
 const DETAILS = {
   "tpl-3": detail3Hop,
   "tpl-4": detail4Hop,
+  "tpl-4-single": detail4HopSingle,
   "tpl-6": detail6Hop,
   "tpl-empty": detailEmpty,
   "tpl-fold": detail1HopWide,
@@ -722,10 +801,10 @@ const [cookieName, cookieValue] = cookie.split("=");
 
 const browser = await chromium.launch({ executablePath: CHROME, headless: HEADLESS });
 
-async function newPage({ width, height, theme, locale = "zh-CN", reducedMotion = false, options = {} }) {
+async function newPage({ width, height, theme, locale = "zh-CN", reducedMotion = false, options = {}, deviceScaleFactor = 1 }) {
   const context = await browser.newContext({
     viewport: { width, height },
-    deviceScaleFactor: 1,
+    deviceScaleFactor,
     colorScheme: theme,
     reducedMotion: reducedMotion ? "reduce" : "no-preference",
   });
@@ -954,6 +1033,235 @@ function cardCountsByColumn(page) {
 }
 
 /**
+ * 列头实测：细线到卡片顶边、文字到细线的间距（换算回画布 100% 的流坐标），
+ * 列名 / 计数的颜色与字重，以及两者对卡片背景的对比度。
+ *
+ * 对比度用 canvas 把 `oklch(...)` / `rgb(...)` 统一成 sRGB 再算 WCAG 相对
+ * 亮度；不写死主题色值，亮暗主题都走同一段代码。
+ */
+async function measureColumnHeaderPresentation(page) {
+  return page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const parseColor = (value) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = "#000000";
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      const [r, g, b, a] = context.getImageData(0, 0, 1, 1).data;
+      return { r, g, b, a: a / 255 };
+    };
+    const composite = (fg, bg) =>
+      fg.a >= 1
+        ? fg
+        : {
+            r: fg.r * fg.a + bg.r * (1 - fg.a),
+            g: fg.g * fg.a + bg.g * (1 - fg.a),
+            b: fg.b * fg.a + bg.b * (1 - fg.a),
+            a: 1,
+          };
+    const linear = (channel) => {
+      const c = channel / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    };
+    const luminance = ({ r, g, b }) =>
+      0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+    const contrast = (fg, bg) => {
+      const [hi, lo] = [luminance(fg), luminance(bg)].sort((a, b) => b - a);
+      return Math.round(((hi + 0.05) / (lo + 0.05)) * 100) / 100;
+    };
+    const round = (value) => Math.round(value * 100) / 100;
+    const headers = [
+      ...document.querySelectorAll("[data-template-flow-column-header]"),
+    ];
+    const header =
+      headers.find((item) => item.getAttribute("data-role") === "entry") ??
+      headers[0];
+    const column = header.getAttribute("data-column");
+    const card = [...document.querySelectorAll("[data-template-flow-card]")].find(
+      (item) => item.getAttribute("data-column") === column,
+    );
+    const rule = header.querySelector("[data-template-flow-column-rule]");
+    const label = header.querySelector("[data-template-flow-column-label]");
+    const count = header.querySelector("[data-template-flow-column-count]");
+    const zoom = new DOMMatrixReadOnly(
+      getComputedStyle(document.querySelector(".react-flow__viewport")).transform,
+    ).a;
+    const headerMatrix = new DOMMatrixReadOnly(
+      getComputedStyle(header.closest(".react-flow__node")).transform,
+    );
+    const cardMatrix = new DOMMatrixReadOnly(
+      getComputedStyle(card.closest(".react-flow__node")).transform,
+    );
+    const headerRect = header.getBoundingClientRect();
+    const labelRect = label.getBoundingClientRect();
+    const ruleRect = rule.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const labelStyle = getComputedStyle(label);
+    const countStyle = getComputedStyle(count);
+    const background = parseColor(getComputedStyle(card).backgroundColor);
+    const labelColor = composite(parseColor(labelStyle.color), background);
+    const countColor = composite(parseColor(countStyle.color), background);
+    return {
+      column,
+      zoom: round(zoom),
+      headerTop: round(headerMatrix.m42),
+      headerHeight: round(headerRect.height / zoom),
+      cardTop: round(cardMatrix.m42),
+      ruleToCardGap: round((cardRect.top - ruleRect.bottom) / zoom),
+      labelToRuleGap: round((ruleRect.top - labelRect.bottom) / zoom),
+      ruleHeight: round(ruleRect.height / zoom),
+      labelColor: labelStyle.color,
+      countColor: countStyle.color,
+      labelWeight: labelStyle.fontWeight,
+      countWeight: countStyle.fontWeight,
+      fontSize: parseFloat(labelStyle.fontSize),
+      cardBackground: getComputedStyle(card).backgroundColor,
+      contrastLabel: contrast(labelColor, background),
+      contrastCount: contrast(countColor, background),
+      labelText: (label.textContent ?? "").trim(),
+      countText: (count.textContent ?? "").trim(),
+    };
+  });
+}
+
+function assertColumnHeaderPresentation(state, label) {
+  assert.equal(
+    state.headerTop,
+    PADDING,
+    `${label} 列头顶边应保持在 y=${PADDING}`,
+  );
+  assert.equal(
+    state.headerHeight,
+    COLUMN_HEADER_HEIGHT,
+    `${label} 列头高度应保持 ${COLUMN_HEADER_HEIGHT}px`,
+  );
+  assert.equal(
+    state.cardTop,
+    COLUMN_TOP,
+    `${label} 卡片顶边应保持 y=${COLUMN_TOP}`,
+  );
+  assert.ok(
+    Math.abs(state.ruleToCardGap - COLUMN_RULE_GAP) <= 0.5,
+    `${label} 列头细线到卡片顶边应为 ${COLUMN_RULE_GAP}px，实测 ${state.ruleToCardGap}px`,
+  );
+  assert.ok(
+    state.labelToRuleGap >= 2.5 && state.labelToRuleGap <= 5.5,
+    `${label} 列头文字到细线应约 4px，实测 ${state.labelToRuleGap}px`,
+  );
+  assert.equal(
+    state.labelColor,
+    state.countColor,
+    `${label} 列名与计数应同色：${state.labelColor} vs ${state.countColor}`,
+  );
+  assert.equal(
+    state.labelWeight,
+    "500",
+    `${label} 列名应为 font-medium(500)，实测 ${state.labelWeight}`,
+  );
+  assert.equal(
+    state.countWeight,
+    "400",
+    `${label} 计数应为常规字重(400)，实测 ${state.countWeight}`,
+  );
+  for (const key of ["contrastLabel", "contrastCount"]) {
+    assert.ok(
+      state[key] >= CONTRAST_MIN,
+      `${label} ${key} ${state[key]}:1 低于 ${CONTRAST_MIN}:1（背景 ${state.cardBackground}）`,
+    );
+  }
+}
+
+/**
+ * 列头特写：只框住入口列列头 + 第一张卡片顶部，100% 缩放下文字与 6px
+ * 间距都能看清。`annotate` 时在间距旁加一条临时标尺（截图后立即移除，
+ * 不参与任何断言）。
+ */
+async function captureColumnHeaderCloseup(page, file, { annotate = false } = {}) {
+  await page.locator("[data-template-flow]").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(150);
+  let annotation = null;
+  if (annotate) {
+    annotation = await page.evaluate(() => {
+      const header =
+        document.querySelector(
+          '[data-template-flow-column-header][data-role="entry"]',
+        ) ?? document.querySelector("[data-template-flow-column-header]");
+      const column = header.getAttribute("data-column");
+      const card = [
+        ...document.querySelectorAll("[data-template-flow-card]"),
+      ].find((item) => item.getAttribute("data-column") === column);
+      const rule = header.querySelector("[data-template-flow-column-rule]");
+      const ruleRect = rule.getBoundingClientRect();
+      const cardRect = card.getBoundingClientRect();
+      const top = ruleRect.bottom;
+      const bottom = cardRect.top;
+      const x = Math.round(cardRect.right + 14);
+      const color = "var(--primary)";
+      const tick = (y) =>
+        `<span style="position:absolute;left:${x - 5}px;top:${y}px;width:11px;height:1px;background:${color};"></span>`;
+      const wrap = document.createElement("div");
+      wrap.setAttribute("data-header-gap-annotation", "");
+      wrap.style.cssText =
+        "position:fixed;inset:0;pointer-events:none;z-index:9999;";
+      wrap.innerHTML = [
+        `<span style="position:absolute;left:${x}px;top:${top}px;width:1px;height:${Math.max(0, bottom - top)}px;background:${color};"></span>`,
+        tick(top),
+        tick(bottom),
+        `<span style="position:absolute;left:${x + 9}px;top:${(top + bottom) / 2 - 6}px;padding:1px 4px;border-radius:4px;background:var(--card);color:${color};font:600 11px/1 ui-monospace,Menlo,monospace;">6px</span>`,
+      ].join("");
+      document.body.appendChild(wrap);
+      return {
+        gap: Math.round((bottom - top) * 100) / 100,
+        ruleBottom: Math.round(top),
+        cardTop: Math.round(bottom),
+      };
+    });
+  }
+  const clip = await page.evaluate(() => {
+    const header =
+      document.querySelector(
+        '[data-template-flow-column-header][data-role="entry"]',
+      ) ?? document.querySelector("[data-template-flow-column-header]");
+    const column = header.getAttribute("data-column");
+    const card = [...document.querySelectorAll("[data-template-flow-card]")].find(
+      (item) => item.getAttribute("data-column") === column,
+    );
+    const headerRect = header.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const left = Math.max(0, Math.min(headerRect.left, cardRect.left) - 24);
+    const right = Math.min(
+      window.innerWidth,
+      Math.max(headerRect.right, cardRect.right) + 56,
+    );
+    const top = Math.max(0, headerRect.top - 24);
+    const bottom = Math.min(
+      window.innerHeight,
+      cardRect.top + Math.min(cardRect.height, 96),
+    );
+    return {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+    };
+  });
+  await page.screenshot({ path: path.join(OUT, file), clip });
+  report.screenshots.push(file);
+  console.log(`saved ${file}`);
+  if (annotation !== null) {
+    await page.evaluate(() =>
+      document
+        .querySelectorAll("[data-header-gap-annotation]")
+        .forEach((element) => element.remove()),
+    );
+  }
+  return { clip, annotation };
+}
+
+/**
  * 列头验收：每列一个、与卡片左边缘对齐、y = 24（卡片从 56 起）。
  *
  * 计数文案规则：目标列用 Targets、其余列用 Nodes；`shown < total` 用
@@ -1082,7 +1390,9 @@ async function assertColumnHeaders(
   if (expectFolded) {
     assert.ok(folded > 0, `${label} 应有折叠列头（shown / total）`);
   }
-  return state;
+  const presentation = await measureColumnHeaderPresentation(page);
+  assertColumnHeaderPresentation(presentation, label);
+  return { ...state, presentation };
 }
 
 /**
@@ -1392,6 +1702,7 @@ function assertFps(label, result) {
       count: header.count,
     })),
   };
+  report.assertions["headerStyle"] = headerState.presentation;
 
   const chunkTiming = await page.evaluate(() => {
     const entry = performance
@@ -1813,6 +2124,32 @@ function assertFps(label, result) {
   }
   report.assertions["fonts"] = fonts;
   await shot(page.locator("[data-template-topology-card]"), "zoom-100-1440-dark.png");
+
+  // 100% 下再量一次列头：细线到卡片正好 6px、文字到细线约 4px；
+  // 抓亮暗两版特写，暗色那张额外加临时标尺（截图后移除）。
+  const headerStyle100 = await measureColumnHeaderPresentation(page);
+  assertColumnHeaderPresentation(headerStyle100, "3 跳 100%");
+  assert.ok(
+    Math.abs(headerStyle100.ruleToCardGap - COLUMN_RULE_GAP) <= 0.1,
+    `100% 下列头细线到卡片应为 ${COLUMN_RULE_GAP}px，实测 ${headerStyle100.ruleToCardGap}px`,
+  );
+  report.assertions["headerStyleAt100"] = headerStyle100;
+  const darkCloseup = await captureColumnHeaderCloseup(
+    page,
+    "column-header-closeup-1440-dark.png",
+  );
+  assert.equal(darkCloseup.annotation, null, "普通特写不应带标尺");
+  const gapCloseup = await captureColumnHeaderCloseup(
+    page,
+    "column-header-gap-6px-1440-dark.png",
+    { annotate: true },
+  );
+  assert.ok(gapCloseup.annotation !== null, "间距标注特写应带标尺");
+  assert.ok(
+    Math.abs(gapCloseup.annotation.gap - COLUMN_RULE_GAP) <= 0.1,
+    `标注实测间距 ${gapCloseup.annotation.gap}px 应为 ${COLUMN_RULE_GAP}px`,
+  );
+  report.assertions["headerGapAnnotation"] = gapCloseup.annotation;
   await clickZoom(page, "[data-flow-zoom-out]", 2);
   assert.equal(await zoomPercent(page), 50, "两次 − 应落到 50%");
   // 50% 下整列都在视野内：底部提示隐藏（缩放后重算）。
@@ -1980,6 +2317,18 @@ function assertFps(label, result) {
   report.assertions["lightAttribution"] = lightAttribution;
   await shot(page.locator("[data-template-topology-card]"), "3hop-1440-light.png");
 
+  // 亮色下同样量列头对比度与细线间距；100% 抓一张列头特写。
+  await page.mouse.move(5, 5);
+  await clickZoom(page, "[data-flow-zoom-in]");
+  assert.equal(await zoomPercent(page), 100, "亮色列头特写应在 100% 下拍");
+  const lightHeaderStyle = await measureColumnHeaderPresentation(page);
+  assertColumnHeaderPresentation(lightHeaderStyle, "3 跳亮色");
+  report.assertions["headerStyleLight"] = lightHeaderStyle;
+  await captureColumnHeaderCloseup(
+    page,
+    "column-header-closeup-1440-light.png",
+  );
+
   report.errors.push(...errors.map((error) => `3hop: ${error}`));
   assert.deepEqual(errors, []);
   await context.close();
@@ -2032,6 +2381,87 @@ function assertFps(label, result) {
     fitHint: enHintText,
   };
   assert.deepEqual(errors, []);
+  await context.close();
+}
+
+/* ------------------------------------------------------------------ */
+/* 1c) 英文单数：4 跳单台夹具（入口 1 台 / 目标 1 个）                 */
+/* ------------------------------------------------------------------ */
+
+{
+  const { context, page, errors } = await newPage({
+    width: 1440,
+    height: 1000,
+    theme: "dark",
+    locale: "en",
+    // 2x 输出：列头 12px 字在 fit 缩放下仍能看清，截图可直接当证据。
+    deviceScaleFactor: 2,
+  });
+  await openList(page);
+  await openDetail(page, 6);
+  await waitFlow(page);
+  // 入口 / 中间跳 / 目标各 1 个：英文列头必须写 `1 node` / `1 target`。
+  const headerState = await assertColumnHeaders(page, "英文单数 4 跳", "en", {
+    expectFolded: false,
+  });
+  const rows = headerState.headers.map((header) => ({
+    column: header.column,
+    role: header.role,
+    label: header.label,
+    count: header.count,
+  }));
+  const entryHeader = rows.find((header) => header.role === "entry");
+  const targetHeader = rows.find((header) => header.role === "target");
+  assert.equal(entryHeader?.count, "1 node", `入口列头应为 1 node：${entryHeader?.count}`);
+  assert.equal(targetHeader?.count, "1 target", `目标列头应为 1 target：${targetHeader?.count}`);
+  for (const row of rows) {
+    assert.ok(
+      !/^1 (nodes|targets)$/.test(row.count),
+      `英文单数不应写成 ${row.count}（${row.label}）`,
+    );
+  }
+  // 弹窗顶部的 hop / chain / user 徽标同样不能用 `1 chains`。
+  const metaTexts = (
+    await page
+      .locator("[data-template-dialog-meta] [data-slot='badge']")
+      .allTextContents()
+  ).map((text) => text.trim());
+  assert.deepEqual(metaTexts, ["4 hops", "1 chain", "1 user"], `英文徽标：${metaTexts.join(" | ")}`);
+  // 卡片第二行：1 chain · 1 user（不是 `1 chains · 1 users`）。
+  const subtitleTexts = (
+    await page
+      .locator(
+        "[data-template-flow-card] [data-template-flow-card-subtitle]",
+      )
+      .allTextContents()
+  ).map((text) => text.trim());
+  assert.ok(subtitleTexts.length > 0, "单台夹具应有卡片副标题");
+  for (const subtitle of subtitleTexts) {
+    assert.equal(
+      subtitle,
+      "1 chain · 1 user",
+      `英文单数卡片副标题：${subtitle}`,
+    );
+  }
+  await shot(page.locator("[data-template-dialog]"), "singular-en-1440-dark.png");
+  await page
+    .locator('[data-template-flow-column-header][data-role="entry"]')
+    .screenshot({ path: path.join(OUT, "singular-entry-en-1440-dark.png") });
+  report.screenshots.push("singular-entry-en-1440-dark.png");
+  await page
+    .locator('[data-template-flow-column-header][data-role="target"]')
+    .screenshot({ path: path.join(OUT, "singular-target-en-1440-dark.png") });
+  report.screenshots.push("singular-target-en-1440-dark.png");
+  report.assertions["enSingular"] = {
+    headers: rows,
+    entry: entryHeader?.count ?? null,
+    target: targetHeader?.count ?? null,
+    meta: metaTexts,
+    cardSubtitle: subtitleTexts[0],
+    cardSubtitles: subtitleTexts,
+  };
+  assert.deepEqual(errors, []);
+  report.errors.push(...errors.map((error) => `enSingular: ${error}`));
   await context.close();
 }
 

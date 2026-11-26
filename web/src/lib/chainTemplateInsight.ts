@@ -175,6 +175,62 @@ export function chainTemplateStrategyLabelKey(
     : null;
 }
 
+/**
+ * 拓扑卡片 / 折叠卡数量文案的键选择：英文单数用 `...One` 键，
+ * 复数（含 0）用基础键；中文两个键同值。这里只选键，不插值，
+ * 保证 1 / 2 两种情况都能被纯逻辑单测覆盖。
+ */
+export type TemplateFlowCountKind =
+  | "chains"
+  | "users"
+  | "foldMembers"
+  | "foldTargets"
+  | "targetFoldAria"
+  | "metaChains"
+  | "metaUsers";
+
+const TEMPLATE_FLOW_COUNT_KEYS: Record<
+  TemplateFlowCountKind,
+  readonly [many: string, one: string]
+> = {
+  chains: [
+    "overview.chainTemplateInsight.flowChains",
+    "overview.chainTemplateInsight.flowChainsOne",
+  ],
+  users: [
+    "overview.chainTemplateInsight.usersValue",
+    "overview.chainTemplateInsight.usersValueOne",
+  ],
+  foldMembers: [
+    "overview.chainTemplateInsight.flowFoldMembers",
+    "overview.chainTemplateInsight.flowFoldMembersOne",
+  ],
+  foldTargets: [
+    "overview.chainTemplateInsight.flowFoldTargets",
+    "overview.chainTemplateInsight.flowFoldTargetsOne",
+  ],
+  targetFoldAria: [
+    "overview.chainTemplateInsight.flowTargetFoldAria",
+    "overview.chainTemplateInsight.flowTargetFoldAriaOne",
+  ],
+  metaChains: [
+    "overview.chainTemplateInsight.metaChains",
+    "overview.chainTemplateInsight.metaChainsOne",
+  ],
+  metaUsers: [
+    "overview.chainTemplateInsight.metaUsers",
+    "overview.chainTemplateInsight.metaUsersOne",
+  ],
+};
+
+export function templateFlowCountKey(
+  kind: TemplateFlowCountKind,
+  count: number,
+): string {
+  const [many, one] = TEMPLATE_FLOW_COUNT_KEYS[kind];
+  return count === 1 ? one : many;
+}
+
 export const TEMPLATE_USAGE_RANGES = ["24h", "7d"] as const;
 export type ChainTemplateUsageRange = (typeof TEMPLATE_USAGE_RANGES)[number];
 

@@ -19,6 +19,7 @@ import { PanelError } from "@/components/overview/PanelError";
 import { errorText } from "@/lib/errors";
 import {
   chainTemplateDetailTotals,
+  templateFlowCountKey,
   type ChainTemplateDetail,
   type ChainTemplateListItem,
   type ChainTemplateUsageRange,
@@ -138,12 +139,12 @@ export function ChainTemplateInsightDialog({
                   })}
                 </Badge>
                 <Badge variant="outline" className="font-normal">
-                  {t("overview.chainTemplateInsight.metaChains", {
+                  {t(templateFlowCountKey("metaChains", totals.chains), {
                     n: totals.chains,
                   })}
                 </Badge>
                 <Badge variant="outline" className="font-normal">
-                  {t("overview.chainTemplateInsight.metaUsers", {
+                  {t(templateFlowCountKey("metaUsers", totals.users), {
                     n: totals.users,
                   })}
                 </Badge>

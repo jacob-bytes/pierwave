@@ -51,6 +51,19 @@ export const TEMPLATE_PADDING = 24;
 export const TEMPLATE_COLUMN_HEADER_HEIGHT = 32;
 export const TEMPLATE_COLUMN_TOP =
   TEMPLATE_PADDING + TEMPLATE_COLUMN_HEADER_HEIGHT;
+/**
+ * 列头细线与卡片顶边的留白：细线在列头内上移 6px，列头 32px 高度与卡片
+ * y=56 都不变，视觉顺序固定为「文字 → 细线 → 6px → 卡片」。
+ */
+export const TEMPLATE_COLUMN_RULE_GAP = 6;
+/** 列头文字底边到细线的留白（约 4px）：细线不再贴着文字。 */
+export const TEMPLATE_COLUMN_LABEL_RULE_GAP = 4;
+/** 细线自身 1px；列头文字的 padding-bottom = 6 + 1 + 4。 */
+export const TEMPLATE_COLUMN_RULE_HEIGHT = 1;
+export const TEMPLATE_COLUMN_LABEL_PADDING =
+  TEMPLATE_COLUMN_RULE_GAP +
+  TEMPLATE_COLUMN_RULE_HEIGHT +
+  TEMPLATE_COLUMN_LABEL_RULE_GAP;
 
 /** 时延药丸固定盒子：落点由纯函数决定，不依赖字体测量。 */
 export const TEMPLATE_PILL_WIDTH = 44;

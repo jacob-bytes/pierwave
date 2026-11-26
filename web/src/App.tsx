@@ -20,6 +20,7 @@ import {
 } from "@/lib/publicStatus";
 import { safeNextPath } from "@/lib/auth";
 import { errorText } from "@/lib/errors";
+import { useInputModality } from "@/lib/inputModality";
 import { useI18n } from "@/i18n";
 import NotFoundPage from "@/pages/NotFound";
 // 登录页是静态导入：它的依赖（queries / i18n / 表单组件）本来就随入口加载，
@@ -92,6 +93,8 @@ function StatusDetailRoute() {
  * 404，而不是把人送进登录页。登录后的控制台另有 `*`，两处不再静默重定向。
  */
 export default function App() {
+  // 全站只注册一次：登录页 / 公开状态页不挂 AppShell，统一挂在路由根上。
+  useInputModality();
   const { t } = useI18n();
   const { pathname } = useLocation();
   // 已知公开路由 + 它们的未知子路径；`/statuses` 这类别的路径仍走登录守卫。

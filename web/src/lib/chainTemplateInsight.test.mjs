@@ -20,8 +20,19 @@ import {
   chainTemplateStrategySummary,
   strategyShares,
   targetLabel,
+  templateFlowCountKey,
 } from "./chainTemplateInsight.ts";
 import { ApiError } from "./apiError.ts";
+import {
+  TEMPLATE_COLUMN_HEADER_HEIGHT,
+  TEMPLATE_COLUMN_LABEL_PADDING,
+  TEMPLATE_COLUMN_LABEL_RULE_GAP,
+  TEMPLATE_COLUMN_RULE_GAP,
+  TEMPLATE_COLUMN_RULE_HEIGHT,
+  TEMPLATE_COLUMN_TOP,
+} from "./chainTemplateGraph.ts";
+import zh from "../i18n/zh-CN.ts";
+import en from "../i18n/en.ts";
 
 const HOUR = 3_600;
 const NOW = 1_800_000_000;
@@ -725,5 +736,75 @@ test("全 0 序列视作暂无使用记录，不画贴底假线", () => {
   assert.equal(
     chainTemplateUsageHasData([{ ts: NOW, chains: 1, users: 0 }]),
     true,
+  );
+});
+
+test("卡片副标题与折叠 +N 按 1 / 2 选对中英单复数键", () => {
+  const zhFlow = zh.overview.chainTemplateInsight;
+  const enFlow = en.overview.chainTemplateInsight;
+  const render = (dict, kind, n) => {
+    const key = templateFlowCountKey(kind, n).split(".").pop();
+    return dict[key].replaceAll("{n}", String(n));
+  };
+
+  // 副标题：1 条链 · 1 用户 / 2 条链 · 2 用户（中文单复数同形）。
+  const zhOne = `${render(zhFlow, "chains", 1)} · ${render(zhFlow, "users", 1)}`;
+  assert.equal(zhOne, "1 条链 · 1 用户");
+  assert.equal(
+    `${render(zhFlow, "chains", 2)} · ${render(zhFlow, "users", 2)}`,
+    "2 条链 · 2 用户",
+  );
+  // 英文：1 chain · 1 user（不是 `1 chains · 1 users`）；2 才用复数。
+  assert.equal(
+    `${render(enFlow, "chains", 1)} · ${render(enFlow, "users", 1)}`,
+    "1 chain · 1 user",
+  );
+  assert.equal(
+    `${render(enFlow, "chains", 2)} · ${render(enFlow, "users", 2)}`,
+    "2 chains · 2 users",
+  );
+
+  // 折叠卡标题与目标 +N 标签：1 用单数，2 用复数。
+  assert.equal(render(enFlow, "foldMembers", 1), "+1 node");
+  assert.equal(render(enFlow, "foldMembers", 2), "+2 nodes");
+  assert.equal(render(enFlow, "foldTargets", 1), "+1 target");
+  assert.equal(render(enFlow, "foldTargets", 2), "+2 targets");
+  assert.equal(render(enFlow, "targetFoldAria", 1), "Show the 1 folded target");
+  assert.equal(render(enFlow, "targetFoldAria", 2), "Show the 2 folded targets");
+  // 弹窗徽标：1 chain / 1 user，复数才加 s。
+  assert.equal(render(enFlow, "metaChains", 1), "1 chain");
+  assert.equal(render(enFlow, "metaChains", 2), "2 chains");
+  assert.equal(render(enFlow, "metaUsers", 1), "1 user");
+  assert.equal(render(enFlow, "metaUsers", 2), "2 users");
+  // 中文两个键同值，单复数不改变文案。
+  for (const kind of [
+    "foldMembers",
+    "foldTargets",
+    "chains",
+    "users",
+    "metaChains",
+    "metaUsers",
+  ]) {
+    const key = (n) => templateFlowCountKey(kind, n).split(".").pop();
+    assert.equal(
+      zhFlow[key(1)],
+      zhFlow[key(2)],
+      `zh ${kind} 单复数应同形`,
+    );
+  }
+});
+
+test("模板几何：列头 32px / 卡片 y=56 不变，细线离卡片 6px、离文字 4px", () => {
+  assert.equal(TEMPLATE_COLUMN_HEADER_HEIGHT, 32);
+  // 列头从 24 起、32 高 → 底边正好 56，与卡片顶边重合。
+  assert.equal(TEMPLATE_COLUMN_TOP, 56);
+  assert.equal(TEMPLATE_COLUMN_RULE_GAP, 6);
+  assert.equal(TEMPLATE_COLUMN_LABEL_RULE_GAP, 4);
+  assert.equal(TEMPLATE_COLUMN_RULE_HEIGHT, 1);
+  assert.equal(
+    TEMPLATE_COLUMN_LABEL_PADDING,
+    TEMPLATE_COLUMN_RULE_GAP +
+      TEMPLATE_COLUMN_RULE_HEIGHT +
+      TEMPLATE_COLUMN_LABEL_RULE_GAP,
   );
 });
