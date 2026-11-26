@@ -146,7 +146,7 @@ function TemplateRow({
         onClick={onOpen}
         aria-label={label}
         className={cn(
-          "group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-lg border border-transparent px-3 py-2 text-left outline-none transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 lg:py-3",
+          "group grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 rounded-lg border border-transparent px-3 py-2 text-left outline-none transition-colors duration-150 hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 active:bg-muted/60 lg:py-3",
           LIST_GRID,
         )}
       >
@@ -210,7 +210,7 @@ function TemplateRow({
           </span>
           <ChevronRightIcon
             aria-hidden="true"
-            className="hidden size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 lg:col-start-6 lg:row-start-1 lg:block"
+            className="hidden size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 group-focus-visible:translate-x-0.5 lg:col-start-6 lg:row-start-1 lg:block"
           />
         </span>
       </button>

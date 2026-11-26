@@ -1,0 +1,862 @@
+{
+  "generatedAt": "2026-11-26T16:29:22.558Z",
+  "base": "http://127.0.0.1:55523",
+  "mode": "verify",
+  "viewports": {
+    "desktop": [
+      1440,
+      900
+    ],
+    "sheet": [
+      390,
+      844
+    ]
+  },
+  "expected": {
+    "overlayEnterMs": 200,
+    "overlayExitMs": 150,
+    "tooltipEnterMs": 150,
+    "tooltipExitMs": 100,
+    "easeOutSoft": "cubic-bezier(0.22, 1, 0.36, 1)",
+    "easeSpring": "cubic-bezier(0.34, 1.46, 0.64, 1)",
+    "dialogOffsetPx": -4,
+    "listChevronNudgePx": 2
+  },
+  "shots": [
+    "chain-row-press-1440-dark",
+    "chain-chevron-focus-1440-dark",
+    "traffic-row-press-1440-dark",
+    "traffic-chevron-focus-1440-dark",
+    "alert-row-press-1440-dark",
+    "alert-chevron-focus-1440-dark",
+    "dialog-1440-dark",
+    "tooltip-1440-dark",
+    "checkbox-1440-dark",
+    "select-1440-dark",
+    "radio-1440-dark",
+    "switch-1440-dark",
+    "dropdown-1440-dark",
+    "popover-1440-dark",
+    "alert-dialog-1440-dark",
+    "sheet-390-dark",
+    "chain-row-press-1440-light",
+    "chain-chevron-focus-1440-light",
+    "traffic-row-press-1440-light",
+    "traffic-chevron-focus-1440-light",
+    "alert-row-press-1440-light",
+    "alert-chevron-focus-1440-light",
+    "dialog-1440-light",
+    "tooltip-1440-light",
+    "checkbox-1440-light",
+    "select-1440-light",
+    "radio-1440-light",
+    "switch-1440-light",
+    "dropdown-1440-light",
+    "popover-1440-light",
+    "alert-dialog-1440-light",
+    "sheet-390-light",
+    "reduced-motion-dialog-1440-dark"
+  ],
+  "baselines": [
+    "alert-dialog-content.png",
+    "checkbox-checked.png",
+    "checkbox-unchecked.png",
+    "dialog-content.png",
+    "dropdown-content.png",
+    "popover-content.png",
+    "radio-checked.png",
+    "radio-unchecked.png",
+    "select-content.png",
+    "sheet-content.png",
+    "switch-off.png",
+    "switch-on.png",
+    "tooltip-content.png"
+  ],
+  "staticComparisons": [
+    {
+      "name": "dialog-content",
+      "theme": "light",
+      "width": 448,
+      "height": 346,
+      "differingPixels": 0,
+      "totalPixels": 155008,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "tooltip-content",
+      "theme": "light",
+      "width": 252,
+      "height": 28,
+      "differingPixels": 15,
+      "totalPixels": 7056,
+      "maxChannelDelta": 23
+    },
+    {
+      "name": "checkbox-unchecked",
+      "theme": "light",
+      "width": 16,
+      "height": 17,
+      "differingPixels": 0,
+      "totalPixels": 272,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "checkbox-checked",
+      "theme": "light",
+      "width": 16,
+      "height": 17,
+      "differingPixels": 0,
+      "totalPixels": 272,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "select-content",
+      "theme": "light",
+      "width": 624,
+      "height": 31,
+      "differingPixels": 0,
+      "totalPixels": 19344,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "radio-unchecked",
+      "theme": "light",
+      "width": 17,
+      "height": 17,
+      "differingPixels": 0,
+      "totalPixels": 289,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "radio-checked",
+      "theme": "light",
+      "width": 17,
+      "height": 17,
+      "differingPixels": 0,
+      "totalPixels": 289,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "switch-off",
+      "theme": "light",
+      "width": 25,
+      "height": 15,
+      "differingPixels": 0,
+      "totalPixels": 375,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "switch-on",
+      "theme": "light",
+      "width": 25,
+      "height": 15,
+      "differingPixels": 0,
+      "totalPixels": 375,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "dropdown-content",
+      "theme": "light",
+      "width": 224,
+      "height": 188,
+      "differingPixels": 0,
+      "totalPixels": 42112,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "popover-content",
+      "theme": "light",
+      "width": 368,
+      "height": 172,
+      "differingPixels": 0,
+      "totalPixels": 63296,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "alert-dialog-content",
+      "theme": "light",
+      "width": 384,
+      "height": 172,
+      "differingPixels": 0,
+      "totalPixels": 66048,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "sheet-content",
+      "theme": "light",
+      "width": 293,
+      "height": 844,
+      "differingPixels": 0,
+      "totalPixels": 247292,
+      "maxChannelDelta": 0
+    }
+  ],
+  "checks": [
+    {
+      "label": "链路行静止态 / chain row at rest (dark)",
+      "background": "rgba(0, 0, 0, 0)",
+      "chevronTranslate": "none"
+    },
+    {
+      "label": "链路行按下 / chain row pressed (dark)",
+      "background": "oklab(0.225 0.00129409 -0.00482963 / 0.6)"
+    },
+    {
+      "label": "链路行键盘箭头 / chain chevron on keyboard focus (dark)",
+      "translate": "2px",
+      "transform": "none"
+    },
+    {
+      "label": "榜单行静止态 / leaderboard row at rest (dark)",
+      "background": "rgba(0, 0, 0, 0)",
+      "chevronTranslate": "none"
+    },
+    {
+      "label": "榜单行按下 / leaderboard row pressed (dark)",
+      "background": "oklab(0.225 0.00129409 -0.00482963 / 0.6)"
+    },
+    {
+      "label": "榜单行键盘箭头 / leaderboard chevron on keyboard focus (dark)",
+      "translate": "2px"
+    },
+    {
+      "label": "告警行静止态 / alert row at rest (dark)",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    {
+      "label": "告警行按下 / alert row pressed (dark)",
+      "background": "oklab(0.225 0.00129409 -0.00482963 / 0.595795)"
+    },
+    {
+      "label": "告警行键盘箭头 / alert chevron on keyboard focus (dark)",
+      "translate": "2px"
+    },
+    {
+      "label": "Dialog 进入 / dialog enter (dark)",
+      "content": {
+        "selector": "[data-slot=\"dialog-content\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, -4px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"dialog-overlay\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, 0px, 0px) scale3d(1, 1, 1) rotate(0deg)"
+      }
+    },
+    {
+      "label": "Dialog 关键帧纵向 / dialog keyframe Y (dark)",
+      "fromTransform": "translate3d(0px, -4px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)",
+      "translateY": -4
+    },
+    {
+      "label": "Dialog 退出 / dialog exit (dark)",
+      "content": {
+        "selector": "[data-slot=\"dialog-content\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"dialog-overlay\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      }
+    },
+    {
+      "label": "Tooltip 进入 / tooltip enter (dark)",
+      "selector": "[data-slot=\"tooltip-content\"]",
+      "state": "delayed-open",
+      "animationNames": [
+        null,
+        "enter"
+      ],
+      "durationMs": 150,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "translate3d(0px, 8px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+    },
+    {
+      "label": "Tooltip 退出 / tooltip exit (dark)",
+      "selector": "[data-slot=\"tooltip-content\"]",
+      "state": "closed",
+      "animationNames": [
+        "exit"
+      ],
+      "durationMs": 100,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "none"
+    },
+    {
+      "label": "Checkbox 静止态 / checkbox at rest (dark)",
+      "opacity": "0",
+      "scale": "0.5",
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.34, 1.46, 0.64, 1)",
+      "transitionProperty": "opacity, scale",
+      "ariaHidden": "true",
+      "tabindex": null
+    },
+    {
+      "label": "Checkbox 点击 / checkbox click (dark)",
+      "peakScale": 1.03436,
+      "finalScale": 1,
+      "finalOpacity": "1"
+    },
+    {
+      "label": "Select 进入 / select enter (dark)",
+      "selector": "[data-slot=\"select-content\"]",
+      "state": "open",
+      "animationNames": [
+        null,
+        "enter"
+      ],
+      "durationMs": 200,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "translate3d(0px, -8px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+    },
+    {
+      "label": "Select 对齐 / select item-aligned flag (dark)",
+      "dataAlignTrigger": "false",
+      "animationName": "enter"
+    },
+    {
+      "label": "Select 退出 / select exit (dark)",
+      "selector": "[data-slot=\"select-content\"]",
+      "state": "closed",
+      "animationNames": [
+        "exit"
+      ],
+      "durationMs": 150,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "none"
+    },
+    {
+      "label": "Radio 静止态 / radio at rest (dark)",
+      "opacity": "0",
+      "scale": "0.5",
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.34, 1.46, 0.64, 1)",
+      "transitionProperty": "opacity, scale",
+      "ariaHidden": "true",
+      "tabindex": null
+    },
+    {
+      "label": "Radio 点击 / radio click (dark)",
+      "peakScale": 1.03436,
+      "finalScale": 1,
+      "finalOpacity": "1"
+    },
+    {
+      "label": "Switch 静止态 / switch at rest (dark)",
+      "transitionProperty": "transform, translate, scale, rotate",
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.34, 1.46, 0.64, 1)",
+      "translate": "0px"
+    },
+    {
+      "label": "Switch 点击 / switch click (dark)",
+      "state": "checked",
+      "peakOffset": 11.6871337890625,
+      "finalOffset": 11
+    },
+    {
+      "label": "Dropdown 进入 / dropdown enter (dark)",
+      "selector": "[data-slot=\"dropdown-menu-content\"]",
+      "state": "open",
+      "animationNames": [
+        null,
+        null,
+        "enter"
+      ],
+      "durationMs": 200,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "translate3d(0px, -8px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+    },
+    {
+      "label": "Dropdown 退出 / dropdown exit (dark)",
+      "selector": "[data-slot=\"dropdown-menu-content\"]",
+      "state": "closed",
+      "animationNames": [
+        null,
+        "exit"
+      ],
+      "durationMs": 150,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "none"
+    },
+    {
+      "label": "Popover 进入 / popover enter (dark)",
+      "selector": "[data-slot=\"popover-content\"]",
+      "state": "open",
+      "animationNames": [
+        null,
+        "enter"
+      ],
+      "durationMs": 200,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "translate3d(0px, -8px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+    },
+    {
+      "label": "Popover 退出 / popover exit (dark)",
+      "selector": "[data-slot=\"popover-content\"]",
+      "state": "closed",
+      "animationNames": [
+        "exit"
+      ],
+      "durationMs": 150,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "none"
+    },
+    {
+      "label": "AlertDialog 进入 / alert-dialog enter (dark)",
+      "content": {
+        "selector": "[data-slot=\"alert-dialog-content\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, -4px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"alert-dialog-overlay\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, 0px, 0px) scale3d(1, 1, 1) rotate(0deg)"
+      }
+    },
+    {
+      "label": "AlertDialog 关键帧纵向 / alert-dialog keyframe Y (dark)",
+      "translateY": -4
+    },
+    {
+      "label": "AlertDialog 退出 / alert-dialog exit (dark)",
+      "content": {
+        "selector": "[data-slot=\"alert-dialog-content\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"alert-dialog-overlay\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      }
+    },
+    {
+      "label": "Sheet 进入 / sheet enter (dark)",
+      "content": {
+        "selector": "[data-slot=\"sheet-content\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(-10%, 0px, 0px) scale3d(1, 1, 1) rotate(0deg)"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"sheet-overlay\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, 0px, 0px) scale3d(1, 1, 1) rotate(0deg)"
+      }
+    },
+    {
+      "label": "Sheet 退出 / sheet exit (dark)",
+      "content": {
+        "selector": "[data-slot=\"sheet-content\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"sheet-overlay\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      }
+    },
+    {
+      "label": "链路行静止态 / chain row at rest (light)",
+      "background": "rgba(0, 0, 0, 0)",
+      "chevronTranslate": "none"
+    },
+    {
+      "label": "链路行按下 / chain row pressed (light)",
+      "background": "oklab(0.964 -0.000575074 -0.00597238 / 0.6)"
+    },
+    {
+      "label": "链路行键盘箭头 / chain chevron on keyboard focus (light)",
+      "translate": "2px",
+      "transform": "none"
+    },
+    {
+      "label": "榜单行静止态 / leaderboard row at rest (light)",
+      "background": "rgba(0, 0, 0, 0)",
+      "chevronTranslate": "none"
+    },
+    {
+      "label": "榜单行按下 / leaderboard row pressed (light)",
+      "background": "oklab(0.964 -0.000575074 -0.00597238 / 0.6)"
+    },
+    {
+      "label": "榜单行键盘箭头 / leaderboard chevron on keyboard focus (light)",
+      "translate": "2px"
+    },
+    {
+      "label": "告警行静止态 / alert row at rest (light)",
+      "background": "rgba(0, 0, 0, 0)"
+    },
+    {
+      "label": "告警行按下 / alert row pressed (light)",
+      "background": "oklab(0.964 -0.000575074 -0.00597238 / 0.59576)"
+    },
+    {
+      "label": "告警行键盘箭头 / alert chevron on keyboard focus (light)",
+      "translate": "2px"
+    },
+    {
+      "label": "Dialog 进入 / dialog enter (light)",
+      "content": {
+        "selector": "[data-slot=\"dialog-content\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, -4px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"dialog-overlay\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, 0px, 0px) scale3d(1, 1, 1) rotate(0deg)"
+      }
+    },
+    {
+      "label": "Dialog 关键帧纵向 / dialog keyframe Y (light)",
+      "fromTransform": "translate3d(0px, -4px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)",
+      "translateY": -4
+    },
+    {
+      "label": "Dialog 退出 / dialog exit (light)",
+      "content": {
+        "selector": "[data-slot=\"dialog-content\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"dialog-overlay\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      }
+    },
+    {
+      "label": "Tooltip 进入 / tooltip enter (light)",
+      "selector": "[data-slot=\"tooltip-content\"]",
+      "state": "delayed-open",
+      "animationNames": [
+        null,
+        "enter"
+      ],
+      "durationMs": 150,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "translate3d(0px, 8px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+    },
+    {
+      "label": "Tooltip 退出 / tooltip exit (light)",
+      "selector": "[data-slot=\"tooltip-content\"]",
+      "state": "closed",
+      "animationNames": [
+        "exit"
+      ],
+      "durationMs": 100,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "none"
+    },
+    {
+      "label": "Checkbox 静止态 / checkbox at rest (light)",
+      "opacity": "0",
+      "scale": "0.5",
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.34, 1.46, 0.64, 1)",
+      "transitionProperty": "opacity, scale",
+      "ariaHidden": "true",
+      "tabindex": null
+    },
+    {
+      "label": "Checkbox 点击 / checkbox click (light)",
+      "peakScale": 1.03436,
+      "finalScale": 1,
+      "finalOpacity": "1"
+    },
+    {
+      "label": "Select 进入 / select enter (light)",
+      "selector": "[data-slot=\"select-content\"]",
+      "state": "open",
+      "animationNames": [
+        null,
+        "enter"
+      ],
+      "durationMs": 200,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "translate3d(0px, -8px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+    },
+    {
+      "label": "Select 对齐 / select item-aligned flag (light)",
+      "dataAlignTrigger": "false",
+      "animationName": "enter"
+    },
+    {
+      "label": "Select 退出 / select exit (light)",
+      "selector": "[data-slot=\"select-content\"]",
+      "state": "closed",
+      "animationNames": [
+        "exit"
+      ],
+      "durationMs": 150,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "none"
+    },
+    {
+      "label": "Radio 静止态 / radio at rest (light)",
+      "opacity": "0",
+      "scale": "0.5",
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.34, 1.46, 0.64, 1)",
+      "transitionProperty": "opacity, scale",
+      "ariaHidden": "true",
+      "tabindex": null
+    },
+    {
+      "label": "Radio 点击 / radio click (light)",
+      "peakScale": 1.03436,
+      "finalScale": 1,
+      "finalOpacity": "1"
+    },
+    {
+      "label": "Switch 静止态 / switch at rest (light)",
+      "transitionProperty": "transform, translate, scale, rotate",
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.34, 1.46, 0.64, 1)",
+      "translate": "0px"
+    },
+    {
+      "label": "Switch 点击 / switch click (light)",
+      "state": "checked",
+      "peakOffset": 11.6871337890625,
+      "finalOffset": 11
+    },
+    {
+      "label": "Dropdown 进入 / dropdown enter (light)",
+      "selector": "[data-slot=\"dropdown-menu-content\"]",
+      "state": "open",
+      "animationNames": [
+        null,
+        null,
+        "enter"
+      ],
+      "durationMs": 200,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "translate3d(0px, -8px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+    },
+    {
+      "label": "Dropdown 退出 / dropdown exit (light)",
+      "selector": "[data-slot=\"dropdown-menu-content\"]",
+      "state": "closed",
+      "animationNames": [
+        null,
+        "exit"
+      ],
+      "durationMs": 150,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "none"
+    },
+    {
+      "label": "Popover 进入 / popover enter (light)",
+      "selector": "[data-slot=\"popover-content\"]",
+      "state": "open",
+      "animationNames": [
+        null,
+        "enter"
+      ],
+      "durationMs": 200,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "translate3d(0px, -8px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+    },
+    {
+      "label": "Popover 退出 / popover exit (light)",
+      "selector": "[data-slot=\"popover-content\"]",
+      "state": "closed",
+      "animationNames": [
+        "exit"
+      ],
+      "durationMs": 150,
+      "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "fromTransform": "none"
+    },
+    {
+      "label": "AlertDialog 进入 / alert-dialog enter (light)",
+      "content": {
+        "selector": "[data-slot=\"alert-dialog-content\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, -4px, 0px) scale3d(0.95, 0.95, 0.95) rotate(0deg)"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"alert-dialog-overlay\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, 0px, 0px) scale3d(1, 1, 1) rotate(0deg)"
+      }
+    },
+    {
+      "label": "AlertDialog 关键帧纵向 / alert-dialog keyframe Y (light)",
+      "translateY": -4
+    },
+    {
+      "label": "AlertDialog 退出 / alert-dialog exit (light)",
+      "content": {
+        "selector": "[data-slot=\"alert-dialog-content\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"alert-dialog-overlay\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      }
+    },
+    {
+      "label": "Sheet 进入 / sheet enter (light)",
+      "content": {
+        "selector": "[data-slot=\"sheet-content\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(-10%, 0px, 0px) scale3d(1, 1, 1) rotate(0deg)"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"sheet-overlay\"]",
+        "state": "open",
+        "animationNames": [
+          "enter"
+        ],
+        "durationMs": 200,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "translate3d(0px, 0px, 0px) scale3d(1, 1, 1) rotate(0deg)"
+      }
+    },
+    {
+      "label": "Sheet 退出 / sheet exit (light)",
+      "content": {
+        "selector": "[data-slot=\"sheet-content\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      },
+      "overlay": {
+        "selector": "[data-slot=\"sheet-overlay\"]",
+        "state": "closed",
+        "animationNames": [
+          "exit"
+        ],
+        "durationMs": 150,
+        "timingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+        "fromTransform": "none"
+      }
+    },
+    {
+      "label": "reduced-motion / 减弱动效",
+      "animationDuration": "1e-05s",
+      "overlayAnimationDuration": "1e-05s",
+      "animations": 0
+    }
+  ]
+}

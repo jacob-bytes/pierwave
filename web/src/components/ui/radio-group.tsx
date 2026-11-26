@@ -29,10 +29,15 @@ function RadioGroupItem({
       {...props}
     >
       <RadioGroupPrimitive.Indicator
+        forceMount
         data-slot="radio-group-indicator"
         className="flex size-4 items-center justify-center"
       >
-        <span className="absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-foreground" />
+        <span
+          data-slot="radio-group-indicator-dot"
+          aria-hidden="true"
+          className="absolute top-1/2 left-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-foreground transition-[opacity,scale] duration-200 ease-spring scale-50 opacity-0 group-data-checked/radio-group-item:scale-100 group-data-checked/radio-group-item:opacity-100"
+        />
       </RadioGroupPrimitive.Indicator>
     </RadioGroupPrimitive.Item>
   )

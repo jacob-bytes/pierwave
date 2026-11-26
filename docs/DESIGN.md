@@ -170,9 +170,40 @@ stroke.
 4. Toast：从右上角滑入 8px，带轻微 spring（sonner 默认即可）。
 5. 状态点：在线时 2s 一次的柔和呼吸（`opacity 1→0.55`），离线不动。
 6. 骨架屏：shimmer 1.2s 循环。
+7. 浮层进出：进入 200ms、退出 150ms，`ease-out-soft`；居中弹层（Dialog /
+   AlertDialog）落下 4px，锚定浮层（Dropdown / Popover / Select）沿所在方向
+   滑入 8px，Sheet 从边缘滑入 2.5rem。
+8. 选中指示器：复选框对勾 / 单选圆点 / 开关滑块 200ms、`ease-spring`，从
+   50% 缩放 + 透明到 100%；未选中时 `opacity: 0` 且 `aria-hidden`，不新增
+   可聚焦节点。
+9. 列表行按下：`bg-muted/60`；行尾箭头在 hover 与键盘 `:focus-visible` 时
+   同样右移 2px，按下不改变任何静止画面。
 
 禁止：整屏渐变、发光、弹跳、超过 300ms 的过渡、滚动视差。
-唯一的例外见下（登录页整屏径向光晕）。
+唯一的过冲例外是第 8 条的选中指示器；整屏渐变的例外见下（登录页整屏径向光晕）。
+
+### 动效契约（英文）/ Motion contract (English)
+
+Duration 150–220ms, `ease-out`, displacement ≤ 4px. Motion is used only here:
+
+1. Page / card entrance: `opacity 0→1` + `translateY(4px→0)`, 120ms.
+2. Row hover: `bg-muted/40`, 80ms.
+3. Button press: `scale(0.98)`, 100ms.
+4. Toast: slides in 8px from the top-right with a slight spring (sonner defaults).
+5. Status dot: a soft 2s breathing `opacity 1→0.55` when online; offline dots stay still.
+6. Skeleton: a 1.2s shimmer loop.
+7. Overlays: 200ms in, 150ms out, `ease-out-soft`. Centered dialogs (Dialog /
+   AlertDialog) drop 4px; anchored overlays (Dropdown / Popover / Select) slide
+   8px in from their side; sheets slide 2.5rem in from the edge.
+8. Selection indicators: checkbox tick / radio dot / switch thumb use 200ms
+   `ease-spring`, scaling in from 50% while fading in; when unselected they stay
+   at `opacity: 0` and `aria-hidden` and never add a focusable node.
+9. List-row press: `bg-muted/60`. The trailing arrow also nudges 2px right on
+   hover and keyboard `:focus-visible`; pressing changes no resting frame.
+
+Forbidden: full-screen gradients, glow, bounce, transitions over 300ms, scroll parallax.
+The only overshoot exception is the selection indicator in item 8; the full-screen
+gradient exception follows (login-page radial glow).
 
 ### 例外：登录页允许整屏径向光晕 / Exception: full-screen radial glow on the login page
 

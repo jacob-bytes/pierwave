@@ -1,0 +1,356 @@
+{
+  "generatedAt": "2026-11-26T16:40:38.858Z",
+  "shots": [
+    {
+      "name": "overview-map-dark-1440",
+      "file": "overview-map-dark-1440.png"
+    },
+    {
+      "name": "world-map-dark-1440",
+      "file": "world-map-dark-1440.png"
+    },
+    {
+      "name": "world-map-light-1440",
+      "file": "world-map-light-1440.png"
+    },
+    {
+      "name": "world-map-dark-390",
+      "file": "world-map-dark-390.png"
+    },
+    {
+      "name": "world-map-light-390",
+      "file": "world-map-light-390.png"
+    },
+    {
+      "name": "world-map-tooltip-1440",
+      "file": "world-map-tooltip-1440.png"
+    },
+    {
+      "name": "server-country-filter-1440",
+      "file": "server-country-filter-1440.png"
+    },
+    {
+      "name": "world-map-tooltip-390",
+      "file": "world-map-tooltip-390.png"
+    },
+    {
+      "name": "server-country-empty-1440",
+      "file": "server-country-empty-1440.png"
+    },
+    {
+      "name": "server-country-filter-390",
+      "file": "server-country-filter-390.png"
+    },
+    {
+      "name": "world-map-empty-dark-1440",
+      "file": "world-map-empty-dark-1440.png"
+    },
+    {
+      "name": "world-map-empty-dark-390",
+      "file": "world-map-empty-dark-390.png"
+    },
+    {
+      "name": "world-map-empty-light-1440",
+      "file": "world-map-empty-light-1440.png"
+    }
+  ],
+  "checks": [
+    {
+      "name": "dark/1440: 地图在 KPI 与服务器 × 时间之间",
+      "ok": true,
+      "detail": "{\"kpiBottom\":444.765625,\"mapTop\":460.765625,\"mapBottom\":978.359375,\"heatTop\":994.359375}"
+    },
+    {
+      "name": "dark/1440: 渲染全部国家路径（234）",
+      "ok": true,
+      "detail": "234"
+    },
+    {
+      "name": "dark/1440: 8 个有节点国家",
+      "ok": true,
+      "detail": "8"
+    },
+    {
+      "name": "dark/1440: 着色档位 US=3 JP=2 DE/FR=1 CA=0",
+      "ok": true,
+      "detail": "{\"US\":\"3\",\"JP\":\"2\",\"DE\":\"1\",\"FR\":\"1\",\"CA\":\"0\"}"
+    },
+    {
+      "name": "dark/1440: 描边 worst US=offline、JP/BR=abnormal、DE=online",
+      "ok": true,
+      "detail": "{\"US\":\"offline\",\"JP\":\"abnormal\",\"BR\":\"abnormal\",\"DE\":\"online\"}"
+    },
+    {
+      "name": "dark/1440: 离线 / 异常国家有描边色，在线没有",
+      "ok": true,
+      "detail": "{\"US\":\"oklch(0.62 0.2 25)\",\"JP\":\"oklch(0.82 0.16 80)\",\"DE\":\"oklch(0.175 0.005 285)\"}"
+    },
+    {
+      "name": "dark/1440: 有节点国家按台数加深（US 比 DE 深）",
+      "ok": true,
+      "detail": "{\"US\":\"oklab(0.662 -0.0168454 -0.178206 / 0.75)\",\"DE\":\"oklab(0.662 -0.0168454 -0.178206 / 0.3)\",\"CA\":\"oklab(0.662 -0.0168454 -0.178206 / 0.15)\"}"
+    },
+    {
+      "name": "dark/1440: 图例包含无节点 / 4 档 / 离线 / 异常",
+      "ok": true,
+      "detail": "无节点1 台2–3 台4–6 台7+ 台离线异常"
+    },
+    {
+      "name": "dark/1440: 有节点国家可聚焦、无节点国家不可聚焦",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "dark/1440: 页面无 console error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "light/1440: 地图在 KPI 与服务器 × 时间之间",
+      "ok": true,
+      "detail": "{\"kpiBottom\":444.765625,\"mapTop\":460.765625,\"mapBottom\":978.359375,\"heatTop\":994.359375}"
+    },
+    {
+      "name": "light/1440: 渲染全部国家路径（234）",
+      "ok": true,
+      "detail": "234"
+    },
+    {
+      "name": "light/1440: 8 个有节点国家",
+      "ok": true,
+      "detail": "8"
+    },
+    {
+      "name": "light/1440: 着色档位 US=3 JP=2 DE/FR=1 CA=0",
+      "ok": true,
+      "detail": "{\"US\":\"3\",\"JP\":\"2\",\"DE\":\"1\",\"FR\":\"1\",\"CA\":\"0\"}"
+    },
+    {
+      "name": "light/1440: 描边 worst US=offline、JP/BR=abnormal、DE=online",
+      "ok": true,
+      "detail": "{\"US\":\"offline\",\"JP\":\"abnormal\",\"BR\":\"abnormal\",\"DE\":\"online\"}"
+    },
+    {
+      "name": "light/1440: 离线 / 异常国家有描边色，在线没有",
+      "ok": true,
+      "detail": "{\"US\":\"oklch(0.57 0.208 25.3)\",\"JP\":\"oklch(0.53 0.146 49)\",\"DE\":\"oklch(1 0 0)\"}"
+    },
+    {
+      "name": "light/1440: 有节点国家按台数加深（US 比 DE 深）",
+      "ok": true,
+      "detail": "{\"US\":\"oklab(0.424 -0.0151355 -0.198424 / 0.75)\",\"DE\":\"oklab(0.424 -0.0151355 -0.198424 / 0.3)\",\"CA\":\"oklab(0.424 -0.0151355 -0.198424 / 0.15)\"}"
+    },
+    {
+      "name": "light/1440: 图例包含无节点 / 4 档 / 离线 / 异常",
+      "ok": true,
+      "detail": "无节点1 台2–3 台4–6 台7+ 台离线异常"
+    },
+    {
+      "name": "light/1440: 有节点国家可聚焦、无节点国家不可聚焦",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "light/1440: 页面无 console error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "dark/390: 地图在 KPI 与服务器 × 时间之间",
+      "ok": true,
+      "detail": "{\"kpiBottom\":779.921875,\"mapTop\":795.921875,\"mapBottom\":1070.515625,\"heatTop\":1086.515625}"
+    },
+    {
+      "name": "dark/390: 渲染全部国家路径（234）",
+      "ok": true,
+      "detail": "234"
+    },
+    {
+      "name": "dark/390: 8 个有节点国家",
+      "ok": true,
+      "detail": "8"
+    },
+    {
+      "name": "dark/390: 着色档位 US=3 JP=2 DE/FR=1 CA=0",
+      "ok": true,
+      "detail": "{\"US\":\"3\",\"JP\":\"2\",\"DE\":\"1\",\"FR\":\"1\",\"CA\":\"0\"}"
+    },
+    {
+      "name": "dark/390: 描边 worst US=offline、JP/BR=abnormal、DE=online",
+      "ok": true,
+      "detail": "{\"US\":\"offline\",\"JP\":\"abnormal\",\"BR\":\"abnormal\",\"DE\":\"online\"}"
+    },
+    {
+      "name": "dark/390: 离线 / 异常国家有描边色，在线没有",
+      "ok": true,
+      "detail": "{\"US\":\"oklch(0.62 0.2 25)\",\"JP\":\"oklch(0.82 0.16 80)\",\"DE\":\"oklch(0.175 0.005 285)\"}"
+    },
+    {
+      "name": "dark/390: 有节点国家按台数加深（US 比 DE 深）",
+      "ok": true,
+      "detail": "{\"US\":\"oklab(0.662 -0.0168454 -0.178206 / 0.75)\",\"DE\":\"oklab(0.662 -0.0168454 -0.178206 / 0.3)\",\"CA\":\"oklab(0.662 -0.0168454 -0.178206 / 0.15)\"}"
+    },
+    {
+      "name": "dark/390: 图例包含无节点 / 4 档 / 离线 / 异常",
+      "ok": true,
+      "detail": "无节点1 台2–3 台4–6 台7+ 台离线异常"
+    },
+    {
+      "name": "dark/390: 有节点国家可聚焦、无节点国家不可聚焦",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "dark/390: 390 / 视口无横向溢出",
+      "ok": true,
+      "detail": "{\"viewport\":390,\"docScroll\":390,\"bodyScroll\":390,\"mainClient\":390,\"mainScroll\":390}"
+    },
+    {
+      "name": "dark/390: 页面无 console error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "light/390: 地图在 KPI 与服务器 × 时间之间",
+      "ok": true,
+      "detail": "{\"kpiBottom\":779.921875,\"mapTop\":795.921875,\"mapBottom\":1070.515625,\"heatTop\":1086.515625}"
+    },
+    {
+      "name": "light/390: 渲染全部国家路径（234）",
+      "ok": true,
+      "detail": "234"
+    },
+    {
+      "name": "light/390: 8 个有节点国家",
+      "ok": true,
+      "detail": "8"
+    },
+    {
+      "name": "light/390: 着色档位 US=3 JP=2 DE/FR=1 CA=0",
+      "ok": true,
+      "detail": "{\"US\":\"3\",\"JP\":\"2\",\"DE\":\"1\",\"FR\":\"1\",\"CA\":\"0\"}"
+    },
+    {
+      "name": "light/390: 描边 worst US=offline、JP/BR=abnormal、DE=online",
+      "ok": true,
+      "detail": "{\"US\":\"offline\",\"JP\":\"abnormal\",\"BR\":\"abnormal\",\"DE\":\"online\"}"
+    },
+    {
+      "name": "light/390: 离线 / 异常国家有描边色，在线没有",
+      "ok": true,
+      "detail": "{\"US\":\"oklch(0.57 0.208 25.3)\",\"JP\":\"oklch(0.53 0.146 49)\",\"DE\":\"oklch(1 0 0)\"}"
+    },
+    {
+      "name": "light/390: 有节点国家按台数加深（US 比 DE 深）",
+      "ok": true,
+      "detail": "{\"US\":\"oklab(0.424 -0.0151355 -0.198424 / 0.75)\",\"DE\":\"oklab(0.424 -0.0151355 -0.198424 / 0.3)\",\"CA\":\"oklab(0.424 -0.0151355 -0.198424 / 0.15)\"}"
+    },
+    {
+      "name": "light/390: 图例包含无节点 / 4 档 / 离线 / 异常",
+      "ok": true,
+      "detail": "无节点1 台2–3 台4–6 台7+ 台离线异常"
+    },
+    {
+      "name": "light/390: 有节点国家可聚焦、无节点国家不可聚焦",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "light/390: 390 / 视口无横向溢出",
+      "ok": true,
+      "detail": "{\"viewport\":390,\"docScroll\":390,\"bodyScroll\":390,\"mainClient\":390,\"mainScroll\":390}"
+    },
+    {
+      "name": "light/390: 页面无 console error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "tooltip: 本地化国家名 + 台数/在线 + 前 3 个节点",
+      "ok": true,
+      "detail": "德国3 台 · 在线 3柏林-01 · 法兰克福-01 · 法兰克福-02"
+    },
+    {
+      "name": "tooltip: 不超出地图卡左右边界",
+      "ok": true,
+      "detail": "{\"tip\":{\"x\":754.90625,\"y\":619,\"width\":218.1875,\"height\":72,\"top\":619,\"right\":973.09375,\"bottom\":691,\"left\":754.90625},\"card\":{\"x\":264,\"y\":460.765625,\"width\":1152,\"height\":517.59375,\"top\":460.765625,\"right\":1416,\"bottom\":978.359375,\"left\":264}}"
+    },
+    {
+      "name": "键盘 Enter: URL = /servers?country=DE",
+      "ok": true,
+      "detail": "/servers?country=DE"
+    },
+    {
+      "name": "键盘 Enter: chip 显示地区 DE，列表只留 3 台德国服务器",
+      "ok": true,
+      "detail": "{\"chip\":\"🇩🇪地区 DE\",\"rows\":3}"
+    },
+    {
+      "name": "点击 chip: 清除 country 参数并恢复全部服务器",
+      "ok": true,
+      "detail": "{\"url\":\"/servers\",\"chip\":false,\"rows\":22}"
+    },
+    {
+      "name": "服务器页无 console error",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "鼠标点击: URL = /servers?country=JP，5 台日本服务器",
+      "ok": true,
+      "detail": "{\"url\":\"/servers?country=JP\",\"chip\":\"🇯🇵地区 JP\",\"rows\":5}"
+    },
+    {
+      "name": "香港（50m 补全）：地图路径存在且可聚焦",
+      "ok": true,
+      "detail": "{\"exists\":true,\"role\":\"button\",\"tabIndex\":\"0\",\"tier\":\"0\",\"aria\":\"香港：1 台节点，在线 0，离线 1，异常 0，查看服务器\",\"d\":353}"
+    },
+    {
+      "name": "香港：Enter 跳 /servers?country=HK，chip 与过滤行正确",
+      "ok": true,
+      "detail": "{\"url\":\"/servers?country=HK\",\"chip\":\"🇭🇰地区 HK\",\"rows\":1}"
+    },
+    {
+      "name": "390 tooltip: 文案完整且不超出卡片 / 视口",
+      "ok": true,
+      "detail": "{\"tip\":{\"x\":94.90625,\"y\":669,\"width\":218.1875,\"height\":72,\"top\":669,\"right\":313.09375,\"bottom\":741,\"left\":94.90625},\"card\":{\"x\":24,\"y\":568.921875,\"width\":342,\"height\":274.59375,\"top\":568.921875,\"right\":366,\"bottom\":843.515625,\"left\":24},\"viewport\":390}"
+    },
+    {
+      "name": "服务器页地区空态：标题 + 清除按钮 + chip",
+      "ok": true,
+      "detail": "{\"chip\":\"🇳🇿地区 NZ\",\"title\":true,\"clear\":true}"
+    },
+    {
+      "name": "390 servers?country=JP: 390 / 视口无横向溢出",
+      "ok": true,
+      "detail": "{\"viewport\":390,\"docScroll\":390,\"bodyScroll\":390,\"mainClient\":390,\"mainScroll\":390}"
+    },
+    {
+      "name": "dark/1440: 空态仍显示地图，图例注明暂无节点",
+      "ok": true,
+      "detail": "{\"legend\":\"无节点1 台2–3 台4–6 台7+ 台暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
+    },
+    {
+      "name": "dark/390: 空态仍显示地图，图例注明暂无节点",
+      "ok": true,
+      "detail": "{\"legend\":\"无节点1 台2–3 台4–6 台7+ 台暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
+    },
+    {
+      "name": "dark/390 empty: 390 / 视口无横向溢出",
+      "ok": true,
+      "detail": "{\"viewport\":390,\"docScroll\":390,\"bodyScroll\":390,\"mainClient\":390,\"mainScroll\":390}"
+    },
+    {
+      "name": "light/1440: 空态仍显示地图，图例注明暂无节点",
+      "ok": true,
+      "detail": "{\"legend\":\"无节点1 台2–3 台4–6 台7+ 台暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
+    },
+    {
+      "name": "worldMapPaths.json ≤150KB",
+      "ok": true,
+      "detail": "126988 bytes"
+    }
+  ],
+  "errors": [],
+  "ok": true
+}

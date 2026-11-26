@@ -17,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChainKpiCell, ChainKpiGrid, ChainKpiSkeletonGrid } from "./ChainKpi";
 import { ResourceLineChart } from "./ResourceLineChart";
 import { ServerUptimeTrendChart } from "./ServerUptimeTrendChart";
+import WorldNodeMap from "./WorldNodeMap";
 import { errorText } from "@/lib/errors";
 import { useServerHealth } from "@/lib/queries";
 import {
@@ -271,6 +272,8 @@ function ServerHealthBody({
           hint={diskHint}
         />
       </ChainKpiGrid>
+
+      <WorldNodeMap selectedIds={effectiveSelectedIds} filtered={filtered} />
 
       <HeatmapCard
         snapshot={scopedSnapshot}

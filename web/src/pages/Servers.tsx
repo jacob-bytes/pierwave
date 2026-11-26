@@ -22,6 +22,7 @@ import {
   TriangleAlertIcon,
   WaypointsIcon,
   WorkflowIcon,
+  XIcon,
 } from "lucide-react";
 import {
   CopyButton,
@@ -120,7 +121,11 @@ import {
   type BatchSelectionState,
 } from "@/lib/agentUpgradeBatch";
 import { copyText } from "@/lib/clipboard";
-import { isCountryCode } from "@/lib/country";
+import {
+  countryCodeToFlag,
+  countryDisplayName,
+  isCountryCode,
+} from "@/lib/country";
 import { applySummary } from "@/lib/applyStatus";
 import { errorText } from "@/lib/errors";
 import { missingRequiredLabels } from "@/lib/formRequired";
@@ -153,6 +158,13 @@ import {
   groupServers,
   normalizeGroupName,
 } from "@/lib/serverGroups";
+import {
+  applyServerListFilters,
+  GROUP_FILTER_ALL,
+  GROUP_FILTER_UNGROUPED,
+  isServiceDown,
+  resolveCountryFilter,
+} from "@/lib/serverListFilters";
 import { isSpeedLimited } from "@/lib/speed";
 import { SERVER_TABLE_COLUMN_KEYS, serverTableColumns } from "@/lib/tableColumns";
 import { formatAbsoluteTime, formatRelativeTime } from "@/lib/time";
@@ -167,18 +179,11 @@ const COLUMN_COUNT = SERVER_TABLE_COLUMN_KEYS.length;
 const HEARTBEAT_STALE_MS = 90_000;
 const HEAD_CLASS =
   "h-9 px-2 text-xs font-medium tracking-wide text-muted-foreground";
-/** 分组筛选：`all` 不筛选，`__ungrouped__` 只看未分组。 */
-const GROUP_FILTER_ALL = "all";
-const GROUP_FILTER_UNGROUPED = "__ungrouped__";
 
 function xrayModeLabel(mode: string): string {
   if (mode === "external") return t("servers.mode.external");
   if (mode === "embedded") return t("servers.mode.embedded");
   return mode;
-}
-
-function isServiceDown(server: Server): boolean {
-  return server.status === "online" && server.xray_running === false;
 }
 
 type XrayState = "running" | "stopped" | "unknown";
@@ -900,17 +905,45 @@ function FilterEmptyRow({ onClear }: { onClear: () => void }) {
   );
 }
 
+function CountryEmptyRow({
+  country,
+  onClear,
+}: {
+  country: string;
+  onClear: () => void;
+}) {
+  return (
+    <TableRow className="hover:bg-transparent">
+      <TableCell colSpan={COLUMN_COUNT} className="px-4 py-8">
+        <EmptyState
+          size="sm"
+          icon={ServerOffIcon}
+          title={t("servers.countryEmptyTitle")}
+          description={t("servers.countryEmptyDesc", { country })}
+          action={
+            <Button variant="outline" size="sm" onClick={onClear}>
+              {t("servers.countryEmptyClear")}
+            </Button>
+          }
+        />
+      </TableCell>
+    </TableRow>
+  );
+}
+
 export default function ServersPage() {
-  const { t } = useI18n();
+  const { locale, t } = useI18n();
   const isDesktop = useIsDesktop();
   const tableColumns = serverTableColumns(t);
   const servers = useServers();
   const create = useCreateServer();
   const [searchParams, setSearchParams] = useSearchParams();
   const highlightParam = searchParams.get("highlight")?.trim() || null;
-  // 「只看服务异常」写进 URL：刷新 / 分享链接后筛选状态还在，和分组下拉的
-  // 组件态区分开。非法值（不是 exactly abnormal）一律当未筛选。
+  // 「只看服务异常」与地区都写进 URL：刷新 / 分享链接后筛选状态还在，和分组
+  // 下拉的组件态区分开。非法值（不是 exactly abnormal / 不是合法 ISO2）一律
+  // 当未筛选。
   const onlyAbnormal = searchParams.get("only") === "abnormal";
+  const countryFilter = resolveCountryFilter(searchParams.get("country"));
 
   const [createOpen, setCreateOpen] = useState(false);
   const [tokenOpen, setTokenOpen] = useState(false);
@@ -1006,30 +1039,26 @@ export default function ServersPage() {
       : GROUP_FILTER_ALL;
   }, [groupFilter, groupOptions]);
 
-  const groupFilteredItems = useMemo(() => {
-    if (activeGroupFilter === GROUP_FILTER_ALL) return items;
-    if (activeGroupFilter === GROUP_FILTER_UNGROUPED) {
-      return items.filter(
-        (server) => normalizeGroupName(server.group_name) === null,
-      );
-    }
-    return items.filter(
-      (server) => normalizeGroupName(server.group_name) === activeGroupFilter,
-    );
-  }, [items, activeGroupFilter]);
-
-  // 异常数按当前分组算：筛选按钮只在「点了确实有结果」时出现。
-  const serviceDownCount = groupFilteredItems.filter(isServiceDown).length;
-  // URL 里有 only=abnormal 但当前分组没有异常时，按未筛选渲染，避免出现
-  // 一个看不到、也无法取消的隐形筛选。
-  const abnormalActive = onlyAbnormal && serviceDownCount > 0;
-  const visibleItems = useMemo(
+  // 分组 → 地区 → 只看服务异常，三个条件叠加；顺序与 URL 中的参数无关。
+  // 异常数按「当前分组 + 地区」算：筛选按钮只在点了确实有结果时出现。
+  const filterResult = useMemo(
     () =>
-      abnormalActive
-        ? groupFilteredItems.filter(isServiceDown)
-        : groupFilteredItems,
-    [groupFilteredItems, abnormalActive],
+      applyServerListFilters(items, {
+        group: activeGroupFilter,
+        country: countryFilter,
+        onlyAbnormal,
+      }),
+    [items, activeGroupFilter, countryFilter, onlyAbnormal],
   );
+  const visibleItems = filterResult.items;
+  const abnormalActive = filterResult.abnormalActive;
+  const serviceDownCount = filterResult.abnormalCount;
+  // 地区筛选保留空结果（与 only=abnormal 不同）：页面要显示「该地区没有服务器」。
+  const countryEmpty =
+    countryFilter !== null && filterResult.scopedCount === 0;
+  const countryFilterLabel = countryFilter
+    ? (countryDisplayName(countryFilter, locale) ?? countryFilter)
+    : null;
 
   const eligibleIds = useMemo(() => selectableServerIds(items), [items]);
   // 列表刷新后可能有关掉「允许下发升级」的行：从这里起就丢掉失效 id，
@@ -1101,6 +1130,14 @@ export default function ServersPage() {
     setSearchParams(next, { replace: true });
   }
 
+  /** 只清地区：分组与 only 保持原样，URL 可分享。 */
+  function clearCountryFilter() {
+    if (!searchParams.has("country")) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete("country");
+    setSearchParams(next, { replace: true });
+  }
+
   /**
    * 切换分组时同步异常筛选：新分组没有异常就顺手把 only 去掉。
    *
@@ -1110,26 +1147,24 @@ export default function ServersPage() {
   function handleGroupFilterChange(value: string) {
     setGroupFilter(value);
     if (!searchParams.has("only")) return;
-    const scoped = items.filter((server) => {
-      if (value === GROUP_FILTER_ALL) return true;
-      const group = normalizeGroupName(server.group_name);
-      if (value === GROUP_FILTER_UNGROUPED) return group === null;
-      return group === value;
+    const scoped = applyServerListFilters(items, {
+      group: value,
+      country: countryFilter,
+      onlyAbnormal: true,
     });
-    if (scoped.some(isServiceDown)) return;
+    if (scoped.abnormalCount > 0) return;
     const next = new URLSearchParams(searchParams);
     next.delete("only");
     setSearchParams(next, { replace: true });
   }
 
-  /** 清空列表筛选：分组回到全部，URL 里的 only 也一并去掉。 */
+  /** 清空列表筛选：分组回到全部，URL 里的 only / country 也一并去掉。 */
   function clearAllFilters() {
     setGroupFilter(GROUP_FILTER_ALL);
-    if (searchParams.has("only")) {
-      const next = new URLSearchParams(searchParams);
-      next.delete("only");
-      setSearchParams(next, { replace: true });
-    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("only");
+    next.delete("country");
+    setSearchParams(next, { replace: true });
   }
 
   const editServer = items.find((server) => server.id === editServerId) ?? null;
@@ -1748,6 +1783,28 @@ export default function ServersPage() {
               </Tooltip>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              {countryFilter && countryFilterLabel ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-slot="server-country-filter"
+                  data-country={countryFilter}
+                  onClick={clearCountryFilter}
+                  title={t("servers.countryFilterClear", {
+                    country: countryFilterLabel,
+                  })}
+                  aria-label={t("servers.countryFilterClear", {
+                    country: countryFilterLabel,
+                  })}
+                  className="gap-1.5 font-normal"
+                >
+                  <span aria-hidden="true">
+                    {countryCodeToFlag(countryFilter)}
+                  </span>
+                  {t("servers.countryFilterChip", { country: countryFilter })}
+                  <XIcon className="size-3" aria-hidden="true" />
+                </Button>
+              ) : null}
               {/*
                 加载中也把筛选区画出来（禁用），避免骨架 → 数据两套结构来回跳。
                 没有任何分组时才真正隐藏。
@@ -1932,6 +1989,11 @@ export default function ServersPage() {
                 />
               ) : items.length === 0 ? (
                 <EmptyRow onCreate={openCreateDialog} />
+              ) : countryEmpty ? (
+                <CountryEmptyRow
+                  country={countryFilterLabel ?? countryFilter ?? ""}
+                  onClear={clearCountryFilter}
+                />
               ) : visibleItems.length === 0 ? (
                 <FilterEmptyRow onClear={clearAllFilters} />
               ) : (
@@ -1963,6 +2025,24 @@ export default function ServersPage() {
                     <Button size="sm" onClick={openCreateDialog}>
                       <PlusIcon className="icon-md" />
                       {t("servers.emptyAction")}
+                    </Button>
+                  }
+                />
+              ) : countryEmpty ? (
+                <EmptyState
+                  size="sm"
+                  icon={ServerOffIcon}
+                  title={t("servers.countryEmptyTitle")}
+                  description={t("servers.countryEmptyDesc", {
+                    country: countryFilterLabel ?? countryFilter ?? "",
+                  })}
+                  action={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={clearCountryFilter}
+                    >
+                      {t("servers.countryEmptyClear")}
                     </Button>
                   }
                 />

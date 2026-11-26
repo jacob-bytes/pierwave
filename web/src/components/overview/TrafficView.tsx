@@ -370,7 +370,7 @@ function LeaderboardServerRow({ item }: { item: OverviewTopItem }) {
     <li>
       <Link
         to="/servers"
-        className="group flex flex-col gap-1 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40 md:flex-row md:items-center md:gap-3"
+        className="group flex flex-col gap-1 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40 active:bg-muted/60 md:flex-row md:items-center md:gap-3"
       >
         <span className="flex min-w-0 items-center gap-2 md:contents">
           <span className="min-w-0 flex-1 truncate text-sm" title={item.name}>
@@ -415,7 +415,7 @@ function LeaderboardServerRow({ item }: { item: OverviewTopItem }) {
           <span className="shrink-0 font-mono tabular-nums md:order-2">
             {formatBytes(item.traffic_7d)}
           </span>
-          <ChevronRightIcon className="icon-sm ml-auto shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 md:order-5" />
+          <ChevronRightIcon className="icon-sm ml-auto shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 group-focus-visible:translate-x-0.5 md:order-5" />
         </span>
       </Link>
     </li>
@@ -428,7 +428,7 @@ function LeaderboardNodeRow({ node }: { node: OverviewTopNode }) {
     <li>
       <Link
         to="/nodes"
-        className="group flex items-center gap-2 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40 sm:gap-3"
+        className="group flex items-center gap-2 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40 active:bg-muted/60 sm:gap-3"
       >
         <span className="min-w-0 flex-1 truncate text-sm" title={node.name}>
           {node.name}
@@ -442,7 +442,7 @@ function LeaderboardNodeRow({ node }: { node: OverviewTopNode }) {
         <span className="shrink-0 font-mono text-xs tabular-nums">
           {formatBytes(node.traffic_7d)}
         </span>
-        <ChevronRightIcon className="icon-sm shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
+        <ChevronRightIcon className="icon-sm shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 group-focus-visible:translate-x-0.5" />
       </Link>
     </li>
   );
@@ -454,7 +454,7 @@ function LeaderboardUserRow({ user }: { user: OverviewTopUser }) {
     <li>
       <Link
         to="/users"
-        className="group flex items-center gap-3 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40"
+        className="group flex items-center gap-3 rounded-md px-2.5 py-2.5 transition-colors duration-150 hover:bg-muted/40 active:bg-muted/60"
       >
         <span
           className="min-w-0 flex-1 truncate text-sm"
@@ -465,7 +465,7 @@ function LeaderboardUserRow({ user }: { user: OverviewTopUser }) {
         <span className="shrink-0 font-mono text-xs tabular-nums">
           {formatBytes(user.traffic_7d)}
         </span>
-        <ChevronRightIcon className="icon-sm shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
+        <ChevronRightIcon className="icon-sm shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 group-focus-visible:translate-x-0.5" />
       </Link>
     </li>
   );
@@ -770,7 +770,7 @@ function AlertRow({
   const active = count > 0;
 
   return (
-    <div className="group flex items-center rounded-md transition-colors duration-150 hover:bg-muted/40">
+    <div className="group flex items-center rounded-md transition-colors duration-150 hover:bg-muted/40 has-[a:active]:bg-muted/60">
       <Link
         to={to}
         onClick={onNavigate}
@@ -813,7 +813,7 @@ function AlertRow({
         >
           {count}
         </span>
-        <ChevronRightIcon className="icon-sm text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
+        <ChevronRightIcon className="icon-sm text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 group-has-[a:focus-visible]:translate-x-0.5" />
       </Link>
       {action ? <div className="shrink-0 pr-1.5">{action}</div> : null}
     </div>

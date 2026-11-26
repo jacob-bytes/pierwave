@@ -19,8 +19,10 @@ function Checkbox({
       {...props}
     >
       <CheckboxPrimitive.Indicator
+        forceMount
+        aria-hidden="true"
         data-slot="checkbox-indicator"
-        className="grid place-content-center text-current transition-none [&>svg]:size-3.5"
+        className="grid scale-50 place-content-center text-current opacity-0 transition-[opacity,scale] duration-200 ease-spring group-data-[state=checked]:scale-100 group-data-[state=checked]:opacity-100 group-data-[state=indeterminate]:scale-100 group-data-[state=indeterminate]:opacity-100 [&>svg]:size-3.5"
       >
         <CheckIcon className="group-data-[state=indeterminate]:hidden" />
         <MinusIcon className="hidden group-data-[state=indeterminate]:block" />
