@@ -29,6 +29,7 @@ const flowEdge = read(
 const flowContext = read(
   "../components/overview/chain-template-flow/context.ts",
 );
+const reducedMotionHook = read("../lib/usePrefersReducedMotion.ts");
 const packageJson = read("../../package.json");
 const usage = read("../components/overview/ChainTemplateUsageChart.tsx");
 const strategies = read(
@@ -774,6 +775,10 @@ test("中英双语键同时存在，不靠英文兜底中文", () => {
     "flowCardAria",
     "flowEdgeAria",
     "flowTargetFoldAria",
+    "flowMoreColumns",
+    "flowMoreColumnsAria",
+    "flowMoreBelow",
+    "flowMoreBelowAria",
     "flowZoomIn",
     "flowZoomOut",
     "flowFit",
@@ -871,5 +876,82 @@ test("模板 stale 提示与使用量口径图注：读新字段，缺失时不�
     graphLib,
     ["const usedSourceIdentities = new Set(", "drafts.has(`${node.seq}::${identity}`)"],
     "unused candidates derived from nodes",
+  );
+});
+
+test("画布收尾：底部提示 / 减弱动效平移 / 折叠卡跳数 / 连线高亮", () => {
+  // 右缘 / 下缘提示都用纯函数判断（缩放、平移后重算）。
+  assertIncludes(
+    flowCanvas,
+    [
+      "hiddenRightColumns(layout, size, viewport)",
+      "hasHiddenContentBelow(layout, size, viewport)",
+      "data-template-flow-more-below",
+      "data-template-flow-fade-below",
+      "data-pan-duration={panDuration}",
+      "const panBelow = useCallback(",
+      "TEMPLATE_PAN_RATIO",
+    ],
+    "overflow hints",
+  );
+  assertIncludes(
+    graphLib,
+    [
+      "export function hiddenRightColumns(",
+      "export function hasHiddenContentBelow(",
+      "export function templatePanDuration(",
+      "export const TEMPLATE_PAN_DURATION_MS = 220",
+    ],
+    "viewport hint logic",
+  );
+  // 减弱动效：JS 驱动的平移动画要单独读媒体查询（CSS 规则管不到）。
+  assertIncludes(
+    reducedMotionHook,
+    [
+      '"(prefers-reduced-motion: reduce)"',
+      "useSyncExternalStore",
+      "export function usePrefersReducedMotion(",
+    ],
+    "reduced motion hook",
+  );
+  assertIncludes(
+    flowCanvas,
+    ["usePrefersReducedMotion()", "templatePanDuration(prefersReducedMotion)"],
+    "reduced motion wiring",
+  );
+  // 折叠卡 tooltip 标题补回跳数；卡片副标题仍是「X 条链 · Y 用户 · 含 N 台离线」。
+  assertIncludes(
+    flowCard,
+    [
+      "data-template-flow-fold-title",
+      "{roleLabel(card, t)}",
+      't("overview.chainTemplateInsight.flowFoldListTitle"',
+      'translate("overview.chainTemplateInsight.flowFoldOffline"',
+    ],
+    "fold tooltip hop",
+  );
+  // 连线 hover / focus 点亮到入口：与卡片同一个 highlight 集合。
+  assertIncludes(
+    flowContext,
+    ["activeEdgeId", "activateEdge", "deactivateEdge"],
+    "edge interaction context",
+  );
+  assertIncludes(
+    flowEdge,
+    [
+      "activateEdge(edge.id)",
+      "deactivateEdge()",
+      "onPointerEnter={onEdgeFocus}",
+      "onFocus={onEdgeFocus}",
+    ],
+    "edge highlight wiring",
+  );
+  assertIncludes(
+    graphLib,
+    [
+      "export function highlightTemplateEdgePath(",
+      "walkUpstream(",
+    ],
+    "edge highlight logic",
   );
 });

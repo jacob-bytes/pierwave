@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ChevronRightIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import {
   Background,
   BackgroundVariant,
@@ -23,18 +23,24 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import {
   TEMPLATE_MAX_ZOOM,
   TEMPLATE_MIN_ZOOM,
   TEMPLATE_PADDING,
+  TEMPLATE_PAN_RATIO,
   clampTemplateZoom,
   stepTemplateZoom,
   fitViewport,
   foldTemplateGraph,
+  hasHiddenContentBelow,
+  hiddenRightColumns,
+  highlightTemplateEdgePath,
   highlightTemplatePath,
   initialViewport,
   layoutTemplateGraph,
   templateCanvasHeight,
+  templatePanDuration,
   type TemplateGraph,
   type TemplateSize,
   type TemplateViewport,
@@ -66,6 +72,10 @@ const edgeTypes: EdgeTypes = { templateEdge: TemplateEdgeLayer };
 /** 移动端断点与 Tailwind `sm` 对齐：<640 不缩放，1 倍 + 横向滚动。 */
 const COMPACT_QUERY = "(max-width: 639px)";
 
+/** 「右侧 / 下方还有」按钮共用的外观：同尺寸、同焦点环。 */
+const HINT_BUTTON_CLASS =
+  "absolute z-20 inline-flex items-center gap-0.5 rounded-full border border-border bg-background/90 px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-card backdrop-blur transition-colors duration-150 hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none";
+
 function FlowCanvas({
   graph,
   templateName,
@@ -77,6 +87,7 @@ function FlowCanvas({
   onReady,
 }: ChainTemplateFlowProps) {
   const { t: translate } = useI18n();
+  const prefersReducedMotion = usePrefersReducedMotion();
   const { getViewport, setViewport } = useReactFlow();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState<TemplateSize | null>(null);
@@ -94,13 +105,21 @@ function FlowCanvas({
     [expandedColumns, expandedTargets, graph],
   );
   const layout = useMemo(() => layoutTemplateGraph(folded), [folded]);
+  /**
+   * 高亮来源二选一：连线的悬停优先（它比卡片更具体），否则看卡片。
+   * 展开 / 折叠后原来的卡片或连线可能已消失：空集合当成「没有高亮」，
+   * 否则整张图会被 35% 压暗。
+   */
+  const [activeEdgeId, setActiveEdgeId] = useState<string | null>(null);
   const highlight = useMemo(() => {
+    if (activeEdgeId !== null) {
+      const next = highlightTemplateEdgePath(folded, activeEdgeId);
+      if (next.nodes.size > 0) return next;
+    }
     if (activeId === null) return null;
     const next = highlightTemplatePath(folded, activeId);
-    // 展开 / 折叠后原卡片可能已消失：空集合当成「没有高亮」，
-    // 否则整张图会被 35% 压暗。
     return next.nodes.size === 0 ? null : next;
-  }, [activeId, folded]);
+  }, [activeEdgeId, activeId, folded]);
   const activateRail = useCallback((railX: number) => {
     if (railTimer.current !== null) {
       window.clearTimeout(railTimer.current);
@@ -128,11 +147,14 @@ function FlowCanvas({
       activeId,
       activate: (id: string) => setActiveId(id),
       deactivate: () => setActiveId(null),
+      activeEdgeId,
+      activateEdge: (id: string) => setActiveEdgeId(id),
+      deactivateEdge: () => setActiveEdgeId(null),
       activeRail,
       activateRail,
       deactivateRail,
     }),
-    [activateRail, activeId, activeRail, deactivateRail, highlight],
+    [activateRail, activeEdgeId, activeId, activeRail, deactivateRail, highlight],
   );
 
   /* ---------------- 断点：390 不缩放，1 倍 + 横向滚动 ---------------- */
@@ -292,26 +314,48 @@ function FlowCanvas({
   );
 
   /**
-   * 默认缩放停在 0.9 后，右侧可能还有列在视口外：算出来给渐隐提示用。
-   * 视口 x 是平移量，内容流坐标右边缘 = (视口宽 - x) / zoom。
+   * 右缘 / 下缘提示：默认缩放停在 0.9 后，右侧可能还有列、下方可能还有卡片。
+   * 判断交给纯函数（`hiddenRightColumns` / `hasHiddenContentBelow`）：
+   * 右缘按列内卡片的右边缘算，半截露出的列也计入；下方只看卡片底边，
+   * 不看布局尾部留白。视口变化（缩放 / 平移）后自动重算。
    */
-  const hiddenRightColumns = useMemo(() => {
-    if (compact || size === null || viewport === null) return 0;
-    const rightFlowX =
-      (size.width - viewport.x) / Math.max(viewport.zoom, 0.001);
-    return layout.columns.filter((column) => column.x > rightFlowX + 0.5)
-      .length;
-  }, [compact, layout.columns, size, viewport]);
+  const hiddenRight = useMemo(
+    () =>
+      compact || size === null || viewport === null
+        ? 0
+        : hiddenRightColumns(layout, size, viewport),
+    [compact, layout, size, viewport],
+  );
+  const hiddenBelow = useMemo(
+    () =>
+      !compact &&
+      size !== null &&
+      viewport !== null &&
+      hasHiddenContentBelow(layout, size, viewport),
+    [compact, layout, size, viewport],
+  );
+  // 平移动画是 JS 时长（React Flow `setViewport`），全局 reduced-motion 规则
+  // 管不到：这里显式改成 0，减弱动效下直接到终点。
+  const panDuration = templatePanDuration(prefersReducedMotion);
 
-  // 点提示平移约一屏；到最右后 hiddenRightColumns 归零，提示自然消失。
+  // 点提示平移约一屏；到边界后隐藏的列 / 行归零，提示自然消失。
   const panRight = useCallback(() => {
     if (size === null) return;
     const current = getViewport();
     const minX = Math.min(0, size.width - layout.width * current.zoom);
-    const nextX = Math.max(minX, current.x - size.width * 0.92);
+    const nextX = Math.max(minX, current.x - size.width * TEMPLATE_PAN_RATIO);
     if (nextX === current.x) return;
-    void setViewport({ ...current, x: nextX }, { duration: 220 });
-  }, [getViewport, layout.width, setViewport, size]);
+    void setViewport({ ...current, x: nextX }, { duration: panDuration });
+  }, [getViewport, layout.width, panDuration, setViewport, size]);
+
+  const panBelow = useCallback(() => {
+    if (size === null) return;
+    const current = getViewport();
+    const minY = Math.min(0, size.height - layout.height * current.zoom);
+    const nextY = Math.max(minY, current.y - size.height * TEMPLATE_PAN_RATIO);
+    if (nextY === current.y) return;
+    void setViewport({ ...current, y: nextY }, { duration: panDuration });
+  }, [getViewport, layout.height, panDuration, setViewport, size]);
 
   const api = useMemo<TemplateFlowApi>(
     () => ({
@@ -411,7 +455,7 @@ function FlowCanvas({
           </TemplateFlowInteractionContext.Provider>
         </TooltipProvider>
       ) : null}
-      {!compact && hiddenRightColumns > 0 ? (
+      {!compact && hiddenRight > 0 ? (
         <>
           {/* 右缘渐隐：告诉用户画布在视口外还有内容，而不是图就到这里。 */}
           <div
@@ -426,20 +470,50 @@ function FlowCanvas({
           <button
             type="button"
             data-template-flow-more
-            data-columns={hiddenRightColumns}
+            data-columns={hiddenRight}
+            data-pan-duration={panDuration}
             onClick={panRight}
             aria-label={translate(
               "overview.chainTemplateInsight.flowMoreColumnsAria",
-              { n: hiddenRightColumns },
+              { n: hiddenRight },
             )}
-            className="absolute right-2 bottom-7 z-20 inline-flex items-center gap-0.5 rounded-full border border-border bg-background/90 px-2 py-1 text-[11px] leading-none text-muted-foreground shadow-card backdrop-blur transition-colors duration-150 hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none"
+            className={cn(HINT_BUTTON_CLASS, "right-2 bottom-7")}
           >
             <span>
               {translate("overview.chainTemplateInsight.flowMoreColumns", {
-                n: hiddenRightColumns,
+                n: hiddenRight,
               })}
             </span>
             <ChevronRightIcon aria-hidden="true" className="icon-sm" />
+          </button>
+        </>
+      ) : null}
+      {!compact && hiddenBelow ? (
+        <>
+          {/* 下缘渐隐：与右缘同构，画布高度被上限卡住时提示下方还有卡片。 */}
+          <div
+            data-template-flow-fade-below
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-16"
+            style={{
+              background:
+                "linear-gradient(to top, var(--background), transparent)",
+            }}
+          />
+          <button
+            type="button"
+            data-template-flow-more-below
+            data-pan-duration={panDuration}
+            onClick={panBelow}
+            aria-label={translate(
+              "overview.chainTemplateInsight.flowMoreBelowAria",
+            )}
+            className={cn(HINT_BUTTON_CLASS, "bottom-2 left-1/2 -translate-x-1/2")}
+          >
+            <span>
+              {translate("overview.chainTemplateInsight.flowMoreBelow")}
+            </span>
+            <ChevronDownIcon aria-hidden="true" className="icon-sm" />
           </button>
         </>
       ) : null}
@@ -452,11 +526,14 @@ function FlowCanvas({
  *
  * 懒加载：这个模块只在模板详情弹窗打开时被动态 import，主 chunk 里没有
  * React Flow。卡片 192×64、直角折线、圆角 8、线宽按链数、颜色按状态；
- * hover / focus 点亮到入口的路径；折叠卡与目标 `+N` 只展开自己那一组。
+ * hover / focus 卡片或连线（时延药丸 / 合并虚线）点亮它到入口的路径；
+ * 折叠卡与目标 `+N` 只展开自己那一组。
  * 桌面滚轮滚弹窗（不缩放），Ctrl / ⌘ + 滚轮缩放 0.4–1.6；触屏只保留按钮缩放
  * （Safari 捏合未验证）。390 固定 1 倍 + 横向滚动；`touch-action: pan-y` 保证
  * 单指上下滑仍滚弹窗。默认缩放压到 0.9 后右侧仍有列时，右缘渐隐并给出
- * 「右侧还有 N 列」的平移入口；高度上限 min(640, 视口高度 × 0.52)。
+ * 「右侧还有 N 列」的平移入口；下方仍有卡片时同样在下缘渐隐并给出
+ * 「下方还有内容」。平移动画在减弱动效下改为瞬时（0ms）。
+ * 高度上限 min(640, 视口高度 × 0.52)。
  */
 export function ChainTemplateFlow(props: ChainTemplateFlowProps) {
   return (

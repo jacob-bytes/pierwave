@@ -4,6 +4,7 @@
     "3hop-1440-dark.png",
     "3hop-topology-1440-dark.png",
     "hover-path-1440-dark.png",
+    "hover-edge-1440-dark.png",
     "tooltip-1440-dark.png",
     "tooltip-unavailable-1440-dark.png",
     "zoom-100-1440-dark.png",
@@ -75,17 +76,23 @@
       "touchAction": "pan-y",
       "foldCards": 0,
       "targetFolds": 2,
-      "firstPaintMs": 499,
+      "firstPaintMs": 445,
       "chunkTiming": {
-        "name": "ChainTemplateFlow-DxcWYaKh.js",
-        "durationMs": 106,
-        "transferSize": 57228,
-        "decodedBodySize": 184852
+        "name": "ChainTemplateFlow-BbdEkzUo.js",
+        "durationMs": 126,
+        "transferSize": 57585,
+        "decodedBodySize": 186490
       }
     },
     "hover": {
       "hot": 6,
       "dim": 6
+    },
+    "edgeHover": {
+      "edgeHot": 1,
+      "edgeDim": 14,
+      "cardHot": 2,
+      "cardDim": 10
     },
     "unavailablePill": {
       "text": "东京-01 → 洛杉矶-02时延最近已知 140 ms链数1用户数1"
@@ -141,6 +148,11 @@
       "foldsAfterEnter": 1,
       "foldsBefore": 2
     },
+    "mergedHighlight": {
+      "edgeHot": 1,
+      "edgeDim": 20,
+      "cardHot": 2
+    },
     "mergedPill": {
       "text": "香港-01 → +3链数6用户数4来自已折叠的 3 条路径，共 6 条链"
     },
@@ -169,7 +181,9 @@
     },
     "rightHint": {
       "columns": 3,
-      "afterPan": 0
+      "truncated": 3,
+      "partial": 0,
+      "pans": 1
     },
     "6hop": {
       "counts": {
@@ -202,6 +216,11 @@
         "cap": 520
       }
     },
+    "bottomHint": {
+      "overflow": 944,
+      "pans": 2,
+      "afterOnePan": 1
+    },
     "densePills": {
       "dense": {
         "total": 16,
@@ -213,6 +232,17 @@
         "hidden": 0
       },
       "tooltip": "香港-01 → 东京-01时延20 ms链数8用户数1"
+    },
+    "rightHintPartial": {
+      "truncated": [
+        4,
+        5,
+        6
+      ],
+      "partial": [
+        4
+      ],
+      "hint": 3
     },
     "empty": {
       "cards": 0,
@@ -227,23 +257,39 @@
       "strokeOpacity": 0.42,
       "count": 8
     },
+    "reducedMotionPan": {
+      "duration": "0",
+      "before": "translate(0px, 33.6px) scale(0.9)",
+      "after": "translate(-708.8px, 33.6px) scale(0.9)",
+      "settled": "translate(-708.8px, 33.6px) scale(0.9)"
+    },
     "chunks": {
       "flowChunk": {
-        "file": "ChainTemplateFlow-DxcWYaKh.js",
-        "bytes": 184852
+        "file": "ChainTemplateFlow-BbdEkzUo.js",
+        "bytes": 186490
       },
       "mainChunk": {
-        "file": "index-V3jlFspH.js",
-        "bytes": 447827
+        "file": "index-MRPADtMm.js",
+        "bytes": 447835
       },
       "latencyChunk": {
-        "file": "ChainLatencyView-D59Cy36S.js",
-        "bytes": 115937
+        "file": "ChainLatencyView-DBGcaNeO.js",
+        "bytes": 116498
       }
     }
   },
+  "fps": {
+    "pan": 60.1,
+    "zoom": 60.2,
+    "panFrames": 61,
+    "zoomFrames": 61,
+    "sampleMs": 1000,
+    "target": 45,
+    "floor": 30,
+    "headless": true
+  },
   "errors": [],
   "build": {
-    "generatedAt": "2026-11-26T09:39:41.801Z"
+    "generatedAt": "2026-11-26T10:38:53.961Z"
   }
 }

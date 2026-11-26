@@ -60,7 +60,9 @@ function CardTooltip({ card }: { card: FoldedCard }) {
   if (card.kind === "fold") {
     return (
       <div data-template-flow-fold-tooltip>
-        <p className="font-medium">
+        {/* 卡片标题只有 `+N 台`：tooltip 标题补回「第 N 跳」，用户才知道折的是哪一跳。 */}
+        <p className="font-medium" data-template-flow-fold-title>
+          {roleLabel(card, t)} ·{" "}
           {t("overview.chainTemplateInsight.flowFoldListTitle", {
             n: card.hidden,
           })}

@@ -5,15 +5,17 @@
 //   2) master 跑在 127.0.0.1:8787，且 admin 密码 devpass（隔离库 / 临时库都行）；
 //   3) 本脚本用 Playwright route 注入模板列表 / 详情 / 链路时延 mock，不依赖真实模板数据。
 //
-// 覆盖：3 跳 / 4 跳 / 6 跳、折叠 / 展开、hover 路径、卡片与药丸 / 合并虚线 tooltip、
-// 100% / 50% / 150% 缩放、折叠上游后的目标 +N、密集药丸、390、亮暗、空态、旧主控
-// 降级、reduced-motion；并断言每列可见卡 ≤5、首屏缩放 0.9–1 且标题折算 ≥11.7px、
-// 列顶对齐 / 列距 80 / 卡片 192×64、右侧提示、画布高度上限、滚轮不缩放、
-// Ctrl/⌘ 滚轮缩放、拖拽不丢图、折叠只展开本列、Tab 可达、动画边 ≤10、
-// DOM ≤600、React Flow 署名 12px 中性 muted 灰。
+// 覆盖：3 跳 / 4 跳 / 6 跳、折叠 / 展开、hover 路径（卡片与连线）、卡片与药丸 /
+// 合并虚线 tooltip、100% / 50% / 150% 缩放、折叠上游后的目标 +N、密集药丸、390、
+// 亮暗、空态、旧主控降级、reduced-motion；并断言每列可见卡 ≤5、首屏缩放 0.9–1
+// 且标题折算 ≥11.7px、列顶对齐 / 列距 80 / 卡片 192×64、右缘提示（按卡片右边缘
+// 计数，半截列计入）、下缘提示（内容超高时出现，平移到底后消失）、画布高度上限、
+// 滚轮不缩放、Ctrl/⌘ 滚轮缩放、拖拽不丢图、折叠只展开本列、Tab 可达、动画边 ≤10、
+// DOM ≤600、React Flow 署名 12px 中性 muted 灰；reduced-motion 下平移动画 0ms；
+// 平移 / 缩放各采样 1 秒 rAF 帧数（无头 ≥30fps，真机目标 ≥45fps）。
 //
 // 用法：node web/scripts/shots-template-flow.mjs [baseUrl]
-// 环境变量：PLAYWRIGHT_MODULE / CHROME_PATH / OUT_DIR / ADMIN_PASSWORD
+// 环境变量：PLAYWRIGHT_MODULE / CHROME_PATH / OUT_DIR / ADMIN_PASSWORD / HEADED
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -29,6 +31,8 @@ const OUT = process.env.OUT_DIR
 const CHROME =
   process.env.CHROME_PATH ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+/** 默认无头（CI / 截图机）；`HEADED=1` 时开有头窗口，帧率门槛按真机的 45fps。 */
+const HEADLESS = process.env.HEADED !== "1";
 mkdirSync(OUT, { recursive: true });
 
 /**
@@ -63,7 +67,7 @@ async function loadPlaywright() {
 const chromium = await loadPlaywright();
 
 const NOW = Math.floor(Date.now() / 1000);
-const report = { base: BASE, screenshots: [], assertions: {}, errors: [] };
+const report = { base: BASE, screenshots: [], assertions: {}, fps: null, errors: [] };
 
 /**
  * 署名的「中性 muted 灰」判定：颜色可能序列化成 oklch（相对色解析后）
@@ -689,7 +693,7 @@ const cookie = login.headers
 if (!cookie) throw new Error("no session cookie");
 const [cookieName, cookieValue] = cookie.split("=");
 
-const browser = await chromium.launch({ executablePath: CHROME, headless: true });
+const browser = await chromium.launch({ executablePath: CHROME, headless: HEADLESS });
 
 async function newPage({ width, height, theme, locale = "zh-CN", reducedMotion = false, options = {} }) {
   const context = await browser.newContext({
@@ -782,6 +786,105 @@ function cardCountsByColumn(page) {
     }
     return counts;
   });
+}
+
+/* ------------------------------------------------------------------ */
+/* 帧率采样：动作持续约 1 秒，用 rAF 计帧                                */
+/* ------------------------------------------------------------------ */
+
+const FPS_SAMPLE_MS = 1000;
+/** 真机目标帧率。 */
+const FPS_TARGET = 45;
+/**
+ * 无头 Chrome 走软件合成（没有 GPU 合成器），60Hz 往往只跑到 55 上下，
+ * 偶尔掉到 40 多，所以无头下把门槛放宽到 30fps，只在「明显卡顿」时红；
+ * 有头（`HEADED=1`）按真机目标 45fps 断言。实测值照样写进 report.json 的
+ * fps.pan / fps.zoom。
+ */
+const FPS_FLOOR_HEADLESS = 30;
+const FPS_FLOOR = HEADLESS ? FPS_FLOOR_HEADLESS : FPS_TARGET;
+
+/** 先起 rAF 计数器，再执行 1 秒的平移 / 缩放动作，最后读回帧数。 */
+async function startFpsSampler(page, durationMs = FPS_SAMPLE_MS) {
+  await page.evaluate((duration) => {
+    const sample = { frames: 0, done: false, ms: 0, start: performance.now() };
+    window.__fpsSample = sample;
+    const tick = () => {
+      sample.frames += 1;
+      const elapsed = performance.now() - sample.start;
+      if (elapsed >= duration) {
+        sample.ms = elapsed;
+        sample.done = true;
+        return;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, durationMs);
+}
+
+async function finishFpsSampler(page) {
+  await page.waitForFunction(() => window.__fpsSample?.done === true, null, {
+    timeout: 20000,
+  });
+  return page.evaluate(() => {
+    const sample = window.__fpsSample;
+    const fps = sample.ms > 0 ? (sample.frames / sample.ms) * 1000 : 0;
+    window.__fpsSample = undefined;
+    return {
+      frames: sample.frames,
+      ms: Math.round(sample.ms),
+      fps: Math.round(fps * 10) / 10,
+    };
+  });
+}
+
+/** 1 秒连续拖拽平移：真实指针事件，每次移动 React Flow 都重算视口。 */
+async function panForFps(page) {
+  const box = await page.locator("[data-template-flow-canvas]").boundingBox();
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
+  await page.mouse.down();
+  for (let step = 1; step <= 16; step += 1) {
+    await page.mouse.move(cx - step * 6, cy, { steps: 2 });
+    await page.waitForTimeout(45);
+  }
+  await page.mouse.up();
+}
+
+/** 1 秒连续 Ctrl + 滚轮缩放，与真实 Ctrl / ⌘ 滚轮走同一条处理路径。 */
+async function zoomForFps(page) {
+  await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const pane = document.querySelector(".react-flow__pane");
+        let ticks = 0;
+        const timer = setInterval(() => {
+          ticks += 1;
+          pane.dispatchEvent(
+            new WheelEvent("wheel", {
+              deltaY: ticks % 2 === 0 ? 40 : -40,
+              ctrlKey: true,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+          if (ticks >= 17) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 55);
+      }),
+  );
+}
+
+function assertFps(label, result) {
+  assert.ok(result.frames > 0, `${label} 未采到帧`);
+  assert.ok(
+    result.fps >= FPS_FLOOR,
+    `${label} ${result.fps}fps 低于门槛 ${FPS_FLOOR}fps（真机目标 ${FPS_TARGET}fps，无头下限 ${FPS_FLOOR_HEADLESS}fps）`,
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -912,6 +1015,12 @@ function cardCountsByColumn(page) {
   const foldCards = await page.locator('[data-template-flow-card][data-kind="fold"]').count();
   const targetFolds = await page.locator("[data-template-flow-target-fold]").count();
   assert.ok(targetFolds > 0, "3 跳目标列应有 +N 目标标签");
+  // 3 跳内容放得下：底部提示不出现（只有内容被画布下缘裁掉才提示）。
+  assert.equal(
+    await page.locator("[data-template-flow-more-below]").count(),
+    0,
+    "内容在视野内时不应出现底部提示",
+  );
 
   const width = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -951,6 +1060,34 @@ function cardCountsByColumn(page) {
   assert.ok(hot.hot >= 2, "hover 时应点亮到入口的路径");
   await shot(page.locator("[data-template-dialog]"), "hover-path-1440-dark.png");
   report.assertions["hover"] = hot;
+
+  /* ---- hover 连线（时延药丸）：点亮该连线到入口的路径 ---- */
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(200);
+  await page.locator("[data-template-flow-pill]").first().hover();
+  await page.waitForTimeout(250);
+  const edgeHot = await page.evaluate(() => ({
+    edgeHot: document.querySelectorAll(
+      '[data-template-flow-edge-group][data-hot="true"]',
+    ).length,
+    edgeDim: document.querySelectorAll(
+      '[data-template-flow-edge-group][data-hot="false"]',
+    ).length,
+    cardHot: document.querySelectorAll(
+      '[data-template-flow-card][data-hot="true"]',
+    ).length,
+    cardDim: document.querySelectorAll(
+      '[data-template-flow-card][data-hot="false"]',
+    ).length,
+  }));
+  assert.ok(edgeHot.edgeHot >= 1, "hover 药丸应点亮这条连线");
+  assert.ok(edgeHot.edgeDim > 0, "hover 药丸应压暗其它连线");
+  assert.ok(edgeHot.cardHot >= 2, "hover 药丸应点亮路径上的卡片");
+  assert.ok(edgeHot.cardDim > 0, "hover 药丸应压暗路径外的卡片");
+  await shot(page.locator("[data-template-dialog]"), "hover-edge-1440-dark.png");
+  report.assertions["edgeHover"] = edgeHot;
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(300);
 
   /* ---- tooltip ---- */
   await page.mouse.move(5, 5);
@@ -1024,9 +1161,19 @@ function cardCountsByColumn(page) {
   await shot(page.locator("[data-template-topology-card]"), "zoom-100-1440-dark.png");
   await clickZoom(page, "[data-flow-zoom-out]", 2);
   assert.equal(await zoomPercent(page), 50, "两次 − 应落到 50%");
+  // 50% 下整列都在视野内：底部提示隐藏（缩放后重算）。
+  assert.equal(
+    await page.locator("[data-template-flow-more-below]").count(),
+    0,
+    "50% 下内容都在视野内，不应出现底部提示",
+  );
   await shot(page.locator("[data-template-topology-card]"), "zoom-50-1440-dark.png");
   await clickZoom(page, "[data-flow-zoom-in]", 4);
   assert.equal(await zoomPercent(page), 150, "四次 + 应落到 150%");
+  // 150% 下画布装不下整列：底部提示随缩放重新出现。
+  await page
+    .locator("[data-template-flow-more-below]")
+    .waitFor({ state: "visible", timeout: 5000 });
   await shot(page.locator("[data-template-topology-card]"), "zoom-150-1440-dark.png");
   report.assertions["zoomButtons"] = { "100": true, "50": true, "150": true };
   // 适应窗口回到首屏档位（≤100%）。
@@ -1034,6 +1181,11 @@ function cardCountsByColumn(page) {
   await page.waitForTimeout(200);
   const fitZoom = await zoomPercent(page);
   assert.ok(fitZoom >= 40 && fitZoom <= 100, `适应窗口应在 40–100%，实际 ${fitZoom}%`);
+  assert.equal(
+    await page.locator("[data-template-flow-more-below]").count(),
+    0,
+    "适应窗口后内容放得下，底部提示应消失",
+  );
   report.assertions["fitZoom"] = fitZoom;
 
   /* ---- 滚轮：普通滚轮滚弹窗，Ctrl / ⌘ 滚轮缩放 ---- */
@@ -1290,6 +1442,20 @@ function cardCountsByColumn(page) {
     foldTooltipText.includes("被折叠的成员"),
     `折叠卡 tooltip 应列出成员：${foldTooltipText}`,
   );
+  // 卡片标题只有 `+N 台`：tooltip 标题要补回「第 N 跳」。
+  assert.match(
+    foldTooltipText,
+    /第 \d+ 跳/,
+    `折叠卡 tooltip 标题应包含跳数：${foldTooltipText}`,
+  );
+  const foldTitleText =
+    (await page.locator("[data-template-flow-fold-title]").last().textContent()) ??
+    "";
+  assert.match(
+    foldTitleText.trim(),
+    /^第 \d+ 跳 · 被折叠的成员 · \d+$/,
+    `折叠卡 tooltip 标题格式：${foldTitleText}`,
+  );
   const foldSubtitles = await page
     .locator(
       '[data-template-flow-card][data-kind="fold"] [data-template-flow-card-subtitle]',
@@ -1326,6 +1492,22 @@ function cardCountsByColumn(page) {
       mergedText.includes("来自已折叠") && mergedText.includes("条路径"),
       `合并虚线 tooltip 应说明来源：${mergedText}`,
     );
+    // 聚焦合并虚线：同样点亮它到入口的路径，其余 35% 淡出。
+    const mergedHot = await page.evaluate(() => ({
+      edgeHot: document.querySelectorAll(
+        '[data-template-flow-edge-group][data-hot="true"]',
+      ).length,
+      edgeDim: document.querySelectorAll(
+        '[data-template-flow-edge-group][data-hot="false"]',
+      ).length,
+      cardHot: document.querySelectorAll(
+        '[data-template-flow-card][data-hot="true"]',
+      ).length,
+    }));
+    assert.ok(mergedHot.edgeHot >= 1, "聚焦合并虚线应点亮这条连线");
+    assert.ok(mergedHot.edgeDim > 0, "聚焦合并虚线应压暗其它连线");
+    assert.ok(mergedHot.cardHot >= 2, "聚焦合并虚线应点亮路径上的卡片");
+    report.assertions["mergedHighlight"] = mergedHot;
     await page.screenshot({ path: path.join(OUT, "tooltip-merged-1440-dark.png") });
     report.screenshots.push("tooltip-merged-1440-dark.png");
     report.assertions["mergedPill"] = { text: mergedText.slice(0, 100) };
@@ -1414,18 +1596,103 @@ function cardCountsByColumn(page) {
   await more.waitFor({ state: "visible", timeout: 5000 });
   const moreColumns = Number(await more.getAttribute("data-columns"));
   assert.ok(moreColumns > 0, `右侧提示应有列数，实际 ${moreColumns}`);
+  // 计数口径：按列内卡片的右边缘是否超出视口，半截露出的列也要计入。
+  const rightEdges = await page.evaluate(() => {
+    const host = document.querySelector("[data-template-flow]");
+    const hostRect = host.getBoundingClientRect();
+    const byColumn = new Map();
+    for (const card of host.querySelectorAll("[data-template-flow-card]")) {
+      const rect = card.getBoundingClientRect();
+      const column = Number(card.getAttribute("data-column"));
+      const entry = byColumn.get(column) ?? { left: Infinity, right: -Infinity };
+      entry.left = Math.min(entry.left, rect.left);
+      entry.right = Math.max(entry.right, rect.right);
+      byColumn.set(column, entry);
+    }
+    const truncated = [];
+    const partial = [];
+    for (const [column, entry] of byColumn) {
+      if (entry.right > hostRect.right + 0.5) truncated.push(column);
+      if (entry.left < hostRect.right && entry.right > hostRect.right + 0.5) {
+        partial.push(column);
+      }
+    }
+    return { truncated, partial };
+  });
+  assert.equal(
+    rightEdges.truncated.length,
+    moreColumns,
+    `右缘提示应按卡片右边缘计数：提示 ${moreColumns} 列，实测 ${rightEdges.truncated.length} 列`,
+  );
+  // 半截列是否必然存在取决于视口右缘落在列内还是列间空隙：这里只记录，
+  // 专门的 3c 块会把边界拖进列内，断言「半截列计入」。
+  assert.equal(
+    await more.getAttribute("data-pan-duration"),
+    "220",
+    "正常动效下平移 220ms",
+  );
   await shot(page.locator("[data-template-dialog]"), "6hop-1440-dark.png");
-  await more.click();
-  await page.waitForTimeout(450);
-  const moreAfterPan = await page.locator("[data-template-flow-more]").count();
-  assert.equal(moreAfterPan, 0, "平移一屏后右侧应无隐藏列，提示消失");
-  report.assertions["rightHint"] = { columns: moreColumns, afterPan: moreAfterPan };
+  // 一次一屏，直到右缘提示消失（半截列会多留一屏）。
+  let rightPans = 0;
+  while (
+    rightPans < 6 &&
+    (await page.locator("[data-template-flow-more]").count()) > 0
+  ) {
+    await page.locator("[data-template-flow-more]").click();
+    rightPans += 1;
+    await page.waitForTimeout(320);
+  }
+  assert.equal(
+    await page.locator("[data-template-flow-more]").count(),
+    0,
+    "平移到最右后右缘提示应消失",
+  );
+  // 提示消失 ⇔ 没有任何卡片右边缘还在视口外（同一口径）。
+  const truncatedAfterPan = await page.evaluate(() => {
+    const host = document.querySelector("[data-template-flow]");
+    const hostRect = host.getBoundingClientRect();
+    return [...host.querySelectorAll("[data-template-flow-card]")].filter(
+      (card) => card.getBoundingClientRect().right > hostRect.right + 0.5,
+    ).length;
+  });
+  assert.equal(truncatedAfterPan, 0, `提示消失后仍有 ${truncatedAfterPan} 张卡被右缘裁掉`);
+  report.assertions["rightHint"] = {
+    columns: moreColumns,
+    truncated: rightEdges.truncated.length,
+    partial: rightEdges.partial.length,
+    pans: rightPans,
+  };
   // 6 跳整图：适应窗口后能一眼看到「入口 → … → 目标」。
   await page.locator("[data-flow-zoom-fit]").click();
   await page.mouse.move(5, 5);
   await page.waitForTimeout(350);
   const fitZoom = await zoomPercent(page);
   await shot(page.locator("[data-template-topology-card]"), "6hop-fit-1440-dark.png");
+
+  /* ---- 帧率：平移 1 秒、缩放 1 秒各采样 rAF 帧数 ---- */
+  await page.mouse.move(5, 5);
+  await startFpsSampler(page);
+  await panForFps(page);
+  const panFps = await finishFpsSampler(page);
+  assertFps("平移", panFps);
+  await page.mouse.move(5, 5);
+  await startFpsSampler(page);
+  await zoomForFps(page);
+  const zoomFps = await finishFpsSampler(page);
+  assertFps("缩放", zoomFps);
+  // 无头 Chrome 用软件合成：真机目标 45fps，这里放宽到 30fps 并记录实测值。
+  report.fps = {
+    pan: panFps.fps,
+    zoom: zoomFps.fps,
+    panFrames: panFps.frames,
+    zoomFrames: zoomFps.frames,
+    sampleMs: FPS_SAMPLE_MS,
+    target: FPS_TARGET,
+    floor: FPS_FLOOR,
+    headless: HEADLESS,
+  };
+  await page.locator("[data-flow-zoom-fit]").click();
+  await page.waitForTimeout(250);
   report.assertions["6hop"] = { counts, dom, zoom, fitZoom, hostHeight, canvasCap };
   assert.deepEqual(errors, []);
   report.errors.push(...errors.map((error) => `6hop: ${error}`));
@@ -1495,7 +1762,69 @@ function cardCountsByColumn(page) {
     page.locator("[data-template-topology-card]"),
     "fold-target-after-1440-dark.png",
   );
+
+  /* ---- 底部提示：内容被画布下缘裁掉时出现，平移到底后消失 ---- */
+  const below = page.locator("[data-template-flow-more-below]");
+  await below.waitFor({ state: "visible", timeout: 5000 });
+  const belowState = await page.evaluate(() => {
+    const host = document.querySelector("[data-template-flow]");
+    const hostRect = host.getBoundingClientRect();
+    const bottoms = [...host.querySelectorAll("[data-template-flow-card]")].map(
+      (card) => card.getBoundingClientRect().bottom,
+    );
+    const button = document.querySelector("[data-template-flow-more-below]");
+    return {
+      overflow: Math.round(Math.max(...bottoms) - hostRect.bottom),
+      duration: button.getAttribute("data-pan-duration"),
+      fade: document.querySelectorAll("[data-template-flow-fade-below]").length,
+      before: document.querySelector(".react-flow__viewport").style.transform,
+    };
+  });
+  assert.ok(belowState.overflow > 1, `下方应还有内容，溢出 ${belowState.overflow}px`);
+  assert.equal(belowState.duration, "220", "正常动效下平移 220ms");
+  assert.equal(belowState.fade, 1, "底部提示应带下缘渐隐");
+  await below.click();
+  await page.waitForTimeout(350);
+  const afterOneBelow = await page.evaluate(() => ({
+    transform: document.querySelector(".react-flow__viewport").style.transform,
+    hint: document.querySelectorAll("[data-template-flow-more-below]").length,
+  }));
+  assert.notEqual(
+    afterOneBelow.transform,
+    belowState.before,
+    "点击底部提示应向下平移",
+  );
+  assert.equal(afterOneBelow.hint, 1, "一屏之后下方仍有内容，提示保留");
+  let belowPans = 1;
+  while (
+    belowPans < 8 &&
+    (await page.locator("[data-template-flow-more-below]").count()) > 0
+  ) {
+    await page.locator("[data-template-flow-more-below]").click();
+    belowPans += 1;
+    await page.waitForTimeout(350);
+  }
+  assert.equal(
+    await page.locator("[data-template-flow-more-below]").count(),
+    0,
+    "平移到最下后底部提示应消失",
+  );
+  // 提示消失 ⇔ 没有卡片底边还在画布下方（同一口径）。
+  const belowAfterPan = await page.evaluate(() => {
+    const host = document.querySelector("[data-template-flow]");
+    const hostRect = host.getBoundingClientRect();
+    return [...host.querySelectorAll("[data-template-flow-card]")].filter(
+      (card) => card.getBoundingClientRect().bottom > hostRect.bottom + 0.5,
+    ).length;
+  });
+  assert.equal(belowAfterPan, 0, `提示消失后仍有 ${belowAfterPan} 张卡在画布下方`);
+
   report.assertions["foldTargets"] = { before, after, clicks, tallCanvas };
+  report.assertions["bottomHint"] = {
+    overflow: belowState.overflow,
+    pans: belowPans,
+    afterOnePan: afterOneBelow.hint,
+  };
   assert.deepEqual(errors, []);
   report.errors.push(...errors.map((error) => `foldTargets: ${error}`));
   await context.close();
@@ -1614,6 +1943,84 @@ function cardCountsByColumn(page) {
   }
   assert.deepEqual(errors, []);
   report.errors.push(...errors.map((error) => `densePills: ${error}`));
+  await context.close();
+}
+
+/* ------------------------------------------------------------------ */
+/* 3c) 右缘计数：半截露出的列也计入（按卡片右边缘）                    */
+/* ------------------------------------------------------------------ */
+
+{
+  const { context, page, errors } = await newPage({
+    width: 1440,
+    height: 1000,
+    theme: "dark",
+  });
+  await openList(page);
+  await openDetail(page, 2);
+  await waitFlow(page);
+
+  const measure = () =>
+    page.evaluate(() => {
+      const host = document.querySelector("[data-template-flow]");
+      const hostRect = host.getBoundingClientRect();
+      const byColumn = new Map();
+      for (const card of host.querySelectorAll("[data-template-flow-card]")) {
+        const rect = card.getBoundingClientRect();
+        const column = Number(card.getAttribute("data-column"));
+        const entry = byColumn.get(column) ?? { left: Infinity, right: -Infinity };
+        entry.left = Math.min(entry.left, rect.left);
+        entry.right = Math.max(entry.right, rect.right);
+        byColumn.set(column, entry);
+      }
+      const truncated = [];
+      const partial = [];
+      for (const [column, entry] of byColumn) {
+        if (entry.right > hostRect.right + 0.5) truncated.push(column);
+        if (entry.left < hostRect.right && entry.right > hostRect.right + 0.5) {
+          partial.push(column);
+        }
+      }
+      const hint = document.querySelector("[data-template-flow-more]");
+      return {
+        truncated,
+        partial,
+        hint: hint === null ? null : Number(hint.getAttribute("data-columns")),
+      };
+    });
+
+  let state = await measure();
+  assert.ok(state.hint !== null, "6 跳首屏应有右缘提示");
+  assert.equal(
+    state.hint,
+    state.truncated.length,
+    `提示列数应等于「卡片右边缘超出视口」的列数：${JSON.stringify(state)}`,
+  );
+  // 视口右缘可能正好落在列间空隙里：从画布底部空白处横向拖一点，把边界
+  // 挪进某一列 —— 「半截露出」由此是构造出来的、可复现的。
+  const box = await page.locator("[data-template-flow-canvas]").boundingBox();
+  const startX = box.x + box.width / 2;
+  const startY = box.y + box.height - 24;
+  for (let attempt = 0; attempt < 8 && state.partial.length === 0; attempt += 1) {
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX - 12, startY, { steps: 2 });
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+    state = await measure();
+  }
+  assert.ok(
+    state.partial.length >= 1,
+    `半截露出的列应计入右缘提示：${JSON.stringify(state)}`,
+  );
+  assert.equal(
+    state.hint,
+    state.truncated.length,
+    `拖动后提示列数仍应按卡片右边缘计数：${JSON.stringify(state)}`,
+  );
+  report.assertions["rightHintPartial"] = state;
+  assert.deepEqual(errors, []);
+  report.errors.push(...errors.map((error) => `rightHintPartial: ${error}`));
   await context.close();
 }
 
@@ -1756,6 +2163,73 @@ function cardCountsByColumn(page) {
   await shot(page.locator("[data-template-topology-card]"), "reduced-motion-1440-dark.png");
   report.assertions["reducedMotion"] = pulse;
   assert.deepEqual(errors, []);
+  await context.close();
+}
+
+/* ------------------------------------------------------------------ */
+/* 6b) reduced-motion：平移瞬时（0ms），其余动效口径不变               */
+/* ------------------------------------------------------------------ */
+
+{
+  const { context, page, errors } = await newPage({
+    width: 1440,
+    height: 1000,
+    theme: "dark",
+    reducedMotion: true,
+  });
+  await openList(page);
+  await openDetail(page, 2);
+  await waitFlow(page);
+  const more = page.locator("[data-template-flow-more]");
+  await more.waitFor({ state: "visible", timeout: 5000 });
+  assert.equal(
+    await more.getAttribute("data-pan-duration"),
+    "0",
+    "减弱动效下平移动画应为 0ms",
+  );
+  // 点击后 3 帧内就到终点（220ms 动画在这时只走了一小截）。
+  const jump = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const read = () =>
+          document.querySelector(".react-flow__viewport").style.transform;
+        const button = document.querySelector("[data-template-flow-more]");
+        const before = read();
+        button.click();
+        let frames = 0;
+        const settle = () => {
+          frames += 1;
+          if (frames < 3) {
+            requestAnimationFrame(settle);
+            return;
+          }
+          resolve({ before, after: read() });
+        };
+        requestAnimationFrame(settle);
+      }),
+  );
+  await page.waitForTimeout(400);
+  const settled = await page.evaluate(
+    () => document.querySelector(".react-flow__viewport").style.transform,
+  );
+  assert.notEqual(jump.after, jump.before, "减弱动效下点击也应平移");
+  assert.equal(
+    jump.after,
+    settled,
+    "减弱动效下平移应在 3 帧内到终点（0ms 而不是 220ms）",
+  );
+  assert.ok(
+    (await page.locator("[data-template-flow-more]").count()) <= 1,
+    "平移后右缘提示状态应正常更新",
+  );
+  report.assertions["reducedMotionPan"] = {
+    duration: "0",
+    before: jump.before,
+    after: jump.after,
+    settled,
+  };
+  assert.deepEqual(errors, []);
+  report.errors.push(...errors.map((error) => `reducedMotionPan: ${error}`));
   await context.close();
 }
 

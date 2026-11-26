@@ -3,8 +3,8 @@
 ## 中文
 
 这组截图覆盖转发链模板详情里的 React Flow 拓扑画布：3 / 4 / 6 跳、折叠与展开、
-hover 路径、时延药丸 tooltip、100% / 50% / 150% 缩放、390、亮暗、空态、旧主控降级
-与 reduced-motion。
+卡片与连线 hover 路径、时延药丸 tooltip、100% / 50% / 150% 缩放、右缘 / 下缘
+「还有内容」提示、390、亮暗、空态、旧主控降级、reduced-motion 与平移 / 缩放帧率。
 
 ### 数据来源
 
@@ -16,7 +16,8 @@ hover 路径、时延药丸 tooltip、100% / 50% / 150% 缩放、390、亮暗、
   覆盖同一竖线超过 6 个药丸的密集隐藏；空模板没有任何链；旧主控用详情接口 404 模拟。
 - 主控库里至少要有一台服务器（否则总览是「新装空态」，不会渲染转发链 tab）。
 - 每次运行会把断言结果写到本目录的 `report.json`（截图清单、缩放、每列卡片数、
-  字体大小、tooltip、chunk 大小等）。
+  字体大小、tooltip、右缘 / 下缘提示、帧率、chunk 大小等）；帧率在 `fps.pan` /
+  `fps.zoom`，同时记录采样帧数、目标值与无头门槛。
 
 ### 复现命令
 
@@ -37,9 +38,17 @@ curl -s -b /tmp/pw-cookie -X POST http://127.0.0.1:8787/api/v1/servers \
   -H 'Content-Type: application/json' -d '{"name":"shots-seed","address":"10.0.0.1"}'
 
 # 3) 另开终端跑截图（默认写回本目录；OUT_DIR 可改到别处做验证）
-node web/scripts/shots-template-flow.mjs http://127.0.0.1:8787
-OUT_DIR=/tmp/template-flow-shots node web/scripts/shots-template-flow.mjs
+ADMIN_PASSWORD=devpass node web/scripts/shots-template-flow.mjs http://127.0.0.1:8787
+ADMIN_PASSWORD=devpass OUT_DIR=/tmp/template-flow-shots \
+  node web/scripts/shots-template-flow.mjs http://127.0.0.1:8787
 ```
+
+`baseUrl` 省略时用 `http://127.0.0.1:8787`；`ADMIN_PASSWORD` 省略时用 `devpass`。
+本目录的产物由一次完整运行生成：`ADMIN_PASSWORD=demo12345` 连
+`http://127.0.0.1:8795`。脚本用 `page.route` 注入 mock，不需要真实模板数据。
+
+环境变量：`PLAYWRIGHT_MODULE` / `CHROME_PATH` / `OUT_DIR` / `ADMIN_PASSWORD` /
+`HEADED`（`HEADED=1` 走有头窗口，帧率按 45fps 断言）。
 
 Playwright 不在 `web/` 的依赖里。脚本按以下顺序查找，优先用环境变量覆盖：
 
@@ -61,10 +70,14 @@ node web/scripts/shots-template-flow.mjs
   上游折叠时目标 `+N` 的前后对比；
 - `dense-pills-hidden-1440-dark.png` / `dense-pills-hover-1440-dark.png`：
   同一竖线 8 个药丸默认隐藏 / 悬停显示；
+- `hover-path-1440-dark.png` / `hover-edge-1440-dark.png`：卡片 hover 与药丸
+  hover 都会点亮到入口的路径，其余 35% 淡出；
 - `tooltip-pill-1440-dark.png`、`tooltip-unavailable-1440-dark.png`、
   `tooltip-merged-1440-dark.png`：时延 / 最近已知 / 合并虚线 tooltip；
+- `zoom-150-1440-dark.png`、`fold-target-after-1440-dark.png`、密集药丸两张：
+  内容超出画布下缘时的下缘渐隐与「下方还有内容」按钮；
 - `6hop-390-dark.png`：390 固定 1 倍 + 横向滚动；
-- `report.json`：本次运行的断言与截图清单。
+- `report.json`：本次运行的断言、截图清单与帧率（`fps.pan` / `fps.zoom`）。
 
 ### 断言清单
 
@@ -79,22 +92,38 @@ node web/scripts/shots-template-flow.mjs
 - 合并虚线 tooltip 显示「来自已折叠的 N 条路径，共 X 条链」；
 - 折叠卡 / 目标 `+N` 只展开自己那一组；上游被折叠时每个 `+N` 仍能展开；
 - 每列顶边对齐（第一张卡 y = 24），列间距 80px、卡片 192×64；
-- 默认 0.9 下右侧仍有列时出现「右侧还有 N 列」提示，点击平移一屏后消失 / 更新；
+- 右缘提示按「列内卡片的右边缘是否超出视口」计数：只露出半截的列也计入（3c
+  块会把视口边界拖进列内再断言），卡片右边缘刚好贴住视口右缘时不计；
+- 点「右侧还有 N 列」一次平移一屏（220ms），平移到最右后提示消失，且没有卡片
+  右边缘还留在视口外；
+- 内容超出画布下缘时出现下缘渐隐 +「下方还有内容」；点一次下一屏，到底后消失；
+  3 跳 / 50% / 适应窗口下内容放得下，提示不出现（缩放 / 平移后重算）；
 - 画布高度 ≤ min(640, 视口高度 × 0.52)；
 - 普通滚轮滚弹窗、Ctrl / ⌘ + 滚轮缩放、拖拽平移不丢图、双击不缩放；
 - 390 固定 1 倍 + 横向滚动、页面不横向溢出、缩放栏隐藏；
 - 390 的画布仍是单指竖滑滚弹窗（`touch-action: pan-y`）；
+- 折叠卡 tooltip 标题含「第 N 跳」（卡片标题仍只有 `+N 台`），卡片副标题仍保留
+  「X 条链 · Y 用户 · 含 N 台离线」；
+- 药丸 / 合并虚线 hover 或聚焦都会点亮该连线到入口的路径，其余压到 35%；脉冲
+  边仍 ≤ 10，键盘仍可 Tab 到药丸与合并虚线；
+- `prefers-reduced-motion: reduce` 下「右侧 / 下方还有」的平移是瞬时的（0ms，
+  3 帧内到终点），脉冲静止但仍可见；其它动效照旧；
+- 帧率：平移 / 缩放各连续 1 秒用 rAF 计帧。默认无头 Chrome（软件合成、没有
+  GPU 合成器）按 ≥ 30fps 断言；`HEADED=1` 开有头窗口时按真机目标 ≥ 45fps 断言。
+  两种模式的实测值都写进 `report.json` 的 `fps.pan` / `fps.zoom`（另含采样帧数、
+  `target`、实际生效的 `floor`、`headless`）；
 - 同时脉冲边 ≤ 10、画布 DOM ≤ 600、主 chunk 与「链路时延」chunk 不含 React Flow。
 
-> 本轮只更新脚本的 Playwright 查找方式与断言口径；现有 PNG 由下一轮重新生成，
-> 因此截图与最新断言不一致时以重新运行脚本的结果为准。
+> 本目录的 PNG 与 `report.json` 由同一次完整运行生成；截图与断言不一致时，
+> 以重新运行脚本的结果为准。
 
 ## English
 
 These screenshots cover the React Flow topology canvas in the chain-template
-detail dialog: 3 / 4 / 6 hops, folding and expanding, hover paths, latency-pill
-tooltips, 100% / 50% / 150% zoom, 390px, light/dark, empty state, old-controller
-fallback and reduced motion.
+detail dialog: 3 / 4 / 6 hops, folding and expanding, card and link hover paths,
+latency-pill tooltips, 100% / 50% / 150% zoom, the right/bottom "more content"
+hints, 390px, light/dark, empty state, old-controller fallback, reduced motion and
+pan / zoom frame rates.
 
 ### Where the data comes from
 
@@ -111,7 +140,9 @@ fallback and reduced motion.
 - The controller database needs at least one server, otherwise the overview
   stays in the "new install" empty state and never renders the chain tabs.
 - Every run writes `report.json` in this directory (screenshot list, zoom,
-  per-column card counts, font sizes, tooltips, chunk sizes, …).
+  per-column card counts, font sizes, tooltips, overflow hints, frame rates,
+  chunk sizes, …); frame rates live in `fps.pan` / `fps.zoom` together with the
+  sampled frame counts, the target and the headless floor.
 
 ### Reproduce
 
@@ -132,9 +163,19 @@ curl -s -b /tmp/pw-cookie -X POST http://127.0.0.1:8787/api/v1/servers \
   -H 'Content-Type: application/json' -d '{"name":"shots-seed","address":"10.0.0.1"}'
 
 # 3) In another terminal, take the screenshots (written back here)
-node web/scripts/shots-template-flow.mjs http://127.0.0.1:8787
-OUT_DIR=/tmp/template-flow-shots node web/scripts/shots-template-flow.mjs
+ADMIN_PASSWORD=devpass node web/scripts/shots-template-flow.mjs http://127.0.0.1:8787
+ADMIN_PASSWORD=devpass OUT_DIR=/tmp/template-flow-shots \
+  node web/scripts/shots-template-flow.mjs http://127.0.0.1:8787
 ```
+
+`baseUrl` defaults to `http://127.0.0.1:8787`, `ADMIN_PASSWORD` to `devpass`. The
+artifacts in this directory come from one full run against
+`http://127.0.0.1:8795` with `ADMIN_PASSWORD=demo12345`; the script mocks the
+template data with `page.route`, so no real templates are needed.
+
+Environment variables: `PLAYWRIGHT_MODULE`, `CHROME_PATH`, `OUT_DIR`,
+`ADMIN_PASSWORD` and `HEADED` (`HEADED=1` for a headed window and the 45fps
+floor).
 
 Playwright is not a dependency of `web/`. The script resolves it in this order
 (environment overrides win):
@@ -159,10 +200,15 @@ back to `import("playwright")` — no hard-coded npx hash directory.
   target `+N` before/after when the upstream member is folded;
 - `dense-pills-hidden-1440-dark.png` / `dense-pills-hover-1440-dark.png`:
   eight pills on one rail hidden by default / revealed on hover;
+- `hover-path-1440-dark.png` / `hover-edge-1440-dark.png`: hovering a card and
+  hovering a pill both light the path to the entry and fade the rest to 35%;
 - `tooltip-pill-1440-dark.png`, `tooltip-unavailable-1440-dark.png`,
   `tooltip-merged-1440-dark.png`: latency, last-known and merged-line tooltips;
+- `zoom-150-1440-dark.png`, `fold-target-after-1440-dark.png` and both dense-pill
+  shots: the bottom fade and "more content below" button when content overflows;
 - `6hop-390-dark.png`: 390px, fixed 1× with horizontal scrolling;
-- `report.json`: assertions and screenshot list for the run.
+- `report.json`: assertions, screenshot list and frame rates (`fps.pan` /
+  `fps.zoom`) for the run.
 
 ### Assertion checklist
 
@@ -184,8 +230,16 @@ report is written):
   when the upstream member itself is folded;
 - every column's top card is aligned at y = 24, with 80px column gaps and
   192×64 cards;
-- when columns still overflow at 0.9, a "{n} more columns" hint appears at the
-  right edge and clicking it pans one screen until the hint disappears/updates;
+- the right-edge hint counts columns whose **card right edge** is past the
+  viewport, including half-visible ones (block 3c drags the boundary into a
+  column before asserting); a column whose card right edge sits exactly on the
+  viewport edge does not count;
+- clicking "{n} more columns" pans one screen (220ms); at the far right the hint
+  disappears and no card right edge is left outside the viewport;
+- when content overflows the bottom, a bottom fade and a "more content below"
+  button appear; one click pans one screen and the button disappears at the
+  bottom. 3 hops / 50% / fit-to-view keep everything in view, so it stays hidden
+  (recomputed after every zoom or pan);
 - canvas height ≤ min(640, viewport height × 0.52);
 - plain wheel scrolls the dialog, Ctrl / ⌘ + wheel zooms, dragging never loses
   the graph, double-click does not zoom;
@@ -193,9 +247,22 @@ report is written):
   overflow horizontally, and the zoom bar is hidden;
 - at 390px single-finger vertical scrolling still scrolls the dialog
   (`touch-action: pan-y`);
-- at most 10 pulsing edges, at most 600 canvas DOM nodes, and neither the main
-  chunk nor the chain-latency chunk contains React Flow.
+- the folded-card tooltip title includes "Hop N" (the card title itself stays
+  "+N nodes") and the card subtitle still shows chains / users / offline nodes;
+- hovering or focusing a pill / merged line lights that link's path to the entry
+  and fades the rest to 35%; still at most 10 pulsing edges, and pills and merged
+  lines stay keyboard reachable;
+- under `prefers-reduced-motion: reduce` the right/bottom pans are instant (0ms,
+  reaches the target within 3 frames) while the pulse stays static but visible;
+  every other animation is unchanged;
+- frame rate: 1 second of panning and 1 second of zooming, counted with rAF.
+  Headless Chrome (software compositing, no GPU compositor) is the default and
+  asserts ≥ 30fps; `HEADED=1` opens a real window and asserts the real-hardware
+  target of ≥ 45fps. Either way the measured values go to `fps.pan` /
+  `fps.zoom` in `report.json` (plus frame counts, `target`, the effective
+  `floor` and `headless`);
+- at most 600 canvas DOM nodes, and neither the main chunk nor the
+  chain-latency chunk contains React Flow.
 
-> This round only updates the Playwright lookup and the assertion wording. The
-> existing PNGs will be regenerated next round; when they disagree with the
-> latest assertions, re-running the script is authoritative.
+> The PNGs and `report.json` in this directory come from the same full run; when
+> they disagree with the assertions, re-running the script is authoritative.

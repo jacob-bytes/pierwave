@@ -13,6 +13,7 @@ import {
   TEMPLATE_MERGED_RAIL_OFFSET,
   TEMPLATE_MIN_ZOOM,
   TEMPLATE_PADDING,
+  TEMPLATE_PAN_DURATION_MS,
   TEMPLATE_PILL_DENSE_LIMIT,
   TEMPLATE_PILL_WIDTH,
   TEMPLATE_PULSE_LIMIT,
@@ -22,6 +23,9 @@ import {
   densePillRails,
   fitViewport,
   foldTemplateGraph,
+  hasHiddenContentBelow,
+  hiddenRightColumns,
+  highlightTemplateEdgePath,
   highlightTemplatePath,
   initialViewport,
   layoutTemplateGraph,
@@ -30,6 +34,7 @@ import {
   templateCanvasHeight,
   templateEdgePath,
   templateEdgeWidth,
+  templatePanDuration,
 } from "./chainTemplateGraph.ts";
 
 /* ------------------------------------------------------------------ */
@@ -1087,4 +1092,227 @@ test("6 跳 × 20 成员：每列 ≤5 张卡、布局有界、重复调用结�
   const fold = layout.cards.find((card) => card.card.kind === "fold" && card.card.offlineHidden > 0);
   assert.ok(fold, "第 4 跳有离线的折叠卡");
   assert.equal(fold.card.status, "offline");
+});
+
+/* ------------------------------------------------------------------ */
+/* 视口提示：右缘按卡片右边缘 / 下缘看卡片底边                          */
+/* ------------------------------------------------------------------ */
+
+/** 两列的手工布局：第 1 列卡片右边缘正好落在 x = 488。 */
+function twoColumnLayout() {
+  return {
+    cards: [
+      { column: 0, x: 24, y: 24, width: TEMPLATE_CARD_WIDTH, height: 64 },
+      { column: 1, x: 296, y: 24, width: TEMPLATE_CARD_WIDTH, height: 64 },
+    ],
+    edges: [],
+    columns: [],
+    width: 488,
+    height: 112,
+  };
+}
+
+test("hiddenRightColumns: 半截露出的列计入，右边缘正好等于视口右缘不计", () => {
+  const layout = twoColumnLayout();
+  const atOrigin = { x: 0, y: 0, zoom: 1 };
+  // 视口右缘 420：第 1 列（296–488）只露出半截 → 计入。
+  assert.equal(
+    hiddenRightColumns(layout, { width: 420, height: 300 }, atOrigin),
+    1,
+    "半截露出的列必须计入",
+  );
+  // 右边缘 488 正好等于视口右缘：看全了，不计（含 0.5px 取整容差）。
+  assert.equal(
+    hiddenRightColumns(layout, { width: 488, height: 300 }, atOrigin),
+    0,
+    "右边缘等于视口右缘时不计",
+  );
+  assert.equal(
+    hiddenRightColumns(layout, { width: 487, height: 300 }, atOrigin),
+    1,
+    "真的被裁掉 1px 才提示",
+  );
+  // 视口比内容宽：没有隐藏列。
+  assert.equal(
+    hiddenRightColumns(layout, { width: 600, height: 300 }, atOrigin),
+    0,
+  );
+  // 整体向左平移后，右缘换算到流坐标要跟着变。
+  assert.equal(
+    hiddenRightColumns(
+      layout,
+      { width: 488, height: 300 },
+      { x: -120, y: 0, zoom: 1 },
+    ),
+    0,
+    "平移到最右后不应再有提示",
+  );
+  // 缩小后内容变窄，右边缘跟着缩进。
+  assert.equal(
+    hiddenRightColumns(
+      layout,
+      { width: 400, height: 300 },
+      { x: 0, y: 0, zoom: 0.5 },
+    ),
+    0,
+    "缩放后按缩放后的右边缘判断",
+  );
+});
+
+test("hiddenRightColumns: 真实布局里按半截列计数（旧口径会漏掉）", () => {
+  const layout = layoutTemplateGraph(
+    foldTemplateGraph(graphOf(wideDetail({ hops: 2, perColumn: 3 }))),
+  );
+  // 三列 x = 24 / 296 / 568，最后一列右边缘 760。
+  assert.equal(layout.columns.length, 3);
+  assert.equal(layout.columns[2].x, 568);
+  assert.equal(layout.columns[2].x + TEMPLATE_CARD_WIDTH, 760);
+  // 视口 700：最后一列只露出 568–700 这半截，必须计入。
+  assert.equal(
+    hiddenRightColumns(
+      layout,
+      { width: 700, height: 300 },
+      { x: 0, y: 0, zoom: 1 },
+    ),
+    1,
+    "半截露出的最后一列计入",
+  );
+  // 视口正好 760：右边缘贴住视口右缘，不计。
+  assert.equal(
+    hiddenRightColumns(
+      layout,
+      { width: 760, height: 300 },
+      { x: 0, y: 0, zoom: 1 },
+    ),
+    0,
+  );
+});
+
+test("hasHiddenContentBelow: 看卡片底边，不看布局尾部留白", () => {
+  const layout = twoColumnLayout();
+  const atOrigin = { x: 0, y: 0, zoom: 1 };
+  // 卡片底边 88；视口高 120 → 都在视野内。
+  assert.equal(
+    hasHiddenContentBelow(layout, { width: 488, height: 120 }, atOrigin),
+    false,
+  );
+  // 视口高 60 → 卡片底边 88 被裁。
+  assert.equal(
+    hasHiddenContentBelow(layout, { width: 488, height: 60 }, atOrigin),
+    true,
+  );
+  // 底边正好等于画布下缘：算看全了。
+  assert.equal(
+    hasHiddenContentBelow(layout, { width: 488, height: 88 }, atOrigin),
+    false,
+  );
+  // 平移到最下（y 为负）：底边换算到流坐标 200，卡片全在视野内。
+  assert.equal(
+    hasHiddenContentBelow(
+      layout,
+      { width: 488, height: 120 },
+      { x: 0, y: -80, zoom: 1 },
+    ),
+    false,
+  );
+  // 布局高度含 24px 内边距：只有留白被裁不算「还有内容」。
+  const padded = { ...layout, height: 168 };
+  assert.equal(
+    hasHiddenContentBelow(padded, { width: 488, height: 112 }, atOrigin),
+    false,
+    "只裁掉内边距时不提示",
+  );
+});
+
+test("templatePanDuration: 减弱动效下平移瞬时（0ms），否则 220ms", () => {
+  assert.equal(TEMPLATE_PAN_DURATION_MS, 220);
+  assert.equal(templatePanDuration(false), 220);
+  assert.equal(templatePanDuration(true), 0);
+});
+
+/* ------------------------------------------------------------------ */
+/* 连线高亮：只点亮这一条到入口                                        */
+/* ------------------------------------------------------------------ */
+
+/** 目标 1.2.3.4 有两条兄弟入边（东京-01 / 东京-02）。 */
+function siblingDetail() {
+  return {
+    template: { id: "tpl-sib", name: "兄弟入边", hops: 2 },
+    nodes: [
+      {
+        seq: 0,
+        role: "source",
+        name: "香港入口",
+        members: [member("香港-01", 2, 1)],
+      },
+      {
+        seq: 1,
+        role: "hop",
+        name: "东京中转",
+        members: [member("东京-01", 2, 1), member("东京-02", 1, 1)],
+      },
+      {
+        seq: 2,
+        role: "target",
+        name: "目标",
+        members: [
+          member("1.2.3.4:443", 2, 1),
+          member("5.6.7.8:443", 1, 1),
+        ],
+      },
+    ],
+    edges: [
+      edge(0, "香港-01", 1, "东京-01", 2),
+      edge(0, "香港-01", 1, "东京-02", 1),
+      edge(1, "东京-01", 2, "1.2.3.4:443", 1),
+      edge(1, "东京-02", 2, "1.2.3.4:443", 1),
+      edge(1, "东京-01", 2, "5.6.7.8:443", 1),
+    ],
+    targets: [],
+    users: [],
+    series: [],
+    strategies: [],
+    unused_candidates: [],
+  };
+}
+
+test("highlightTemplateEdgePath: 点亮该连线到入口，不含兄弟连线", () => {
+  const folded = foldTemplateGraph(graphOf(siblingDetail()));
+  const target = folded.columns
+    .find((column) => column.role === "target")
+    .cards.find((card) => card.name === "1.2.3.4:443");
+  assert.ok(target, "目标卡存在");
+  const incoming = folded.edges.filter((item) => item.target === target.id);
+  assert.equal(incoming.length, 2, "目标应有两条兄弟入边");
+  const chosen = incoming.find((item) => item.chains === 1);
+  assert.ok(chosen, "选一条链数最少的入边");
+
+  const highlight = highlightTemplateEdgePath(folded, chosen.id);
+  // 连线自己 + 目标卡片。
+  assert.ok(highlight.edges.has(chosen.id), "选中的连线必须点亮");
+  assert.ok(highlight.nodes.has(target.id), "目标卡必须点亮");
+  // 上游一路走到入口。
+  assert.ok(highlight.nodes.has(chosen.source), "上游卡片必须点亮");
+  const entry = folded.columns[0].cards[0];
+  assert.ok(highlight.nodes.has(entry.id), "入口卡必须点亮");
+  // 兄弟入边与另一个目标不点亮。
+  const sibling = incoming.find((item) => item.id !== chosen.id);
+  assert.equal(highlight.edges.has(sibling.id), false, "兄弟连线不应点亮");
+  assert.equal(
+    highlight.nodes.has(sibling.source),
+    false,
+    "兄弟连线的上游不应点亮",
+  );
+  const otherTarget = folded.columns
+    .find((column) => column.role === "target")
+    .cards.find((card) => card.id !== target.id);
+  assert.equal(
+    highlight.nodes.has(otherTarget.id),
+    false,
+    "另一个目标不应点亮",
+  );
+  // 未知连线 → 空集合，不误压暗整张图。
+  const none = highlightTemplateEdgePath(folded, "missing");
+  assert.equal(none.nodes.size, 0);
+  assert.equal(none.edges.size, 0);
 });

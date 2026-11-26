@@ -897,6 +897,8 @@ const en = {
       flowTargetFoldAria: "Show the {n} folded targets",
       flowMoreColumns: "{n} more columns",
       flowMoreColumnsAria: "Pan one screen right; {n} more columns",
+      flowMoreBelow: "More content below",
+      flowMoreBelowAria: "Pan one screen down; more content below",
       flowZoomIn: "Zoom in",
       flowZoomOut: "Zoom out",
       flowFit: "Fit to view",

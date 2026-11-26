@@ -869,6 +869,8 @@ const zhCN = {
       flowTargetFoldAria: "展开被折叠的 {n} 个目标",
       flowMoreColumns: "右侧还有 {n} 列",
       flowMoreColumnsAria: "向右平移一屏，右侧还有 {n} 列",
+      flowMoreBelow: "下方还有内容",
+      flowMoreBelowAria: "向下平移一屏，下方还有内容",
       flowZoomIn: "放大",
       flowZoomOut: "缩小",
       flowFit: "适应窗口",

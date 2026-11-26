@@ -131,12 +131,18 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
     Math.abs(interaction.activeRail - pill.x) < 0.5;
   const pillVisible = !dense || railActive;
 
-  // 只有密集药丸需要先点亮整条竖线；普通药丸交给 Radix 自己处理 hover / focus，
-  // 避免每次 hover 都触发 context 更新，打断 tooltip 的开启计时。
-  const onPillFocus = (): void => {
+  // 药丸 / 合并虚线 hover 或聚焦：点亮这条连线到入口的路径（与卡片同一口径，
+  // 其余卡片与连线压到 35%）。密集药丸还要顺带点亮整条竖线，否则药丸本身是
+  // 隐藏的（`opacity: 0` + `pointer-events: none`），指针根本进不来。
+  //
+  // 这里会触发 context 更新，但药丸的 DOM 引用不变（同一个元素、同一个
+  // TooltipTrigger），Radix 的开启计时不会被重置。
+  const onEdgeFocus = (): void => {
+    interaction?.activateEdge(edge.id);
     if (dense && pill !== null) interaction?.activateRail(pill.x);
   };
-  const onPillBlur = (): void => {
+  const onEdgeBlur = (): void => {
+    interaction?.deactivateEdge();
     if (dense) interaction?.deactivateRail();
   };
 
@@ -211,6 +217,9 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
               width: 16,
               height: Math.abs(edge.y2 - edge.y1) + 16,
             }}
+            // 竖带是「揭开密集药丸」的入口，不点亮某条具体连线：同一竖线上的
+            // 多条边会叠出多块命中带，落到哪一块是任意的。药丸出来后由药丸
+            // 自己点亮它那一条。
             onPointerEnter={() => interaction?.activateRail(pill.x)}
             onPointerLeave={() => interaction?.deactivateRail()}
           />
@@ -229,6 +238,10 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
                 style={{
                   transform: `translate(-50%, -50%) translate(${edge.railX}px, ${(edge.y1 + edge.y2) / 2}px)`,
                 }}
+                onPointerEnter={onEdgeFocus}
+                onPointerLeave={onEdgeBlur}
+                onFocus={onEdgeFocus}
+                onBlur={onEdgeBlur}
               />
             </TooltipTrigger>
             <TooltipContent
@@ -259,10 +272,10 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
                   "template-flow-pill nodrag nopan transition-opacity duration-150",
                   !pillVisible && "pointer-events-none opacity-0",
                 )}
-                onFocusCapture={onPillFocus}
-                onBlurCapture={onPillBlur}
-                onPointerEnter={onPillFocus}
-                onPointerLeave={onPillBlur}
+                onFocusCapture={onEdgeFocus}
+                onBlurCapture={onEdgeBlur}
+                onPointerEnter={onEdgeFocus}
+                onPointerLeave={onEdgeBlur}
                 style={{
                   transform: `translate(-50%, -50%) translate(${pill.x}px, ${pill.y}px)`,
                 }}

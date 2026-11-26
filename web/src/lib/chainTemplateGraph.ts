@@ -79,6 +79,15 @@ export const TEMPLATE_INITIAL_MIN_ZOOM = 0.9;
 export const TEMPLATE_INITIAL_MAX_ZOOM = 1;
 /** 缩放栏的按钮步进：±25%，100 → 50 / 150 都是整步。 */
 export const TEMPLATE_ZOOM_STEP = 0.25;
+/** 「右侧 / 下方还有」的平移步长：一屏的 92%，留一点重叠不切掉整列。 */
+export const TEMPLATE_PAN_RATIO = 0.92;
+/** 平移一屏的动画时长；减弱动效时改为 0（瞬时到终点）。 */
+export const TEMPLATE_PAN_DURATION_MS = 220;
+/**
+ * 视口边缘的判定容差（流坐标 0.5px）：右边缘正好等于视口右缘算「看全了」，
+ * 亚像素取整造成的 0.2px 溢出不该触发提示。
+ */
+const VIEWPORT_EDGE_EPSILON = 0.5;
 
 const TARGET_SEQ_FALLBACK = 0;
 const ROOT_GROUP = "__root__";
@@ -1472,6 +1481,67 @@ export function clampTemplateZoom(zoom: number): number {
 }
 
 /**
+ * 平移一屏的动画时长：`prefers-reduced-motion: reduce` 下为 0（瞬时到终点）。
+ *
+ * 平移动画由 React Flow 的 `setViewport(..., { duration })` 驱动，不走 CSS
+ * transition，因此全局的 reduced-motion 规则管不到它，只能在这里显式处理。
+ */
+export function templatePanDuration(reducedMotion: boolean): number {
+  return reducedMotion ? 0 : TEMPLATE_PAN_DURATION_MS;
+}
+
+/** 视口右缘 / 下缘换算到内容流坐标（视口 x / y 是平移量）。 */
+function flowRightEdge(size: TemplateSize, viewport: TemplateViewport): number {
+  return (size.width - viewport.x) / Math.max(viewport.zoom, 0.001);
+}
+
+function flowBottomEdge(
+  size: TemplateSize,
+  viewport: TemplateViewport,
+): number {
+  return (size.height - viewport.y) / Math.max(viewport.zoom, 0.001);
+}
+
+/**
+ * 右侧还有多少列被视口右缘裁掉（含只露出半截的列）。
+ *
+ * 按列内**卡片的右边缘**判断，而不是列起点：一列只要还有一张卡没看全，
+ * 用户就需要「右侧还有 N 列」这个入口。半截露出的列计入；右边缘刚好等于
+ * 视口右缘（≤ 0.5px 容差）算在视野内，不计。
+ */
+export function hiddenRightColumns(
+  layout: TemplateGraphLayout,
+  size: TemplateSize,
+  viewport: TemplateViewport,
+): number {
+  const right = flowRightEdge(size, viewport);
+  const truncated = new Set<number>();
+  for (const card of layout.cards) {
+    if (card.x + card.width > right + VIEWPORT_EDGE_EPSILON) {
+      truncated.add(card.column);
+    }
+  }
+  return truncated.size;
+}
+
+/**
+ * 画布下方是否还有没露出来的卡片。
+ *
+ * 只比较卡片的下边缘，不看布局尾部的 `TEMPLATE_PADDING`：内边距被裁掉
+ * 不算「还有内容」，否则内容刚好放得下时也会一直提示。
+ */
+export function hasHiddenContentBelow(
+  layout: TemplateGraphLayout,
+  size: TemplateSize,
+  viewport: TemplateViewport,
+): boolean {
+  const bottom = flowBottomEdge(size, viewport);
+  return layout.cards.some(
+    (card) => card.y + card.height > bottom + VIEWPORT_EDGE_EPSILON,
+  );
+}
+
+/**
  * 缩放栏按钮：吸附到 25% 的整数档（100 → 125 → 150，100 → 75 → 50）。
  * 首屏是 fit 出来的 91% 之类的值时，一次「+」就落在 100%，用户看到的
  * 百分比始终是整档，不会出现 116% 这种读数。
@@ -1504,13 +1574,44 @@ export function highlightTemplatePath(
     column.cards.some((card) => card.id === cardId),
   );
   if (!exists) return { nodes, edges };
+  walkUpstream(folded, [cardId], nodes, edges);
+  return { nodes, edges };
+}
+
+/**
+ * hover / focus 一条连线（时延药丸 / 合并虚线）：点亮它到入口的路径。
+ *
+ * 与卡片高亮同一口径（其余卡片与连线压到 35%），但只点亮**这一条**线：
+ * 同一目标上的兄弟连线不算路径的一部分。连线本身不在图中时返回空集合。
+ */
+export function highlightTemplateEdgePath(
+  folded: FoldedGraph,
+  edgeId: string,
+): TemplateHighlight {
+  const nodes = new Set<string>();
+  const edges = new Set<string>();
+  const edge = folded.edges.find((item) => item.id === edgeId);
+  if (edge === undefined) return { nodes, edges };
+  nodes.add(edge.target);
+  edges.add(edge.id);
+  walkUpstream(folded, [edge.source], nodes, edges);
+  return { nodes, edges };
+}
+
+/** 从给定卡片往上走：入边与上游卡片进集合，直到入口列。 */
+function walkUpstream(
+  folded: FoldedGraph,
+  starts: readonly string[],
+  nodes: Set<string>,
+  edges: Set<string>,
+): void {
   const byTarget = new Map<string, FoldedEdge[]>();
   for (const edge of folded.edges) {
     const bucket = byTarget.get(edge.target);
     if (bucket === undefined) byTarget.set(edge.target, [edge]);
     else bucket.push(edge);
   }
-  const stack = [cardId];
+  const stack = [...starts];
   while (stack.length > 0) {
     const id = stack.pop() as string;
     if (nodes.has(id)) continue;
@@ -1520,5 +1621,4 @@ export function highlightTemplatePath(
       stack.push(edge.source);
     }
   }
-  return { nodes, edges };
 }
