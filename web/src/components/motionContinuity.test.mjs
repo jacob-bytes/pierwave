@@ -122,7 +122,6 @@ test("TabsTrigger 删掉选中底色 / 边框 / 阴影 / 下划线，只留文�
       "data-active:text-foreground",
       "dark:data-active:text-foreground",
       "hover:text-foreground",
-      "focus-visible:border-ring",
       "focus-visible:ring-[3px]",
       "focus-visible:ring-ring/50",
       "focus-visible:outline-1",
@@ -132,6 +131,19 @@ test("TabsTrigger 删掉选中底色 / 边框 / 阴影 / 下划线，只留文�
   );
   // 注释说明底色由指示器承担，避免下一个人又加回去。
   assert.match(tabs, /指示器|indicator/);
+});
+
+test("TabsTrigger 的焦点提示只用 ring / outline，不再画边框", () => {
+  // 指针模态下 `html[data-input="pointer"] :focus-visible` 只清 outline 与
+  // ring；`focus-visible:border-ring` 会在鼠标点击（Radix 脚本聚焦）后留下
+  // 1px 蓝框。选中底色 / 边框已归 SlidingIndicator，触发器只保留 ring 与
+  // outline 两种焦点提示。
+  excludes(tabs, ["focus-visible:border-ring"], "TabsTrigger");
+  includes(
+    tabs,
+    ["focus-visible:ring-[3px]", "focus-visible:outline-1"],
+    "TabsTrigger focus ring",
+  );
 });
 
 test("`.chain-section-tabs` 不再自己画 ::after 下划线", () => {

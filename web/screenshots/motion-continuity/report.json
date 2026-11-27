@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-27T14:57:26.100Z",
+  "generatedAt": "2026-11-27T16:27:25.576Z",
   "dist": "/Users/jlthzy/Documents/mmrust/web/dist",
   "baselineMode": false,
   "browser": {
@@ -7,6 +7,11 @@
     "args": [
       "--disable-frame-rate-limit",
       "--disable-gpu-vsync",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows"
+    ],
+    "cadenceArgs": [
       "--disable-background-timer-throttling",
       "--disable-renderer-backgrounding",
       "--disable-backgrounding-occluded-windows"
@@ -54,6 +59,46 @@
       "exact": true
     },
     {
+      "name": "view-tabs-click-1440-light",
+      "theme": "light",
+      "width": 286,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 60,
+      "maxChannelDelta": 13,
+      "exact": false
+    },
+    {
+      "name": "view-tabs-click-1440-dark",
+      "theme": "dark",
+      "width": 286,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "exact": true
+    },
+    {
+      "name": "view-tabs-keyboard-1440-light",
+      "theme": "light",
+      "width": 302,
+      "tolerance": 0,
+      "height": 48,
+      "differingPixels": 72,
+      "maxChannelDelta": 52,
+      "exact": false
+    },
+    {
+      "name": "view-tabs-keyboard-1440-dark",
+      "theme": "dark",
+      "width": 302,
+      "tolerance": 0,
+      "height": 48,
+      "differingPixels": 52,
+      "maxChannelDelta": 6,
+      "exact": false
+    },
+    {
       "name": "chain-underline-1440-light",
       "theme": "light",
       "width": 165,
@@ -91,6 +136,46 @@
       "height": 33,
       "differingPixels": 84,
       "maxChannelDelta": 3,
+      "exact": false
+    },
+    {
+      "name": "seg-uptime-click-1440-light",
+      "theme": "light",
+      "width": 102,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 128,
+      "maxChannelDelta": 27,
+      "exact": false
+    },
+    {
+      "name": "seg-uptime-click-1440-dark",
+      "theme": "dark",
+      "width": 102,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "exact": false
+    },
+    {
+      "name": "seg-uptime-keyboard-1440-light",
+      "theme": "light",
+      "width": 118,
+      "tolerance": 0,
+      "height": 48,
+      "differingPixels": 145,
+      "maxChannelDelta": 59,
+      "exact": false
+    },
+    {
+      "name": "seg-uptime-keyboard-1440-dark",
+      "theme": "dark",
+      "width": 118,
+      "tolerance": 0,
+      "height": 48,
+      "differingPixels": 130,
+      "maxChannelDelta": 42,
       "exact": false
     },
     {
@@ -234,10 +319,172 @@
       "exact": true
     }
   ],
+  "focusChecks": [
+    {
+      "name": "view-tabs-click-1440-light",
+      "theme": "light",
+      "check": "pointer",
+      "text": "资源状态",
+      "activeElement": true,
+      "focusVisible": true,
+      "modality": "pointer",
+      "borderWidth": "1px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "borderTransparent": true,
+      "outlineStyle": "none",
+      "outlineWidth": "3px",
+      "outlineColor": "oklch(1 0 0)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "ringVisible": false,
+      "restingDiff": {
+        "width": 286,
+        "height": 33,
+        "differingPixels": 0,
+        "maxChannelDelta": 0
+      }
+    },
+    {
+      "name": "view-tabs-click-1440-dark",
+      "theme": "dark",
+      "check": "pointer",
+      "text": "资源状态",
+      "activeElement": true,
+      "focusVisible": true,
+      "modality": "pointer",
+      "borderWidth": "1px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "borderTransparent": true,
+      "outlineStyle": "none",
+      "outlineWidth": "3px",
+      "outlineColor": "oklch(0.965 0.003 285)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "ringVisible": false,
+      "restingDiff": {
+        "width": 286,
+        "height": 33,
+        "differingPixels": 0,
+        "maxChannelDelta": 0
+      }
+    },
+    {
+      "name": "view-tabs-keyboard-1440-light",
+      "theme": "light",
+      "check": "keyboard",
+      "text": "资源状态",
+      "activeElement": true,
+      "focusVisible": true,
+      "modality": "keyboard",
+      "borderWidth": "1px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "borderTransparent": true,
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineColor": "oklch(0.42 0.2 265.6)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklch(0.42 0.2 265.6) 0px 0px 0px 3px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "ringVisible": true
+    },
+    {
+      "name": "view-tabs-keyboard-1440-dark",
+      "theme": "dark",
+      "check": "keyboard",
+      "text": "资源状态",
+      "activeElement": true,
+      "focusVisible": true,
+      "modality": "keyboard",
+      "borderWidth": "1px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "borderTransparent": true,
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineColor": "oklch(0.74 0.16 264.6)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklch(0.74 0.16 264.6) 0px 0px 0px 3px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "ringVisible": true
+    },
+    {
+      "name": "seg-uptime-click-1440-light",
+      "theme": "light",
+      "check": "pointer",
+      "text": "趋势",
+      "activeElement": true,
+      "focusVisible": true,
+      "modality": "pointer",
+      "borderWidth": "1px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "borderTransparent": true,
+      "outlineStyle": "none",
+      "outlineWidth": "3px",
+      "outlineColor": "oklch(1 0 0)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "ringVisible": false,
+      "restingDiff": {
+        "width": 102,
+        "height": 33,
+        "differingPixels": 0,
+        "maxChannelDelta": 0
+      }
+    },
+    {
+      "name": "seg-uptime-click-1440-dark",
+      "theme": "dark",
+      "check": "pointer",
+      "text": "趋势",
+      "activeElement": true,
+      "focusVisible": true,
+      "modality": "pointer",
+      "borderWidth": "1px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "borderTransparent": true,
+      "outlineStyle": "none",
+      "outlineWidth": "3px",
+      "outlineColor": "oklch(0.965 0.003 285)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "ringVisible": false,
+      "restingDiff": {
+        "width": 102,
+        "height": 33,
+        "differingPixels": 0,
+        "maxChannelDelta": 0
+      }
+    },
+    {
+      "name": "seg-uptime-keyboard-1440-light",
+      "theme": "light",
+      "check": "keyboard",
+      "text": "趋势",
+      "activeElement": true,
+      "focusVisible": true,
+      "modality": "keyboard",
+      "borderWidth": "1px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "borderTransparent": true,
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineColor": "oklch(0.42 0.2 265.6)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklch(0.42 0.2 265.6) 0px 0px 0px 3px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "ringVisible": true
+    },
+    {
+      "name": "seg-uptime-keyboard-1440-dark",
+      "theme": "dark",
+      "check": "keyboard",
+      "text": "趋势",
+      "activeElement": true,
+      "focusVisible": true,
+      "modality": "keyboard",
+      "borderWidth": "1px",
+      "borderColor": "rgba(0, 0, 0, 0)",
+      "borderTransparent": true,
+      "outlineStyle": "solid",
+      "outlineWidth": "2px",
+      "outlineColor": "oklch(0.74 0.16 264.6)",
+      "boxShadow": "rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, oklch(0.74 0.16 264.6) 0px 0px 0px 3px, rgba(0, 0, 0, 0) 0px 0px 0px 0px",
+      "ringVisible": true
+    }
+  ],
   "dynamic": {
     "firstLoad": {
       "maxDriftPx": 0,
-      "samples": 58
+      "samples": 56
     },
     "clickTrajectory": {
       "axis": "x",
@@ -248,17 +495,16 @@
       "transitionMs": 200,
       "startGap": 70,
       "endGap": 0,
-      "middleGap": 4.640625,
-      "middleAt": 136.2,
-      "moveStartedAt": 50.9,
+      "middleGap": 5.5,
+      "middleAt": 200.2,
+      "moveStartedAt": 80.6,
       "firstFrameGap": 70,
-      "settledAt": 224.7,
-      "observedDurationMs": 173.8,
-      "commitDelayMs": 50.9,
+      "settledAt": 312.2,
+      "observedDurationMs": 231.6,
+      "commitDelayMs": 80.6,
       "transitionDuration": "0.2s",
       "transitionTimingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
-      "medianFrameMs": 0.2,
-      "sampleCount": 57
+      "sampleCount": 120
     },
     "keyboardTrajectory": {
       "axis": "x",
@@ -269,17 +515,16 @@
       "transitionMs": 200,
       "startGap": 70,
       "endGap": 0,
-      "middleGap": 32.5625,
-      "middleAt": 141.4,
-      "moveStartedAt": 76.8,
+      "middleGap": 44.21875,
+      "middleAt": 205.1,
+      "moveStartedAt": 108.1,
       "firstFrameGap": 70,
-      "settledAt": 195.6,
-      "observedDurationMs": 118.8,
-      "commitDelayMs": 76.8,
+      "settledAt": 300.1,
+      "observedDurationMs": 192,
+      "commitDelayMs": 108.1,
       "transitionDuration": "0.2s",
       "transitionTimingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
-      "medianFrameMs": 7,
-      "sampleCount": 55
+      "sampleCount": 117
     },
     "localeSwitch": {
       "activeText": "Resource status",
@@ -305,7 +550,7 @@
     "sidebarClick": {
       "active": "服务器",
       "endGap": 0,
-      "settledAt": 128.3
+      "settledAt": 136.4
     },
     "sidebarCollapsed": {
       "gapX": 0,
@@ -361,12 +606,19 @@
     },
     "chartReducedMotion": {
       "firstFrameIsFinal": true
+    },
+    "frameCadence": {
+      "frames": 32,
+      "medianMs": 16.7,
+      "over25Ms": 1,
+      "maxMs": 100,
+      "available": true
     }
   },
   "checks": [
     {
       "label": "first-load",
-      "readySamples": 58,
+      "readySamples": 56,
       "maxDriftPx": 0,
       "firstReadyLeft": 267,
       "lastLeft": 267
@@ -381,17 +633,16 @@
       "transitionMs": 200,
       "startGap": 70,
       "endGap": 0,
-      "middleGap": 4.640625,
-      "middleAt": 136.2,
-      "moveStartedAt": 50.9,
+      "middleGap": 5.5,
+      "middleAt": 200.2,
+      "moveStartedAt": 80.6,
       "firstFrameGap": 70,
-      "settledAt": 224.7,
-      "observedDurationMs": 173.8,
-      "commitDelayMs": 50.9,
+      "settledAt": 312.2,
+      "observedDurationMs": 231.6,
+      "commitDelayMs": 80.6,
       "transitionDuration": "0.2s",
       "transitionTimingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
-      "medianFrameMs": 0.2,
-      "sampleCount": 57
+      "sampleCount": 120
     },
     {
       "label": "keyboard-trajectory",
@@ -403,17 +654,16 @@
       "transitionMs": 200,
       "startGap": 70,
       "endGap": 0,
-      "middleGap": 32.5625,
-      "middleAt": 141.4,
-      "moveStartedAt": 76.8,
+      "middleGap": 44.21875,
+      "middleAt": 205.1,
+      "moveStartedAt": 108.1,
       "firstFrameGap": 70,
-      "settledAt": 195.6,
-      "observedDurationMs": 118.8,
-      "commitDelayMs": 76.8,
+      "settledAt": 300.1,
+      "observedDurationMs": 192,
+      "commitDelayMs": 108.1,
       "transitionDuration": "0.2s",
       "transitionTimingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
-      "medianFrameMs": 7,
-      "sampleCount": 55
+      "sampleCount": 117
     },
     {
       "label": "locale-switch",
@@ -449,7 +699,7 @@
       "gapX": 0,
       "gapWidth": 0,
       "endGap": 0,
-      "settledAt": 128.3
+      "settledAt": 136.4
     },
     {
       "label": "sidebar-collapsed",
@@ -500,7 +750,7 @@
     },
     {
       "label": "chart-enter",
-      "firstSampleMs": 3,
+      "firstSampleMs": 2,
       "firstVs400": true,
       "at30Vs400": true,
       "stableAt400": true
@@ -513,9 +763,44 @@
     {
       "label": "chart-reduced-motion",
       "firstFrameIsFinal": true
+    },
+    {
+      "label": "frame-cadence",
+      "frames": 32,
+      "medianMs": 16.7,
+      "over25Ms": 1,
+      "maxMs": 100,
+      "available": true,
+      "args": [
+        "--disable-background-timer-throttling",
+        "--disable-renderer-backgrounding",
+        "--disable-backgrounding-occluded-windows"
+      ],
+      "note": "normal frame rate, no --disable-frame-rate-limit; sampled across a tab slide"
     }
   ],
   "deviations": [
+    {
+      "name": "view-tabs-click-1440-light",
+      "differingPixels": 60,
+      "maxChannelDelta": 13,
+      "tolerance": 0,
+      "note": "focus-frame edge antialiasing only: the removed 1px focus border changes anti-aliasing at the selected pill edge; pointer frames have transparent border and no outline, keyboard frames still draw the 2px outline and 3px ring (computed style)"
+    },
+    {
+      "name": "view-tabs-keyboard-1440-light",
+      "differingPixels": 72,
+      "maxChannelDelta": 52,
+      "tolerance": 0,
+      "note": "focus-frame edge antialiasing only: the removed 1px focus border changes anti-aliasing at the selected pill edge; pointer frames have transparent border and no outline, keyboard frames still draw the 2px outline and 3px ring (computed style)"
+    },
+    {
+      "name": "view-tabs-keyboard-1440-dark",
+      "differingPixels": 52,
+      "maxChannelDelta": 6,
+      "tolerance": 0,
+      "note": "focus-frame edge antialiasing only: the removed 1px focus border changes anti-aliasing at the selected pill edge; pointer frames have transparent border and no outline, keyboard frames still draw the 2px outline and 3px ring (computed style)"
+    },
     {
       "name": "seg-uptime-1440-light",
       "differingPixels": 84,
@@ -529,6 +814,34 @@
       "maxChannelDelta": 3,
       "tolerance": 0,
       "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "seg-uptime-click-1440-light",
+      "differingPixels": 128,
+      "maxChannelDelta": 27,
+      "tolerance": 0,
+      "note": "focus-frame edge antialiasing only: the removed 1px focus border changes anti-aliasing at the selected pill edge; pointer frames have transparent border and no outline, keyboard frames still draw the 2px outline and 3px ring (computed style)"
+    },
+    {
+      "name": "seg-uptime-click-1440-dark",
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "tolerance": 0,
+      "note": "focus-frame edge antialiasing only: the removed 1px focus border changes anti-aliasing at the selected pill edge; pointer frames have transparent border and no outline, keyboard frames still draw the 2px outline and 3px ring (computed style)"
+    },
+    {
+      "name": "seg-uptime-keyboard-1440-light",
+      "differingPixels": 145,
+      "maxChannelDelta": 59,
+      "tolerance": 0,
+      "note": "focus-frame edge antialiasing only: the removed 1px focus border changes anti-aliasing at the selected pill edge; pointer frames have transparent border and no outline, keyboard frames still draw the 2px outline and 3px ring (computed style)"
+    },
+    {
+      "name": "seg-uptime-keyboard-1440-dark",
+      "differingPixels": 130,
+      "maxChannelDelta": 42,
+      "tolerance": 0,
+      "note": "focus-frame edge antialiasing only: the removed 1px focus border changes anti-aliasing at the selected pill edge; pointer frames have transparent border and no outline, keyboard frames still draw the 2px outline and 3px ring (computed style)"
     },
     {
       "name": "seg-distribution-1440-light",
@@ -594,10 +907,18 @@
     "view-tabs-1440-dark",
     "view-tabs-390-light",
     "view-tabs-390-dark",
+    "view-tabs-click-1440-light",
+    "view-tabs-click-1440-dark",
+    "view-tabs-keyboard-1440-light",
+    "view-tabs-keyboard-1440-dark",
     "chain-underline-1440-light",
     "chain-underline-1440-dark",
     "seg-uptime-1440-light",
     "seg-uptime-1440-dark",
+    "seg-uptime-click-1440-light",
+    "seg-uptime-click-1440-dark",
+    "seg-uptime-keyboard-1440-light",
+    "seg-uptime-keyboard-1440-dark",
     "seg-distribution-1440-light",
     "seg-distribution-1440-dark",
     "seg-leaderboard-1440-light",
