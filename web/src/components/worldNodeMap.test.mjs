@@ -76,14 +76,30 @@ test("层次：海洋透明、无节点 muted-foreground/20、四档 20/35/55/80
     assert.ok(map.includes(tier), `missing tier fill ${tier}`);
   }
   assert.match(map, /stroke-primary\/40/);
-  // 离线 / 降级不再给整国红 / 黄描边，避免看成「整国出事」。
-  assert.ok(!map.includes("stroke-destructive"));
-  assert.ok(!map.includes("stroke-warning"));
+  // 国家面只走 primary；红 / 黄只出现在圆点外环（见「状态用外环表达」）。
+  assert.match(map, /active \? "stroke-primary" : "stroke-primary\/40"/);
   assert.match(map, /data-tier="none"/);
   assert.match(map, /data-worst=/);
 });
 
-test("节点标记：质心圆点按档位 3/4/5/6px，离线 destructive、降级 warning", () => {
+test("状态用外环表达：离线 destructive、异常 warning、在线无环", () => {
+  assert.match(
+    map,
+    /const STATUS_RING_STROKE = \{[\s\S]*?online: null,[\s\S]*?offline: "stroke-destructive",[\s\S]*?abnormal: "stroke-warning"/,
+  );
+  // 外环只在 offline / abnormal 时渲染，online 的 ringClass 为 null。
+  assert.match(map, /ringClass \? \(/);
+  assert.match(map, /data-world-map-ring=\{stat\.worst\}/);
+  assert.match(map, /r=\{radius \+ STATUS_RING_OFFSET_PX \/ scale\}/);
+  assert.match(map, /STATUS_RING_OFFSET_PX = 2\.5/);
+  assert.match(map, /STATUS_RING_STROKE_PX = 2/);
+  assert.match(map, /strokeWidth=\{STATUS_RING_STROKE_PX\}/);
+  assert.match(map, /className=\{cn\("fill-none", ringClass\)\}/);
+  // 聚焦环给状态环让位，但键盘反馈本身不变。
+  assert.match(map, /MARKER_RING_FOCUS_GAP_PX/);
+});
+
+test("节点标记：质心圆点按档位 3/4/5/6px，圆点始终 primary、状态只靠外环", () => {
   assert.match(map, /worldNodeMarkerRadius\(stat\.tier\)/);
   // 质心来自 JSON 的 `c: [x, y]`，组件必须同步读取。
   assert.match(map, /const \[centroidX, centroidY\] = shape\.c/);
@@ -91,13 +107,16 @@ test("节点标记：质心圆点按档位 3/4/5/6px，离线 destructive、降�
   assert.match(map, /data-world-map-dot/);
   assert.match(map, /data-world-map-count/);
   assert.match(map, /stat\.total >= 2/);
-  assert.match(map, /fill-destructive/);
-  assert.match(map, /fill-warning/);
-  assert.match(map, /fill-primary/);
+  // 圆点永远用主题主色，不再按最差状态换色。
+  assert.match(map, /className="fill-primary stroke-card"/);
+  assert.ok(!map.includes("fill-destructive"), "dot must not use destructive fill");
+  assert.ok(!map.includes("fill-warning"), "dot must not use warning fill");
   // 圆点用 2px 卡片底色描边形成「挖空」感。
   assert.match(map, /MARKER_STROKE_PX = 2/);
   assert.match(map, /stroke-card/);
   assert.match(map, /MARKER_LABEL_PX = 12/);
+  // N 标签也回到主色（2px 卡片色描边保证可读）。
+  assert.match(map, /className="fill-primary font-medium"/);
   // 半径按屏幕像素固定，390 下用 ResizeObserver 换算回 viewBox 单位。
   assert.match(map, /ResizeObserver/);
   assert.match(map, /mapWidth \/ VIEW_WIDTH/);
@@ -128,25 +147,43 @@ test("国家名：Intl.DisplayNames 本地化，失败回退 ISO2", () => {
   assert.match(map, /countryDisplayName\(code, locale\) \?\? code/);
 });
 
-test("tooltip 显示本地化国家名 + 台数 + 前 3 节点", () => {
+test("tooltip 显示本地化国家名 + 台数 + 状态 + 前 3 节点", () => {
   assert.match(map, /role="tooltip"/);
   assert.match(map, /data-world-map-tooltip/);
   assert.match(map, /mapTooltipCount/);
+  assert.match(map, /mapTooltipStatus/);
+  assert.match(map, /data-world-map-tooltip-status/);
+  assert.match(map, /statusLabel\(tipStat\.worst\)/);
   assert.match(map, /topNames\.join\(" · "\)/);
+  // 顺序：台数 / 在线 → 状态 → 前 3 个节点。
+  assert.ok(map.indexOf("mapTooltipCount") < map.indexOf("mapTooltipStatus"));
+  assert.ok(map.indexOf("mapTooltipStatus") < map.indexOf("topNames.join"));
   assert.match(map, /onMouseEnter/);
   assert.match(map, /onFocus/);
 });
 
-test("图例在卡片底部右侧：12px、10×10 色块、四档 + 离线/异常", () => {
+test("图例拆成两段：节点数四档 + 圆点/外环状态语义，12px", () => {
   assert.match(map, /data-world-map-legend/);
   assert.match(map, /justify-end/);
   assert.match(map, /text-xs/);
   assert.match(map, /size-2\.5/);
+  // 左段：节点数标题 + 四档色块。
+  assert.match(map, /data-world-map-legend-tiers/);
+  assert.match(map, /data-world-map-legend-tiers-title/);
+  assert.match(map, /mapLegendTiersTitle/);
   assert.match(map, /data-world-map-legend-tier=\{tier\}/);
-  assert.match(map, /mapLegendOffline/);
-  assert.match(map, /mapLegendAbnormal/);
+  // 右段：12px 圆点 + 外环示意在线 / 离线 / 异常。
+  assert.match(map, /data-world-map-legend-status/);
+  assert.match(map, /data-world-map-legend-online/);
   assert.match(map, /data-world-map-legend-offline/);
   assert.match(map, /data-world-map-legend-abnormal/);
+  assert.match(map, /mapLegendOnline/);
+  assert.match(map, /mapLegendOffline/);
+  assert.match(map, /mapLegendAbnormal/);
+  assert.match(map, /StatusLegendGlyph/);
+  assert.match(map, /data-world-map-legend-glyph=\{status\}/);
+  assert.match(map, /width="12"/);
+  assert.match(map, /height="12"/);
 });
 
 test("空态仍显示地图，图例注明暂无节点", () => {
@@ -182,8 +219,14 @@ test("中英文案同时存在，占位符一致", () => {
     "mapAria",
     "mapCountryAria",
     "mapTooltipCount",
+    "mapTooltipStatus",
+    "mapStatusOnline",
+    "mapStatusOffline",
+    "mapStatusAbnormal",
+    "mapLegendTiersTitle",
     "mapLegendTier",
     "mapLegendNone",
+    "mapLegendOnline",
     "mapLegendOffline",
     "mapLegendAbnormal",
     "mapEmpty",

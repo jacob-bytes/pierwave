@@ -17,6 +17,7 @@ import {
   worldNodeMarkerRadius,
   worldNodeStats,
   worldNodeStatus,
+  type WorldNodeStatus,
 } from "@/lib/worldNodeStats";
 import { t, useI18n } from "@/i18n";
 
@@ -58,6 +59,17 @@ const MARKER_STROKE_PX = 2;
 const MARKER_GAP_PX = 4;
 const MARKER_LABEL_PX = 12;
 const MARKER_FOCUS_GAP_PX = 3;
+/** 有外环时把 N 标签 / focus ring 再让开，避免和状态环叠在一起。 */
+const MARKER_RING_LABEL_GAP_PX = 7;
+const MARKER_RING_FOCUS_GAP_PX = 6;
+/** 状态外环：半径 +2.5px、2px 宽；在线没有外环。 */
+const STATUS_RING_OFFSET_PX = 2.5;
+const STATUS_RING_STROKE_PX = 2;
+const STATUS_RING_STROKE = {
+  online: null,
+  offline: "stroke-destructive",
+  abnormal: "stroke-warning",
+} as const satisfies Record<WorldNodeStatus, string | null>;
 
 interface CountryShape {
   d: string;
@@ -71,6 +83,42 @@ interface TipState {
   x: number;
   y: number;
   below: boolean;
+}
+
+/**
+ * 图例右侧的 12px 状态示意：实心 primary 圆点 = 有节点，外环 = 最差状态。
+ * 和地图上的圆点 / 外环同色，避免图例与数据各说各话。
+ */
+function StatusLegendGlyph({ status }: { status: WorldNodeStatus }) {
+  const ring = STATUS_RING_STROKE[status];
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      aria-hidden="true"
+      data-world-map-legend-glyph={status}
+      className="shrink-0"
+    >
+      {ring ? (
+        <circle
+          cx="6"
+          cy="6"
+          r={4.6}
+          fill="none"
+          strokeWidth={1.2}
+          className={ring}
+        />
+      ) : null}
+      <circle
+        cx="6"
+        cy="6"
+        r={2.4}
+        className="fill-primary stroke-card"
+        strokeWidth={1.4}
+      />
+    </svg>
+  );
 }
 
 /**
@@ -161,7 +209,10 @@ export default function WorldNodeMap({
     for (const stat of labeled) {
       const [centroidX, centroidY] = COUNTRIES[stat.country].c;
       const radius = worldNodeMarkerRadius(stat.tier);
-      const x = centroidX * scale + radius + MARKER_GAP_PX;
+      const gap = STATUS_RING_STROKE[stat.worst]
+        ? MARKER_RING_LABEL_GAP_PX
+        : MARKER_GAP_PX;
+      const x = centroidX * scale + radius + gap;
       let offset = 0;
       while (
         placed.some(
@@ -183,6 +234,17 @@ export default function WorldNodeMap({
   /** 本地化国家名；`Intl.DisplayNames` 失败或环境不支持时回落到 ISO2。 */
   function countryName(code: string): string {
     return countryDisplayName(code, locale) ?? code;
+  }
+
+  /** 外环语义的文字版：tooltip 里必须能读到最差状态。 */
+  function statusLabel(status: WorldNodeStatus): string {
+    return t(
+      status === "offline"
+        ? "overview.serverHealth.mapStatusOffline"
+        : status === "abnormal"
+          ? "overview.serverHealth.mapStatusAbnormal"
+          : "overview.serverHealth.mapStatusOnline",
+    );
   }
 
   function openCountry(country: string) {
@@ -299,8 +361,11 @@ export default function WorldNodeMap({
               const active = hovered === country || focused === country;
               const radius = worldNodeMarkerRadius(stat.tier) / scale;
               const [centroidX, centroidY] = shape.c;
-              const labelX =
-                centroidX + radius + MARKER_GAP_PX / scale;
+              const ringClass = STATUS_RING_STROKE[stat.worst];
+              const labelGap = ringClass
+                ? MARKER_RING_LABEL_GAP_PX
+                : MARKER_GAP_PX;
+              const labelX = centroidX + radius + labelGap / scale;
               const labelY =
                 centroidY + (labelOffsets.get(country) ?? 0) / scale;
               const labelFontSize = MARKER_LABEL_PX / scale;
@@ -352,19 +417,24 @@ export default function WorldNodeMap({
                     onBlur={onCountryBlur}
                   />
                   <g data-world-map-marker={country} aria-hidden="true">
+                    {/* 圆点只表示「这里有节点」，状态全部交给外环。 */}
+                    {ringClass ? (
+                      <circle
+                        data-world-map-ring={stat.worst}
+                        cx={centroidX}
+                        cy={centroidY}
+                        r={radius + STATUS_RING_OFFSET_PX / scale}
+                        className={cn("fill-none", ringClass)}
+                        strokeWidth={STATUS_RING_STROKE_PX}
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ) : null}
                     <circle
                       data-world-map-dot
                       cx={centroidX}
                       cy={centroidY}
                       r={radius}
-                      className={cn(
-                        "stroke-card",
-                        stat.worst === "offline"
-                          ? "fill-destructive"
-                          : stat.worst === "abnormal"
-                            ? "fill-warning"
-                            : "fill-primary",
-                      )}
+                      className="fill-primary stroke-card"
                       strokeWidth={MARKER_STROKE_PX}
                       vectorEffect="non-scaling-stroke"
                     />
@@ -372,7 +442,13 @@ export default function WorldNodeMap({
                       <circle
                         cx={centroidX}
                         cy={centroidY}
-                        r={radius + MARKER_FOCUS_GAP_PX / scale}
+                        r={
+                          radius +
+                          (ringClass
+                            ? MARKER_RING_FOCUS_GAP_PX
+                            : MARKER_FOCUS_GAP_PX) /
+                            scale
+                        }
                         className="fill-none stroke-focus-ring"
                         strokeWidth={2}
                         vectorEffect="non-scaling-stroke"
@@ -384,7 +460,7 @@ export default function WorldNodeMap({
                         x={labelX}
                         y={labelY}
                         fontSize={labelFontSize}
-                        className="fill-foreground font-medium"
+                        className="fill-primary font-medium"
                         stroke="var(--card)"
                         strokeWidth={labelStrokeWidth}
                         paintOrder="stroke"
@@ -419,6 +495,14 @@ export default function WorldNodeMap({
                   online: tipStat.online,
                 })}
               </p>
+              <p
+                data-world-map-tooltip-status
+                className="mt-0.5 text-xs text-muted-foreground"
+              >
+                {t("overview.serverHealth.mapTooltipStatus", {
+                  status: statusLabel(tipStat.worst),
+                })}
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {tipStat.topNames.join(" · ")}
               </p>
@@ -430,39 +514,59 @@ export default function WorldNodeMap({
           data-world-map-legend
           className="mt-2 flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5 text-xs text-muted-foreground"
         >
-          {TIER_RANGES.map((range, tier) => (
+          {/* 左段：档位只表示节点数，颜色 = 台数。 */}
+          <span
+            data-world-map-legend-tiers
+            className="inline-flex flex-wrap items-center gap-x-2.5 gap-y-1.5"
+          >
             <span
-              key={range}
-              data-world-map-legend-tier={tier}
+              data-world-map-legend-tiers-title
+              className="font-medium whitespace-nowrap"
+            >
+              {t("overview.serverHealth.mapLegendTiersTitle")}
+            </span>
+            {TIER_RANGES.map((range, tier) => (
+              <span
+                key={range}
+                data-world-map-legend-tier={tier}
+                className="inline-flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn("size-2.5 rounded-[2px]", TIER_BG[tier])}
+                />
+                {t("overview.serverHealth.mapLegendTier", { range })}
+              </span>
+            ))}
+          </span>
+          <span
+            aria-hidden="true"
+            className="hidden h-3 w-px shrink-0 bg-border sm:inline-block"
+          />
+          {/* 右段：实心圆点 = 有节点，外环 = 最差状态；在线无外环。 */}
+          <span
+            data-world-map-legend-status
+            className="inline-flex flex-wrap items-center gap-x-3 gap-y-1.5"
+          >
+            <span
+              data-world-map-legend-online
               className="inline-flex items-center gap-1.5 whitespace-nowrap"
             >
-              <span
-                aria-hidden="true"
-                className={cn("size-2.5 rounded-[2px]", TIER_BG[tier])}
-              />
-              {t("overview.serverHealth.mapLegendTier", { range })}
+              <StatusLegendGlyph status="online" />
+              {t("overview.serverHealth.mapLegendOnline")}
             </span>
-          ))}
-          {/* 状态点作为一组换行：390 下四档占第一行，离线 + 异常一起落到第二行。 */}
-          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <span
               data-world-map-legend-offline
               className="inline-flex items-center gap-1.5 whitespace-nowrap"
             >
-              <span
-                aria-hidden="true"
-                className="size-2.5 rounded-full bg-destructive"
-              />
+              <StatusLegendGlyph status="offline" />
               {t("overview.serverHealth.mapLegendOffline")}
             </span>
             <span
               data-world-map-legend-abnormal
               className="inline-flex items-center gap-1.5 whitespace-nowrap"
             >
-              <span
-                aria-hidden="true"
-                className="size-2.5 rounded-full bg-warning"
-              />
+              <StatusLegendGlyph status="abnormal" />
               {t("overview.serverHealth.mapLegendAbnormal")}
             </span>
           </span>

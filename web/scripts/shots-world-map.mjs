@@ -94,12 +94,14 @@ const TYPES = {
 };
 
 /**
- * 8 个国家 / 22 个节点，覆盖 4 档 fill 与两种描边：
- *   US 8（1 离线）→ 7+、destructive
- *   JP 5（1 异常）→ 4–6、warning
- *   DE 3 / FR 2   → 2–3
+ * 8 个国家 / 22 个节点，默认混合状态，覆盖 4 档 fill 与三种外环：
+ *   US 8（1 离线）→ 7+、destructive 外环
+ *   JP 5（1 异常）→ 4–6、warning 外环
+ *   DE 3 / FR 2   → 2–3、在线无环
  *   CA / GB / AU  → 1、online
- *   BR 1（异常）  → 1、warning
+ *   BR 1（异常）  → 1、warning 外环
+ * `statusMode: "online" | "offline"` 把全部节点改成同一种状态，用来拍
+ * 「全在线 / 全离线」两张对照图。
  */
 const COUNTRY_PLAN = [
   { code: "US", names: ["美西-01", "美西-02", "美东-01", "美东-02", "美中-01", "美中-02", "美南-01", "美南-02"], offline: 1, abnormal: 0, group: "北美" },
@@ -117,14 +119,20 @@ function buildServers({
   emptyCountry = null,
   onlyCountry = null,
   smallRegions = false,
+  statusMode = "mixed",
 } = {}) {
   const items = [];
   let index = 0;
   for (const plan of COUNTRY_PLAN) {
     for (let n = 0; n < plan.names.length; n += 1) {
       index += 1;
-      const offline = n < plan.offline;
-      const abnormal = !offline && n < plan.offline + plan.abnormal;
+      const offline =
+        statusMode === "offline" ||
+        (statusMode === "mixed" && n < plan.offline);
+      const abnormal =
+        statusMode === "mixed" &&
+        !offline &&
+        n < plan.offline + plan.abnormal;
       items.push({
         id: `srv-${index}`,
         name: plan.names[n],
@@ -518,6 +526,16 @@ async function captureCard(page, name) {
   return file;
 }
 
+const closeTo = (value, expected, tolerance = 0.25) =>
+  typeof value === "number" && Math.abs(value - expected) <= tolerance;
+
+const fillAlpha = (value) => {
+  const match =
+    value.match(/\/\s*([0-9.]+)\)/) ??
+    value.match(/rgba\([^)]*,\s*([0-9.]+)\)/);
+  return match ? Number(match[1]) : 1;
+};
+
 /**
  * 地图卡的渲染度量：路径 / 档位 / 质心圆点 / 图例 / 留白。
  * 圆点半径与文字按屏幕像素记录（SVG 用 viewBox 单位，需乘 scale）。
@@ -540,10 +558,12 @@ async function mapMetrics(page) {
         `[data-world-map-marker="${code}"]`,
       );
       const dot = group?.querySelector("[data-world-map-dot]");
+      const ring = group?.querySelector("[data-world-map-ring]");
       const label = group?.querySelector("[data-world-map-count]");
       const dotRect = dot?.getBoundingClientRect();
       const labelRect = label?.getBoundingClientRect();
       const radius = dot ? Number(dot.getAttribute("r")) : null;
+      const ringRadius = ring ? Number(ring.getAttribute("r")) : null;
       const font = label ? parseFloat(getComputedStyle(label).fontSize) : null;
       return {
         exists: Boolean(group),
@@ -554,7 +574,17 @@ async function mapMetrics(page) {
         screenRadius: radius === null ? null : radius * scale,
         dotWidth: dotRect?.width ?? null,
         dotRight: dotRect?.right ?? null,
+        hasRing: Boolean(ring),
+        ringClass: ring?.getAttribute("class") ?? "",
+        ringStroke: ring ? getComputedStyle(ring).stroke : null,
+        ringStrokeWidth: ring ? getComputedStyle(ring).strokeWidth : null,
+        ringRadius,
+        ringScreenRadius:
+          ringRadius === null ? null : ringRadius * scale,
+        ringWidth: ring?.getBoundingClientRect().width ?? null,
         label: label?.textContent ?? null,
+        labelClass: label?.getAttribute("class") ?? "",
+        labelFill: label ? getComputedStyle(label).fill : null,
         labelFont: font === null ? null : font * scale,
         labelLeft: labelRect?.left ?? null,
         labelRight: labelRect?.right ?? null,
@@ -605,6 +635,32 @@ async function mapMetrics(page) {
       };
     };
 
+    /** 图例右侧的圆点 + 外环示意：ring=null 表示「在线（无环）」。 */
+    const legendGlyph = (selector) => {
+      const item = legendEl.querySelector(selector);
+      const svg = item?.querySelector("svg");
+      const rect = svg?.getBoundingClientRect();
+      const circles = svg ? [...svg.querySelectorAll("circle")] : [];
+      const ring =
+        circles.find((circle) => circle.getAttribute("fill") === "none") ??
+        null;
+      const dot = circles.find((circle) => circle !== ring) ?? null;
+      return {
+        exists: Boolean(svg),
+        width: rect?.width ?? null,
+        height: rect?.height ?? null,
+        dotFill: dot ? getComputedStyle(dot).fill : null,
+        dotClass: dot?.getAttribute("class") ?? "",
+        ring: ring
+          ? {
+              stroke: getComputedStyle(ring).stroke,
+              strokeWidth: getComputedStyle(ring).strokeWidth,
+              radius: Number(ring.getAttribute("r")),
+            }
+          : null,
+      };
+    };
+
     return {
       pathCount: paths.length,
       nodeCountries: paths.filter(
@@ -616,6 +672,9 @@ async function mapMetrics(page) {
       worst: Object.fromEntries(
         ["US", "JP", "BR", "DE"].map((code) => [code, worst(code)]),
       ),
+      worstAll: paths
+        .filter((path) => path.getAttribute("data-tier") !== "none")
+        .map((path) => path.getAttribute("data-worst")),
       fills: Object.fromEntries(
         ["CA", "DE", "JP", "US", "NZ"].map((code) => [code, fill(code)]),
       ),
@@ -656,10 +715,25 @@ async function mapMetrics(page) {
         top: legend.top,
         right: legend.right,
         bottom: legend.bottom,
+        tiersTitle:
+          legendEl
+            .querySelector("[data-world-map-legend-tiers-title]")
+            ?.textContent?.trim() ?? null,
+        statusText:
+          legendEl
+            .querySelector("[data-world-map-legend-status]")
+            ?.textContent?.trim() ?? null,
+        hasTiersGroup: Boolean(
+          legendEl.querySelector("[data-world-map-legend-tiers]"),
+        ),
+        hasStatusGroup: Boolean(
+          legendEl.querySelector("[data-world-map-legend-status]"),
+        ),
         tier0: legendItem('[data-world-map-legend-tier="0"]'),
         tier3: legendItem('[data-world-map-legend-tier="3"]'),
-        offline: legendItem("[data-world-map-legend-offline]"),
-        abnormal: legendItem("[data-world-map-legend-abnormal]"),
+        online: legendGlyph("[data-world-map-legend-online]"),
+        offline: legendGlyph("[data-world-map-legend-offline]"),
+        abnormal: legendGlyph("[data-world-map-legend-abnormal]"),
         belowMap: legend.top >= svgRect.bottom - 1,
       },
       empty: Boolean(document.querySelector("[data-world-map-empty]")),
@@ -887,7 +961,7 @@ try {
       JSON.stringify(map.worst),
     );
     check(
-      `${theme}/${width}: 四档 fill 20/35/55/80 + primary/40 描边，无整国红 / 黄描边`,
+      `${theme}/${width}: 四档 fill 20/35/55/80 + primary/40 描边，国家面不带红 / 黄`,
       map.classes.CA.includes("fill-primary/20") &&
         map.classes.DE.includes("fill-primary/35") &&
         map.classes.JP.includes("fill-primary/55") &&
@@ -900,14 +974,6 @@ try {
       JSON.stringify({ fills: map.fills, classes: map.classes }),
     );
 
-    const closeTo = (value, expected, tolerance = 0.25) =>
-      typeof value === "number" && Math.abs(value - expected) <= tolerance;
-    const fillAlpha = (value) => {
-      const match =
-        value.match(/\/\s*([0-9.]+)\)/) ??
-        value.match(/rgba\([^)]*,\s*([0-9.]+)\)/);
-      return match ? Number(match[1]) : 1;
-    };
     const marker = (code) => map.markers[code];
     check(
       `${theme}/${width}: 质心圆点半径 6/5/4/3px 且圆点用卡片色描边`,
@@ -930,28 +996,68 @@ try {
       ),
     );
     check(
-      `${theme}/${width}: 离线 US 红点、降级 JP/BR 黄点、在线 primary`,
-      marker("US")?.fillClass.includes("fill-destructive") &&
-        marker("JP")?.fillClass.includes("fill-warning") &&
-        marker("BR")?.fillClass.includes("fill-warning") &&
-        marker("DE")?.fillClass.includes("fill-primary") &&
-        marker("CA")?.fillClass.includes("fill-primary"),
+      `${theme}/${width}: 圆点始终 fill-primary，不按状态换色`,
+      Object.values(map.markers).every(
+        (item) =>
+          item?.exists &&
+          item.fillClass.includes("fill-primary") &&
+          !item.fillClass.includes("fill-destructive") &&
+          !item.fillClass.includes("fill-warning") &&
+          !item.fillClass.includes("stroke-destructive") &&
+          !item.fillClass.includes("stroke-warning"),
+      ) &&
+        new Set(Object.values(map.markers).map((item) => item?.fill)).size ===
+          1,
       JSON.stringify(
         Object.fromEntries(
           Object.entries(map.markers).map(([code, item]) => [
             code,
-            item?.fillClass,
+            { fill: item?.fill, fillClass: item?.fillClass },
+          ]),
+        ),
+      ),
+    );
+    const ringOk = (code, stroke) => {
+      const item = marker(code);
+      return (
+        item?.hasRing &&
+        item.ringClass.includes(stroke) &&
+        closeTo(item.ringScreenRadius, (item.screenRadius ?? 0) + 2.5) &&
+        item.ringStrokeWidth === "2px"
+      );
+    };
+    check(
+      `${theme}/${width}: 离线 US 环 destructive、异常 JP/BR 环 warning、在线无环`,
+      ringOk("US", "stroke-destructive") &&
+        ringOk("JP", "stroke-warning") &&
+        ringOk("BR", "stroke-warning") &&
+        ["DE", "FR", "CA", "AU"].every(
+          (code) => marker(code)?.hasRing === false,
+        ),
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(map.markers).map(([code, item]) => [
+            code,
+            {
+              hasRing: item?.hasRing,
+              ringClass: item?.ringClass,
+              ringScreenRadius: item?.ringScreenRadius,
+              screenRadius: item?.screenRadius,
+              ringStrokeWidth: item?.ringStrokeWidth,
+            },
           ]),
         ),
       ),
     );
     check(
-      `${theme}/${width}: ≥2 台国家在圆点右侧显示 12px N 标签`,
+      `${theme}/${width}: ≥2 台国家在圆点右侧显示 12px N 标签，且改用主色`,
       marker("US")?.label === "8" &&
         marker("JP")?.label === "5" &&
         marker("DE")?.label === "3" &&
         marker("FR")?.label === "2" &&
         marker("CA")?.label === null &&
+        marker("US")?.labelClass.includes("fill-primary") &&
+        marker("US")?.labelFill === marker("DE")?.fill &&
         Object.values(map.markers)
           .filter((item) => item?.label !== null)
           .every(
@@ -998,13 +1104,17 @@ try {
       ),
     );
     check(
-      `${theme}/${width}: 图例在卡片底部右侧、12px、10×10、四档 + 离线/异常`,
-      map.legend.text.includes("1 台") &&
+      `${theme}/${width}: 图例两段：节点数四档 + 圆点/外环状态语义、12px`,
+      map.legend.hasTiersGroup &&
+        map.legend.hasStatusGroup &&
+        map.legend.tiersTitle === "节点数" &&
+        map.legend.text.includes("1 台") &&
         map.legend.text.includes("2–3 台") &&
         map.legend.text.includes("4–6 台") &&
         map.legend.text.includes("7+ 台") &&
-        map.legend.text.includes("离线") &&
-        map.legend.text.includes("异常") &&
+        map.legend.statusText.includes("在线（无环）") &&
+        map.legend.statusText.includes("离线") &&
+        map.legend.statusText.includes("异常") &&
         map.legend.fontSize === 12 &&
         map.legend.belowMap &&
         map.legend.right <= map.card.right + 1 &&
@@ -1012,8 +1122,17 @@ try {
         [map.legend.tier0, map.legend.tier3].every(
           (item) => closeTo(item.width, 10) && closeTo(item.height, 10),
         ) &&
-        map.legend.offline.exists &&
-        map.legend.abnormal.exists &&
+        [map.legend.online, map.legend.offline, map.legend.abnormal].every(
+          (item) =>
+            item.exists &&
+            closeTo(item.width, 12) &&
+            closeTo(item.height, 12) &&
+            item.dotClass.includes("fill-primary"),
+        ) &&
+        map.legend.online.ring === null &&
+        map.legend.online.dotFill === marker("DE")?.fill &&
+        map.legend.offline.ring?.stroke === marker("US")?.ringStroke &&
+        map.legend.abnormal.ring?.stroke === marker("JP")?.ringStroke &&
         (width !== 1440 || map.legend.height <= 20),
       JSON.stringify(map.legend),
     );
@@ -1125,6 +1244,109 @@ try {
     await page.close();
   }
 
+  // ---- 1b. 全在线 / 全离线：圆点恒为 primary，外环只随状态出现 ----
+  for (const statusMode of ["online", "offline"]) {
+    const label = statusMode === "online" ? "全在线" : "全离线";
+    for (const theme of ["dark", "light"]) {
+      for (const width of [1440, 390]) {
+        const { page, consoleErrors } = await openPage(browser, BASE, {
+          theme,
+          width,
+          height: width === 390 ? 844 : 900,
+        });
+        await page.route("**/api/v1/**", (route) =>
+          handleApi(route, { statusMode }),
+        );
+        await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+        await waitForMap(page);
+        const map = await mapMetrics(page);
+        const markers = Object.values(map.markers);
+        report.metrics[`${statusMode}-${theme}-${width}`] = {
+          markers: map.markers,
+          legend: map.legend,
+        };
+
+        check(
+          `${label}/${theme}/${width}: 8 个有节点国家 data-worst 全为 ${statusMode}`,
+          map.worstAll.length === 8 &&
+            map.worstAll.every((value) => value === statusMode),
+          JSON.stringify(map.worstAll),
+        );
+        check(
+          `${label}/${theme}/${width}: 圆点始终 fill-primary，不随状态换色`,
+          markers.every(
+            (item) =>
+              item?.exists &&
+              item.fillClass.includes("fill-primary") &&
+              !item.fillClass.includes("fill-destructive") &&
+              !item.fillClass.includes("fill-warning"),
+          ) && new Set(markers.map((item) => item?.fill)).size === 1,
+          JSON.stringify(
+            Object.fromEntries(
+              Object.entries(map.markers).map(([code, item]) => [
+                code,
+                item.fillClass,
+              ]),
+            ),
+          ),
+        );
+        check(
+          `${label}/${theme}/${width}: ${
+            statusMode === "online"
+              ? "在线国家全部无外环"
+              : "离线国家全部 destructive 外环（半径 +2.5px、2px 宽）"
+          }`,
+          statusMode === "online"
+            ? markers.every((item) => item?.hasRing === false)
+            : markers.every(
+                (item) =>
+                  item?.hasRing &&
+                  item.ringClass.includes("stroke-destructive") &&
+                  closeTo(
+                    item.ringScreenRadius,
+                    (item.screenRadius ?? 0) + 2.5,
+                  ) &&
+                  item.ringStrokeWidth === "2px",
+              ),
+          JSON.stringify(
+            Object.fromEntries(
+              Object.entries(map.markers).map(([code, item]) => [
+                code,
+                {
+                  hasRing: item.hasRing,
+                  ringClass: item.ringClass,
+                  ringScreenRadius: item.ringScreenRadius,
+                  screenRadius: item.screenRadius,
+                  ringStrokeWidth: item.ringStrokeWidth,
+                },
+              ]),
+            ),
+          ),
+        );
+        check(
+          `${label}/${theme}/${width}: 图例两段语义仍在`,
+          map.legend.tiersTitle === "节点数" &&
+            map.legend.statusText.includes("在线（无环）") &&
+            map.legend.statusText.includes("离线") &&
+            map.legend.statusText.includes("异常") &&
+            map.legend.online.ring === null &&
+            map.legend.online.dotFill === map.markers.DE?.fill,
+          JSON.stringify(map.legend),
+        );
+        check(
+          `${label}/${theme}/${width}: 页面无 console error`,
+          consoleErrors.length === 0,
+          consoleErrors.join(" | "),
+        );
+        await captureCard(page, `world-map-all-${statusMode}-${theme}-${width}`);
+        if (width === 390) {
+          await assertNoOverflow(page, `${label}/${theme}/${width}`);
+        }
+        await page.close();
+      }
+    }
+  }
+
   // ---- 2. tooltip + 键盘 Enter 跳转 + 服务器页过滤 ----------------
   {
     const { page, consoleErrors } = await openPage(browser, BASE, {
@@ -1141,6 +1363,9 @@ try {
     await page.waitForSelector("[data-world-map-tooltip]", { timeout: 5_000 });
     const tip = await page.evaluate(() => ({
       text: document.querySelector("[data-world-map-tooltip]")?.textContent ?? "",
+      status:
+        document.querySelector("[data-world-map-tooltip-status]")?.textContent ??
+        "",
       rect: document
         .querySelector("[data-world-map-tooltip]")
         ?.getBoundingClientRect(),
@@ -1149,9 +1374,10 @@ try {
         ?.getBoundingClientRect(),
     }));
     check(
-      "tooltip: 本地化国家名 + 台数/在线 + 前 3 个节点",
+      "tooltip: 本地化国家名 + 台数/在线 + 状态 + 前 3 个节点",
       tip.text.includes("德国") &&
         tip.text.includes("3 台 · 在线 3") &&
+        tip.status.includes("状态：在线") &&
         tip.text.includes("法兰克福-01") &&
         tip.text.includes("法兰克福-02") &&
         tip.text.includes("柏林-01"),
