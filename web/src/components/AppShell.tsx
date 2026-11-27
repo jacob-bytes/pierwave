@@ -1,4 +1,4 @@
-import { Suspense, useState } from "react";
+import { Suspense, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -43,6 +43,7 @@ import { PageSkeleton } from "@/components/common";
 import { ChangePasswordDialog } from "@/components/settings/ChangePasswordDialog";
 import { VersionUpdate } from "@/components/updates/VersionUpdate";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { SlidingIndicator } from "@/components/ui/sliding-indicator";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -193,12 +194,13 @@ function NavEntry({
       aria-current={active ? "page" : undefined}
       title={collapsed ? t(item.labelKey) : undefined}
       className={cn(
-        "flex h-8 items-center gap-2 rounded-md px-2.5 text-[13px] transition-colors duration-150",
+        "relative flex h-8 items-center gap-2 rounded-md px-2.5 text-[13px] transition-colors duration-150",
         item.sub && "ml-3 h-7 pl-2 text-xs",
         collapsed && "justify-center px-0",
         collapsed && item.sub && "ml-0",
+        // 选中底色由 nav 里的 SlidingIndicator 画；这里只负责字重与文字色。
         active
-          ? "bg-sidebar-accent font-medium text-foreground"
+          ? "font-medium text-foreground"
           : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
       )}
     >
@@ -256,6 +258,8 @@ function SidebarBody({
   onNavigate?: () => void;
 }) {
   const { t } = useI18n();
+  // 每个 SidebarBody 一个指示器容器：桌面侧栏与移动抽屉各自测量，互不干扰。
+  const navListRef = useRef<HTMLDivElement>(null);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -282,35 +286,47 @@ function SidebarBody({
         aria-label={t("app.mainNav")}
         className="flex-1 overflow-y-auto overscroll-y-contain p-3"
       >
-        {navGroups.map((group, index) => (
-          <div key={group.titleKey}>
-            {collapsed ? (
-              index > 0 ? (
-                <div className="mx-2 my-2 h-px bg-sidebar-border" />
-              ) : null
-            ) : (
-              <p
-                className={cn(
-                  "px-2.5 pb-1.5 type-micro font-medium tracking-wider text-muted-foreground",
-                  index > 0 && "pt-5",
-                )}
-              >
-                {t(group.titleKey)}
-              </p>
-            )}
-            <div className="space-y-0.5">
-              {group.items.map((item) => (
-                <NavEntry
-                  key={item.to}
-                  item={item}
-                  pathname={pathname}
-                  collapsed={collapsed}
-                  onNavigate={onNavigate}
-                />
-              ))}
+        <div ref={navListRef} className="relative">
+          {/*
+            整棵导航共用一个指示器：跨分组选中（例如「日志」→「概览」）时
+            它也沿同一条竖线滑动，而不是每组各闪一下。
+          */}
+          <SlidingIndicator
+            containerRef={navListRef}
+            activeSelector='a[aria-current="page"]'
+            placement="pill"
+            className="rounded-md bg-sidebar-accent"
+          />
+          {navGroups.map((group, index) => (
+            <div key={group.titleKey}>
+              {collapsed ? (
+                index > 0 ? (
+                  <div className="mx-2 my-2 h-px bg-sidebar-border" />
+                ) : null
+              ) : (
+                <p
+                  className={cn(
+                    "px-2.5 pb-1.5 type-micro font-medium tracking-wider text-muted-foreground",
+                    index > 0 && "pt-5",
+                  )}
+                >
+                  {t(group.titleKey)}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {group.items.map((item) => (
+                  <NavEntry
+                    key={item.to}
+                    item={item}
+                    pathname={pathname}
+                    collapsed={collapsed}
+                    onNavigate={onNavigate}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </nav>
 
       <div

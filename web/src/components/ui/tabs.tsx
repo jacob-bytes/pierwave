@@ -2,6 +2,7 @@ import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 import { Tabs as TabsPrimitive } from "radix-ui"
+import { SlidingIndicator } from "@/components/ui/sliding-indicator"
 
 function Tabs({
   className,
@@ -24,7 +25,7 @@ function Tabs({
 const tabsListVariants = cva(
   // `justify-start` 而不是 `justify-center`：`overflow-x-auto` 下居中会把两端
   // 内容推到负坐标，左侧的「General」永远滑不到（见 UI-AUDIT P1-2）。
-  "group/tabs-list inline-flex w-fit items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
+  "group/tabs-list relative inline-flex w-fit items-center justify-start rounded-lg p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 max-sm:h-12 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {
@@ -41,6 +42,7 @@ const tabsListVariants = cva(
 function TabsList({
   className,
   variant = "default",
+  children,
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.List> &
   VariantProps<typeof tabsListVariants>) {
@@ -88,7 +90,23 @@ function TabsList({
       data-variant={variant}
       className={cn(tabsListVariants({ variant }), className)}
       {...props}
-    />
+    >
+      {/*
+        选中底色 / 下划线 / 阴影由指示器承担：触发器不再各自涂背景，
+        切换时只有一个元素滑动，而不是旧背景瞬间消失、新背景瞬间出现。
+      */}
+      <SlidingIndicator
+        containerRef={listRef}
+        activeSelector='[data-slot="tabs-trigger"][data-state="active"]'
+        placement={variant === "line" ? "underline" : "pill"}
+        className={
+          variant === "line"
+            ? "rounded-none bg-primary"
+            : "rounded-md border border-transparent bg-primary shadow-sm dark:border-input dark:bg-input/30"
+        }
+      />
+      {children}
+    </TabsPrimitive.List>
   )
 }
 
@@ -100,11 +118,12 @@ function TabsTrigger({
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        // 激活态用主题主色：与按钮、链接、进度条同一个蓝，避免 tab 看起来像另一个控件体系
-        "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 max-sm:min-w-10 max-sm:flex-none rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm hover:data-[state=active]:bg-primary/90 group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 dark:hover:text-foreground group-data-[variant=default]/tabs-list:data-active:shadow-sm group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent",
-        "data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground",
-        "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
+        // 底色 / 边框 / 阴影 / 下划线都由 TabsList 里的 SlidingIndicator 画，
+        // 这里只保留文字色与焦点环：同一个强调色，切换时只有指示器在动。
+        "relative inline-flex h-[calc(100%-1px)] flex-1 items-center justify-center gap-1.5 max-sm:min-w-10 max-sm:flex-none rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-all data-[state=active]:text-primary-foreground group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1 has-data-[icon=inline-start]:pl-1 dark:hover:text-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        // `data-active` 在 shadcn 的预设里等价于 `[data-state=active]`，暗色下
+        // 文字用 foreground 而不是 primary-foreground（与指示器的暗色底配对）。
+        "data-active:text-foreground dark:data-active:text-foreground",
         className
       )}
       {...props}

@@ -108,9 +108,13 @@ export function ChainKpiCell({
         {label}
       </p>
       <p
+        // `key={value}`：只有数字真的变了才重挂载，`value-settle` 才会重播；
+        // 拿回同样的值时不闪。外层 cell / 卡片不重挂载，布局不跳。
+        key={value}
         data-chain-kpi-value
         className={cn(
           "mt-1 text-[28px] leading-none font-medium tracking-tight break-words tabular-nums",
+          "value-settle",
           TONE_CLASS[tone],
         )}
       >

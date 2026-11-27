@@ -63,6 +63,7 @@ function KpiCard({
   label,
   icon: Icon,
   value,
+  settleKey,
   hint,
   delta,
   global,
@@ -73,6 +74,8 @@ function KpiCard({
   label: string;
   icon: LucideIcon;
   value: ReactNode;
+  /** 数值指纹：只有它变化时才重挂载数字节点，播放 `value-settle`。 */
+  settleKey: string;
   hint: ReactNode;
   /** 相对上一周期的变化百分比；没有可比数据时传 null 或省略。 */
   delta?: number | null;
@@ -136,8 +139,11 @@ function KpiCard({
         <CardContent className="flex flex-1 flex-col">
           {/* leading-none 收紧 28px 数字的行距，字号与字重不变。 */}
           <div
+            // 只重挂载数字节点，外层 Link / Card 保持不动；数字没变时 key
+            // 相同，CSS 动画不会重播。
+            key={settleKey}
             data-kpi-value
-            className="flex items-baseline text-[28px] leading-none font-medium tracking-tight tabular-nums"
+            className="value-settle flex items-baseline text-[28px] leading-none font-medium tracking-tight tabular-nums"
           >
             {value}
           </div>
@@ -428,6 +434,7 @@ export default function OverviewPage() {
               tone={onlineServersKpiTone(scopedOffline)}
               label={t("overview.onlineServers")}
               icon={ServerIcon}
+              settleKey={`${scopedOnline}/${scopedTotal}`}
               value={
                 emptyScope ? (
                   "—"
@@ -459,6 +466,7 @@ export default function OverviewPage() {
               to={usersKpiLink()}
               label={t("overview.usersAndPackages")}
               icon={UsersIcon}
+              settleKey={`${stats.users.total}/${stats.packages.instances}`}
               value={
                 <span className="flex min-w-0 flex-wrap items-baseline gap-x-1">
                   <span data-kpi-users-total>{stats.users.total}</span>{" "}
@@ -490,6 +498,7 @@ export default function OverviewPage() {
               tone={forwardChainsKpiTone(chainBlocked, chainDegraded)}
               label={t("overview.forwardChains")}
               icon={WaypointsIcon}
+              settleKey={`${chains?.total ?? "—"}`}
               value={
                 <span data-kpi-chains-total>{chains?.total ?? "—"}</span>
               }
@@ -520,6 +529,7 @@ export default function OverviewPage() {
               to={todayTrafficKpiLink()}
               label={t("overview.todayTraffic")}
               icon={ActivityIcon}
+              settleKey={`${todayBytes ?? "—"}`}
               value={
                 emptyScope ? "—" : <ByteValue bytes={todayBytes ?? 0} />
               }

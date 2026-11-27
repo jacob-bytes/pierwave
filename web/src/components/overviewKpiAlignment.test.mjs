@@ -23,6 +23,7 @@ const cost = read("components/overview/CostView.tsx");
 const chainList = read("components/overview/ChainLatencyList.tsx");
 const templateKpi = read("components/overview/ChainTemplateKpis.tsx");
 const chainSectionTabs = read("components/overview/ChainSectionTabs.tsx");
+const tabs = read("components/ui/tabs.tsx");
 const traffic = read("components/overview/TrafficView.tsx");
 const css = read("index.css");
 const zh = read("i18n/zh-CN.ts");
@@ -175,7 +176,9 @@ test("链路二级子页：12px 下划线 tab，选中 primary、未选中 muted
     shell.indexOf("<ChainSectionTabs") > shell.indexOf("<ServerFilter"),
     "sub tabs must stay to the right of the server filter",
   );
-  // 下划线的样式在 index.css：12px、2px、primary，未选中 muted。
+  // 文字仍是 12px、未选中 muted、选中 primary；2px primary 下划线由
+  // TabsList 的 SlidingIndicator 统一画（line variant → underline），
+  // 不再由触发器自己的 `::after` 提供。
   includes(
     css,
     [
@@ -185,11 +188,17 @@ test("链路二级子页：12px 下划线 tab，选中 primary、未选中 muted
       "color: var(--muted-foreground)",
       '.chain-section-tabs [data-slot="tabs-trigger"][data-state="active"]',
       "color: var(--primary)",
-      "height: 2px",
-      "background: var(--primary)",
     ],
     "index.css",
   );
+  includes(
+    tabs,
+    ['variant === "line" ? "underline" : "pill"', '"rounded-none bg-primary"'],
+    "Tabs",
+  );
+  const start = css.indexOf(".chain-section-tabs {");
+  const end = css.indexOf("\n/*", start);
+  assert.doesNotMatch(css.slice(start, end), /::after/);
 });
 
 test("热力图：全程无在线样本折叠成一行，可展开 / 收起且名称进 tooltip", () => {

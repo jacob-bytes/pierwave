@@ -1,0 +1,617 @@
+{
+  "generatedAt": "2026-11-27T14:57:26.100Z",
+  "dist": "/Users/jlthzy/Documents/mmrust/web/dist",
+  "baselineMode": false,
+  "browser": {
+    "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "args": [
+      "--disable-frame-rate-limit",
+      "--disable-gpu-vsync",
+      "--disable-background-timer-throttling",
+      "--disable-renderer-backgrounding",
+      "--disable-backgrounding-occluded-windows"
+    ]
+  },
+  "staticComparisons": [
+    {
+      "name": "view-tabs-1440-light",
+      "theme": "light",
+      "width": 286,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "exact": true
+    },
+    {
+      "name": "view-tabs-1440-dark",
+      "theme": "dark",
+      "width": 286,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "exact": true
+    },
+    {
+      "name": "view-tabs-390-light",
+      "theme": "light",
+      "width": 342,
+      "tolerance": 0,
+      "height": 69,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "exact": true
+    },
+    {
+      "name": "view-tabs-390-dark",
+      "theme": "dark",
+      "width": 342,
+      "tolerance": 0,
+      "height": 69,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "exact": true
+    },
+    {
+      "name": "chain-underline-1440-light",
+      "theme": "light",
+      "width": 165,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "exact": true
+    },
+    {
+      "name": "chain-underline-1440-dark",
+      "theme": "dark",
+      "width": 165,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "exact": true
+    },
+    {
+      "name": "seg-uptime-1440-light",
+      "theme": "light",
+      "width": 102,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 84,
+      "maxChannelDelta": 14,
+      "exact": false
+    },
+    {
+      "name": "seg-uptime-1440-dark",
+      "theme": "dark",
+      "width": 102,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "exact": false
+    },
+    {
+      "name": "seg-distribution-1440-light",
+      "theme": "light",
+      "width": 91,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 84,
+      "maxChannelDelta": 14,
+      "exact": false
+    },
+    {
+      "name": "seg-distribution-1440-dark",
+      "theme": "dark",
+      "width": 91,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "exact": false
+    },
+    {
+      "name": "seg-leaderboard-1440-light",
+      "theme": "light",
+      "width": 146,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 81,
+      "maxChannelDelta": 14,
+      "exact": false
+    },
+    {
+      "name": "seg-leaderboard-1440-dark",
+      "theme": "dark",
+      "width": 146,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "exact": false
+    },
+    {
+      "name": "seg-trend-1440-light",
+      "theme": "light",
+      "width": 105,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 84,
+      "maxChannelDelta": 14,
+      "exact": false
+    },
+    {
+      "name": "seg-trend-1440-dark",
+      "theme": "dark",
+      "width": 105,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "exact": false
+    },
+    {
+      "name": "settings-tabs-1440-light",
+      "theme": "light",
+      "width": 398,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "exact": true
+    },
+    {
+      "name": "settings-tabs-1440-dark",
+      "theme": "dark",
+      "width": 398,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 0,
+      "maxChannelDelta": 0,
+      "exact": true
+    },
+    {
+      "name": "logs-tabs-1440-light",
+      "theme": "light",
+      "width": 146,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 100,
+      "maxChannelDelta": 14,
+      "exact": false
+    },
+    {
+      "name": "logs-tabs-1440-dark",
+      "theme": "dark",
+      "width": 146,
+      "tolerance": 0,
+      "height": 33,
+      "differingPixels": 80,
+      "maxChannelDelta": 4,
+      "exact": false
+    },
+    {
+      "name": "sidebar-1440-light",
+      "theme": "light",
+      "width": 239,
+      "tolerance": 8,
+      "height": 795,
+      "differingPixels": 0,
+      "maxChannelDelta": 1,
+      "exact": true
+    },
+    {
+      "name": "sidebar-1440-dark",
+      "theme": "dark",
+      "width": 239,
+      "tolerance": 8,
+      "height": 795,
+      "differingPixels": 0,
+      "maxChannelDelta": 1,
+      "exact": true
+    },
+    {
+      "name": "sidebar-drawer-390-light",
+      "theme": "light",
+      "width": 292,
+      "tolerance": 8,
+      "height": 714,
+      "differingPixels": 0,
+      "maxChannelDelta": 1,
+      "exact": true
+    },
+    {
+      "name": "sidebar-drawer-390-dark",
+      "theme": "dark",
+      "width": 292,
+      "tolerance": 8,
+      "height": 714,
+      "differingPixels": 0,
+      "maxChannelDelta": 1,
+      "exact": true
+    }
+  ],
+  "dynamic": {
+    "firstLoad": {
+      "maxDriftPx": 0,
+      "samples": 58
+    },
+    "clickTrajectory": {
+      "axis": "x",
+      "transitionFromPx": 3,
+      "transitionToPx": 73,
+      "transitionSpanPx": 70,
+      "transitionProperty": "left",
+      "transitionMs": 200,
+      "startGap": 70,
+      "endGap": 0,
+      "middleGap": 4.640625,
+      "middleAt": 136.2,
+      "moveStartedAt": 50.9,
+      "firstFrameGap": 70,
+      "settledAt": 224.7,
+      "observedDurationMs": 173.8,
+      "commitDelayMs": 50.9,
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "medianFrameMs": 0.2,
+      "sampleCount": 57
+    },
+    "keyboardTrajectory": {
+      "axis": "x",
+      "transitionFromPx": 73,
+      "transitionToPx": 3,
+      "transitionSpanPx": 70,
+      "transitionProperty": "left",
+      "transitionMs": 200,
+      "startGap": 70,
+      "endGap": 0,
+      "middleGap": 32.5625,
+      "middleAt": 141.4,
+      "moveStartedAt": 76.8,
+      "firstFrameGap": 70,
+      "settledAt": 195.6,
+      "observedDurationMs": 118.8,
+      "commitDelayMs": 76.8,
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "medianFrameMs": 7,
+      "sampleCount": 55
+    },
+    "localeSwitch": {
+      "activeText": "Resource status",
+      "gapX": 0,
+      "gapWidth": 0
+    },
+    "resize": {
+      "width900": {
+        "gapX": 0,
+        "gapWidth": 0
+      },
+      "width390": {
+        "gapX": 0,
+        "gapWidth": 0
+      }
+    },
+    "fourthTab390": {
+      "text": "链路时延",
+      "gapX": 0,
+      "gapWidth": 0,
+      "listScrollLeft": 0
+    },
+    "sidebarClick": {
+      "active": "服务器",
+      "endGap": 0,
+      "settledAt": 128.3
+    },
+    "sidebarCollapsed": {
+      "gapX": 0,
+      "gapWidth": 0
+    },
+    "drawer": {
+      "open": {
+        "active": "概览",
+        "gapX": 0
+      },
+      "afterClick": {
+        "active": "设置",
+        "gapX": 0
+      }
+    },
+    "reducedMotion": {
+      "transitionDuration": "1e-05s",
+      "durationMs": 0.01,
+      "gapX": 0,
+      "gapWidth": 0,
+      "observedMs": 62
+    },
+    "kpi": {
+      "changed": {
+        "settleEvents": 2,
+        "settleStates": [
+          "running",
+          "running"
+        ],
+        "texts": [
+          "2/ 3",
+          "7 用户 / 6 实例",
+          "2",
+          "48GB"
+        ],
+        "linksStillMounted": true
+      },
+      "unchanged": {
+        "settleEvents": 0,
+        "nodesStillMounted": true
+      }
+    },
+    "chart": {
+      "enter": {
+        "firstVs400": true,
+        "at30Vs400": true,
+        "stableAt400": true
+      },
+      "refresh": {
+        "changed": true,
+        "firstFrameIsFinal": true
+      }
+    },
+    "chartReducedMotion": {
+      "firstFrameIsFinal": true
+    }
+  },
+  "checks": [
+    {
+      "label": "first-load",
+      "readySamples": 58,
+      "maxDriftPx": 0,
+      "firstReadyLeft": 267,
+      "lastLeft": 267
+    },
+    {
+      "label": "click-trajectory",
+      "axis": "x",
+      "transitionFromPx": 3,
+      "transitionToPx": 73,
+      "transitionSpanPx": 70,
+      "transitionProperty": "left",
+      "transitionMs": 200,
+      "startGap": 70,
+      "endGap": 0,
+      "middleGap": 4.640625,
+      "middleAt": 136.2,
+      "moveStartedAt": 50.9,
+      "firstFrameGap": 70,
+      "settledAt": 224.7,
+      "observedDurationMs": 173.8,
+      "commitDelayMs": 50.9,
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "medianFrameMs": 0.2,
+      "sampleCount": 57
+    },
+    {
+      "label": "keyboard-trajectory",
+      "axis": "x",
+      "transitionFromPx": 73,
+      "transitionToPx": 3,
+      "transitionSpanPx": 70,
+      "transitionProperty": "left",
+      "transitionMs": 200,
+      "startGap": 70,
+      "endGap": 0,
+      "middleGap": 32.5625,
+      "middleAt": 141.4,
+      "moveStartedAt": 76.8,
+      "firstFrameGap": 70,
+      "settledAt": 195.6,
+      "observedDurationMs": 118.8,
+      "commitDelayMs": 76.8,
+      "transitionDuration": "0.2s",
+      "transitionTimingFunction": "cubic-bezier(0.22, 1, 0.36, 1)",
+      "medianFrameMs": 7,
+      "sampleCount": 55
+    },
+    {
+      "label": "locale-switch",
+      "activeText": "Resource status",
+      "gapX": 0,
+      "gapWidth": 0
+    },
+    {
+      "label": "resize-900",
+      "gapX": 0,
+      "gapWidth": 0
+    },
+    {
+      "label": "resize-390",
+      "gapX": 0,
+      "gapWidth": 0
+    },
+    {
+      "label": "390-fourth-tab",
+      "text": "链路时延",
+      "gapX": 0,
+      "gapWidth": 0,
+      "listScrollLeft": 0
+    },
+    {
+      "label": "sidebar-initial",
+      "active": "概览",
+      "gapX": 0
+    },
+    {
+      "label": "sidebar-click",
+      "active": "服务器",
+      "gapX": 0,
+      "gapWidth": 0,
+      "endGap": 0,
+      "settledAt": 128.3
+    },
+    {
+      "label": "sidebar-collapsed",
+      "gapX": 0,
+      "gapWidth": 0,
+      "active": "服务器"
+    },
+    {
+      "label": "drawer-open",
+      "active": "概览",
+      "gapX": 0,
+      "gapWidth": 0
+    },
+    {
+      "label": "drawer-after-click",
+      "active": "设置",
+      "gapX": 0,
+      "gapWidth": 0
+    },
+    {
+      "label": "reduced-motion",
+      "transitionProperty": "none",
+      "transitionDuration": "1e-05s",
+      "gapX": 0,
+      "gapWidth": 0,
+      "observedMs": 62
+    },
+    {
+      "label": "kpi-change",
+      "events": 2,
+      "settleEvents": 2,
+      "settleStates": [
+        "running",
+        "running"
+      ],
+      "texts": [
+        "2/ 3",
+        "7 用户 / 6 实例",
+        "2",
+        "48GB"
+      ],
+      "linksStillMounted": true
+    },
+    {
+      "label": "kpi-unchanged",
+      "events": [],
+      "nodesStillMounted": true
+    },
+    {
+      "label": "chart-enter",
+      "firstSampleMs": 3,
+      "firstVs400": true,
+      "at30Vs400": true,
+      "stableAt400": true
+    },
+    {
+      "label": "chart-refresh",
+      "changed": true,
+      "firstFrameIsFinal": true
+    },
+    {
+      "label": "chart-reduced-motion",
+      "firstFrameIsFinal": true
+    }
+  ],
+  "deviations": [
+    {
+      "name": "seg-uptime-1440-light",
+      "differingPixels": 84,
+      "maxChannelDelta": 14,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "seg-uptime-1440-dark",
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "seg-distribution-1440-light",
+      "differingPixels": 84,
+      "maxChannelDelta": 14,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "seg-distribution-1440-dark",
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "seg-leaderboard-1440-light",
+      "differingPixels": 81,
+      "maxChannelDelta": 14,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "seg-leaderboard-1440-dark",
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "seg-trend-1440-light",
+      "differingPixels": 84,
+      "maxChannelDelta": 14,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "seg-trend-1440-dark",
+      "differingPixels": 84,
+      "maxChannelDelta": 3,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "logs-tabs-1440-light",
+      "differingPixels": 100,
+      "maxChannelDelta": 14,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    },
+    {
+      "name": "logs-tabs-1440-dark",
+      "differingPixels": 80,
+      "maxChannelDelta": 4,
+      "tolerance": 0,
+      "note": "rounded-corner antialiasing only: the old active background was a composited trigger layer (opacity-0 ::after), the indicator is a plain absolute layer; colours, geometry and text are unchanged"
+    }
+  ],
+  "shots": [
+    "390-fourth-tab",
+    "sidebar-collapsed-1440-light",
+    "view-tabs-1440-light",
+    "view-tabs-1440-dark",
+    "view-tabs-390-light",
+    "view-tabs-390-dark",
+    "chain-underline-1440-light",
+    "chain-underline-1440-dark",
+    "seg-uptime-1440-light",
+    "seg-uptime-1440-dark",
+    "seg-distribution-1440-light",
+    "seg-distribution-1440-dark",
+    "seg-leaderboard-1440-light",
+    "seg-leaderboard-1440-dark",
+    "seg-trend-1440-light",
+    "seg-trend-1440-dark",
+    "settings-tabs-1440-light",
+    "settings-tabs-1440-dark",
+    "logs-tabs-1440-light",
+    "logs-tabs-1440-dark",
+    "sidebar-1440-light",
+    "sidebar-1440-dark",
+    "sidebar-drawer-390-light",
+    "sidebar-drawer-390-dark"
+  ],
+  "errors": []
+}

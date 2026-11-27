@@ -381,9 +381,8 @@
  *
  * 它在视觉上必须明确低于主 tab 一档：主 tab 是 14px 的实心胶囊，子页是
  * 12px 的下划线文字。选中项压 2px primary 下划线 + primary 文字，未选中
- * muted；不再用 shadcn line variant 自带的 foreground 下划线，避免两套
- * 强调色。`!important` 只用于压掉组件里 `::after` 的 display / 定位，
- * 因为 Radix 生成的 data 属性选择器与工具类同权重，靠顺序不可靠。
+ * muted；下划线由 TabsList 内的 SlidingIndicator 统一画（line variant →
+ * underline），不再用触发器自己的 `::after`，避免切换时出现两条线。
  */
 .chain-section-tabs {
   display: inline-flex;
@@ -407,10 +406,6 @@
   line-height: 1.35;
 }
 
-.chain-section-tabs [data-slot="tabs-trigger"]::after {
-  display: none !important;
-}
-
 .chain-section-tabs [data-slot="tabs-trigger"]:hover {
   color: var(--foreground);
 }
@@ -419,17 +414,6 @@
   background: transparent;
   box-shadow: none;
   color: var(--primary);
-}
-
-.chain-section-tabs [data-slot="tabs-trigger"][data-state="active"]::after {
-  display: block !important;
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: var(--primary);
-  opacity: 1;
 }
 
 /*

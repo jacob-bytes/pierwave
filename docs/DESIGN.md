@@ -179,6 +179,18 @@ Sheet 沿用 2.5rem，均不计入此限；Toast 的 8px 滑入同理。只用�
    可聚焦节点。
 9. 列表行按下：`bg-muted/60`；行尾箭头在 hover 与键盘 `:focus-visible` 时
    同样右移 2px，按下不改变任何静止画面。
+10. 选中指示器滑动：tab、分段控件、二级子页与侧栏导航共用一个
+    `SlidingIndicator`。实心胶囊（pill）与选中项同尺寸、同偏移；下划线
+    （underline）与选中项同宽、高 2px、贴容器底边；`left/top/width/height`
+    200ms `ease-out-soft`。首次出现、以及容器从隐藏变可见时不滑（位置先
+    落定，下一帧才启用过渡）；`prefers-reduced-motion` 下没有过渡。选中
+    底色 / 边框 / 阴影 / 下划线只由指示器画，触发器本身不再各自涂色。
+11. KPI 数值淡入：数字的 `key` 变化（值真的变了）时重挂载并播放 150ms
+    `value-settle`（`opacity 0.55→1`）；拿回同样的数字不重播、不闪。外层
+    卡片 / 链接不重挂载，布局不跳。
+12. 图表入场：首次挂载时 220ms `ease-out` 生长一次；入场完成后再次刷新
+    数据直接呈现终值，不重播。空数据不触发 `animationend` 时用 620ms
+    兜底；`prefers-reduced-motion` 下首帧即终值。
 
 禁止：整屏渐变、发光、弹跳、超过 300ms 的过渡、滚动视差。
 唯一的过冲例外是第 8 条的选中指示器；整屏渐变的例外见下（登录页整屏径向光晕）。
@@ -205,6 +217,24 @@ only here:
    at `opacity: 0` and `aria-hidden` and never add a focusable node.
 9. List-row press: `bg-muted/60`. The trailing arrow also nudges 2px right on
    hover and keyboard `:focus-visible`; pressing changes no resting frame.
+10. Sliding selection indicator: tabs, segmented controls, sub-page tabs and
+    the sidebar share one `SlidingIndicator`. The pill matches the selected
+    item's offset and size; the underline matches its width, is 2px tall and
+    sits on the container's bottom edge; `left/top/width/height` animate over
+    200ms `ease-out-soft`. It never slides on first appearance or when the
+    container goes from hidden to visible (position first, transitions enabled
+    on the next frame); under `prefers-reduced-motion` there is no transition.
+    The selected background / border / shadow / underline are painted only by
+    the indicator; triggers no longer paint their own.
+11. KPI value fade: when a number's `key` changes (the value actually changed),
+    the node remounts and plays `value-settle` — `opacity 0.55→1` over 150ms.
+    The same number never replays or flashes, and the enclosing card / link does
+    not remount, so the layout never jumps.
+12. Chart entrance: the first mount grows over 220ms `ease-out`; once entered,
+    later data refreshes show the final value immediately and never replay the
+    animation. When empty data never fires `animationend`, a 620ms timeout
+    settles it; under `prefers-reduced-motion` the first frame is the final
+    value.
 
 Forbidden: full-screen gradients, glow, bounce, transitions over 300ms, scroll parallax.
 The only overshoot exception is the selection indicator in item 8; the full-screen
