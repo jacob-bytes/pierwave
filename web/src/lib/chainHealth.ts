@@ -1234,6 +1234,11 @@ export interface ChainHealthNode {
   /** 路径序号（source = 0，target = 末位）。 */
   seq: number;
   name: string;
+  /**
+   * 该跳实际走的服务器 id（契约 `server_id`）；缺失 / 旧主控为 null。
+   * 多成员组的首选卡按它匹配，不参与展示。
+   */
+  serverId: string | null;
   /** 契约缺 role 时为 null，由位置推断。 */
   role: ChainNodeRole | null;
   /** 小写状态（`online` / `offline` …）；契约没给时为 null。 */
@@ -1256,6 +1261,8 @@ export interface ChainTopologyNode {
   name: string;
   role: ChainNodeRole;
   status: string | null;
+  /** 该跳实际使用的服务器 id；旧契约 / 目标节点为 null。 */
+  serverId: string | null;
   /** 组内成员；目标节点为空数组。 */
   members: ChainNodeMember[];
   /** 组成员数；单节点 / 旧契约 / 目标节点为 null。 */
@@ -1269,107 +1276,6 @@ export interface ChainTopologyGraph {
   edges: ChainTopologyEdge[];
   /** 最后一跳（最后一组 → 链目标）没有历史数据。 */
   targetMissing: boolean;
-}
-
-/** 节点状态点的语义：online 呼吸绿点、其它非空状态静止红点、未知不画点。 */
-export type ChainNodeStatusTone = "online" | "fault" | "unknown";
-
-export function chainNodeStatusTone(
-  status: string | null | undefined,
-): ChainNodeStatusTone {
-  if (typeof status !== "string" || status.trim() === "") return "unknown";
-  return status.trim().toLowerCase() === "online" ? "online" : "fault";
-}
-
-/** 「最差」的排序：fault > unknown > online；缺数据不能盖过已知故障。 */
-const NODE_TONE_RANK: Record<ChainNodeStatusTone, number> = {
-  online: 0,
-  unknown: 1,
-  fault: 2,
-};
-
-/**
- * 组级状态点：取最差成员状态。
- *
- * 空数组是 unknown；只要有一台非 online 就是故障红点。`unknown` 排在
- * `online` 之后，因为「不知道」比「确定在线」更差，但不是故障。
- */
-export function chainWorstNodeTone(
-  statuses: readonly (string | null | undefined)[],
-): ChainNodeStatusTone {
-  if (statuses.length === 0) return "unknown";
-  let worst: ChainNodeStatusTone = "online";
-  for (const status of statuses) {
-    const tone = chainNodeStatusTone(status);
-    if (NODE_TONE_RANK[tone] > NODE_TONE_RANK[worst]) worst = tone;
-  }
-  return worst;
-}
-
-/**
- * 节点的状态点：有成员时取最差成员，同时把契约给的组级 `status` 也纳入
- * （后端可能只回前几台成员，组级结论仍应生效）；没有成员时沿用单节点状态。
- */
-export function chainTopologyNodeTone(
-  node: Pick<ChainTopologyNode, "status" | "members">,
-): ChainNodeStatusTone {
-  if (node.members.length === 0) return chainNodeStatusTone(node.status);
-  const statuses: (string | null)[] = node.members.map(
-    (member) => member.status,
-  );
-  if (typeof node.status === "string" && node.status.trim() !== "") {
-    statuses.push(node.status);
-  }
-  return chainWorstNodeTone(statuses);
-}
-
-/** 节点里最多渲染几行成员；更多时折叠成 `+N`。 */
-export const CHAIN_TOPOLOGY_MEMBER_ROWS = 2;
-
-export interface ChainTopologyMemberRows {
-  /** 实际渲染的成员（最多 `max` 行）。 */
-  rows: ChainNodeMember[];
-  /** 被折叠的成员数；0 表示不显示 `+N`。 */
-  hidden: number;
-}
-
-/**
- * 组内成员折叠：一台时不渲染列表（保持单节点现状），多台时最多两行，
- * 其余用 `hidden` 交给组件渲染 `+N`。`member_count` 大于 `members.length`
- * 时按真实数组渲染，被截断的部分只体现在 `+N` 上，不伪造成员名。
- * 只有 `member_count` 没有 `members` 时按「缺失」处理：不画一个没有名字的
- * `+N`，直接回退到单节点显示。
- */
-export function chainTopologyMemberRows(
-  node: Pick<ChainTopologyNode, "members" | "memberCount">,
-  max = CHAIN_TOPOLOGY_MEMBER_ROWS,
-): ChainTopologyMemberRows {
-  const total = node.memberCount ?? node.members.length;
-  if (total <= 1) return { rows: [], hidden: 0 };
-  const limit = Math.max(0, Math.floor(max));
-  const rows = node.members.slice(0, limit);
-  if (rows.length === 0) return { rows: [], hidden: 0 };
-  return { rows, hidden: Math.max(0, total - rows.length) };
-}
-
-/** 节点高度档位：1 台 56px、2 台 72px、3+ 台 88px。 */
-export type ChainTopologyNodeTier = "single" | "double" | "many";
-
-export const CHAIN_TOPOLOGY_NODE_HEIGHT_PX: Record<
-  ChainTopologyNodeTier,
-  number
-> = { single: 56, double: 72, many: 88 };
-
-export function chainTopologyNodeTier(
-  memberCount: number | null | undefined,
-): ChainTopologyNodeTier {
-  const count =
-    typeof memberCount === "number" && Number.isFinite(memberCount)
-      ? Math.max(0, Math.floor(memberCount))
-      : 0;
-  if (count >= 3) return "many";
-  if (count === 2) return "double";
-  return "single";
 }
 
 /** 拓扑某一段是否来自多成员组：只有组级 `estimated` 时才算「多路径估算」。 */
@@ -1427,6 +1333,7 @@ function readNode(raw: unknown, index: number): ChainHealthNode | null {
   return {
     seq: seq ?? index,
     name,
+    serverId: trimmedString(raw.server_id),
     role,
     status: rawStatus === null ? null : rawStatus.toLowerCase(),
     members,
@@ -1513,6 +1420,7 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
         name: node.name,
         role,
         status: node.status,
+        serverId: isTarget ? null : node.serverId,
         members: isTarget ? [] : node.members,
         memberCount: isTarget ? null : node.memberCount,
       };
@@ -1530,6 +1438,7 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
         name: "",
         role: "target",
         status: null,
+        serverId: null,
         members: [],
         memberCount: null,
       });
@@ -1556,6 +1465,7 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
           ? "target"
           : "hop",
     status: null,
+    serverId: null,
     members: [],
     memberCount: null,
   }));
@@ -1568,6 +1478,7 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
       name: "",
       role: "target",
       status: null,
+      serverId: null,
       members: [],
       memberCount: null,
     });

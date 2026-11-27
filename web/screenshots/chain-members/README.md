@@ -1,5 +1,8 @@
 # 链路拓扑按「组」呈现 / Chain topology as groups
 
+> **拓扑截图说明 / Topology shots notice**：拓扑截图自本次起由 `web/screenshots/chain-flow/` 取代；本目录的旧拓扑图仅作历史对照。 / From this change on, topology screenshots are superseded by `web/screenshots/chain-flow/`; the old topology shots here are historical references only.
+
+
 **中文**：本目录是「链路时延」详情页拓扑这一版的验收截图与机读报告。改动集中在
 `web/`：
 

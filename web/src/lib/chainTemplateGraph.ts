@@ -122,6 +122,84 @@ export const TEMPLATE_PAN_DURATION_MS = 220;
  */
 const VIEWPORT_EDGE_EPSILON = 0.5;
 
+/**
+ * 画布尺寸档。模板画布用 `TEMPLATE_METRICS`（与历史常量逐项相等），链路
+ * 详情复用同一套布局时用更紧凑的 `CHAIN_FLOW_METRICS`：卡片 136×60、
+ * 列距 60、行距 12、内边距 16、列头 32、药丸 56×18，画布最低 160px，
+ * 自适应缩放下限 0.9。
+ *
+ * 所有尺寸只经 `layoutTemplateGraph` / `templateContentBounds` /
+ * `templateCanvasHeight` / `templateFitZoom` 读取，组件不写第二份常量。
+ */
+export interface TemplateMetrics {
+  cardWidth: number;
+  cardHeight: number;
+  columnGap: number;
+  rowGap: number;
+  padding: number;
+  columnHeaderHeight: number;
+  pillWidth: number;
+  pillHeight: number;
+  pillGap: number;
+  canvasMinHeight: number;
+  canvasMaxHeight: number;
+  canvasViewportRatio: number;
+  fitMinZoom: number;
+  fitMaxZoom: number;
+  edgeRadius: number;
+  mergedRailOffset: number;
+  statusRailOffset: number;
+  edgeMinWidth: number;
+  edgeMaxWidth: number;
+  pulseWidthRatio: number;
+}
+
+export const TEMPLATE_METRICS: TemplateMetrics = {
+  cardWidth: TEMPLATE_CARD_WIDTH,
+  cardHeight: TEMPLATE_CARD_HEIGHT,
+  columnGap: TEMPLATE_COLUMN_GAP,
+  rowGap: TEMPLATE_ROW_GAP,
+  padding: TEMPLATE_PADDING,
+  columnHeaderHeight: TEMPLATE_COLUMN_HEADER_HEIGHT,
+  pillWidth: TEMPLATE_PILL_WIDTH,
+  pillHeight: TEMPLATE_PILL_HEIGHT,
+  pillGap: TEMPLATE_PILL_GAP,
+  canvasMinHeight: TEMPLATE_CANVAS_MIN_HEIGHT,
+  canvasMaxHeight: TEMPLATE_CANVAS_MAX_HEIGHT,
+  canvasViewportRatio: TEMPLATE_CANVAS_VIEWPORT_RATIO,
+  fitMinZoom: TEMPLATE_MIN_ZOOM,
+  fitMaxZoom: TEMPLATE_FIT_MAX_ZOOM,
+  edgeRadius: TEMPLATE_EDGE_RADIUS,
+  mergedRailOffset: TEMPLATE_MERGED_RAIL_OFFSET,
+  statusRailOffset: TEMPLATE_STATUS_RAIL_OFFSET,
+  edgeMinWidth: TEMPLATE_EDGE_MIN_WIDTH,
+  edgeMaxWidth: TEMPLATE_EDGE_MAX_WIDTH,
+  pulseWidthRatio: TEMPLATE_PULSE_WIDTH_RATIO,
+};
+
+export const CHAIN_FLOW_METRICS: TemplateMetrics = {
+  cardWidth: 136,
+  cardHeight: 60,
+  columnGap: 60,
+  rowGap: 12,
+  padding: 16,
+  columnHeaderHeight: TEMPLATE_COLUMN_HEADER_HEIGHT,
+  pillWidth: 56,
+  pillHeight: TEMPLATE_PILL_HEIGHT,
+  pillGap: TEMPLATE_PILL_GAP,
+  canvasMinHeight: 160,
+  canvasMaxHeight: TEMPLATE_CANVAS_MAX_HEIGHT,
+  canvasViewportRatio: TEMPLATE_CANVAS_VIEWPORT_RATIO,
+  fitMinZoom: TEMPLATE_FIT_HINT_ZOOM,
+  fitMaxZoom: TEMPLATE_FIT_MAX_ZOOM,
+  edgeRadius: TEMPLATE_EDGE_RADIUS,
+  mergedRailOffset: TEMPLATE_MERGED_RAIL_OFFSET,
+  statusRailOffset: TEMPLATE_STATUS_RAIL_OFFSET,
+  edgeMinWidth: TEMPLATE_EDGE_MIN_WIDTH,
+  edgeMaxWidth: TEMPLATE_EDGE_MAX_WIDTH,
+  pulseWidthRatio: TEMPLATE_PULSE_WIDTH_RATIO,
+};
+
 const TARGET_SEQ_FALLBACK = 0;
 const ROOT_GROUP = "__root__";
 
@@ -131,7 +209,26 @@ const ROOT_GROUP = "__root__";
 
 export type TemplateCardRole = "entry" | "hop" | "target" | "fold";
 
-export interface TemplateGraphMember {
+/** 路径卡标记：链路详情默认点亮 preferred 卡组成的路径。 */
+export type TemplateCardTag = "preferred" | "candidate";
+
+/**
+ * 可透传的卡片附加信息。
+ *
+ * 模板图不设置这些字段；链路详情用它们把节点组名（group）、首选 / 候选
+ * 标记、成员数、该段的丢包 / 估算 / 说明带给布局与画布组件。全部可选，
+ * 缺省时渲染与历史模板画布完全一致。
+ */
+export interface TemplateCardExtras {
+  tag?: TemplateCardTag;
+  group?: string;
+  memberCount?: number | null;
+  lossPct?: number | null;
+  estimated?: boolean;
+  note?: string | null;
+}
+
+export interface TemplateGraphMember extends TemplateCardExtras {
   /** 稳定 id：入口 `e:0:<identity>`、中间跳 `h:<seq>:<identity>`、目标 `t:<label>`。 */
   id: string;
   name: string;
@@ -150,9 +247,22 @@ export interface TemplateGraphColumn {
   seq: number;
   role: "entry" | "hop" | "target";
   members: TemplateGraphMember[];
+  /** 列头标题（链路详情用节点组名）；缺省按角色生成。 */
+  title?: string;
+  /** 列头成员数（链路详情用节点 `member_count`）；缺省按成员数组长度。 */
+  memberCount?: number | null;
 }
 
-export interface TemplateGraphEdge {
+export interface TemplateEdgeExtras {
+  /** 该段的窗口丢包（0–100）；无探测为 null。 */
+  lossPct?: number | null;
+  /** 该段是否多路径估算（链路详情在药丸前加 `≈`）。 */
+  estimated?: boolean;
+  /** 该段的说明（无历史数据 / 不可测量），tooltip 用。 */
+  note?: string | null;
+}
+
+export interface TemplateGraphEdge extends TemplateEdgeExtras {
   id: string;
   source: string;
   target: string;
@@ -197,7 +307,7 @@ export interface TemplateFoldLimits {
   expandedTargets?: ReadonlySet<string>;
 }
 
-export interface FoldedCard {
+export interface FoldedCard extends TemplateCardExtras {
   id: string;
   kind: "member" | "fold" | "target";
   role: TemplateCardRole;
@@ -228,9 +338,13 @@ export interface FoldedColumn {
   cards: FoldedCard[];
   /** 折叠前成员数（入口 / 中间跳）或目标数（目标列）：列头的 `shown / total`。 */
   total: number;
+  /** 列头标题（链路详情用节点组名）；缺省按角色生成。 */
+  title?: string;
+  /** 列头成员数（链路详情用节点 `member_count`）；缺省按 total。 */
+  memberCount?: number | null;
 }
 
-export interface FoldedEdge {
+export interface FoldedEdge extends TemplateEdgeExtras {
   id: string;
   source: string;
   target: string;
@@ -283,7 +397,7 @@ export interface TemplateLayoutCard {
 
 export type TemplateEdgeStatus = "online" | "degraded" | "offline";
 
-export interface TemplateLayoutEdge {
+export interface TemplateLayoutEdge extends TemplateEdgeExtras {
   id: string;
   source: string;
   target: string;
@@ -337,6 +451,10 @@ export interface TemplateLayoutHeader {
   shown: number;
   /** 折叠前成员 / 目标总数。 */
   total: number;
+  /** 列头标题（链路详情用节点组名）；缺省按角色生成。 */
+  title?: string;
+  /** 列头成员数（链路详情用节点 `member_count`）。 */
+  memberCount?: number | null;
 }
 
 export interface TemplateGraphLayout {
@@ -346,6 +464,8 @@ export interface TemplateGraphLayout {
   headers: TemplateLayoutHeader[];
   width: number;
   height: number;
+  /** 生成这份布局的尺寸档；旧的纯逻辑测试可以省略。 */
+  metrics?: TemplateMetrics;
 }
 
 export interface TemplateSize {
@@ -362,6 +482,15 @@ export interface TemplateViewport {
 export interface TemplateHighlight {
   nodes: ReadonlySet<string>;
   edges: ReadonlySet<string>;
+}
+
+/** `layoutTemplateGraph` 的可选开关：尺寸档、脉冲、密集药丸上限。 */
+export interface TemplateLayoutOptions {
+  metrics?: TemplateMetrics;
+  /** false 时所有连线都不脉冲（链路详情用 1s 前进虚线代替）。 */
+  pulse?: boolean;
+  /** `null` 表示不隐藏密集药丸（链路详情每段一个药丸）。 */
+  densePillLimit?: number | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -896,8 +1025,21 @@ export function buildTemplateGraph(
 /* 2) foldTemplateGraph                                                */
 /* ------------------------------------------------------------------ */
 
+/** 透传卡片的可选字段（未设置时不写进折叠卡）。 */
+function copyCardExtras(member: TemplateGraphMember): TemplateCardExtras {
+  const extras: TemplateCardExtras = {};
+  if (member.tag !== undefined) extras.tag = member.tag;
+  if (member.group !== undefined) extras.group = member.group;
+  if (member.memberCount !== undefined) extras.memberCount = member.memberCount;
+  if (member.lossPct !== undefined) extras.lossPct = member.lossPct;
+  if (member.estimated !== undefined) extras.estimated = member.estimated;
+  if (member.note !== undefined) extras.note = member.note;
+  return extras;
+}
+
 function memberToCard(member: TemplateGraphMember): FoldedCard {
   return {
+    ...copyCardExtras(member),
     id: member.id,
     kind: member.role === "target" ? "target" : "member",
     role: member.role,
@@ -972,7 +1114,11 @@ export function foldTemplateGraph(
       seq: column.seq,
       role: column.role,
       cards: visible,
-      total: column.members.length,
+      total: column.memberCount ?? column.members.length,
+      ...(column.title !== undefined ? { title: column.title } : {}),
+      ...(column.memberCount !== undefined
+        ? { memberCount: column.memberCount }
+        : {}),
     });
   }
 
@@ -1078,11 +1224,17 @@ export function foldTemplateGraph(
       cards: targetCards,
       // 目标列的 total 是折叠前的目标总数，不是上游分组数。
       total: graphTargets.length,
+      ...(graphTargetColumn.title !== undefined
+        ? { title: graphTargetColumn.title }
+        : {}),
+      ...(graphTargetColumn.memberCount !== undefined
+        ? { memberCount: graphTargetColumn.memberCount }
+        : {}),
     });
   }
 
   /* ---------------- 边 ---------------- */
-  interface FoldedAccumulator {
+  interface FoldedAccumulator extends TemplateEdgeExtras {
     source: string;
     target: string;
     sourceSeq: number;
@@ -1126,6 +1278,9 @@ export function foldTemplateGraph(
         degraded: edge.degraded,
         merged,
         paths: 1,
+        ...(edge.lossPct !== undefined ? { lossPct: edge.lossPct } : {}),
+        ...(edge.estimated !== undefined ? { estimated: edge.estimated } : {}),
+        ...(edge.note !== undefined ? { note: edge.note } : {}),
       });
       continue;
     }
@@ -1142,6 +1297,13 @@ export function foldTemplateGraph(
     existing.unavailable = existing.unavailable || edge.unavailable;
     existing.degraded = existing.degraded || edge.degraded;
     existing.merged = existing.merged || merged;
+    if (existing.lossPct === undefined && edge.lossPct !== undefined) {
+      existing.lossPct = edge.lossPct;
+    }
+    existing.estimated = existing.estimated === true || edge.estimated === true;
+    if (existing.note === undefined && edge.note !== undefined) {
+      existing.note = edge.note;
+    }
   }
 
   const foldedEdges: FoldedEdge[] = [...edgeMap.values()].map(
@@ -1163,6 +1325,9 @@ export function foldTemplateGraph(
         degraded: unavailable ? false : item.degraded,
         merged,
         paths: item.paths,
+        ...(item.lossPct !== undefined ? { lossPct: item.lossPct } : {}),
+        ...(item.estimated !== undefined ? { estimated: item.estimated } : {}),
+        ...(item.note !== undefined ? { note: item.note } : {}),
       };
     },
   );
@@ -1221,15 +1386,19 @@ export function templateEdgePath(
   ].join(" ");
 }
 
-export function templateEdgeWidth(chains: number, maxChains: number): number {
+export function templateEdgeWidth(
+  chains: number,
+  maxChains: number,
+  metrics: TemplateMetrics = TEMPLATE_METRICS,
+): number {
   if (!Number.isFinite(chains) || !Number.isFinite(maxChains)) {
-    return TEMPLATE_EDGE_MIN_WIDTH;
+    return metrics.edgeMinWidth;
   }
-  if (chains <= 0 || maxChains <= 0) return TEMPLATE_EDGE_MIN_WIDTH;
+  if (chains <= 0 || maxChains <= 0) return metrics.edgeMinWidth;
   const ratio = Math.min(1, chains / maxChains);
   return round2(
-    TEMPLATE_EDGE_MIN_WIDTH +
-      (TEMPLATE_EDGE_MAX_WIDTH - TEMPLATE_EDGE_MIN_WIDTH) * ratio,
+    metrics.edgeMinWidth +
+      (metrics.edgeMaxWidth - metrics.edgeMinWidth) * ratio,
   );
 }
 
@@ -1237,10 +1406,13 @@ export function templateEdgeWidth(chains: number, maxChains: number): number {
  * 脉冲亮划的 `strokeWidth`：线宽的 0.7，最细仍是 `TEMPLATE_EDGE_MIN_WIDTH`。
  * 非有限数退回最细，不把 NaN 写进 SVG；线宽 ≥ 1.5 时结果永远 ≤ 线宽。
  */
-export function templatePulseWidth(edgeWidth: number): number {
-  if (!Number.isFinite(edgeWidth)) return TEMPLATE_EDGE_MIN_WIDTH;
+export function templatePulseWidth(
+  edgeWidth: number,
+  metrics: TemplateMetrics = TEMPLATE_METRICS,
+): number {
+  if (!Number.isFinite(edgeWidth)) return metrics.edgeMinWidth;
   return round2(
-    Math.max(TEMPLATE_EDGE_MIN_WIDTH, edgeWidth * TEMPLATE_PULSE_WIDTH_RATIO),
+    Math.max(metrics.edgeMinWidth, edgeWidth * metrics.pulseWidthRatio),
   );
 }
 
@@ -1307,19 +1479,29 @@ export function densePillRails(
 
 export function layoutTemplateGraph(
   folded: FoldedGraph,
+  options: TemplateLayoutOptions = {},
 ): TemplateGraphLayout {
+  const metrics = options.metrics ?? TEMPLATE_METRICS;
+  const pulseEnabled = options.pulse !== false;
+  const densePillLimit =
+    options.densePillLimit === undefined
+      ? TEMPLATE_PILL_DENSE_LIMIT
+      : options.densePillLimit;
+  const columnTop = metrics.padding + metrics.columnHeaderHeight;
   const columns = folded.columns.filter((column) => column.cards.length > 0);
   const columnX = (index: number): number =>
-    TEMPLATE_PADDING + index * (TEMPLATE_CARD_WIDTH + TEMPLATE_COLUMN_GAP);
+    metrics.padding + index * (metrics.cardWidth + metrics.columnGap);
 
   const cards: TemplateLayoutCard[] = [];
   const headers: TemplateLayoutHeader[] = [];
   const cardById = new Map<string, TemplateLayoutCard>();
-  let maxHeight = TEMPLATE_PADDING * 2;
+  let maxHeight = metrics.padding * 2;
 
   for (const [index, column] of columns.entries()) {
-    // 卡片从列头下方开始：列头 32px 占 TEMPLATE_PADDING 之上那一段。
+    // 卡片从列头下方开始：列头 32px 占 metrics.padding 之上那一段。
+    // 模板档沿用历史常量写法（测试锁定）：let cursor = TEMPLATE_COLUMN_TOP;
     let cursor = TEMPLATE_COLUMN_TOP;
+    if (metrics !== TEMPLATE_METRICS) cursor = columnTop;
     const x = columnX(index);
     const columnCards: TemplateLayoutCard[] = [];
     for (const card of column.cards) {
@@ -1329,23 +1511,25 @@ export function layoutTemplateGraph(
         .filter((parent): parent is TemplateLayoutCard => parent !== undefined);
       const desiredCenter =
         parents.length > 0
-          ? parents.reduce((sum, parent) => sum + parent.y + parent.height / 2, 0) /
-            parents.length
-          : cursor + TEMPLATE_CARD_HEIGHT / 2;
-      const y = Math.max(cursor, desiredCenter - TEMPLATE_CARD_HEIGHT / 2);
+          ? parents.reduce(
+              (sum, parent) => sum + parent.y + parent.height / 2,
+              0,
+            ) / parents.length
+          : cursor + metrics.cardHeight / 2;
+      const y = Math.max(cursor, desiredCenter - metrics.cardHeight / 2);
       const layoutCard: TemplateLayoutCard = {
         id: card.id,
         card,
         column: index,
         x,
         y,
-        width: TEMPLATE_CARD_WIDTH,
-        height: TEMPLATE_CARD_HEIGHT,
+        width: metrics.cardWidth,
+        height: metrics.cardHeight,
       };
       cards.push(layoutCard);
       columnCards.push(layoutCard);
       cardById.set(layoutCard.id, layoutCard);
-      cursor = y + TEMPLATE_CARD_HEIGHT + TEMPLATE_ROW_GAP;
+      cursor = y + metrics.cardHeight + metrics.rowGap;
     }
     // 整列上移到统一顶边：保留列内相对行号，消除左上角空白与逐列下沉。
     // 先移动本列，下一列的父节点中心也用移动后的坐标，视觉上不会又漂下去。
@@ -1353,30 +1537,45 @@ export function layoutTemplateGraph(
       (min, card) => Math.min(min, card.y),
       Number.POSITIVE_INFINITY,
     );
-    const shift = Number.isFinite(minY) ? TEMPLATE_COLUMN_TOP - minY : 0;
+    const templateShift = Number.isFinite(minY)
+      ? TEMPLATE_COLUMN_TOP - minY
+      : 0;
+    const shift =
+      metrics === TEMPLATE_METRICS
+        ? templateShift
+        : Number.isFinite(minY)
+          ? columnTop - minY
+          : 0;
     for (const card of columnCards) {
       card.y += shift;
-      maxHeight = Math.max(maxHeight, card.y + card.height + TEMPLATE_PADDING);
+      maxHeight = Math.max(
+        maxHeight,
+        card.y + card.height + metrics.padding,
+      );
     }
     headers.push({
       seq: column.seq,
       role: column.role,
       x,
-      y: TEMPLATE_PADDING,
-      width: TEMPLATE_CARD_WIDTH,
-      height: TEMPLATE_COLUMN_HEADER_HEIGHT,
+      y: metrics.padding,
+      width: metrics.cardWidth,
+      height: metrics.columnHeaderHeight,
       shown: column.cards.filter((card) => card.kind !== "fold").length,
       total: column.total,
+      ...(column.title !== undefined ? { title: column.title } : {}),
+      ...(column.memberCount !== undefined
+        ? { memberCount: column.memberCount }
+        : {}),
     });
   }
 
   const width =
     columns.length === 0
-      ? TEMPLATE_PADDING * 2
-      : TEMPLATE_PADDING * 2 +
-        columns.length * TEMPLATE_CARD_WIDTH +
-        (columns.length - 1) * TEMPLATE_COLUMN_GAP;
-  const height = Math.max(maxHeight, TEMPLATE_PADDING * 2);
+      ? metrics.padding * 2
+      : metrics.padding * 2 +
+        columns.length * metrics.cardWidth +
+        (columns.length - 1) * metrics.columnGap;
+  const height = Math.max(maxHeight, metrics.padding * 2);
 
   const edges: TemplateLayoutEdge[] = [];
   const pillByEdge = new Map<string, TemplatePill>();
@@ -1393,18 +1592,23 @@ export function layoutTemplateGraph(
     const baseRailX =
       source.column === target.column
         ? (x1 + x2) / 2
-        : columnX(source.column) +
-          TEMPLATE_CARD_WIDTH +
-          TEMPLATE_COLUMN_GAP / 2;
+        : columnX(source.column) + metrics.cardWidth + metrics.columnGap / 2;
     const railOffset = merged
-      ? TEMPLATE_MERGED_RAIL_OFFSET
+      ? metrics.mergedRailOffset
       : edge.unavailable
-        ? -TEMPLATE_STATUS_RAIL_OFFSET
+        ? -metrics.statusRailOffset
         : edge.degraded
-          ? TEMPLATE_STATUS_RAIL_OFFSET
+          ? metrics.statusRailOffset
           : 0;
     const railX = baseRailX + railOffset;
-    const path = templateEdgePath(x1, y1, x2, y2, railX);
+    const path = templateEdgePath(
+      x1,
+      y1,
+      x2,
+      y2,
+      railX,
+      metrics.edgeRadius,
+    );
     const status: TemplateEdgeStatus = edge.unavailable
       ? "offline"
       : edge.degraded
@@ -1413,16 +1617,21 @@ export function layoutTemplateGraph(
     let pill: TemplatePill | null = null;
     if (!merged) {
       const dy = Math.abs(y2 - y1);
+      // 模板档沿用历史常量写法（测试锁定）。
       const onVertical = dy >= TEMPLATE_PILL_HEIGHT + 16;
-      const centerY = onVertical
+      const onVerticalForMetrics =
+        metrics === TEMPLATE_METRICS
+          ? onVertical
+          : dy >= metrics.pillHeight + 16;
+      const centerY = onVerticalForMetrics
         ? (y1 + y2) / 2
-        : Math.min(y1, y2) - TEMPLATE_PILL_HEIGHT / 2 - 4;
+        : Math.min(y1, y2) - metrics.pillHeight / 2 - 4;
       pill = {
         id: edge.id,
         x: railX,
         y: centerY,
-        width: TEMPLATE_PILL_WIDTH,
-        height: TEMPLATE_PILL_HEIGHT,
+        width: metrics.pillWidth,
+        height: metrics.pillHeight,
       };
       pendingPills.push(pill);
     }
@@ -1433,15 +1642,19 @@ export function layoutTemplateGraph(
       sourceSeq: edge.sourceSeq,
       targetSeq: edge.targetSeq,
       // 折叠卡没有名字：给 aria / merged tooltip 一个可读的 `+N` 占位。
-      sourceName: source.card.name || `+${source.card.hidden}`,
-      targetName: target.card.name || `+${target.card.hidden}`,
+      sourceName:
+        source.card.name ||
+        (source.card.kind === "fold" ? `+${source.card.hidden}` : ""),
+      targetName:
+        target.card.name ||
+        (target.card.kind === "fold" ? `+${target.card.hidden}` : ""),
       x1,
       y1,
       x2,
       y2,
       railX,
       path,
-      width: templateEdgeWidth(edge.chains, folded.maxChains),
+      width: templateEdgeWidth(edge.chains, folded.maxChains, metrics),
       dashed: merged || edge.unavailable,
       merged,
       status,
@@ -1455,28 +1668,36 @@ export function layoutTemplateGraph(
       paths: edge.paths,
       pill,
       pillDense: false,
+      ...(edge.lossPct !== undefined ? { lossPct: edge.lossPct } : {}),
+      ...(edge.estimated !== undefined ? { estimated: edge.estimated } : {}),
+      ...(edge.note !== undefined ? { note: edge.note } : {}),
     });
   }
 
+  // 药丸去重叠：紧密档的间距仍用 4px，与布局碰撞盒一致。
   for (const pill of spreadPills(pendingPills)) pillByEdge.set(pill.id, pill);
   for (const edge of edges) {
     edge.pill = pillByEdge.get(edge.id) ?? null;
   }
-  const denseRails = new Set(densePillRails([...pillByEdge.values()]));
-  for (const edge of edges) {
-    edge.pillDense = edge.pill !== null && denseRails.has(edge.pill.x);
+  if (densePillLimit !== null) {
+    const denseRails = new Set(densePillRails([...pillByEdge.values()], densePillLimit));
+    for (const edge of edges) {
+      edge.pillDense = edge.pill !== null && denseRails.has(edge.pill.x);
+    }
   }
 
   // 同时动画的边 ≤10：链数降序、同链数按 id，只让最值得看的路径动。
-  const pulsing = edges
-    .filter(
-      (edge) =>
-        !edge.merged && !edge.unavailable && !edge.degraded && edge.chains > 0,
-    )
-    .sort((a, b) => b.chains - a.chains || a.id.localeCompare(b.id))
-    .slice(0, TEMPLATE_PULSE_LIMIT);
-  const pulsingIds = new Set(pulsing.map((edge) => edge.id));
-  for (const edge of edges) edge.pulse = pulsingIds.has(edge.id);
+  if (pulseEnabled) {
+    const pulsing = edges
+      .filter(
+        (edge) =>
+          !edge.merged && !edge.unavailable && !edge.degraded && edge.chains > 0,
+      )
+      .sort((a, b) => b.chains - a.chains || a.id.localeCompare(b.id))
+      .slice(0, TEMPLATE_PULSE_LIMIT);
+    const pulsingIds = new Set(pulsing.map((edge) => edge.id));
+    for (const edge of edges) edge.pulse = pulsingIds.has(edge.id);
+  }
 
   return {
     cards,
@@ -1489,6 +1710,7 @@ export function layoutTemplateGraph(
     headers,
     width,
     height,
+    metrics,
   };
 }
 
@@ -1504,12 +1726,13 @@ export function layoutTemplateGraph(
 export function templateCanvasHeight(
   contentHeight: number,
   viewportHeight: number,
+  metrics: TemplateMetrics = TEMPLATE_METRICS,
 ): number {
   const cap = Math.min(
-    TEMPLATE_CANVAS_MAX_HEIGHT,
-    Math.max(0, viewportHeight) * TEMPLATE_CANVAS_VIEWPORT_RATIO,
+    metrics.canvasMaxHeight,
+    Math.max(0, viewportHeight) * metrics.canvasViewportRatio,
   );
-  return Math.min(Math.max(TEMPLATE_CANVAS_MIN_HEIGHT, contentHeight), cap);
+  return Math.min(Math.max(metrics.canvasMinHeight, contentHeight), cap);
 }
 
 export interface TemplateContentBounds {
@@ -1517,6 +1740,14 @@ export interface TemplateContentBounds {
   y: number;
   width: number;
   height: number;
+}
+
+/** 布局自带的尺寸档优先；手写的旧测试布局回退到模板尺寸。 */
+function metricsOf(
+  layout: TemplateGraphLayout,
+  metrics?: TemplateMetrics,
+): TemplateMetrics {
+  return metrics ?? layout.metrics ?? TEMPLATE_METRICS;
 }
 
 /**
@@ -1529,7 +1760,9 @@ export interface TemplateContentBounds {
  */
 export function templateContentBounds(
   layout: TemplateGraphLayout,
+  metrics?: TemplateMetrics,
 ): TemplateContentBounds {
+  const padding = metricsOf(layout, metrics).padding;
   if (layout.cards.length === 0) {
     return {
       x: 0,
@@ -1558,30 +1791,37 @@ export function templateContentBounds(
     maxY = Math.max(maxY, header.y + header.height);
   }
   return {
-    x: round2(minX - TEMPLATE_PADDING),
-    y: round2(minY - TEMPLATE_PADDING),
-    width: round2(maxX - minX + TEMPLATE_PADDING * 2),
-    height: round2(maxY - minY + TEMPLATE_PADDING * 2),
+    x: round2(minX - padding),
+    y: round2(minY - padding),
+    width: round2(maxX - minX + padding * 2),
+    height: round2(maxY - minY + padding * 2),
   };
 }
 
 /**
  * 「适应窗口」的目标缩放：内容包围盒（含内边距）完整放进视口。
  *
- * 下限 `TEMPLATE_MIN_ZOOM`（0.4）：再大也只能拖 / 平移，同时保留右缘 /
- * 下缘提示；上限 1：内容很小时不把卡片放大到 100% 以上。结果向下取到
- * 0.001，避免四舍五入后比视口多出半像素、把最后一列算成「被裁掉」。
+ * 下限由尺寸档给出：模板 0.4（再大也只能拖 / 平移，同时保留右缘 /
+ * 下缘提示），链路详情 0.9（紧凑档，必须保持可读）。上限 1：内容很小时
+ * 不把卡片放大到 100% 以上。结果向下取到 0.001，避免四舍五入后比视口
+ * 多出半像素、把最后一列算成「被裁掉」。
  */
 export function templateFitZoom(
   layout: TemplateGraphLayout,
   size: TemplateSize,
+  metrics?: TemplateMetrics,
 ): number {
-  const bounds = templateContentBounds(layout);
+  const resolved = metricsOf(layout, metrics);
+  const bounds = templateContentBounds(layout, resolved);
   const fit = Math.min(
     Math.max(1, size.width) / bounds.width,
     Math.max(1, size.height) / bounds.height,
   );
-  const capped = clamp(fit, TEMPLATE_MIN_ZOOM, TEMPLATE_FIT_MAX_ZOOM);
+  // 模板档沿用历史写法（测试锁定）；紧凑档把下限抬到 0.9。
+  const capped =
+    resolved === TEMPLATE_METRICS
+      ? clamp(fit, TEMPLATE_MIN_ZOOM, TEMPLATE_FIT_MAX_ZOOM)
+      : clamp(fit, resolved.fitMinZoom, resolved.fitMaxZoom);
   return Math.floor(capped * 1000 + 1e-9) / 1000;
 }
 
@@ -1780,4 +2020,74 @@ function walkUpstream(
       stack.push(edge.source);
     }
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* 6) 链路详情：首选路径 / 载体边                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 默认点亮的首选路径：每列取唯一的路径卡（单卡列就是那张卡；多卡列必须
+ * 正好一张 `tag = "preferred"`），再逐段找连接相邻两列的连线。
+ *
+ * 任一列定不出路径卡（多卡但没有 preferred / 多张 preferred / 只剩折叠卡）
+ * 或相邻两列的卡片之间没有连线时返回 `null` —— 宁可不点亮，也不猜一条
+ * 并不存在的路径。模板图没有 tag，多卡列会自然返回 null，外观不受影响。
+ */
+export function preferredTemplatePath(
+  folded: FoldedGraph,
+): TemplateHighlight | null {
+  const columns = folded.columns.filter((column) => column.cards.length > 0);
+  if (columns.length === 0) return null;
+  const chosen: FoldedCard[] = [];
+  for (const column of columns) {
+    const cards = column.cards.filter((card) => card.kind !== "fold");
+    if (cards.length === 0) return null;
+    if (cards.length === 1) {
+      chosen.push(cards[0]);
+      continue;
+    }
+    const preferred = cards.filter((card) => card.tag === "preferred");
+    if (preferred.length !== 1) return null;
+    chosen.push(preferred[0]);
+  }
+  const nodes = new Set<string>();
+  const edges = new Set<string>();
+  for (const card of chosen) nodes.add(card.id);
+  for (let index = 0; index < chosen.length - 1; index += 1) {
+    const source = chosen[index].id;
+    const target = chosen[index + 1].id;
+    const edge = folded.edges.find(
+      (item) => item.source === source && item.target === target,
+    );
+    if (edge === undefined) return null;
+    edges.add(edge.id);
+  }
+  return { nodes, edges };
+}
+
+/**
+ * 载体边：相邻两列各自的第一张非折叠卡之间的连线。
+ *
+ * 没有首选路径（`preferredTemplatePath` 为 null）时，画布用这些边决定
+ * 哪些药丸仍然显示，避免整张图变成没有读数的空框。同一对列之间只取
+ * 第一张卡之间的一条边；找不到时跳过。
+ */
+export function carrierTemplateEdges(
+  folded: FoldedGraph,
+): ReadonlySet<string> {
+  const columns = folded.columns.filter((column) => column.cards.length > 0);
+  const result = new Set<string>();
+  for (let index = 0; index < columns.length - 1; index += 1) {
+    const source = columns[index].cards.find((card) => card.kind !== "fold");
+    const target = columns[index + 1].cards.find(
+      (card) => card.kind !== "fold",
+    );
+    if (source === undefined || target === undefined) continue;
+    const edge = folded.edges.find(
+      (item) => item.source === source.id && item.target === target.id,
+    );
+    if (edge !== undefined) result.add(edge.id);
+  }
+  return result;
 }

@@ -58,8 +58,52 @@ function statusLabelClass(status: ChainTemplateMemberStatus): string {
 }
 
 /** 折叠卡 / 目标卡的悬停名单：只列前 N 名，完整数据仍在列表与详情里。 */
-function CardTooltip({ card }: { card: FoldedCard }) {
+function CardTooltip({
+  card,
+  chain,
+  title,
+}: {
+  card: FoldedCard;
+  chain: boolean;
+  title: string;
+}) {
   const { t } = useI18n();
+  if (chain && card.kind !== "fold") {
+    // 链路详情：组名 / 状态 / 首选或候选；链数恒为 0，不重复占版面。
+    // 折叠卡仍走下面的名单 tooltip：链路同样需要看到被折的是哪几台。
+    return (
+      <div data-chain-flow-card-tooltip>
+        <p className="truncate font-medium" title={title}>
+          {title}
+        </p>
+        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+          <dt className="text-background/70">
+            {t("overview.chainTemplateInsight.tooltipStatus")}
+          </dt>
+          <dd>{statusText(card.status, t)}</dd>
+          {card.tag !== undefined ? (
+            <>
+              <dt className="text-background/70">
+                {t("overview.chainLatency.flowPreferred")}
+              </dt>
+              <dd>
+                {card.tag === "preferred"
+                  ? t("overview.chainLatency.flowPreferred")
+                  : t("overview.chainLatency.flowCandidate")}
+              </dd>
+            </>
+          ) : null}
+        </dl>
+        {card.group !== undefined &&
+        card.group.trim() !== "" &&
+        card.group !== title ? (
+          <p className="mt-1 truncate text-background/70" title={card.group}>
+            {card.group}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   if (card.kind === "fold") {
     return (
       <div data-template-flow-fold-tooltip>
@@ -197,20 +241,54 @@ export const TemplateCardNode = memo(function TemplateCardNode({
     data as unknown as TemplateCardData;
   const { t } = useI18n();
   const interaction = useContext(TemplateFlowInteractionContext);
+  const chain = interaction?.kind === "chain";
   const hot = interaction?.highlight?.nodes.has(card.id) ?? false;
   const dimmed =
     interaction !== null && interaction.highlight !== null && !hot;
   const active = interaction?.activeId === card.id;
   const Icon = ROLE_ICON[card.role];
-  const { title, subtitle } = cardTexts(card, t);
+  const isTarget = card.role === "target";
+  const { title: templateTitle, subtitle: templateSubtitle } = cardTexts(card, t);
+  // 链路详情的目标卡没有名字：用本地文案「链目标」，不显示契约占位名。
+  const title = chain
+    ? card.kind === "fold"
+      ? templateTitle
+      : isTarget && card.name.trim() === ""
+        ? t("overview.chainLatency.chainTarget")
+        : card.name
+    : templateTitle;
+  const tagText = !chain
+    ? ""
+    : card.tag === "preferred"
+      ? t("overview.chainLatency.flowPreferred")
+      : card.tag === "candidate"
+        ? t("overview.chainLatency.flowCandidate")
+        : "";
+  const subtitle = chain
+    ? card.kind === "fold"
+      ? card.offlineHidden > 0
+        ? t("overview.chainTemplateInsight.flowFoldOffline", {
+            n: card.offlineHidden,
+          })
+        : ""
+      : tagText
+    : templateSubtitle;
   const status = statusText(card.status, t);
-  const aria = t("overview.chainTemplateInsight.flowCardAria", {
-    name: title,
-    role: roleLabel(card, t),
-    status,
-    chains: card.chains,
-    users: card.users,
-  });
+  // 目标 / 未知不画点：链路详情把「不知道」留白，不画成灰色「正常」。
+  const showChainDot = chain && !isTarget && card.status !== "unknown";
+  const aria = chain
+    ? t("overview.chainLatency.flowChainCardAria", {
+        name: title,
+        status,
+        tag: tagText === "" ? "" : ` · ${tagText}`,
+      })
+    : t("overview.chainTemplateInsight.flowCardAria", {
+        name: title,
+        role: roleLabel(card, t),
+        status,
+        chains: card.chains,
+        users: card.users,
+      });
 
   const activate = (): void => interaction?.activate(card.id);
   const deactivate = (): void => interaction?.deactivate();
@@ -245,6 +323,8 @@ export const TemplateCardNode = memo(function TemplateCardNode({
     "data-kind": card.kind,
     "data-column": card.seq,
     "data-status": card.status,
+    "data-flow-target": chain && isTarget ? "" : undefined,
+    "data-chain-tag": chain ? card.tag : undefined,
     "data-hot":
       interaction?.highlight != null
         ? hot
@@ -300,24 +380,52 @@ export const TemplateCardNode = memo(function TemplateCardNode({
           {title}
         </span>
         <span className="ml-auto inline-flex shrink-0 items-center gap-1">
-          <span
-            data-template-flow-status-dot
-            data-status={card.status}
-            aria-hidden="true"
-            className={cn("size-1.5 rounded-full", statusDotClass(card.status))}
-          />
-          <span
-            data-template-flow-status-text
-            className={cn(
-              "text-xs leading-none",
-              statusLabelClass(card.status),
-            )}
-          >
-            {status}
-          </span>
+          {chain ? (
+            showChainDot ? (
+              <span
+                data-template-flow-status-dot
+                data-status={card.status}
+                aria-hidden="true"
+                className={cn(
+                  "size-1.5 rounded-full",
+                  statusDotClass(card.status),
+                )}
+              />
+            ) : null
+          ) : (
+            <>
+              <span
+                data-template-flow-status-dot
+                data-status={card.status}
+                aria-hidden="true"
+                className={cn(
+                  "size-1.5 rounded-full",
+                  statusDotClass(card.status),
+                )}
+              />
+              <span
+                data-template-flow-status-text
+                className={cn(
+                  "text-xs leading-none",
+                  statusLabelClass(card.status),
+                )}
+              >
+                {status}
+              </span>
+            </>
+          )}
         </span>
       </span>
-      {badge === null ? (
+      {chain ? (
+        subtitle === "" ? null : (
+          <span
+            data-template-flow-card-subtitle
+            className="mt-1 truncate text-xs leading-none text-muted-foreground"
+          >
+            {subtitle}
+          </span>
+        )
+      ) : badge === null ? (
         <span
           data-template-flow-card-subtitle
           className="mt-1 truncate text-xs leading-none text-muted-foreground"
@@ -368,7 +476,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
         sideOffset={6}
         className="max-w-72 bg-foreground text-background"
       >
-        <CardTooltip card={card} />
+        <CardTooltip card={card} chain={chain} title={title} />
       </TooltipContent>
     </Tooltip>
   );

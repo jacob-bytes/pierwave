@@ -479,12 +479,7 @@ test("链路 tab：详情改弹窗，列表只剩 KPI / 趋势 / 表格", () => 
   assertIncludes(
     chainDetail,
     [
-      "data-chain-topology",
-      "data-chain-topology-scroll",
-      "data-chain-overall-stats",
-      "data-chain-loss-summary",
-      "data-chain-loss-partial",
-      "data-chain-loss-nodata",
+      "<ChainFlowCard",
       "data-chain-segments",
       "data-chain-segment-contributions",
       "data-chain-segment",
@@ -492,18 +487,29 @@ test("链路 tab：详情改弹窗，列表只剩 KPI / 趋势 / 表格", () => 
       "data-segment-contribution",
       "data-segment-current",
       "ChainSegmentTrendChart",
-      "chainTopology",
       "chainDiagnosis",
       "overview.chainLatency.diagnosisSingle",
-      "overview.chainLatency.missingLastHop",
       "overview.chainLatency.overallTitle",
-      "overview.chainLatency.topologyScroll",
+    ],
+    "ChainLatencyDetail",
+  );
+  // 完整链路搬到 ChainFlowCard：整链统计 / 目标缺失提示随画布一起走。
+  assertIncludes(
+    read("../components/overview/ChainFlowCard.tsx"),
+    [
+      "data-chain-flow",
+      "data-chain-overall-stats",
+      "data-chain-loss-summary",
+      "data-chain-loss-partial",
+      "data-chain-loss-nodata",
       "overview.chainLatency.lossPartial",
       "overview.chainLatency.lossNoData",
       "overview.chainLatency.currentWindowLoss",
       "overview.chainLatency.windowLossProbes",
+      "overview.chainLatency.missingLastHop",
+      "kind=\"chain\"",
     ],
-    "ChainLatencyDetail",
+    "ChainFlowCard",
   );
   // 逐段不再是表格行：每段一张卡片 + 折线图，详情里不能出现 table 语义。
   assertExcludes(

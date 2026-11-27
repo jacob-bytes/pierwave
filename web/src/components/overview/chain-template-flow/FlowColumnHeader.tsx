@@ -76,6 +76,12 @@ export const TemplateColumnHeaderNode = memo(function TemplateColumnHeaderNode({
 }: NodeProps) {
   const { header } = data as unknown as TemplateHeaderData;
   const { t } = useI18n();
+  // 链路详情的列头用节点组名（`header.title`）；模板没有该字段，保持
+  // 入口 / 第 N 跳 / 目标的历史文案。
+  const title =
+    header.title !== undefined && header.title.trim() !== ""
+      ? header.title
+      : headerLabel(header, t);
   return (
     <div
       data-template-flow-column-header
@@ -88,7 +94,7 @@ export const TemplateColumnHeaderNode = memo(function TemplateColumnHeaderNode({
       style={{ paddingBottom: TEMPLATE_COLUMN_LABEL_PADDING }}
     >
       <span data-template-flow-column-label className="truncate font-medium">
-        {headerLabel(header, t)}
+        {title}
       </span>
       <span
         data-template-flow-column-count

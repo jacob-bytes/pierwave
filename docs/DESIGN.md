@@ -160,6 +160,35 @@ and never highlighted**, and the right/bottom hints count cards only. Links are
 never wider than the link, and the connection dots are **r 2** with a **1.2**
 stroke.
 
+### 链路详情复用画布 / The chain detail reuses the canvas
+
+**中文**：链路详情弹窗的「完整链路」复用模板拓扑的 React Flow 画布，但走
+**紧凑尺寸档**：卡片 **136×60**、列距 **60**、行距 **12**、内边距 **16**、
+列头 **32**、时延药丸 **56×18**、画布最低 **160px**；自适应缩放最低
+**0.9** —— 内容再大也只缩到 90%，右侧出现「右侧还有 N 列」的平移入口。
+每台成员一张卡、按跳成列、直角折线；**每段一个药丸**，显示该段时延与
+丢包，多成员组的估算段在数值前加 `≈`。默认点亮**首选路径**（多成员列里
+`server_id` 匹配的那台，缺失时第一台），其余卡片与连线压到 **35%**；
+点亮连线带 **1s** 前进虚线，`prefers-reduced-motion` 下静止。目标卡与
+未知状态不画状态点，目标卡是虚线框并显示「链目标」。一列超过 4 台仍折叠
+成 4 + 1 张卡，列头写 `4 / 6 台`，有展开时给「恢复默认」。
+
+**English**: The "Full chain" section of the chain detail dialog reuses the
+template topology React Flow canvas in a **compact size class**: **136×60**
+cards, **60** column gap, **12** row gap, **16** padding, **32** column header,
+**56×18** latency pills and a **160px** canvas floor. Fit-to-view bottoms out
+at **0.9**, so a long chain never shrinks below 90%; the right edge then offers
+"{n} more columns" to pan. Every member gets a card, columns follow the hops and
+links are orthogonal; there is **one pill per segment**, showing that
+segment's latency and loss, with `≈` in front of estimated multi-member
+segments. The **preferred path** is lit by default (the member whose
+`server_id` matches, else the first one), while every other card and link drops
+to **35%**; lit links carry a **1s** forward dashed march that becomes static
+under `prefers-reduced-motion`. Target cards and unknown states draw no status
+dot; the target card is dashed and reads "Chain target". Columns with more than
+4 members still fold to 4 + 1 cards and the header reads `4 / 6 nodes`, with
+"Reset view" once anything is expanded.
+
 ## 四、动效（「灵动」的唯一来源）
 
 时长 150–220ms，`ease-out`；位移动画不超过 4px；锚定浮层沿用自身的 8px 滑入、

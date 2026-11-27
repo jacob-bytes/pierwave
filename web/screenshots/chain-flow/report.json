@@ -1,0 +1,1060 @@
+{
+  "base": "http://127.0.0.1:62378",
+  "dist": "web/dist",
+  "mode": "chain",
+  "screenshots": [
+    "chain-multi-1440-dark.png",
+    "chain-multi-tooltip-1440-dark.png",
+    "chain-multi-1440-light.png",
+    "chain-multi-390-dark.png",
+    "chain-single-1440-dark.png",
+    "chain-long-1440-dark.png",
+    "chain-folded-1440-dark.png",
+    "chain-folded-expanded-1440-dark.png",
+    "chain-unmeasurable-1440-dark.png",
+    "chain-missing-1440-dark.png",
+    "chain-march-reduced-1440-dark.png",
+    "template-regression-1440-dark.png"
+  ],
+  "assertions": {
+    "multi": {
+      "kind": "chain",
+      "zoom": "95%",
+      "cards": 7,
+      "hotCards": 5,
+      "dimCards": 2,
+      "edges": 8,
+      "hotEdges": 4,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:4:cf:1:东京-1->cf:2:大阪-1",
+        "fold-edge:6:cf:2:大阪-1->cf:3:洛杉矶-1",
+        "fold-edge:7:cf:3:洛杉矶-1->cf:4:__target"
+      ],
+      "dimEdges": 4,
+      "pills": 8,
+      "visiblePills": 4,
+      "hiddenPills": 4,
+      "preferred": 2,
+      "candidate": 2,
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "2 台",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "2 台",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "大阪中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "洛杉矶中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "≈14ms",
+        "≈31ms",
+        "86ms",
+        "120ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 4,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:4:cf:1:东京-1->cf:2:大阪-1",
+        "fold-edge:6:cf:2:大阪-1->cf:3:洛杉矶-1",
+        "fold-edge:7:cf:3:洛杉矶-1->cf:4:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "≈14ms",
+        "≈31ms",
+        "86ms",
+        "120ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "2 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "2 台"
+        },
+        {
+          "label": "大阪中转",
+          "count": "1 台"
+        },
+        {
+          "label": "洛杉矶中转",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "viewportTransform": "matrix(0.949, 0, 0, 0.949, 0.28, 16.998)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 7,
+      "cardWidths": [
+        129.06402587890625,
+        129.06402587890625,
+        129.06396484375,
+        129.06396484375,
+        129.06402587890625,
+        129.06402587890625,
+        129.06396484375
+      ]
+    },
+    "march": {
+      "count": 4,
+      "animation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "onlyHot": true
+    },
+    "multiHover": {
+      "candidateHot": "true",
+      "hotAfterHover": 1
+    },
+    "multiKeyboard": {
+      "keyboardHit": true
+    },
+    "mobile": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 7,
+      "hotCards": 5,
+      "dimCards": 2,
+      "edges": 8,
+      "hotEdges": 4,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:4:cf:1:东京-1->cf:2:大阪-1",
+        "fold-edge:6:cf:2:大阪-1->cf:3:洛杉矶-1",
+        "fold-edge:7:cf:3:洛杉矶-1->cf:4:__target"
+      ],
+      "dimEdges": 4,
+      "pills": 8,
+      "visiblePills": 4,
+      "hiddenPills": 4,
+      "preferred": 2,
+      "candidate": 2,
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "2 台",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "2 台",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "大阪中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "洛杉矶中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "≈14ms",
+        "≈31ms",
+        "86ms",
+        "120ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 4,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:4:cf:1:东京-1->cf:2:大阪-1",
+        "fold-edge:6:cf:2:大阪-1->cf:3:洛杉矶-1",
+        "fold-edge:7:cf:3:洛杉矶-1->cf:4:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "≈14ms",
+        "≈31ms",
+        "86ms",
+        "120ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "2 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "2 台"
+        },
+        {
+          "label": "大阪中转",
+          "count": "1 台"
+        },
+        {
+          "label": "洛杉矶中转",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "compact",
+      "hostScroll": {
+        "clientWidth": 342,
+        "scrollWidth": 952
+      },
+      "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 7,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "single": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 3,
+      "hotCards": 3,
+      "dimCards": 0,
+      "edges": 2,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:1:cf:1:东京-1->cf:2:__target"
+      ],
+      "dimEdges": 0,
+      "pills": 2,
+      "visiblePills": 2,
+      "hiddenPills": 0,
+      "preferred": 0,
+      "candidate": 0,
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "19ms",
+        "42ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:1:cf:1:东京-1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "19ms",
+        "42ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "viewportTransform": "matrix(1, 0, 0, 1, 172, 18)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 3,
+      "cardWidths": [
+        136,
+        136,
+        136
+      ]
+    },
+    "long": {
+      "kind": "chain",
+      "zoom": "90%",
+      "cards": 7,
+      "hotCards": 7,
+      "dimCards": 0,
+      "edges": 6,
+      "hotEdges": 6,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:1:cf:1:东京-1->cf:2:大阪-1",
+        "fold-edge:2:cf:2:大阪-1->cf:3:新加坡-1",
+        "fold-edge:3:cf:3:新加坡-1->cf:4:法兰克福-1",
+        "fold-edge:4:cf:4:法兰克福-1->cf:5:洛杉矶-1",
+        "fold-edge:5:cf:5:洛杉矶-1->cf:6:__target"
+      ],
+      "dimEdges": 0,
+      "pills": 6,
+      "visiblePills": 6,
+      "hiddenPills": 0,
+      "preferred": 0,
+      "candidate": 0,
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "大阪中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "新加坡中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "法兰克福中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "洛杉矶中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "20ms",
+        "32ms",
+        "44ms",
+        "56ms",
+        "68ms",
+        "80ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56,
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 6,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:1:cf:1:东京-1->cf:2:大阪-1",
+        "fold-edge:2:cf:2:大阪-1->cf:3:新加坡-1",
+        "fold-edge:3:cf:3:新加坡-1->cf:4:法兰克福-1",
+        "fold-edge:4:cf:4:法兰克福-1->cf:5:洛杉矶-1",
+        "fold-edge:5:cf:5:洛杉矶-1->cf:6:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "20ms",
+        "32ms",
+        "44ms",
+        "56ms",
+        "68ms",
+        "80ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "1 台"
+        },
+        {
+          "label": "大阪中转",
+          "count": "1 台"
+        },
+        {
+          "label": "新加坡中转",
+          "count": "1 台"
+        },
+        {
+          "label": "法兰克福中转",
+          "count": "1 台"
+        },
+        {
+          "label": "洛杉矶中转",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "右侧还有 2 列",
+      "rightHintColumns": 2,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "viewportTransform": "matrix(0.9, 0, 0, 0.9, 0, 24.2)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 7,
+      "cardWidths": [
+        122.39999389648438,
+        122.39996337890625,
+        122.4000244140625,
+        122.4000244140625,
+        122.39990234375,
+        122.400146484375,
+        122.4000244140625
+      ]
+    },
+    "longPan": {
+      "before": 2,
+      "after": 0
+    },
+    "folded": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 7,
+      "hotCards": 3,
+      "dimCards": 4,
+      "edges": 6,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:5:cf:1:东京-1->cf:2:__target"
+      ],
+      "dimEdges": 4,
+      "pills": 5,
+      "visiblePills": 2,
+      "hiddenPills": 3,
+      "preferred": 1,
+      "candidate": 3,
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "4 / 6 台",
+          "shown": "4",
+          "total": "6"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "19ms",
+        "42ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:5:cf:1:东京-1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 1,
+      "visiblePillValues": [
+        "19ms",
+        "42ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "4 / 6 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "viewportTransform": "matrix(1, 0, 0, 1, 172, 12)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 7,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "foldedExpand": {
+      "shown": "6",
+      "count": "6 台",
+      "restored": "4 / 6 台"
+    },
+    "chain-unmeasurable": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 3,
+      "hotCards": 3,
+      "dimCards": 0,
+      "edges": 2,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:1:cf:1:东京-1->cf:2:__target"
+      ],
+      "dimEdges": 0,
+      "pills": 2,
+      "visiblePills": 2,
+      "hiddenPills": 0,
+      "preferred": 0,
+      "candidate": 0,
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "19ms",
+        "—"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 1,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 1,
+      "dashedEdges": 1,
+      "visiblePillValues": [
+        "19ms",
+        "—"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "viewportTransform": "matrix(1, 0, 0, 1, 172, 18)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 3,
+      "cardWidths": [
+        136,
+        136,
+        136
+      ]
+    },
+    "chain-unmeasurableTooltip": "东京-01 → 链目标时延不可用丢包—不可测量（引擎不支持探测）",
+    "chain-missing": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 3,
+      "hotCards": 3,
+      "dimCards": 0,
+      "edges": 2,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:1:cf:1:东京-1->cf:2:__target"
+      ],
+      "dimEdges": 0,
+      "pills": 2,
+      "visiblePills": 2,
+      "hiddenPills": 0,
+      "preferred": 0,
+      "candidate": 0,
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "19ms",
+        "—"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 1,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 1,
+      "dashedEdges": 1,
+      "visiblePillValues": [
+        "19ms",
+        "—"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "viewportTransform": "matrix(1, 0, 0, 1, 172, 18)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 3,
+      "cardWidths": [
+        136,
+        136,
+        136
+      ]
+    },
+    "chain-missingTooltip": "东京-01 → 链目标时延不可用丢包—无历史数据",
+    "reduced": {
+      "kind": "chain",
+      "zoom": "95%",
+      "cards": 7,
+      "hotCards": 5,
+      "dimCards": 2,
+      "edges": 8,
+      "hotEdges": 4,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:4:cf:1:东京-1->cf:2:大阪-1",
+        "fold-edge:6:cf:2:大阪-1->cf:3:洛杉矶-1",
+        "fold-edge:7:cf:3:洛杉矶-1->cf:4:__target"
+      ],
+      "dimEdges": 4,
+      "pills": 8,
+      "visiblePills": 4,
+      "hiddenPills": 4,
+      "preferred": 2,
+      "candidate": 2,
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "2 台",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "2 台",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "大阪中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "洛杉矶中转",
+          "count": "1 台",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "≈14ms",
+        "≈31ms",
+        "86ms",
+        "120ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 4,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:4:cf:1:东京-1->cf:2:大阪-1",
+        "fold-edge:6:cf:2:大阪-1->cf:3:洛杉矶-1",
+        "fold-edge:7:cf:3:洛杉矶-1->cf:4:__target"
+      ],
+      "marchAnimation": {
+        "name": "none",
+        "duration": "0s",
+        "iteration": "1"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "≈14ms",
+        "≈31ms",
+        "86ms",
+        "120ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "2 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "2 台"
+        },
+        {
+          "label": "大阪中转",
+          "count": "1 台"
+        },
+        {
+          "label": "洛杉矶中转",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "viewportTransform": "matrix(0.949, 0, 0, 0.949, 0.28, 16.998)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 7,
+      "cardWidths": [
+        129.06402587890625,
+        129.06402587890625,
+        129.06396484375,
+        129.06396484375,
+        129.06402587890625,
+        129.06402587890625,
+        129.06396484375
+      ]
+    },
+    "template": {
+      "kind": "template",
+      "pulses": 10,
+      "marches": 0,
+      "pillWidth": 44,
+      "hotEdges": 0
+    },
+    "pillWidth": {
+      "chain": 56,
+      "template": 44
+    }
+  },
+  "templateDiff": [
+    {
+      "file": "template-collapsed-1440-dark.png",
+      "diffPixels": 0,
+      "identicalBytes": true
+    },
+    {
+      "file": "template-expanded-1440-dark.png",
+      "diffPixels": 0,
+      "identicalBytes": true
+    },
+    {
+      "file": "template-collapsed-1440-light.png",
+      "diffPixels": 0,
+      "identicalBytes": true
+    },
+    {
+      "file": "template-expanded-1440-light.png",
+      "diffPixels": 0,
+      "identicalBytes": true
+    }
+  ],
+  "errors": []
+}

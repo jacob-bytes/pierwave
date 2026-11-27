@@ -6,7 +6,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useI18n, type TFunction } from "@/i18n";
-import { formatMs } from "@/lib/chainHealth";
+import { formatLossPct, formatMs } from "@/lib/chainHealth";
 import {
   templatePulseWidth,
   type TemplateLayoutEdge,
@@ -24,10 +24,12 @@ const PULSE_STEP_SEC = 0.18;
 /** 药丸只放得下短标签：`120ms` / `1.2s`；精确值在 aria 与 tooltip 里。 */
 function pillText(edge: TemplateLayoutEdge): string {
   if (edge.unavailable || edge.p50Ms === null) return "—";
-  if (edge.p50Ms >= 1000) {
-    return `${(Math.round(edge.p50Ms / 100) / 10).toFixed(1)}s`;
-  }
-  return `${Math.round(edge.p50Ms)}ms`;
+  const value =
+    edge.p50Ms >= 1000
+      ? `${(Math.round(edge.p50Ms / 100) / 10).toFixed(1)}s`
+      : `${Math.round(edge.p50Ms)}ms`;
+  // 多路径中位数只是估算：药丸前加 ≈，和详情里的口径一致。
+  return edge.estimated ? `≈${value}` : value;
 }
 
 /**
@@ -54,12 +56,59 @@ function pulseDelay(seq: number): number {
 function EdgeTooltip({
   edge,
   latency,
+  chain,
+  chainTarget,
   translate,
 }: {
   edge: TemplateLayoutEdge;
   latency: string;
+  chain: boolean;
+  chainTarget: string;
   translate: TFunction;
 }) {
+  if (chain) {
+    const source = edge.sourceName === "" ? chainTarget : edge.sourceName;
+    const target = edge.targetName === "" ? chainTarget : edge.targetName;
+    return (
+      <div data-chain-flow-edge-tooltip>
+        <p
+          className="truncate font-medium"
+          title={`${source} → ${target}`}
+        >
+          {source} → {target}
+        </p>
+        <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5">
+          <dt className="text-background/70">
+            {translate("overview.chainTemplateInsight.flowLatency")}
+          </dt>
+          <dd className="font-mono tabular-nums">{latency}</dd>
+          <dt className="text-background/70">
+            {translate("overview.chainLatency.flowSegmentLoss")}
+          </dt>
+          <dd className="font-mono tabular-nums">
+            {formatLossPct(edge.lossPct ?? null)}
+          </dd>
+        </dl>
+        {edge.estimated ? (
+          <p data-chain-flow-estimated className="mt-1 text-background/70">
+            {translate("overview.chainLatency.multiPathEstimate")}
+          </p>
+        ) : null}
+        {edge.note !== null && edge.note !== undefined ? (
+          <p data-chain-flow-edge-note className="mt-1">
+            {edge.note}
+          </p>
+        ) : null}
+        {edge.merged ? (
+          <p data-chain-flow-edge-merged className="mt-1 font-mono tabular-nums">
+            {translate("overview.chainLatency.flowChainMergedTooltip", {
+              n: edge.paths,
+            })}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div data-template-flow-edge-tooltip>
       <p className="truncate font-medium" title={`${edge.sourceName} → ${edge.targetName}`}>
@@ -109,6 +158,7 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
   const { t } = useI18n();
   const edge = (data as unknown as TemplateEdgeData | undefined)?.edge;
   const interaction = useContext(TemplateFlowInteractionContext);
+  const chain = interaction?.kind === "chain";
   // tooltip 打开期间保留高亮：指针从药丸 / 合并虚线移到 tooltip 上时不再
   // 「tooltip 还开着、路径已经灭了」。ref 不参与渲染，避免 tooltip 开合
   // 反过来重置 Radix 的开启计时。
@@ -119,13 +169,28 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
   const hot = interaction?.highlight?.edges.has(edge.id) ?? false;
   const dimmed = interaction !== null && interaction.highlight !== null && !hot;
   const latency = latencyText(edge, t);
-  const aria = t("overview.chainTemplateInsight.flowEdgeAria", {
-    source: edge.sourceName,
-    target: edge.targetName,
-    value: latency,
-    chains: edge.chains,
-    users: edge.users,
-  });
+  const chainTarget = t("overview.chainLatency.chainTarget");
+  const sourceName = chain && edge.sourceName === "" ? chainTarget : edge.sourceName;
+  const targetName = chain && edge.targetName === "" ? chainTarget : edge.targetName;
+  const estimatedText =
+    chain && edge.estimated
+      ? ` · ${t("overview.chainLatency.multiPathEstimate")}`
+      : "";
+  const aria = chain
+    ? t("overview.chainLatency.flowSegmentAria", {
+        source: sourceName,
+        target: targetName,
+        value: latency,
+        loss: formatLossPct(edge.lossPct ?? null),
+        estimated: estimatedText,
+      })
+    : t("overview.chainTemplateInsight.flowEdgeAria", {
+        source: edge.sourceName,
+        target: edge.targetName,
+        value: latency,
+        chains: edge.chains,
+        users: edge.users,
+      });
   const hotAttribute =
     interaction?.highlight != null
       ? hot
@@ -138,7 +203,15 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
     interaction?.activeRail != null &&
     pill !== null &&
     Math.abs(interaction.activeRail - pill.x) < 0.5;
-  const pillVisible = !dense || railActive;
+  // 链路详情：药丸只跟着点亮的路径出现；没有首选路径时，载体边仍保留
+  // 每段一个读数。模板沿用密集竖线的旧规则。
+  const carrier =
+    interaction?.carrierEdges?.has(edge.id) ?? false;
+  const chainPillVisible =
+    hot || (interaction?.highlight == null && carrier);
+  const pillVisible = chain
+    ? chainPillVisible
+    : !dense || railActive;
 
   // 药丸 / 合并虚线 hover 或聚焦：点亮这条连线到入口的路径（与卡片同一口径，
   // 其余卡片与连线压到 35%）。密集药丸还要顺带点亮整条竖线，否则药丸本身是
@@ -187,7 +260,7 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
       data-status={edge.status}
       data-dashed={edge.dashed ? "true" : "false"}
       d={edge.path}
-      strokeWidth={edge.width}
+      strokeWidth={chain && hot ? 3 : edge.width}
       className={cn("template-flow-edge", edge.merged && "opacity-80")}
     />
   );
@@ -201,7 +274,19 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
       aria-label={aria}
     >
       {edgePath}
-      {edge.pulse ? (
+      {chain && hot && !edge.unavailable ? (
+        // 点亮路径的 1s 前进虚线：信息是「这条路径正在走」，不循环闪烁。
+        <path
+          data-template-flow-march
+          data-edge-id={edge.id}
+          className="template-flow-march"
+          d={edge.path}
+          pathLength={100}
+          strokeWidth={3}
+          style={{ animationDelay: `${-(edge.sourceSeq % 4) * 0.25}s` }}
+        />
+      ) : null}
+      {!chain && edge.pulse ? (
         <path
           data-template-flow-pulse
           className="template-flow-pulse"
@@ -281,7 +366,13 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
               className="max-w-64 bg-foreground text-background"
               onPointerEnter={activateHighlight}
             >
-              <EdgeTooltip edge={edge} latency={latency} translate={t} />
+              <EdgeTooltip
+                edge={edge}
+                latency={latency}
+                chain={chain}
+                chainTarget={chainTarget}
+                translate={t}
+              />
             </TooltipContent>
           </Tooltip>
         </EdgeLabelRenderer>
@@ -300,7 +391,7 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
                 data-pill-hidden={pillVisible ? "false" : "true"}
                 data-rail={pill.x}
                 data-hot={hotAttribute}
-                tabIndex={0}
+                tabIndex={chain ? (pillVisible ? 0 : -1) : 0}
                 role="note"
                 aria-label={aria}
                 className={cn(
@@ -324,7 +415,13 @@ export function TemplateEdgeLayer({ data }: EdgeProps) {
               className="max-w-64 bg-foreground text-background"
               onPointerEnter={activateHighlight}
             >
-              <EdgeTooltip edge={edge} latency={latency} translate={t} />
+              <EdgeTooltip
+                edge={edge}
+                latency={latency}
+                chain={chain}
+                chainTarget={chainTarget}
+                translate={t}
+              />
             </TooltipContent>
           </Tooltip>
         </EdgeLabelRenderer>

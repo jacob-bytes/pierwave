@@ -9,6 +9,10 @@ import type { TemplateHighlight } from "@/lib/chainTemplateGraph";
  * 重建整张图。
  */
 export interface TemplateFlowInteraction {
+  /** 画布用途：模板拓扑沿用旧外观；链路详情是紧凑档。 */
+  kind: "template" | "chain";
+  /** 链路详情没有首选路径时仍要显示药丸的载体边；模板为 null。 */
+  carrierEdges: ReadonlySet<string> | null;
   highlight: TemplateHighlight | null;
   /** 当前 hover / focus 的卡片 id（画焦点环用）。 */
   activeId: string | null;

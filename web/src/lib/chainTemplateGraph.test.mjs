@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeChainTemplateDetail } from "./chainTemplateInsight.ts";
 import {
+  CHAIN_FLOW_METRICS,
   TEMPLATE_CANVAS_MAX_HEIGHT,
+  TEMPLATE_CANVAS_MIN_HEIGHT,
   TEMPLATE_CARD_HEIGHT,
   TEMPLATE_CARD_WIDTH,
   TEMPLATE_COLUMN_GAP,
@@ -10,11 +12,13 @@ import {
   TEMPLATE_COLUMN_TOP,
   TEMPLATE_EDGE_MAX_WIDTH,
   TEMPLATE_EDGE_MIN_WIDTH,
+  TEMPLATE_EDGE_RADIUS,
   TEMPLATE_FIT_HINT_ZOOM,
   TEMPLATE_FIT_MAX_ZOOM,
   TEMPLATE_FOLD_LIMIT,
   TEMPLATE_MAX_ZOOM,
   TEMPLATE_MERGED_RAIL_OFFSET,
+  TEMPLATE_METRICS,
   TEMPLATE_MIN_ZOOM,
   TEMPLATE_PADDING,
   TEMPLATE_PAN_DURATION_MS,
@@ -24,6 +28,7 @@ import {
   TEMPLATE_PULSE_WIDTH_RATIO,
   TEMPLATE_ROW_GAP,
   buildTemplateGraph,
+  carrierTemplateEdges,
   clampTemplateZoom,
   densePillRails,
   fitViewport,
@@ -34,6 +39,7 @@ import {
   highlightTemplatePath,
   initialViewport,
   layoutTemplateGraph,
+  preferredTemplatePath,
   showsFitHint,
   spreadPills,
   stepTemplateZoom,
@@ -1537,4 +1543,424 @@ test("highlightTemplateEdgePath: 点亮该连线到入口，不含兄弟连线",
   const none = highlightTemplateEdgePath(folded, "missing");
   assert.equal(none.nodes.size, 0);
   assert.equal(none.edges.size, 0);
+});
+
+/* ------------------------------------------------------------------ */
+/* 尺寸档：链路详情复用画布（紧凑档）                                  */
+/* ------------------------------------------------------------------ */
+
+test("TEMPLATE_METRICS 与历史常量逐项相等，模板默认尺寸不变", () => {
+  assert.deepEqual(TEMPLATE_METRICS, {
+    cardWidth: TEMPLATE_CARD_WIDTH,
+    cardHeight: TEMPLATE_CARD_HEIGHT,
+    columnGap: TEMPLATE_COLUMN_GAP,
+    rowGap: TEMPLATE_ROW_GAP,
+    padding: TEMPLATE_PADDING,
+    columnHeaderHeight: TEMPLATE_COLUMN_HEADER_HEIGHT,
+    pillWidth: TEMPLATE_PILL_WIDTH,
+    pillHeight: 18,
+    pillGap: 4,
+    canvasMinHeight: TEMPLATE_CANVAS_MIN_HEIGHT,
+    canvasMaxHeight: TEMPLATE_CANVAS_MAX_HEIGHT,
+    canvasViewportRatio: 0.52,
+    fitMinZoom: TEMPLATE_MIN_ZOOM,
+    fitMaxZoom: TEMPLATE_FIT_MAX_ZOOM,
+    edgeRadius: TEMPLATE_EDGE_RADIUS,
+    mergedRailOffset: TEMPLATE_MERGED_RAIL_OFFSET,
+    statusRailOffset: 10,
+    edgeMinWidth: TEMPLATE_EDGE_MIN_WIDTH,
+    edgeMaxWidth: TEMPLATE_EDGE_MAX_WIDTH,
+    pulseWidthRatio: TEMPLATE_PULSE_WIDTH_RATIO,
+  });
+  // 不带 metrics 的旧调用必须和带 TEMPLATE_METRICS 完全一致。
+  const folded = foldTemplateGraph(graphOf(detail()));
+  const legacy = layoutTemplateGraph(folded);
+  const explicit = layoutTemplateGraph(folded, { metrics: TEMPLATE_METRICS });
+  assert.deepEqual(legacy.cards, explicit.cards);
+  assert.deepEqual(legacy.edges, explicit.edges);
+  assert.equal(legacy.width, explicit.width);
+  assert.equal(legacy.height, explicit.height);
+  assert.deepEqual(legacy.metrics, TEMPLATE_METRICS);
+});
+
+test("CHAIN_FLOW_METRICS: 卡片 136×60、列距 60、行距 12、padding 16、药丸 56×18", () => {
+  assert.equal(CHAIN_FLOW_METRICS.cardWidth, 136);
+  assert.equal(CHAIN_FLOW_METRICS.cardHeight, 60);
+  assert.equal(CHAIN_FLOW_METRICS.columnGap, 60);
+  assert.equal(CHAIN_FLOW_METRICS.rowGap, 12);
+  assert.equal(CHAIN_FLOW_METRICS.padding, 16);
+  assert.equal(CHAIN_FLOW_METRICS.columnHeaderHeight, 32);
+  assert.equal(CHAIN_FLOW_METRICS.pillWidth, 56);
+  assert.equal(CHAIN_FLOW_METRICS.pillHeight, 18);
+  assert.equal(CHAIN_FLOW_METRICS.canvasMinHeight, 160);
+  assert.equal(CHAIN_FLOW_METRICS.fitMinZoom, 0.9);
+});
+
+test("layoutTemplateGraph: 紧奏档尺寸全部取自 metrics，并回传 metrics", () => {
+  const folded = foldTemplateGraph(graphOf(detail()));
+  const layout = layoutTemplateGraph(folded, {
+    metrics: CHAIN_FLOW_METRICS,
+  });
+  assert.deepEqual(layout.metrics, CHAIN_FLOW_METRICS);
+  for (const card of layout.cards) {
+    assert.equal(card.width, 136);
+    assert.equal(card.height, 60);
+  }
+  // 列头 32px、内边距 16 → 卡片从 48 起；列 x 间距 136 + 60。
+  assert.equal(layout.headers[0].y, 16);
+  assert.equal(layout.headers[0].height, 32);
+  assert.equal(layout.cards[0].y, 48);
+  assert.equal(
+    layout.cards.find((card) => card.column === 1).x -
+      layout.cards.find((card) => card.column === 0).x,
+    196,
+  );
+  assert.equal(
+    layout.width,
+    16 * 2 + layout.columns.length * 136 + (layout.columns.length - 1) * 60,
+  );
+  // 药丸碰撞盒跟随 56×18。
+  const pill = layout.edges.find((edge) => edge.pill !== null)?.pill;
+  assert.ok(pill);
+  assert.equal(pill.width, 56);
+  assert.equal(pill.height, 18);
+});
+
+test("layoutTemplateGraph: pulse / densePillLimit 开关", () => {
+  const folded = foldTemplateGraph(graphOf(detail()));
+  const pulsing = layoutTemplateGraph(folded);
+  assert.ok(pulsing.edges.some((edge) => edge.pulse), "默认仍有模板脉冲");
+  const still = layoutTemplateGraph(folded, { pulse: false });
+  assert.ok(still.edges.every((edge) => !edge.pulse));
+
+  // limit=0 让每条竖线上的药丸都算密集；null 表示永不隐藏（链路档）。
+  const dense = layoutTemplateGraph(folded, { densePillLimit: 0 });
+  assert.ok(
+    dense.edges
+      .filter((edge) => edge.pill !== null)
+      .every((edge) => edge.pillDense),
+  );
+  const none = layoutTemplateGraph(folded, { densePillLimit: null });
+  assert.ok(none.edges.every((edge) => !edge.pillDense));
+});
+
+test("bounds / canvasHeight / fit 跟随紧凑 metrics，fit 下限 0.9", () => {
+  const folded = foldTemplateGraph(graphOf(detail()));
+  const layout = layoutTemplateGraph(folded, {
+    metrics: CHAIN_FLOW_METRICS,
+  });
+  const bounds = templateContentBounds(layout);
+  assert.equal(bounds.width, layout.width);
+  assert.equal(bounds.height, layout.height);
+  assert.equal(bounds.x, layout.cards[0].x - 16);
+  assert.equal(bounds.y, 0);
+
+  assert.equal(templateCanvasHeight(1000, 1000, CHAIN_FLOW_METRICS), 520);
+  assert.equal(templateCanvasHeight(100, 1000, CHAIN_FLOW_METRICS), 160);
+  assert.equal(templateCanvasHeight(900, 0, CHAIN_FLOW_METRICS), 0);
+
+  const huge = {
+    cards: [],
+    edges: [],
+    columns: [],
+    width: 4000,
+    height: 4000,
+    metrics: CHAIN_FLOW_METRICS,
+  };
+  assert.equal(
+    templateFitZoom(huge, { width: 400, height: 400 }),
+    CHAIN_FLOW_METRICS.fitMinZoom,
+  );
+  assert.equal(
+    fitViewport(huge, { width: 400, height: 400 }).zoom,
+    0.9,
+  );
+  // 内容很小时仍然封顶 100%。
+  const tiny = { ...huge, width: 100, height: 50 };
+  assert.equal(templateFitZoom(tiny, { width: 800, height: 400 }), 1);
+});
+
+/* ------------------------------------------------------------------ */
+/* 可选字段透传                                                        */
+/* ------------------------------------------------------------------ */
+
+function passthroughGraph() {
+  const base = {
+    chains: 0,
+    users: 0,
+    offline: false,
+    degraded: false,
+    upstreamIds: [],
+  };
+  return {
+    hops: 1,
+    targetSeq: 2,
+    columns: [
+      {
+        seq: 0,
+        role: "entry",
+        title: "香港入口",
+        memberCount: 2,
+        members: [
+          {
+            ...base,
+            id: "a",
+            name: "香港-01",
+            seq: 0,
+            role: "entry",
+            status: "online",
+            tag: "preferred",
+            group: "香港入口",
+            memberCount: 2,
+            lossPct: 0.5,
+            estimated: true,
+            note: "卡说明",
+          },
+        ],
+      },
+      {
+        seq: 2,
+        role: "target",
+        title: undefined,
+        members: [
+          {
+            ...base,
+            id: "t",
+            name: "",
+            seq: 2,
+            role: "target",
+            status: "unknown",
+            upstreamIds: ["a"],
+          },
+        ],
+      },
+    ],
+    edges: [
+      {
+        id: "e1",
+        source: "a",
+        target: "t",
+        sourceSeq: 0,
+        targetSeq: 2,
+        chains: 0,
+        users: 0,
+        p50Ms: 20,
+        lastP50Ms: null,
+        unavailable: false,
+        degraded: false,
+        lossPct: 0.5,
+        estimated: true,
+        note: "段说明",
+      },
+    ],
+    unused: [],
+    usedMemberCount: 1,
+    targetCount: 1,
+    empty: false,
+  };
+}
+
+test("tag / group / title / memberCount / lossPct / estimated / note 透传到布局", () => {
+  const folded = foldTemplateGraph(passthroughGraph());
+  assert.equal(folded.columns[0].title, "香港入口");
+  const card = folded.columns[0].cards[0];
+  assert.equal(card.tag, "preferred");
+  assert.equal(card.group, "香港入口");
+  assert.equal(card.memberCount, 2);
+  assert.equal(card.lossPct, 0.5);
+  assert.equal(card.estimated, true);
+  assert.equal(card.note, "卡说明");
+
+  const layout = layoutTemplateGraph(folded, {
+    metrics: CHAIN_FLOW_METRICS,
+  });
+  assert.equal(layout.headers[0].title, "香港入口");
+  assert.equal(layout.headers[0].memberCount, 2);
+  assert.equal(layout.edges[0].lossPct, 0.5);
+  assert.equal(layout.edges[0].estimated, true);
+  assert.equal(layout.edges[0].note, "段说明");
+});
+
+/* ------------------------------------------------------------------ */
+/* 首选路径 / 载体边                                                   */
+/* ------------------------------------------------------------------ */
+
+function pathGraph({ missingEdge = false, noPreferred = false } = {}) {
+  const base = {
+    chains: 0,
+    users: 0,
+    offline: false,
+    degraded: false,
+    upstreamIds: [],
+  };
+  const card = (id, tag, name = id) => ({
+    ...base,
+    id,
+    name,
+    seq: id === "t" ? 2 : 0,
+    role: id === "t" ? "target" : "entry",
+    status: "online",
+    ...(tag === undefined ? {} : { tag }),
+  });
+  return {
+    hops: 1,
+    targetSeq: 2,
+    columns: [
+      {
+        seq: 0,
+        role: "entry",
+        cards: [card("a", noPreferred ? undefined : "preferred"), card("b", "candidate")],
+        total: 2,
+      },
+      { seq: 2, role: "target", cards: [card("t", undefined)], total: 1 },
+    ],
+    edges: missingEdge
+      ? []
+      : [
+          {
+            id: "e1",
+            source: "a",
+            target: "t",
+            sourceSeq: 0,
+            targetSeq: 2,
+            chains: 0,
+            users: 0,
+            p50Ms: 20,
+            lastP50Ms: null,
+            unavailable: false,
+            degraded: false,
+            merged: false,
+            paths: 1,
+          },
+        ],
+    unused: [],
+    empty: false,
+    maxChains: 1,
+    hiddenMembers: 0,
+    hiddenTargets: 0,
+    foldColumns: [],
+  };
+}
+
+test("preferredTemplatePath: 每列单卡或 preferred，逐段相连", () => {
+  const path = preferredTemplatePath(pathGraph());
+  assert.deepEqual([...path.nodes].sort(), ["a", "t"]);
+  assert.deepEqual([...path.edges], ["e1"]);
+  // 多卡列没有 preferred：定不出就返回 null，不猜。
+  assert.equal(preferredTemplatePath(pathGraph({ noPreferred: true })), null);
+  // 首选卡之间没有连线：不点亮一条不存在的路径。
+  assert.equal(preferredTemplatePath(pathGraph({ missingEdge: true })), null);
+});
+
+test("carrierTemplateEdges: 相邻列第一张非折叠卡之间的连线", () => {
+  const folded = {
+    hops: 1,
+    targetSeq: 2,
+    columns: [
+      {
+        seq: 0,
+        role: "entry",
+        cards: [
+          {
+            id: "f0",
+            kind: "fold",
+            role: "fold",
+            name: "",
+            seq: 0,
+            status: "online",
+            chains: 0,
+            users: 0,
+            hidden: 5,
+            offlineHidden: 0,
+            hiddenChains: 0,
+            hiddenUsers: 0,
+            hiddenWorst: null,
+            topNames: [],
+            upstreamId: null,
+          },
+          {
+            id: "a",
+            kind: "member",
+            role: "entry",
+            name: "A",
+            seq: 0,
+            status: "online",
+            chains: 0,
+            users: 0,
+            hidden: 0,
+            offlineHidden: 0,
+            hiddenChains: 0,
+            hiddenUsers: 0,
+            hiddenWorst: null,
+            topNames: [],
+            upstreamId: null,
+          },
+        ],
+        total: 6,
+      },
+      {
+        seq: 2,
+        role: "target",
+        cards: [
+          {
+            id: "t",
+            kind: "target",
+            role: "target",
+            name: "",
+            seq: 2,
+            status: "unknown",
+            chains: 0,
+            users: 0,
+            hidden: 0,
+            offlineHidden: 0,
+            hiddenChains: 0,
+            hiddenUsers: 0,
+            hiddenWorst: null,
+            topNames: [],
+            upstreamId: "a",
+          },
+        ],
+        total: 1,
+      },
+    ],
+    edges: [
+      {
+        id: "fold-edge",
+        source: "f0",
+        target: "t",
+        sourceSeq: 0,
+        targetSeq: 2,
+        chains: 0,
+        users: 0,
+        p50Ms: null,
+        lastP50Ms: null,
+        unavailable: false,
+        degraded: false,
+        merged: true,
+        paths: 5,
+      },
+      {
+        id: "a-t",
+        source: "a",
+        target: "t",
+        sourceSeq: 0,
+        targetSeq: 2,
+        chains: 0,
+        users: 0,
+        p50Ms: 20,
+        lastP50Ms: null,
+        unavailable: false,
+        degraded: false,
+        merged: false,
+        paths: 1,
+      },
+    ],
+    unused: [],
+    empty: false,
+    maxChains: 1,
+    hiddenMembers: 5,
+    hiddenTargets: 0,
+    foldColumns: [0],
+  };
+  assert.deepEqual([...carrierTemplateEdges(folded)], ["a-t"]);
 });

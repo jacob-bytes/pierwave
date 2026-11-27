@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   ANOMALY_MIN_DELTA_MS,
   CHAIN_HEALTH_POLL_MS,
-  CHAIN_TOPOLOGY_NODE_HEIGHT_PX,
   SLOW_CHAIN_DELTA_MS,
   chainAnomalyWindows,
   chainDiagnosis,
@@ -17,7 +16,6 @@ import {
   chainLegendGroups,
   chainLatencyWindow,
   chainLossAt,
-  chainNodeStatusTone,
   chainLossTone,
   CHAIN_ROUTE_ELLIPSIS,
   chainPointX,
@@ -35,10 +33,6 @@ import {
   chainTopology,
   chainTopologyEdgeEstimated,
   chainTopologyGraph,
-  chainTopologyMemberRows,
-  chainTopologyNodeTier,
-  chainTopologyNodeTone,
-  chainWorstNodeTone,
   summaryDeltaTone,
   worstHopDeltaMs,
   worstHopTone,
@@ -1176,18 +1170,6 @@ test("fallback appends a synthetic target node only when the last hop is missing
   assert.equal(graph.targetMissing, true);
 });
 
-test("node status tone: online breathes green, any other known state is a still fault", () => {
-  assert.equal(chainNodeStatusTone("online"), "online");
-  assert.equal(chainNodeStatusTone(" ONLINE "), "online");
-  assert.equal(chainNodeStatusTone("offline"), "fault");
-  assert.equal(chainNodeStatusTone("degraded"), "fault");
-  assert.equal(chainNodeStatusTone("unknown"), "fault");
-  assert.equal(chainNodeStatusTone(null), "unknown");
-  assert.equal(chainNodeStatusTone(undefined), "unknown");
-  assert.equal(chainNodeStatusTone(""), "unknown");
-  assert.equal(chainNodeStatusTone("   "), "unknown");
-});
-
 /* ------------------------------------------------------------------ *
  * 多成员组：members[] / member_count → 拓扑节点
  * ------------------------------------------------------------------ */
@@ -1213,6 +1195,7 @@ test("nodes[].members and member_count normalize into one group node", () => {
             name: "东京中转",
             role: "hop",
             status: "offline",
+            server_id: "s-b",
             member_count: 2,
             members: [
               { server_id: "s-b", name: " 东京-01 ", status: "online" },
@@ -1231,15 +1214,18 @@ test("nodes[].members and member_count normalize into one group node", () => {
     { serverId: "s-c", name: "东京-02", status: "offline" },
   ]);
   assert.equal(item.nodes[1].memberCount, 2);
+  assert.equal(item.nodes[1].serverId, "s-b");
   assert.equal(item.nodes[0].memberCount, 1);
+  assert.equal(item.nodes[0].serverId, null);
 
   const graph = chainTopologyGraph(item);
   assert.equal(graph.nodes[1].name, "东京中转");
   assert.equal(graph.nodes[1].memberCount, 2);
+  assert.equal(graph.nodes[1].serverId, "s-b");
   assert.equal(graph.nodes[1].members.length, 2);
 });
 
-test("member_count without members keeps the count but renders no rows", () => {
+test("member_count without members keeps the count but exposes no members", () => {
   const item = normalizeChainHealth(
     payload([
       chain({
@@ -1261,11 +1247,12 @@ test("member_count without members keeps the count but renders no rows", () => {
 
   assert.equal(item.nodes[1].memberCount, 3);
   assert.deepEqual(item.nodes[1].members, []);
-  const rows = chainTopologyMemberRows(item.nodes[1]);
-  assert.deepEqual(rows, { rows: [], hidden: 0 });
+  const graph = chainTopologyGraph(item);
+  assert.equal(graph.nodes[1].memberCount, 3);
+  assert.deepEqual(graph.nodes[1].members, []);
 });
 
-test("member_count larger than the returned members only widens the +N fold", () => {
+test("member_count larger than the returned members keeps the declared count", () => {
   const item = normalizeChainHealth(
     payload([
       chain({
@@ -1289,13 +1276,10 @@ test("member_count larger than the returned members only widens the +N fold", ()
   ).snapshot.chains[0];
 
   assert.equal(item.nodes[0].memberCount, 5, "declared count wins over a truncated array");
-  assert.deepEqual(chainTopologyMemberRows(item.nodes[0]), {
-    rows: [
-      { serverId: "s-a", name: "香港-01", status: "online" },
-      { serverId: "s-b", name: "香港-02", status: "offline" },
-    ],
-    hidden: 3,
-  });
+  assert.deepEqual(item.nodes[0].members, [
+    { serverId: "s-a", name: "香港-01", status: "online" },
+    { serverId: "s-b", name: "香港-02", status: "offline" },
+  ]);
 });
 
 test("target node never carries members even if the contract sends them", () => {
@@ -1357,91 +1341,9 @@ test("malformed members are dropped instead of rendering nameless rows", () => {
     item.nodes[0].members.map((member) => member.name),
     ["香港-01", "香港-03"],
   );
-  // 契约声明 3 台、只有 2 台可展示：保留 3，`+1` 提示有成员没回。
+  // 契约声明 3 台、只有 2 台可展示：保留 3，画布按真实成员渲染。
   assert.equal(item.nodes[0].memberCount, 3);
-  assert.equal(chainTopologyMemberRows(item.nodes[0]).hidden, 1);
-});
-
-test("chainWorstNodeTone takes the worst member: fault > unknown > online", () => {
-  assert.equal(chainWorstNodeTone([]), "unknown");
-  assert.equal(chainWorstNodeTone(["online", "online"]), "online");
-  assert.equal(chainWorstNodeTone(["online", "offline"]), "fault");
-  assert.equal(chainWorstNodeTone(["offline", "online", "degraded"]), "fault");
-  assert.equal(chainWorstNodeTone(["online", null]), "unknown");
-  assert.equal(chainWorstNodeTone([null, "offline"]), "fault");
-  assert.equal(chainWorstNodeTone([" ONLINE ", "offline"]), "fault");
-});
-
-test("chainTopologyNodeTone folds the group status in, and keeps single nodes as-is", () => {
-  const member = (name, status) => ({ serverId: name, name, status });
-  // 单成员 / 无成员：沿用节点状态（旧契约行为）。
-  assert.equal(
-    chainTopologyNodeTone({ status: "online", members: [] }),
-    "online",
-  );
-  assert.equal(
-    chainTopologyNodeTone({ status: null, members: [] }),
-    "unknown",
-  );
-  // 有成员：最差成员优先。
-  assert.equal(
-    chainTopologyNodeTone({
-      status: "online",
-      members: [member("a", "online"), member("b", "offline")],
-    }),
-    "fault",
-  );
-  // 组级结论（后端可能只回了部分成员）也要生效。
-  assert.equal(
-    chainTopologyNodeTone({
-      status: "offline",
-      members: [member("a", "online"), member("b", "online")],
-    }),
-    "fault",
-  );
-  // 组级 status 缺失时，全部在线仍是绿点，不能因为缺 status 变灰。
-  assert.equal(
-    chainTopologyNodeTone({
-      status: null,
-      members: [member("a", "online"), member("b", "online")],
-    }),
-    "online",
-  );
-});
-
-test("chainTopologyMemberRows shows one-line for singles and folds extras at two", () => {
-  const member = (name, status = "online") => ({ serverId: name, name, status });
-  const rowsFor = (members, memberCount) =>
-    chainTopologyMemberRows({ members, memberCount });
-
-  assert.deepEqual(rowsFor([member("a")], 1), { rows: [], hidden: 0 });
-  assert.deepEqual(rowsFor([], null), { rows: [], hidden: 0 });
-  assert.deepEqual(rowsFor([member("a")], 2), {
-    rows: [member("a")],
-    hidden: 1,
-  });
-  const two = rowsFor([member("a"), member("b")], 2);
-  assert.deepEqual(two, { rows: [member("a"), member("b")], hidden: 0 });
-  const three = rowsFor([member("a"), member("b"), member("c")], 3);
-  assert.deepEqual(three, {
-    rows: [member("a"), member("b")],
-    hidden: 1,
-  });
-});
-
-test("node tier: 1 member 56px, 2 members 72px, 3+ members 88px", () => {
-  assert.equal(chainTopologyNodeTier(null), "single");
-  assert.equal(chainTopologyNodeTier(0), "single");
-  assert.equal(chainTopologyNodeTier(1), "single");
-  assert.equal(chainTopologyNodeTier(2), "double");
-  assert.equal(chainTopologyNodeTier(3), "many");
-  assert.equal(chainTopologyNodeTier(8), "many");
-  assert.equal(chainTopologyNodeTier(Number.NaN), "single");
-  assert.deepEqual(CHAIN_TOPOLOGY_NODE_HEIGHT_PX, {
-    single: 56,
-    double: 72,
-    many: 88,
-  });
+  assert.equal(chainTopologyGraph(item).nodes[0].memberCount, 3);
 });
 
 test("only multi-member segments of an estimated chain get the ≈ mark", () => {

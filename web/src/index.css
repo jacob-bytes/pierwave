@@ -917,7 +917,9 @@ html[data-input="pointer"] :focus-visible {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 44px;
+    /* 模板档 44px、链路档 56px：尺寸由画布宿主的变量给出，宽度与布局
+     * 碰撞盒（metrics.pillWidth）保持一致。 */
+    width: var(--template-pill-width, 44px);
     height: 18px;
     border: 1px solid color-mix(in oklab, var(--foreground) 22%, transparent);
     border-radius: 999px;
@@ -979,6 +981,16 @@ html[data-input="pointer"] :focus-visible {
   }
   [data-template-flow-pill][data-hot="true"] {
     opacity: 1;
+  }
+  /*
+   * 链路详情的目标卡：不是服务器，用虚线框 + muted 文字，和模板的目标卡
+   * 一致地区分「链目标」与真实成员。
+   */
+  [data-template-flow-card][data-flow-target] {
+    border: 1px dashed var(--border);
+    background: var(--card);
+    box-shadow: none;
+    color: var(--muted-foreground);
   }
 
   /*
@@ -1071,6 +1083,39 @@ html[data-input="pointer"] :focus-visible {
     animation: none !important;
     stroke-dasharray: none;
     stroke-opacity: 0.42;
+  }
+}
+
+/*
+ * 链路详情点亮路径的 1s 前进虚线。
+ *
+ * 只叠加在 `hot` 且可用的连线上（模板画布不会渲染这条 path）；短划按
+ * pathLength=100 归一化，1s 走完一个循环，比模板 3.6s 的脉冲更明确。
+ * 减弱动效下停掉动画，保留一条静态短划线表达「这条路径是点亮的」。
+ */
+@keyframes template-flow-march-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+
+.template-flow-march {
+  fill: none;
+  stroke: var(--primary);
+  stroke-linecap: round;
+  stroke-dasharray: 6 4;
+  stroke-opacity: 0.85;
+  animation: template-flow-march-flow 1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .template-flow-march {
+    animation: none !important;
+    stroke-dasharray: 6 4;
+    stroke-opacity: 0.5;
   }
 }
 

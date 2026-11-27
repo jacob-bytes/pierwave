@@ -139,89 +139,85 @@ test("chainHealth no longer exports the dead chainLatestP50 alias", () => {
   assert.doesNotMatch(read("lib/chainHealth.ts"), /export function chainLatestP50/);
 });
 
-test("topology fills the card and labels latency/loss around a centered line", () => {
-  const source = read("components/overview/ChainLatencyDetail.tsx");
-  // 节点高度随成员数变化（56 / 72 / 88），所以行用 items-center 让连接线
-  // 与每个节点的高度中心对齐，而不是把矮节点顶到行首。
-  assert.match(source, /flex w-full min-w-max items-center/);
-  assert.match(source, /data-chain-topology-node/);
-  assert.match(source, /data-chain-topology-edge/);
-  assert.match(source, /data-chain-topology-edge-latency/);
-  assert.match(source, /data-chain-topology-edge-loss/);
-  assert.match(source, /data-chain-topology-edge-line/);
-  assert.match(source, /top-1\/2/);
-  assert.match(source, /formatLossPct/);
-  assert.match(source, /border-dashed/);
-  assert.match(source, /h-14/);
-  // 线上时延 / 线下丢包必须贴着连接线并水平居中，而不是落在边块上下缘。
-  assert.match(source, /calc\(50% - 3px\)/);
-  assert.match(source, /calc\(50% \+ 3px\)/);
-  assert.match(source, /left-1\/2 max-w-full -translate-x-1\/2/);
+test("chain detail reuses the compact template canvas instead of the old strip", () => {
+  const card = read("components/overview/ChainFlowCard.tsx");
+  const detail = read("components/overview/ChainLatencyDetail.tsx");
+  assert.match(card, /data-chain-flow/);
+  assert.match(card, /buildChainFlowGraph/);
+  assert.match(card, /<ChainTemplateFlowLazy/);
+  assert.match(card, /kind="chain"/);
+  assert.match(card, /<Suspense/);
+  assert.match(card, /overview\.chainLatency\.noSamplesShort/);
+  assert.match(card, /data-chain-overall-stats/);
+  assert.match(card, /data-template-flow-zoom/);
+  assert.match(detail, /<ChainFlowCard/);
+  // 旧方框 + 细线条带的所有标记都不能留在详情里。
+  for (const marker of [
+    "data-chain-topology",
+    "data-chain-topology-scroll",
+    "data-chain-topology-node",
+    "data-chain-topology-edge",
+  ]) {
+    assert.doesNotMatch(detail, new RegExp(marker));
+  }
 });
 
 test("the diagnosis bar uses primary instead of warning", () => {
   const source = read("components/overview/ChainLatencyDetail.tsx");
   const start = source.indexOf("function DiagnosisBlock");
-  const end = source.indexOf("function TopologyNode", start);
+  const end = source.indexOf("function TimeAxis", start);
   assert.ok(start >= 0 && end > start);
   const block = source.slice(start, end);
   assert.match(block, /border-primary\/30 bg-primary\/10 text-foreground/);
   assert.doesNotMatch(block, /warning/);
 });
 
-test("topology nodes carry SOURCE/HOP/TARGET labels and a breathing status dot", () => {
-  const source = read("components/overview/ChainLatencyDetail.tsx");
-  assert.match(source, /"SOURCE"/);
-  assert.match(source, /"TARGET"/);
-  assert.match(source, /HOP \$\{index\}/);
-  assert.match(source, /data-chain-topology-node-label/);
-  assert.match(source, /data-chain-topology-node-dot/);
-  // 在线呼吸绿点；其它已知状态静止红点；目标节点不画点。
-  assert.match(source, /bg-success status-breathe/);
+test("chain cards show preferred / candidate on the second line, target / unknown draw no dot", () => {
+  const source = read("components/overview/chain-template-flow/FlowCard.tsx");
+  assert.match(source, /flowPreferred/);
+  assert.match(source, /flowCandidate/);
+  assert.match(source, /data-chain-tag/);
+  assert.match(source, /data-flow-target/);
+  assert.match(source, /overview\.chainLatency\.chainTarget/);
+  // 链路卡片不写状态文字；目标 / 未知不画点。
+  assert.match(
+    source,
+    /const showChainDot = chain && !isTarget && card\.status !== "unknown"/,
+  );
+  assert.match(source, /data-template-flow-status-text/);
   assert.match(source, /bg-destructive/);
-  assert.match(source, /const showDot = !target && tone !== "unknown"/);
 });
 
-test("topology nodes render group members, a +N fold and the member_count label", async () => {
-  const source = read("components/overview/ChainLatencyDetail.tsx");
-  // 节点 = 组：组名主文本 + 成员列表 + 组级状态点取最差成员。
-  assert.match(source, /chainTopologyNodeTone/);
-  assert.match(source, /chainTopologyMemberRows/);
-  assert.match(source, /chainTopologyNodeTier/);
-  assert.match(source, /CHAIN_TOPOLOGY_NODE_HEIGHT_PX/);
-  assert.match(source, /data-chain-topology-node-members/);
-  assert.match(source, /data-chain-topology-member\b/);
-  assert.match(source, /data-chain-topology-member-dot/);
-  assert.match(source, /data-chain-topology-member-more/);
-  assert.match(source, /data-chain-topology-node-count/);
-  // 成员行状态点：绿呼吸 / 红 / 灰（未知），不写死颜色。
-  assert.match(source, /bg-muted-foreground/);
-  // 多成员组的段在 estimated 时加 ≈ 与 tooltip。
-  assert.match(source, /chainTopologyEdgeEstimated/);
+test("chain edges carry one pill per segment, ≈ for estimates and a note for missing", async () => {
+  const source = read("components/overview/chain-template-flow/FlowEdge.tsx");
+  assert.match(source, /flowSegmentLoss/);
+  assert.match(source, /chainTopologyEdgeEstimated|edge\.estimated/);
   assert.match(source, /multiPathEstimate/);
   assert.match(source, /≈/);
+  assert.match(source, /data-chain-flow-edge-note/);
+  assert.match(source, /data-template-flow-march/);
+  assert.match(source, /formatLossPct/);
 
   const [{ default: zh }, { default: en }] = await Promise.all([
     import("../i18n/zh-CN.ts"),
     import("../i18n/en.ts"),
   ]);
-  assert.equal(zh.overview.chainLatency.memberCountLabel, "{n} 台");
-  assert.equal(zh.overview.chainLatency.memberMore, "+{n}");
-  assert.equal(zh.overview.chainLatency.memberGroupTitle, "{name}，共 {n} 台成员");
-  assert.equal(zh.overview.chainLatency.multiPathEstimate, "多路径估算");
-  assert.equal(en.overview.chainLatency.memberCountLabel, "×{n}");
-  assert.equal(en.overview.chainLatency.memberMore, "+{n} more");
-  assert.equal(en.overview.chainLatency.memberGroupTitle, "{name}, {n} members");
+  assert.equal(zh.overview.chainLatency.flowPreferred, "首选");
+  assert.equal(zh.overview.chainLatency.flowCandidate, "候选");
+  assert.equal(zh.overview.chainLatency.flowSegmentLoss, "丢包");
+  assert.equal(en.overview.chainLatency.flowPreferred, "Preferred");
+  assert.equal(en.overview.chainLatency.flowCandidate, "Candidate");
   assert.equal(en.overview.chainLatency.multiPathEstimate, "Multi-path estimate");
 });
 
 test("the estimated badge explains multi-path medians, not missing hops", async () => {
   const detail = read("components/overview/ChainLatencyDetail.tsx");
+  const card = read("components/overview/ChainFlowCard.tsx");
   // 徽章只在契约 estimated 为 true 时渲染；缺跳提示是另一条文案。
   assert.match(detail, /\{chain\.estimated \? \(/);
   assert.match(detail, /data-chain-estimated-badge/);
   assert.match(detail, /estimatedHint/);
-  assert.match(detail, /missingLastHop/);
+  assert.match(card, /missingLastHop/);
 
   const [{ default: zh }, { default: en }] = await Promise.all([
     import("../i18n/zh-CN.ts"),

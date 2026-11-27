@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import {
@@ -25,10 +26,13 @@ import { useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { usePrefersReducedMotion } from "@/lib/usePrefersReducedMotion";
 import {
+  CHAIN_FLOW_METRICS,
   TEMPLATE_MAX_ZOOM,
+  TEMPLATE_METRICS,
   TEMPLATE_MIN_ZOOM,
-  TEMPLATE_PADDING,
   TEMPLATE_PAN_RATIO,
+  TEMPLATE_PILL_DENSE_LIMIT,
+  carrierTemplateEdges,
   clampTemplateZoom,
   stepTemplateZoom,
   fitViewport,
@@ -39,6 +43,7 @@ import {
   highlightTemplatePath,
   initialViewport,
   layoutTemplateGraph,
+  preferredTemplatePath,
   templateCanvasHeight,
   templatePanDuration,
   type TemplateGraph,
@@ -55,8 +60,15 @@ import {
 
 export interface ChainTemplateFlowProps {
   graph: TemplateGraph;
-  /** 模板名，用于画布的 aria 描述。 */
+  /** 模板名 / 链路名，用于画布的 aria 描述。 */
   templateName: string;
+  /**
+   * 画布用途；缺省为模板拓扑（外观与行为保持历史实现）。链路详情用
+   * `"chain"` 切到紧凑尺寸档、无脉冲、默认点亮首选路径。
+   */
+  kind?: "template" | "chain";
+  /** 覆盖默认的 aria 描述（链路详情用「完整链路」的措辞）。 */
+  ariaLabel?: string;
   /** 被展开的列（seq）：该列不再折叠。 */
   expandedColumns: ReadonlySet<number>;
   /** 被展开的目标组（上游卡片 id）。 */
@@ -87,6 +99,8 @@ const HINT_BUTTON_CLASS =
 function FlowCanvas({
   graph,
   templateName,
+  kind = "template",
+  ariaLabel,
   expandedColumns,
   expandedTargets,
   onExpandColumn,
@@ -95,6 +109,8 @@ function FlowCanvas({
   onReady,
 }: ChainTemplateFlowProps) {
   const { t: translate } = useI18n();
+  const chain = kind === "chain";
+  const metrics = chain ? CHAIN_FLOW_METRICS : TEMPLATE_METRICS;
   const prefersReducedMotion = usePrefersReducedMotion();
   const { getViewport, setViewport } = useReactFlow();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -112,7 +128,29 @@ function FlowCanvas({
     () => foldTemplateGraph(graph, { expandedColumns, expandedTargets }),
     [expandedColumns, expandedTargets, graph],
   );
-  const layout = useMemo(() => layoutTemplateGraph(folded), [folded]);
+  const layout = useMemo(
+    () =>
+      layoutTemplateGraph(folded, {
+        metrics,
+        // 链路详情的「前进」由点亮连线的 1s march 承担，不再叠加 3.6s 脉冲。
+        pulse: !chain,
+        // 链路每段都必须有一个药丸读数，不隐藏密集竖线。
+        densePillLimit: chain ? null : TEMPLATE_PILL_DENSE_LIMIT,
+      }),
+    [chain, folded, metrics],
+  );
+  /**
+   * 链路详情默认点亮首选路径（其余 35%）；hover 卡片 / 连线时改用 hover
+   * 的路径。模板图没有 preferred 标记，这里保持 null，外观不变。
+   */
+  const preferred = useMemo(
+    () => (chain ? preferredTemplatePath(folded) : null),
+    [chain, folded],
+  );
+  const carrierEdges = useMemo(
+    () => (chain ? carrierTemplateEdges(folded) : null),
+    [chain, folded],
+  );
   /**
    * 高亮来源二选一：连线的悬停优先（它比卡片更具体），否则看卡片。
    * 展开 / 折叠后原来的卡片或连线可能已消失：空集合当成「没有高亮」，
@@ -124,10 +162,10 @@ function FlowCanvas({
       const next = highlightTemplateEdgePath(folded, activeEdgeId);
       if (next.nodes.size > 0) return next;
     }
-    if (activeId === null) return null;
+    if (activeId === null) return preferred;
     const next = highlightTemplatePath(folded, activeId);
     return next.nodes.size === 0 ? null : next;
-  }, [activeEdgeId, activeId, folded]);
+  }, [activeEdgeId, activeId, folded, preferred]);
   const activateRail = useCallback((railX: number) => {
     if (railTimer.current !== null) {
       window.clearTimeout(railTimer.current);
@@ -151,6 +189,8 @@ function FlowCanvas({
   );
   const interaction = useMemo(
     () => ({
+      kind,
+      carrierEdges,
       highlight,
       activeId,
       activate: (id: string) => setActiveId(id),
@@ -165,7 +205,16 @@ function FlowCanvas({
       activateRail,
       deactivateRail,
     }),
-    [activateRail, activeEdgeId, activeId, activeRail, deactivateRail, highlight],
+    [
+      activateRail,
+      activeEdgeId,
+      activeId,
+      activeRail,
+      carrierEdges,
+      deactivateRail,
+      highlight,
+      kind,
+    ],
   );
 
   /* ---------------- 断点：390 不缩放，1 倍 + 横向滚动 ---------------- */
@@ -215,9 +264,11 @@ function FlowCanvas({
   }, [compact]);
 
   // 画布高度上限 min(640, 视口高度 × 0.52)：大屏下不把弹窗撑到看不见标题。
+  // 末尾留 2 个行距（模板 = 32px），紧凑档随之缩小。
   const canvasHeight = templateCanvasHeight(
-    layout.height + 32,
+    layout.height + metrics.rowGap * 2,
     viewportHeight,
+    metrics,
   );
 
   const initial = useMemo(() => {
@@ -227,10 +278,13 @@ function FlowCanvas({
 
   const translateExtent = useMemo<CoordinateExtent>(
     () => [
-      [-TEMPLATE_PADDING, -TEMPLATE_PADDING],
-      [layout.width + TEMPLATE_PADDING, layout.height + TEMPLATE_PADDING],
+      [-metrics.padding, -metrics.padding],
+      [
+        layout.width + metrics.padding,
+        layout.height + metrics.padding,
+      ],
     ],
-    [layout.height, layout.width],
+    [layout.height, layout.width, metrics.padding],
   );
 
   /* ---------------- 节点 / 连线 ---------------- */
@@ -419,19 +473,28 @@ function FlowCanvas({
     <div
       ref={hostRef}
       role="group"
-      aria-label={translate("overview.chainTemplateInsight.topologyAria", {
-        name: templateName,
-        nodes: layout.cards.length,
-        edges: layout.edges.length,
-      })}
+      aria-label={
+        ariaLabel ??
+        translate("overview.chainTemplateInsight.topologyAria", {
+          name: templateName,
+          nodes: layout.cards.length,
+          edges: layout.edges.length,
+        })
+      }
       data-template-flow
+      data-template-flow-kind={kind}
       data-template-flow-mode={compact ? "compact" : "full"}
       data-columns={layout.columns.length}
       className={cn(
         "relative min-w-0 max-w-full",
         compact ? "overflow-x-auto overscroll-x-contain" : "overflow-hidden",
       )}
-      style={compact ? { height: layout.height } : { height: canvasHeight }}
+      style={
+        {
+          height: compact ? layout.height : canvasHeight,
+          "--template-pill-width": `${metrics.pillWidth}px`,
+        } as CSSProperties
+      }
     >
       {size !== null && initial !== null ? (
         <TooltipProvider delayDuration={200}>

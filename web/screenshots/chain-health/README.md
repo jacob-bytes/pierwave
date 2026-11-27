@@ -1,5 +1,8 @@
 # 链路时延详情验收截图 / Chain latency detail acceptance shots
 
+> **拓扑截图说明 / Topology shots notice**：拓扑截图自本次起由 `web/screenshots/chain-flow/` 取代；本目录的旧拓扑图仅作历史对照。 / From this change on, topology screenshots are superseded by `web/screenshots/chain-flow/`; the old topology shots here are historical references only.
+
+
 **中文**：用独立 Vite 页面渲染真实的 `ChainLatencyDetail`（真实组件 +
 `normalizeChainHealth` 归一化），不依赖主控或数据库。覆盖最后一跳不可测
 （realm 引擎 / native UDP 协议）、`unknown` 徽章、旧主控降级，以及与

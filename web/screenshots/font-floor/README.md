@@ -1,5 +1,8 @@
 # 字号下限 11px：改前 / 改后证据
 
+> **拓扑截图说明 / Topology shots notice**：拓扑截图自本次起由 `web/screenshots/chain-flow/` 取代；本目录的旧拓扑图仅作历史对照。 / From this change on, topology screenshots are superseded by `web/screenshots/chain-flow/`; the old topology shots here are historical references only.
+
+
 > 第二轮把「需要被读的次要数据」提到 13px，见 [ROUND2.md](ROUND2.md)。
 > Round 2 raises targeted secondary data to 13px; see [ROUND2.md](ROUND2.md).
 

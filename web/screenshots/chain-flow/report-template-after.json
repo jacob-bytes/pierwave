@@ -1,0 +1,35 @@
+{
+  "base": "http://127.0.0.1:62341",
+  "dist": "web/dist",
+  "mode": "template",
+  "screenshots": [
+    "after-template-collapsed-1440-dark.png",
+    "after-template-expanded-1440-dark.png",
+    "after-template-collapsed-1440-light.png",
+    "after-template-expanded-1440-light.png"
+  ],
+  "assertions": {},
+  "templateDiff": [
+    {
+      "file": "template-collapsed-1440-dark.png",
+      "diffPixels": 0,
+      "identicalBytes": true
+    },
+    {
+      "file": "template-expanded-1440-dark.png",
+      "diffPixels": 0,
+      "identicalBytes": true
+    },
+    {
+      "file": "template-collapsed-1440-light.png",
+      "diffPixels": 0,
+      "identicalBytes": true
+    },
+    {
+      "file": "template-expanded-1440-light.png",
+      "diffPixels": 0,
+      "identicalBytes": true
+    }
+  ],
+  "errors": []
+}

@@ -1,5 +1,8 @@
 # 链状态与状态点验收 / Chain status and status dot
 
+> **拓扑截图说明 / Topology shots notice**：拓扑截图自本次起由 `web/screenshots/chain-flow/` 取代；本目录的旧拓扑图仅作历史对照。 / From this change on, topology screenshots are superseded by `web/screenshots/chain-flow/`; the old topology shots here are historical references only.
+
+
 **中文**：本目录验收「链路时延」这一版的状态改动，全部在 `web/`：
 
 1. 列表状态列的圆点从 6px 增到 8px；详情拓扑节点圆点从 6px 增到 7px。
