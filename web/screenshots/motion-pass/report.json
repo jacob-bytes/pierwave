@@ -1,7 +1,8 @@
 {
-  "generatedAt": "2026-11-26T16:29:22.558Z",
-  "base": "http://127.0.0.1:55523",
+  "generatedAt": "2026-11-27T14:05:27.679Z",
+  "base": "http://127.0.0.1:52837",
   "mode": "verify",
+  "status": "ok",
   "viewports": {
     "desktop": [
       1440,
@@ -20,7 +21,8 @@
     "easeOutSoft": "cubic-bezier(0.22, 1, 0.36, 1)",
     "easeSpring": "cubic-bezier(0.34, 1.46, 0.64, 1)",
     "dialogOffsetPx": -4,
-    "listChevronNudgePx": 2
+    "listChevronNudgePx": 2,
+    "reducedMotionIndicatorMs": 1
   },
   "shots": [
     "chain-row-press-1440-dark",
@@ -55,24 +57,163 @@
     "popover-1440-light",
     "alert-dialog-1440-light",
     "sheet-390-light",
-    "reduced-motion-dialog-1440-dark"
+    "reduced-motion-dialog-1440-dark",
+    "reduced-motion-checkbox-1440-dark"
   ],
+  "baselineThemes": [
+    "light",
+    "dark"
+  ],
+  "baselineNotes": {
+    "light": "pre-change build, kept as the regression reference / 改动前构建，作为回归基准",
+    "dark": "recorded from this round on; no pre-change dark baseline existed, so it was generated from the current build / 从本轮起记录：此前没有深色基线，用当前构建生成"
+  },
   "baselines": [
+    "alert-dialog-content-dark.png",
     "alert-dialog-content.png",
+    "checkbox-checked-dark.png",
     "checkbox-checked.png",
+    "checkbox-unchecked-dark.png",
     "checkbox-unchecked.png",
+    "dialog-content-dark.png",
     "dialog-content.png",
+    "dropdown-content-dark.png",
     "dropdown-content.png",
+    "popover-content-dark.png",
     "popover-content.png",
+    "radio-checked-dark.png",
     "radio-checked.png",
+    "radio-unchecked-dark.png",
     "radio-unchecked.png",
+    "select-content-dark.png",
     "select-content.png",
+    "sheet-content-dark.png",
     "sheet-content.png",
+    "switch-off-dark.png",
     "switch-off.png",
+    "switch-on-dark.png",
     "switch-on.png",
+    "tooltip-content-dark.png",
     "tooltip-content.png"
   ],
   "staticComparisons": [
+    {
+      "name": "dialog-content",
+      "theme": "dark",
+      "width": 448,
+      "height": 346,
+      "differingPixels": 0,
+      "totalPixels": 155008,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "tooltip-content",
+      "theme": "dark",
+      "width": 252,
+      "height": 28,
+      "differingPixels": 0,
+      "totalPixels": 7056,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "checkbox-unchecked",
+      "theme": "dark",
+      "width": 16,
+      "height": 17,
+      "differingPixels": 0,
+      "totalPixels": 272,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "checkbox-checked",
+      "theme": "dark",
+      "width": 16,
+      "height": 17,
+      "differingPixels": 0,
+      "totalPixels": 272,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "select-content",
+      "theme": "dark",
+      "width": 624,
+      "height": 31,
+      "differingPixels": 0,
+      "totalPixels": 19344,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "radio-unchecked",
+      "theme": "dark",
+      "width": 17,
+      "height": 17,
+      "differingPixels": 0,
+      "totalPixels": 289,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "radio-checked",
+      "theme": "dark",
+      "width": 17,
+      "height": 17,
+      "differingPixels": 0,
+      "totalPixels": 289,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "switch-off",
+      "theme": "dark",
+      "width": 25,
+      "height": 15,
+      "differingPixels": 0,
+      "totalPixels": 375,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "switch-on",
+      "theme": "dark",
+      "width": 25,
+      "height": 15,
+      "differingPixels": 0,
+      "totalPixels": 375,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "dropdown-content",
+      "theme": "dark",
+      "width": 224,
+      "height": 188,
+      "differingPixels": 0,
+      "totalPixels": 42112,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "popover-content",
+      "theme": "dark",
+      "width": 368,
+      "height": 172,
+      "differingPixels": 0,
+      "totalPixels": 63296,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "alert-dialog-content",
+      "theme": "dark",
+      "width": 384,
+      "height": 172,
+      "differingPixels": 0,
+      "totalPixels": 66048,
+      "maxChannelDelta": 0
+    },
+    {
+      "name": "sheet-content",
+      "theme": "dark",
+      "width": 293,
+      "height": 844,
+      "differingPixels": 10,
+      "totalPixels": 247292,
+      "maxChannelDelta": 16
+    },
     {
       "name": "dialog-content",
       "theme": "light",
@@ -225,7 +366,7 @@
     },
     {
       "label": "告警行按下 / alert row pressed (dark)",
-      "background": "oklab(0.225 0.00129409 -0.00482963 / 0.595795)"
+      "background": "oklab(0.225 0.00129409 -0.00482963 / 0.595776)"
     },
     {
       "label": "告警行键盘箭头 / alert chevron on keyboard focus (dark)",
@@ -857,6 +998,19 @@
       "animationDuration": "1e-05s",
       "overlayAnimationDuration": "1e-05s",
       "animations": 0
+    },
+    {
+      "label": "reduced-motion 指示器 / indicator (dark)",
+      "transitionDuration": "1e-05s",
+      "animationDuration": "1e-05s",
+      "animations": [],
+      "opacity": "0",
+      "scale": "0.5"
+    },
+    {
+      "label": "reduced-motion 指示器点击 / indicator after click (dark)",
+      "opacity": "1",
+      "scale": "1"
     }
   ]
 }

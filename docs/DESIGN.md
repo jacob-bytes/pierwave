@@ -162,7 +162,8 @@ stroke.
 
 ## 四、动效（「灵动」的唯一来源）
 
-时长 150–220ms，`ease-out`，位移不超过 4px。只用在这几处：
+时长 150–220ms，`ease-out`；位移动画不超过 4px；锚定浮层沿用自身的 8px 滑入、
+Sheet 沿用 2.5rem，均不计入此限；Toast 的 8px 滑入同理。只用在这几处：
 
 1. 页面/卡片进入：`opacity 0→1` + `translateY(4px→0)`，120ms。
 2. 行 hover：背景 `bg-muted/40`，80ms。
@@ -172,7 +173,7 @@ stroke.
 6. 骨架屏：shimmer 1.2s 循环。
 7. 浮层进出：进入 200ms、退出 150ms，`ease-out-soft`；居中弹层（Dialog /
    AlertDialog）落下 4px，锚定浮层（Dropdown / Popover / Select）沿所在方向
-   滑入 8px，Sheet 从边缘滑入 2.5rem。
+   滑入 8px，Sheet 从边缘滑入 2.5rem。Tooltip 保持轻快：进 150ms、出 100ms。
 8. 选中指示器：复选框对勾 / 单选圆点 / 开关滑块 200ms、`ease-spring`，从
    50% 缩放 + 透明到 100%；未选中时 `opacity: 0` 且 `aria-hidden`，不新增
    可聚焦节点。
@@ -184,7 +185,10 @@ stroke.
 
 ### 动效契约（英文）/ Motion contract (English)
 
-Duration 150–220ms, `ease-out`, displacement ≤ 4px. Motion is used only here:
+Duration 150–220ms, `ease-out`. Displacement animations stay at or under 4px;
+anchored overlays keep their own 8px slide-in, sheets their 2.5rem, and the
+Toast its 8px entry — none of these count against that limit. Motion is used
+only here:
 
 1. Page / card entrance: `opacity 0→1` + `translateY(4px→0)`, 120ms.
 2. Row hover: `bg-muted/40`, 80ms.
@@ -194,7 +198,8 @@ Duration 150–220ms, `ease-out`, displacement ≤ 4px. Motion is used only here
 6. Skeleton: a 1.2s shimmer loop.
 7. Overlays: 200ms in, 150ms out, `ease-out-soft`. Centered dialogs (Dialog /
    AlertDialog) drop 4px; anchored overlays (Dropdown / Popover / Select) slide
-   8px in from their side; sheets slide 2.5rem in from the edge.
+   8px in from their side; sheets slide 2.5rem in from the edge. The Tooltip
+   stays light and quick: 150ms in, 100ms out.
 8. Selection indicators: checkbox tick / radio dot / switch thumb use 200ms
    `ease-spring`, scaling in from 50% while fading in; when unselected they stay
    at `opacity: 0` and `aria-hidden` and never add a focusable node.

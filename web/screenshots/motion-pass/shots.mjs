@@ -11,8 +11,10 @@
  *   缩放从 50% 到 100%，过冲峰值 > 1、终值 1；开关滑块过冲后回到终点。
  * - 列表行：按下态背景、键盘 :focus-visible 时行尾箭头右移 2px
  *   （链路行 / 转发模板行 / 流量榜单 / 告警行）。
- * - reduced-motion：动画时长 < 1ms。
- * - 静止帧：每个浮层 / 指示器在动画结束后的元素截图与改动前基线逐像素对比；
+ * - reduced-motion：动画时长 < 1ms；复选框指示器（代表所有选中指示器）
+ *   的 transition-duration 也 < 1ms，点击后直接呈现终态。
+ * - 静止帧：每个浮层 / 指示器在动画结束后的元素截图与基线逐像素对比；
+ *   亮色基线来自改动前构建，深色基线从本轮起记录（无更早的深色基线）。
  *   列表行另断言静止态背景透明、箭头位移为 0。
  *
  * 用静态服务直接服务 `web/dist`，`/api/v1/**` 全部由 Playwright 拦截 mock；
@@ -25,6 +27,10 @@
  * 基线 / Baselines:
  *   首次（或设计变更后）用改动前的构建重新生成，肉眼确认后提交：
  *   MOTION_PASS_BASELINE=1 node web/screenshots/motion-pass/shots.mjs
+ *
+ *   只重录一个主题（暗色基线从本轮起记录，之前没有）：
+ *   MOTION_PASS_BASELINE=1 MOTION_PASS_BASELINE_THEME=dark \
+ *     node web/screenshots/motion-pass/shots.mjs
  */
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -40,9 +46,26 @@ const DIST = resolve(ROOT, "dist");
 const OUT = HERE;
 const BASELINE = path.join(HERE, "baseline");
 const BASELINE_MODE = process.env.MOTION_PASS_BASELINE === "1";
+/**
+ * 基线模式要重录的主题，默认亮 + 暗。
+ * 本轮之前只有亮色基线（改动前构建的画面），暗色从本轮起记录；
+ * 用 `MOTION_PASS_BASELINE_THEME=dark` 只补暗色，不覆盖亮色基线。
+ */
+const BASELINE_THEMES = (process.env.MOTION_PASS_BASELINE_THEME ?? "light,dark")
+  .split(",")
+  .map((theme) => theme.trim())
+  .filter(Boolean);
 const CHROME =
   process.env.CHROME_PATH ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+/**
+ * 基线文件名：亮色沿用首轮提交的 `<name>.png`（改动前构建），
+ * 暗色是本轮起新增的 `<name>-dark.png`。
+ */
+function baselineFile(name, theme) {
+  return theme === "light" ? `${name}.png` : `${name}-${theme}.png`;
+}
 
 async function loadPlaywright() {
   const candidates = [];
@@ -699,7 +722,7 @@ async function compareStatic(page, name, locator, theme, { keepPointer = false }
     // 否则元素最后一像素行会读到过渡中的颜色。
     await page.waitForTimeout(220);
   }
-  const file = path.join(BASELINE, `${name}.png`);
+  const file = path.join(BASELINE, baselineFile(name, theme));
   // `duration-*` 同时设置 transition-duration；Radix 定位完成后仍可能触发
   // 一条过渡。截图前等元素自己的动画 / 过渡全部跑完，才是静止帧。
   await locator.evaluate(
@@ -716,17 +739,17 @@ async function compareStatic(page, name, locator, theme, { keepPointer = false }
         check();
       }),
   );
+  // 动画结束后浏览器可能还把这个元素留在合成层上，边缘 1px 的抗锯齿与
+  // 降级后略有差别；多等 120ms 让合成状态落定，静止帧才是可复现的。
+  await page.waitForTimeout(120);
   const buffer = await locator.screenshot();
   if (BASELINE_MODE) {
-    if (theme === "light") {
-      writeFileSync(file, buffer);
-      baselineFiles.push(name);
-      console.log(`baseline ${name}.png`);
-    }
+    writeFileSync(file, buffer);
+    baselineFiles.push(baselineFile(name, theme).replace(/\.png$/, ""));
+    console.log(`baseline ${baselineFile(name, theme)}`);
     return;
   }
-  if (theme !== "light") return;
-  assert.ok(existsSync(file), `missing baseline ${name}.png`);
+  assert.ok(existsSync(file), `missing baseline ${baselineFile(name, theme)}`);
   const baseline = readFileSync(file);
   const diff = await page.evaluate(
     async ({ actual, before }) => {
@@ -757,6 +780,9 @@ async function compareStatic(page, name, locator, theme, { keepPointer = false }
       let differingPixels = 0;
       let maxChannelDelta = 0;
       for (let index = 0; index < afterPixels.length; index += 4) {
+        // 两边都全透明的像素不参与渲染：圆角元素的截图会在透明区留下
+        // 每次略不相同的底色（alpha 都是 0），不能算作可见差异。
+        if (afterPixels[index + 3] === 0 && priorPixels[index + 3] === 0) continue;
         const delta = Math.max(
           Math.abs(afterPixels[index] - priorPixels[index]),
           Math.abs(afterPixels[index + 1] - priorPixels[index + 1]),
@@ -779,13 +805,16 @@ async function compareStatic(page, name, locator, theme, { keepPointer = false }
   staticComparisons.push({ name, theme, ...diff });
   assert.equal(diff.sizeMismatch, undefined, `${name}: baseline size changed`);
   /*
-   * Tooltip 是唯一允许极少量边缘差异的静止帧：`duration-*` 同时设置
-   * transition-duration，会让这个带圆角的小浮层在动画结束后被提升为
-   * 合成层，圆角 1px 的抗锯齿比改动前（无过渡）略有差别。
-   * 实测只落在右侧两个圆角，≤ 15px、单通道 ≤ 23；其余元素仍要求 0px。
+   * 两个元素允许极少量边缘差异，其余仍要求 0px：
+   * - Tooltip：`duration-*` 同时设置 transition-duration，会让这个带圆角的
+   *   小浮层在动画结束后被提升为合成层，圆角 1px 的抗锯齿比改动前（无过渡）
+   *   略有差别。实测只落在右侧两个圆角，≤ 15px、单通道 ≤ 23。
+   * - Sheet：面板宽是 390 × 3/4 = 292.5px，右缘落在半像素上；元素截图最右一列
+   *   的抗锯齿随合成层降级时机在 3–15px 内浮动（单通道 ≤ ~16，全部在 x=292）。
+   *   这是 1px 边缘的渲染噪声，肉眼不可见；面板内部任何真实变化仍会超过 24px。
    */
   const tolerance =
-    name === "tooltip-content" ? 24 : 0;
+    name === "tooltip-content" || name === "sheet-content" ? 24 : 0;
   assert.equal(
     diff.differingPixels <= tolerance,
     true,
@@ -1866,6 +1895,62 @@ async function runReducedMotionScene() {
     );
   }
   await screenshot(page, "reduced-motion-dialog-1440-dark");
+
+  // ---- 指示器：减弱动效下过渡直接落到终态 ----
+  // 复选框指示器与单选圆点共用同一条 reduced-motion 规则；这里用服务器页
+  // 表格里的复选框做代表，既读静止态的 transition-duration，也确认点击后
+  // 立刻是选中终态（减弱动效只缩短过程、不改变结果）。
+  await page.goto(`${BASE}/servers`, { waitUntil: "domcontentloaded" });
+  await waitForUi(page, "tbody [data-slot=checkbox]", errors, "reduced-motion-servers");
+  await settle(page, 300);
+
+  const reducedIndicator = await page.evaluate(() => {
+    const indicator = document.querySelector(
+      'tbody [data-slot="checkbox"] [data-slot="checkbox-indicator"]',
+    );
+    if (!indicator) return null;
+    const style = getComputedStyle(indicator);
+    return {
+      transitionDuration: style.transitionDuration,
+      animationDuration: style.animationDuration,
+      animations: indicator.getAnimations().map((item) => ({
+        name: item.animationName ?? null,
+        duration: item.effect.getTiming().duration,
+      })),
+      opacity: style.opacity,
+      scale: style.scale,
+    };
+  });
+  record("reduced-motion 指示器 / indicator (dark)", reducedIndicator);
+  assert.ok(reducedIndicator, "reduced-motion must find the checkbox indicator");
+  const indicatorTransitionMs =
+    parseCssDuration(reducedIndicator.transitionDuration) ?? Infinity;
+  const indicatorAnimationMs = Math.min(
+    ...[
+      parseCssDuration(reducedIndicator.animationDuration),
+      ...reducedIndicator.animations.map((item) => Number(item.duration)),
+    ].map((value) => (Number.isFinite(value) ? value : Infinity)),
+  );
+  assert.ok(
+    indicatorTransitionMs < 1 || indicatorAnimationMs < 1,
+    `reduced-motion indicator must finish in under 1ms (transition ${indicatorTransitionMs}ms, animation ${indicatorAnimationMs}ms)`,
+  );
+
+  const reducedCheckbox = page.locator("tbody [data-slot=checkbox]").first();
+  await reducedCheckbox.click();
+  await page.waitForTimeout(80);
+  const reducedChecked = await reducedCheckbox.evaluate((element) => {
+    const indicator = element.querySelector('[data-slot="checkbox-indicator"]');
+    return {
+      opacity: getComputedStyle(indicator).opacity,
+      scale: getComputedStyle(indicator).scale,
+    };
+  });
+  record("reduced-motion 指示器点击 / indicator after click (dark)", reducedChecked);
+  assert.equal(reducedChecked.opacity, "1", "reduced-motion must still show the checked tick");
+  assert.equal(numericValue(reducedChecked.scale), 1, "reduced-motion must still end at scale 1");
+  await screenshot(page, "reduced-motion-checkbox-1440-dark");
+
   assert.deepEqual(errors, [], "reduced-motion must have no failed request / console error");
   await context.close();
 }
@@ -1887,14 +1972,17 @@ if (process.env.MOTION_PASS_ONLY) {
   else if (only === "sheet") await runSheetScene(theme);
   else throw new Error(`unknown MOTION_PASS_ONLY=${only}`);
 } else if (BASELINE_MODE) {
-  // 基线只取亮色静止帧；避免相对时间等动态内容进入基线。
-  await runTrafficDialogScene("light");
-  await runPackagesScene("light");
-  await runServersScene("light");
-  await runChainTemplatesScene("light");
-  await runDropdownAndPopoverScene("light");
-  await runMeScene("light");
-  await runSheetScene("light");
+  // 基线只取静止帧；避免相对时间等动态内容进入基线。
+  console.log(`baseline themes: ${BASELINE_THEMES.join(", ")}`);
+  for (const theme of BASELINE_THEMES) {
+    await runTrafficDialogScene(theme);
+    await runPackagesScene(theme);
+    await runServersScene(theme);
+    await runChainTemplatesScene(theme);
+    await runDropdownAndPopoverScene(theme);
+    await runMeScene(theme);
+    await runSheetScene(theme);
+  }
   console.log(`\n${baselineFiles.length} baselines written to ${BASELINE}`);
 } else {
   for (const theme of ["dark", "light"]) {
@@ -1920,6 +2008,8 @@ writeFileSync(
       generatedAt: new Date().toISOString(),
       base: BASE,
       mode: BASELINE_MODE ? "baseline" : "verify",
+      // 只有全部断言通过才会写到这里；任何失败都会在断言处退出，不覆盖本文件。
+      status: "ok",
       viewports: { desktop: [1440, 900], sheet: [390, 844] },
       expected: {
         overlayEnterMs: 200,
@@ -1930,8 +2020,16 @@ writeFileSync(
         easeSpring: EASE_SPRING,
         dialogOffsetPx: -4,
         listChevronNudgePx: 2,
+        reducedMotionIndicatorMs: 1,
       },
       shots,
+      baselineThemes: ["light", "dark"],
+      baselineNotes: {
+        light:
+          "pre-change build, kept as the regression reference / 改动前构建，作为回归基准",
+        dark:
+          "recorded from this round on; no pre-change dark baseline existed, so it was generated from the current build / 从本轮起记录：此前没有深色基线，用当前构建生成",
+      },
       baselines: BASELINE_MODE
         ? baselineFiles
         : readdirSync(BASELINE)

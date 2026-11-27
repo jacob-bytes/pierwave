@@ -49,6 +49,30 @@ function element(source, attribute) {
   return source.slice(start, end + 1);
 }
 
+/**
+ * 取包含某个 `data-slot` 的完整开标签：`aria-hidden` 之类的属性可以写在
+ * `data-slot` 之前，`slot()` 从 `data-slot` 起算会漏掉它们。
+ */
+function tagWithSlot(source, name) {
+  const needle = `data-slot="${name}"`;
+  const index = source.indexOf(needle);
+  assert.notEqual(index, -1, `missing ${needle}`);
+  const start = source.lastIndexOf("<", index);
+  assert.notEqual(start, -1, `${needle} must sit inside an opening tag`);
+  const end = source.indexOf(">", index);
+  assert.notEqual(end, -1, `unterminated tag around ${needle}`);
+  return source.slice(start, end + 1);
+}
+
+/** 取两个标记之间的源码片段（不含结束标记）。 */
+function between(source, startMarker, endMarker) {
+  const from = source.indexOf(startMarker);
+  assert.notEqual(from, -1, `missing ${startMarker}`);
+  const to = source.indexOf(endMarker, from + startMarker.length);
+  assert.notEqual(to, -1, `missing ${endMarker} after ${startMarker}`);
+  return source.slice(from, to);
+}
+
 const ENTER = "data-open:duration-200";
 const EXIT = "data-closed:duration-150";
 const EASE = "ease-out-soft";
@@ -75,6 +99,19 @@ test("the spring easing token exists right after the soft ease token", () => {
     /--ease-out-soft:\s*cubic-bezier\(0\.22, 1, 0\.36, 1\);\s*\/\*[\s\S]*?\*\/\s*--ease-spring:\s*cubic-bezier\(0\.34, 1\.46, 0\.64, 1\);/,
     "@theme must declare --ease-spring after --ease-out-soft",
   );
+});
+
+test("docs item 7 records the Tooltip 150/100 exception in both languages", () => {
+  const doc = read("../../../docs/DESIGN.md");
+  const sections = {
+    zh: between(doc, "7. 浮层进出：", "\n8. "),
+    en: between(doc, "7. Overlays: ", "\n8. "),
+  };
+  for (const [language, section] of Object.entries(sections)) {
+    assert.match(section, /Tooltip/, `${language}: item 7 must mention Tooltip`);
+    assert.match(section, /150\s*ms/, `${language}: item 7 must state 150ms in`);
+    assert.match(section, /100\s*ms/, `${language}: item 7 must state 100ms out`);
+  }
 });
 
 test("every floating layer opens in 200ms and closes in 150ms with the soft ease", () => {
@@ -224,6 +261,19 @@ test("radio dot is force-mounted and springs from 50% into place", () => {
   for (const cls of expected) {
     assert.ok(dot.includes(cls), `radio dot missing ${cls}`);
   }
+});
+
+test("checkbox indicator and radio dot are aria-hidden", () => {
+  assert.ok(
+    tagWithSlot(ui("checkbox"), "checkbox-indicator").includes('aria-hidden="true"'),
+    "checkbox indicator must be aria-hidden",
+  );
+  assert.ok(
+    tagWithSlot(ui("radio-group"), "radio-group-indicator-dot").includes(
+      'aria-hidden="true"',
+    ),
+    "radio dot must be aria-hidden",
+  );
 });
 
 test("switch thumb springs while keeping its transform transition and both sizes", () => {

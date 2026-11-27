@@ -53,7 +53,7 @@ MOTION_PASS_ONLY=servers MOTION_PASS_THEME=light \
 | AlertDialog（我的订阅 → 重置链接） | 200ms | 150ms | 同上 |
 | Dropdown / Popover / Select（popper） | 200ms | 150ms | 同上 |
 | Sheet（390 宽移动导航） | 200ms | 150ms | 同上 |
-| Tooltip（服务器页表头复选框） | 150ms | 100ms | 同上（唯一例外，见 `docs/DESIGN.md`） |
+| Tooltip（服务器页表头复选框） | 150ms | 100ms | 同上（唯一例外，见 [第四节第 7 条「Tooltip 保持轻快：进 150ms、出 100ms」](../../../docs/DESIGN.md#四动效灵动的唯一来源)） |
 
 - Dialog / AlertDialog 的进入关键帧纵向位移 = **−4px**（`translate3d(0, -4px, 0)`）。
 - 复选框 / 单选圆点：`transition-property: opacity, scale`、200ms、
@@ -63,8 +63,10 @@ MOTION_PASS_ONLY=servers MOTION_PASS_THEME=light \
   实测 11px 左缘偏移），峰值大于终值，终值回到 10px 行程。
 - 列表行：静止背景透明；按下 `bg-muted/60`；键盘 `:focus-visible` 时箭头
   `translate: 2px`（链路行 / 榜单行 / 告警行各自的 group 规则都单独验证）。
-- reduced-motion：Dialog 进入动画 < 1ms（全站 `animation-duration: 0.01ms`）。
-- 静止帧：13 个元素截图与「改动前构建」的基线逐像素比较（见下）。
+- reduced-motion：Dialog 进入动画 < 1ms（全站 `animation-duration: 0.01ms`）；
+  复选框指示器（代表选中指示器）的 `transition-duration` 同样 < 1ms，
+  点击后仍直接呈现 `opacity: 1` / `scale: 1` 的终态。
+- 静止帧：13 个元素 × 亮 / 暗两套基线逐像素比较（见下）。
 
 ## 截图 / Screenshots
 
@@ -75,35 +77,61 @@ MOTION_PASS_ONLY=servers MOTION_PASS_THEME=light \
 `chain-chevron-focus-1440-*`、`traffic-row-press-1440-*`、
 `traffic-chevron-focus-1440-*`、`alert-row-press-1440-*`、
 `alert-chevron-focus-1440-*`、`sheet-390-*`，以及
-`reduced-motion-dialog-1440-dark`。
+`reduced-motion-dialog-1440-dark`、`reduced-motion-checkbox-1440-dark`。
 
 `report.json` 里 `checks[]` 是每一条实际读数，`staticComparisons[]` 是静止帧
 逐像素对比结果，`shots[]` 是截图清单。
 
 ## 基线 / Baselines
 
-`baseline/*.png` 是**改动前**的构建截下来的 13 个静止帧：dialog / alert-dialog /
+`baseline/*.png` 是 13 个静止帧 × 亮 / 暗两套：dialog / alert-dialog /
 dropdown / popover / select / tooltip / sheet 的浮层内容，checkbox 未选/选中，
-switch 关/开，radio 未选/选中。只有亮色一份——暗色由计算样式断言覆盖。
+switch 关/开，radio 未选/选中。
 
-这些基线用当前脚本的 `MOTION_PASS_BASELINE=1` 模式、在改动前的源码上生成；
-除了下面那条 tooltip 圆角容差，其余元素要求 **0 像素差异**。
+- **亮色 `<name>.png`**：改动前构建的画面，作为「只改手感、不改静止画面」的回归基准。
+- **暗色 `<name>-dark.png`**：此前没有深色基线，**从本轮起记录**，用当前构建生成；
+  它锁定的是本轮之后的暗色静止画面，不是改动前。
 
-The committed baselines were captured from the pre-change build with
-`MOTION_PASS_BASELINE=1`. Every element must match exactly except the Tooltip
-edge tolerance described below.
+亮色基线是最初用 `MOTION_PASS_BASELINE=1` 在改动前的源码上生成的；本轮只补录暗色
+（`MOTION_PASS_BASELINE=1 MOTION_PASS_BASELINE_THEME=dark`），没有重跑亮色，避免覆盖
+改动前基准。基线模式默认会重录亮 + 暗，只在有意重设基准时才用。除了下面两条边缘
+抗锯齿容差，其余元素要求 **0 像素差异**。
+
+The baselines are 13 resting frames in both themes. The light `<name>.png`
+files come from the pre-change build and are the regression reference. The dark
+`<name>-dark.png` files are **recorded from this round on**: no pre-change dark
+baseline existed, so they were generated from the current build. Light
+baselines were captured with `MOTION_PASS_BASELINE=1`; this round only added
+the dark set (`MOTION_PASS_BASELINE=1 MOTION_PASS_BASELINE_THEME=dark`) and did
+not re-run the light mode, which would overwrite the pre-change reference.
+Baseline mode records both themes by default; use it only when intentionally
+resetting the reference. Every element must match exactly except the two
+edge-antialiasing tolerances described below.
 
 ### 已知容差 / Known tolerance
 
-Tooltip 的圆角在**新增 `duration-*` 过渡后**被提升为合成层，右侧两个圆角
-1px 抗锯齿与改动前差 15 个像素（单通道 ≤ 23）。这是渲染层差异，肉眼不可见，
-也不是布局/颜色变化；脚本对 `tooltip-content` 单独允许 ≤ 24 px，其余元素仍为 0。
-若未来 tooltip 外观真的变化，这个阈值仍会拦住（远超 24px）。
+两个元素允许 ≤ 24 个像素的**边缘抗锯齿**差异（亮 / 暗同一阈值），其余元素仍要求 0：
 
-The Tooltip gains a composited layer from the new `duration-*` transition; its
-two right rounded corners differ from the pre-change baseline by 15 pixels
-(≤ 23 per channel). The script allows ≤ 24 px for `tooltip-content` only;
-every other element still requires zero. Real visual changes still trip it.
+- Tooltip：圆角在**新增 `duration-*` 过渡后**被提升为合成层，右侧两个圆角
+  1px 抗锯齿与改动前差 15 个像素（单通道 ≤ 23）。
+- Sheet：面板宽是 390 × 3/4 = 292.5px，右缘落在半像素上；元素截图最右一列
+  的抗锯齿随合成层降级时机浮动 3–15 个像素（单通道 ≤ ~16，全部在 x=292）。
+
+两处都是渲染层差异，肉眼不可见，也不是布局/颜色变化；面板内部任何真实变化
+仍会远超 24px 并触发失败。
+
+Two elements allow ≤ 24 pixels of **edge antialiasing** difference (same
+threshold in both themes); every other element still requires zero:
+
+- Tooltip: the new `duration-*` transition promotes it to a composited layer,
+  so its two right rounded corners differ from the pre-change baseline by 15
+  pixels (≤ 23 per channel).
+- Sheet: the panel is 390 × 3/4 = 292.5px wide, so its right edge lands on a
+  half pixel; the last captured column varies by 3–15 pixels (≤ ~16 per
+  channel, always at x=292) as the composited layer is demoted.
+
+Both are render-layer differences that are invisible to the eye, not layout or
+colour changes. Real changes inside the panel still exceed 24px and fail.
 
 ## 说明 / Notes
 
