@@ -16,11 +16,15 @@
  * 实现要点：
  *   - 自己解 TopoJSON：arcs 是 delta 编码，`transform.scale` / `translate`
  *     还原经纬度；不引入 topojson-client。
- *   - 等距圆柱投影到 viewBox 0 0 1000 500，坐标四舍五入到 1 位小数。
+ *   - 等距圆柱投影到完整坐标系 0 0 1000 500，坐标四舍五入到 1 位小数。
+ *     组件只把 viewBox 纵向裁到 lat +78°..-56°（见 WorldNodeMap），路径坐标
+ *     仍用完整坐标系，避免裁剪后坐标被二次换算。
  *   - 去掉南极洲（numeric id 010）；numeric id 去前导零后与 ISO 数字码匹配，
  *     匹配不到的小地区跳过并记录数量。
  *   - 在 ±180° 经线处把环拆成多段，避免俄罗斯 / 斐济横穿整张地图。
+ *   - 同时输出每个国家最大陆块的面积质心 `c: [x, y]`，供组件画节点圆点。
  *   - 输出按 ISO2 排序、每个国家一行，重复执行字节级稳定，避免 diff 抖动。
+ *     每个国家是 `{"d":"…","c":[x,y]}` 对象（c 用简称，控制 JSON 体积）。
  *
  * 用法：node web/scripts/build-world-map.mjs
  */
@@ -229,6 +233,78 @@ function geometryToPath(geometry, arcs) {
   return subpaths.join("");
 }
 
+/**
+ * 环的面积质心（经纬度平面）。先按第一个点解经度回绕（±180° 日界线），
+ * 否则斐济 / 俄罗斯的环在日界线上会被当成横跨 360° 的巨形，质心直接跑飞。
+ * 返回的经度可能超出 ±180°，调用方再归一化。
+ */
+function ringCentroid(points) {
+  if (points.length < 3) return null;
+  const refLon = points[0][0];
+  const unwrapped = points.map(([lon, lat]) => {
+    let unwrappedLon = lon;
+    while (unwrappedLon - refLon > 180) unwrappedLon -= 360;
+    while (unwrappedLon - refLon < -180) unwrappedLon += 360;
+    return [unwrappedLon, lat];
+  });
+  let area2 = 0;
+  let cx = 0;
+  let cy = 0;
+  for (let index = 0; index < unwrapped.length; index += 1) {
+    const [x1, y1] = unwrapped[index];
+    const [x2, y2] = unwrapped[(index + 1) % unwrapped.length];
+    const cross = x1 * y2 - x2 * y1;
+    area2 += cross;
+    cx += (x1 + x2) * cross;
+    cy += (y1 + y2) * cross;
+  }
+  if (!Number.isFinite(area2) || Math.abs(area2) < 1e-9) return null;
+  return {
+    lon: cx / (3 * area2),
+    lat: cy / (3 * area2),
+    area: Math.abs(area2) / 2,
+  };
+}
+
+/**
+ * 国家质心：取最大陆块的外环（忽略内环 / 小岛），面积质心再投影到 viewBox。
+ * 对法国、美国这类含海外领地 / 阿拉斯加的国家，最大陆块就是地图上最该落点的
+ * 主体；小地区（HK / SG / MO）由 50m 补齐后同样有质心。
+ */
+function geometryCentroid(geometry, arcs) {
+  const polygons =
+    geometry.type === "Polygon"
+      ? [geometry.arcs]
+      : geometry.type === "MultiPolygon"
+        ? geometry.arcs
+        : null;
+  if (!polygons) throw new Error(`unsupported geometry type ${geometry.type}`);
+  let best = null;
+  for (const polygon of polygons) {
+    if (!Array.isArray(polygon) || polygon.length === 0) continue;
+    const ring = polygon[0];
+    if (!Array.isArray(ring)) continue;
+    const centroid = ringCentroid(ringPoints(ring, arcs));
+    if (centroid && (!best || centroid.area > best.area)) best = centroid;
+  }
+  if (!best) return null;
+  // 归一化到 [-180, 180)：日界线附近的环解回绕后可能落在 180 之外。
+  const lon = ((((best.lon + 180) % 360) + 360) % 360) - 180;
+  const [x, y] = project(lon, best.lat);
+  const centroid = [Number(formatCoord(x)), Number(formatCoord(y))];
+  if (
+    !Number.isFinite(centroid[0]) ||
+    !Number.isFinite(centroid[1]) ||
+    centroid[0] < 0 ||
+    centroid[0] > VIEW_W ||
+    centroid[1] < 0 ||
+    centroid[1] > VIEW_H
+  ) {
+    return null;
+  }
+  return centroid;
+}
+
 /** numeric id（"004" / 4 / "4"）→ ISO2。 */
 function numericIndex(codes) {
   if (!Array.isArray(codes)) throw new Error("ISO codes file is not an array");
@@ -279,11 +355,12 @@ function collectCountries(topology, byNumeric, output, skipped) {
     }
     if (output.has(iso2)) continue;
     const d = geometryToPath(geometry, arcs);
-    if (!d) {
+    const c = geometryCentroid(geometry, arcs);
+    if (!d || !c) {
       skipped.add(name);
       continue;
     }
-    output.set(iso2, d);
+    output.set(iso2, { d, c });
   }
 }
 
@@ -315,7 +392,11 @@ async function main() {
 
   const sorted = [...byIso.entries()].sort(([a], [b]) => a.localeCompare(b));
   const body = sorted
-    .map(([iso2, d]) => `  ${JSON.stringify(iso2)}: ${JSON.stringify(d)}`)
+    .map(
+      ([iso2, { d, c }]) =>
+        `  ${JSON.stringify(iso2)}: {"d":${JSON.stringify(d)},` +
+        `"c":[${formatCoord(c[0])},${formatCoord(c[1])}]}`,
+    )
     .join(",\n");
   const json = `{\n${body}\n}\n`;
   const bytes = Buffer.byteLength(json);

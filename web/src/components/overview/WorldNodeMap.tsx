@@ -1,4 +1,12 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { countryDisplayName } from "@/lib/country";
@@ -6,27 +14,57 @@ import { useServers } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import worldMapPaths from "@/lib/worldMapPaths.json";
 import {
+  worldNodeMarkerRadius,
   worldNodeStats,
   worldNodeStatus,
 } from "@/lib/worldNodeStats";
 import { t, useI18n } from "@/i18n";
 
-/** 4 档 fill；无节点国家单独用 `fill-muted`。 */
+/**
+ * 等距圆柱投影的完整坐标系是 1000×500（lat 90..-90）。这里只把 viewBox 纵向
+ * 裁到 lat +78°..-56°：保留格陵兰南缘与新西兰，去掉南极与北极圈上方的大片
+ * 空白，同时保持投影不变，路径坐标仍是完整坐标系。
+ *
+ * y(+78°) = (90 - 78) / 180 * 500 = 33.3
+ * y(-56°) = (90 + 56) / 180 * 500 = 405.6 → 高 372.2
+ */
+const VIEW_BOX = "0 33.3 1000 372.2";
+const VIEW_WIDTH = 1000;
+
+/** 有节点国家四档 fill；无节点陆块单独用 muted-foreground。 */
 const TIER_FILL = [
-  "fill-primary/15",
-  "fill-primary/30",
-  "fill-primary/50",
-  "fill-primary/75",
+  "fill-primary/20",
+  "fill-primary/35",
+  "fill-primary/55",
+  "fill-primary/80",
+] as const;
+/** hover / focus 时提亮一档；最高档没有下一档，用 /90 继续给反馈。 */
+const TIER_HOVER_FILL = [
+  "fill-primary/35",
+  "fill-primary/55",
+  "fill-primary/80",
+  "fill-primary/90",
 ] as const;
 const TIER_BG = [
-  "bg-primary/15",
-  "bg-primary/30",
-  "bg-primary/50",
-  "bg-primary/75",
+  "bg-primary/20",
+  "bg-primary/35",
+  "bg-primary/55",
+  "bg-primary/80",
 ] as const;
 const TIER_RANGES = ["1", "2–3", "4–6", "7+"] as const;
 
-const PATHS: Record<string, string> = worldMapPaths;
+/** 圆点半径按档位 3 / 4 / 5 / 6px（屏幕像素，缩放后换算回 viewBox）。 */
+const MARKER_STROKE_PX = 2;
+const MARKER_GAP_PX = 4;
+const MARKER_LABEL_PX = 12;
+const MARKER_FOCUS_GAP_PX = 3;
+
+interface CountryShape {
+  d: string;
+  c: [number, number];
+}
+
+const COUNTRIES = worldMapPaths as unknown as Record<string, CountryShape>;
 
 interface TipState {
   country: string;
@@ -39,8 +77,12 @@ interface TipState {
  * 概览「资源状态」里的节点分布世界地图。
  *
  * 数据完全来自已缓存的 `useServers`（国家代码 + 状态），不额外请求接口；
- * SVG 路径由 `web/scripts/build-world-map.mjs` 在构建期生成。国家统计走
- * `worldNodeStats` 纯函数，组件只负责配色、tooltip 与跳转。
+ * SVG 路径与每个国家的质心由 `web/scripts/build-world-map.mjs` 在构建期生成。
+ * 国家统计走 `worldNodeStats` 纯函数，组件只负责配色、圆点、tooltip 与跳转。
+ *
+ * 小地区（HK / SG / MO）的陆地轮廓可能只有一两个像素，所以圆点半径按屏幕
+ * 像素固定为 3–6px：用 ResizeObserver 量出 SVG 的实际宽度，再把像素半径
+ * 换算回 viewBox 单位，390 下也不会缩成看不见的点。
  */
 export default function WorldNodeMap({
   selectedIds,
@@ -55,7 +97,11 @@ export default function WorldNodeMap({
   const navigate = useNavigate();
   const servers = useServers();
   const wrapRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const [tip, setTip] = useState<TipState | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
+  const [mapWidth, setMapWidth] = useState(0);
 
   const stats = useMemo(() => {
     const source = servers.data ?? [];
@@ -77,8 +123,61 @@ export default function WorldNodeMap({
     () => new Map(stats.map((stat) => [stat.country, stat])),
     [stats],
   );
-  const hasOffline = stats.some((stat) => stat.offline > 0);
-  const hasAbnormal = stats.some((stat) => stat.abnormal > 0);
+
+  useLayoutEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const syncWidth = () => {
+      const width = svg.getBoundingClientRect().width;
+      if (width > 0) {
+        setMapWidth((previous) =>
+          Math.abs(previous - width) < 0.5 ? previous : width,
+        );
+      }
+    };
+    syncWidth();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(syncWidth);
+    observer.observe(svg);
+    return () => observer.disconnect();
+  }, []);
+
+  /** 屏幕 px → viewBox 单位；首帧宽度未知时先按 1 处理，量到后立即校正。 */
+  const scale = mapWidth > 0 ? mapWidth / VIEW_WIDTH : 1;
+
+  /**
+   * 390 下欧洲的 N 标签会挤在一起（DE / FR 质心只差几个屏幕像素）。
+   * 按屏幕坐标做一次简单的下移避让；标签仍在圆点右侧，只是垂直错开 17px。
+   */
+  const labelOffsets = useMemo(() => {
+    const placed: { x: number; y: number }[] = [];
+    const offsets = new Map<string, number>();
+    const labeled = stats
+      .filter((stat) => stat.total >= 2 && COUNTRIES[stat.country])
+      .sort(
+        (a, b) =>
+          COUNTRIES[a.country].c[1] - COUNTRIES[b.country].c[1],
+      );
+    for (const stat of labeled) {
+      const [centroidX, centroidY] = COUNTRIES[stat.country].c;
+      const radius = worldNodeMarkerRadius(stat.tier);
+      const x = centroidX * scale + radius + MARKER_GAP_PX;
+      let offset = 0;
+      while (
+        placed.some(
+          (item) =>
+            Math.abs(item.x - x) < 18 &&
+            Math.abs(item.y - (centroidY * scale + offset)) < 14,
+        )
+      ) {
+        offset += 17;
+      }
+      offsets.set(stat.country, offset);
+      placed.push({ x, y: centroidY * scale + offset });
+    }
+    return offsets;
+  }, [stats, scale]);
+
   const tipStat = tip ? byCountry.get(tip.country) : undefined;
 
   /** 本地化国家名；`Intl.DisplayNames` 失败或环境不支持时回落到 ISO2。 */
@@ -92,7 +191,7 @@ export default function WorldNodeMap({
 
   function showTip(
     country: string,
-    target: SVGPathElement,
+    target: Element,
     clientX?: number,
     clientY?: number,
   ) {
@@ -118,6 +217,40 @@ export default function WorldNodeMap({
     });
   }
 
+  function onCountryEnter(
+    event: MouseEvent<SVGGElement>,
+    country: string,
+  ) {
+    setHovered(country);
+    showTip(
+      country,
+      event.currentTarget,
+      event.clientX,
+      event.clientY,
+    );
+  }
+
+  function onCountryLeave() {
+    setHovered(null);
+    setTip(null);
+  }
+
+  function onCountryFocus(
+    event: FocusEvent<SVGPathElement>,
+    country: string,
+  ) {
+    setFocused(country);
+    const dot = event.currentTarget.parentElement?.querySelector(
+      "[data-world-map-dot]",
+    );
+    showTip(country, dot ?? event.currentTarget);
+  }
+
+  function onCountryBlur() {
+    setFocused(null);
+    setTip(null);
+  }
+
   function onCountryKeyDown(
     event: KeyboardEvent<SVGPathElement>,
     country: string,
@@ -135,73 +268,134 @@ export default function WorldNodeMap({
       <CardContent>
         <div
           ref={wrapRef}
-          className="relative mx-auto w-full max-w-[840px]"
+          className="relative w-full"
           data-world-map-canvas
         >
           <svg
-            viewBox="0 0 1000 500"
+            ref={svgRef}
+            viewBox={VIEW_BOX}
             className="block h-auto w-full"
             aria-label={t("overview.serverHealth.mapAria")}
             data-world-map-svg
           >
-            {Object.entries(PATHS).map(([country, d]) => {
+            {Object.entries(COUNTRIES).map(([country, shape]) => {
               const stat = byCountry.get(country);
               if (!stat) {
                 return (
                   <path
                     key={country}
-                    d={d}
+                    d={shape.d}
                     fillRule="evenodd"
                     data-country={country}
                     data-tier="none"
-                    className="fill-muted stroke-card"
+                    // 海洋就是卡片底；无节点陆地用 muted-foreground/20，
+                    // 在亮 / 暗两种卡片上都能看出轮廓（见截图 report）。
+                    className="fill-muted-foreground/20 stroke-card"
                     strokeWidth={0.5}
                     vectorEffect="non-scaling-stroke"
                   />
                 );
               }
+              const active = hovered === country || focused === country;
+              const radius = worldNodeMarkerRadius(stat.tier) / scale;
+              const [centroidX, centroidY] = shape.c;
+              const labelX =
+                centroidX + radius + MARKER_GAP_PX / scale;
+              const labelY =
+                centroidY + (labelOffsets.get(country) ?? 0) / scale;
+              const labelFontSize = MARKER_LABEL_PX / scale;
+              const labelStrokeWidth = 2 / scale;
               return (
-                <path
+                <g
                   key={country}
-                  d={d}
-                  fillRule="evenodd"
-                  data-country={country}
-                  data-tier={String(stat.tier)}
-                  data-worst={stat.worst}
-                  data-total={String(stat.total)}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={t("overview.serverHealth.mapCountryAria", {
-                    country: countryName(country),
-                    total: stat.total,
-                    online: stat.online,
-                    offline: stat.offline,
-                    abnormal: stat.abnormal,
-                  })}
-                  className={cn(
-                    "cursor-pointer outline-none",
-                    TIER_FILL[stat.tier],
-                    "stroke-card",
-                    stat.worst === "offline" && "stroke-destructive",
-                    stat.worst === "abnormal" && "stroke-warning",
-                    "focus-visible:stroke-ring focus-visible:stroke-[2.5]",
-                  )}
-                  strokeWidth={stat.worst === "online" ? 0.5 : 1.4}
-                  vectorEffect="non-scaling-stroke"
+                  data-world-map-country={country}
+                  onMouseEnter={(event) => onCountryEnter(event, country)}
+                  onMouseLeave={onCountryLeave}
                   onClick={() => openCountry(country)}
-                  onKeyDown={(event) => onCountryKeyDown(event, country)}
-                  onMouseEnter={(event) =>
-                    showTip(
-                      country,
-                      event.currentTarget,
-                      event.clientX,
-                      event.clientY,
-                    )
-                  }
-                  onMouseLeave={() => setTip(null)}
-                  onFocus={(event) => showTip(country, event.currentTarget)}
-                  onBlur={() => setTip(null)}
-                />
+                >
+                  {focused === country ? (
+                    <path
+                      d={shape.d}
+                      fill="none"
+                      data-world-map-focus-ring
+                      className="stroke-focus-ring"
+                      strokeWidth={4}
+                      vectorEffect="non-scaling-stroke"
+                      pointerEvents="none"
+                    />
+                  ) : null}
+                  <path
+                    d={shape.d}
+                    fillRule="evenodd"
+                    data-country={country}
+                    data-tier={String(stat.tier)}
+                    data-worst={stat.worst}
+                    data-total={String(stat.total)}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={t("overview.serverHealth.mapCountryAria", {
+                      country: countryName(country),
+                      total: stat.total,
+                      online: stat.online,
+                      offline: stat.offline,
+                      abnormal: stat.abnormal,
+                    })}
+                    className={cn(
+                      "cursor-pointer outline-none transition-colors duration-150",
+                      active ? TIER_HOVER_FILL[stat.tier] : TIER_FILL[stat.tier],
+                      active ? "stroke-primary" : "stroke-primary/40",
+                    )}
+                    strokeWidth={active ? 1.5 : 0.5}
+                    vectorEffect="non-scaling-stroke"
+                    onKeyDown={(event) => onCountryKeyDown(event, country)}
+                    onFocus={(event) => onCountryFocus(event, country)}
+                    onBlur={onCountryBlur}
+                  />
+                  <g data-world-map-marker={country} aria-hidden="true">
+                    <circle
+                      data-world-map-dot
+                      cx={centroidX}
+                      cy={centroidY}
+                      r={radius}
+                      className={cn(
+                        "stroke-card",
+                        stat.worst === "offline"
+                          ? "fill-destructive"
+                          : stat.worst === "abnormal"
+                            ? "fill-warning"
+                            : "fill-primary",
+                      )}
+                      strokeWidth={MARKER_STROKE_PX}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                    {focused === country ? (
+                      <circle
+                        cx={centroidX}
+                        cy={centroidY}
+                        r={radius + MARKER_FOCUS_GAP_PX / scale}
+                        className="fill-none stroke-focus-ring"
+                        strokeWidth={2}
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    ) : null}
+                    {stat.total >= 2 ? (
+                      <text
+                        data-world-map-count
+                        x={labelX}
+                        y={labelY}
+                        fontSize={labelFontSize}
+                        className="fill-foreground font-medium"
+                        stroke="var(--card)"
+                        strokeWidth={labelStrokeWidth}
+                        paintOrder="stroke"
+                        dominantBaseline="central"
+                        textAnchor="start"
+                      >
+                        {stat.total}
+                      </text>
+                    ) : null}
+                  </g>
+                </g>
               );
             })}
           </svg>
@@ -234,45 +428,44 @@ export default function WorldNodeMap({
 
         <div
           data-world-map-legend
-          className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground"
+          className="mt-2 flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5 text-xs text-muted-foreground"
         >
-          <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-            <span
-              aria-hidden="true"
-              className="size-3 rounded-[3px] bg-muted"
-            />
-            {t("overview.serverHealth.mapLegendNone")}
-          </span>
           {TIER_RANGES.map((range, tier) => (
             <span
               key={range}
+              data-world-map-legend-tier={tier}
               className="inline-flex items-center gap-1.5 whitespace-nowrap"
             >
               <span
                 aria-hidden="true"
-                className={cn("size-3 rounded-[3px]", TIER_BG[tier])}
+                className={cn("size-2.5 rounded-[2px]", TIER_BG[tier])}
               />
               {t("overview.serverHealth.mapLegendTier", { range })}
             </span>
           ))}
-          {hasOffline ? (
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          {/* 状态点作为一组换行：390 下四档占第一行，离线 + 异常一起落到第二行。 */}
+          <span className="inline-flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <span
+              data-world-map-legend-offline
+              className="inline-flex items-center gap-1.5 whitespace-nowrap"
+            >
               <span
                 aria-hidden="true"
-                className="size-3 rounded-[3px] border border-destructive"
+                className="size-2.5 rounded-full bg-destructive"
               />
               {t("overview.serverHealth.mapLegendOffline")}
             </span>
-          ) : null}
-          {hasAbnormal ? (
-            <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+            <span
+              data-world-map-legend-abnormal
+              className="inline-flex items-center gap-1.5 whitespace-nowrap"
+            >
               <span
                 aria-hidden="true"
-                className="size-3 rounded-[3px] border border-warning"
+                className="size-2.5 rounded-full bg-warning"
               />
               {t("overview.serverHealth.mapLegendAbnormal")}
             </span>
-          ) : null}
+          </span>
           {stats.length === 0 ? (
             <span data-world-map-empty>
               {t("overview.serverHealth.mapEmpty")}

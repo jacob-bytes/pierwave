@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-26T16:40:38.858Z",
+  "generatedAt": "2026-11-27T14:40:02.427Z",
   "shots": [
     {
       "name": "overview-map-dark-1440",
@@ -10,16 +10,36 @@
       "file": "world-map-dark-1440.png"
     },
     {
+      "name": "world-map-hover-dark-1440",
+      "file": "world-map-hover-dark-1440.png"
+    },
+    {
+      "name": "world-map-focus-1440",
+      "file": "world-map-focus-1440.png"
+    },
+    {
       "name": "world-map-light-1440",
       "file": "world-map-light-1440.png"
+    },
+    {
+      "name": "world-map-hover-light-1440",
+      "file": "world-map-hover-light-1440.png"
     },
     {
       "name": "world-map-dark-390",
       "file": "world-map-dark-390.png"
     },
     {
+      "name": "world-map-hover-dark-390",
+      "file": "world-map-hover-dark-390.png"
+    },
+    {
       "name": "world-map-light-390",
       "file": "world-map-light-390.png"
+    },
+    {
+      "name": "world-map-hover-light-390",
+      "file": "world-map-hover-light-390.png"
     },
     {
       "name": "world-map-tooltip-1440",
@@ -28,6 +48,14 @@
     {
       "name": "server-country-filter-1440",
       "file": "server-country-filter-1440.png"
+    },
+    {
+      "name": "world-map-small-regions-1440",
+      "file": "world-map-small-regions-1440.png"
+    },
+    {
+      "name": "world-map-small-regions-390",
+      "file": "world-map-small-regions-390.png"
     },
     {
       "name": "world-map-tooltip-390",
@@ -52,13 +80,25 @@
     {
       "name": "world-map-empty-light-1440",
       "file": "world-map-empty-light-1440.png"
+    },
+    {
+      "name": "world-map-empty-light-390",
+      "file": "world-map-empty-light-390.png"
+    },
+    {
+      "name": "compare-dark-1440",
+      "file": "compare-dark-1440.png"
+    },
+    {
+      "name": "compare-light-1440",
+      "file": "compare-light-1440.png"
     }
   ],
   "checks": [
     {
       "name": "dark/1440: 地图在 KPI 与服务器 × 时间之间",
       "ok": true,
-      "detail": "{\"kpiBottom\":444.765625,\"mapTop\":460.765625,\"mapBottom\":978.359375,\"heatTop\":994.359375}"
+      "detail": "{\"kpiBottom\":452.765625,\"mapTop\":468.765625,\"mapBottom\":979.21875,\"heatTop\":995.21875}"
     },
     {
       "name": "dark/1440: 渲染全部国家路径（234）",
@@ -76,29 +116,64 @@
       "detail": "{\"US\":\"3\",\"JP\":\"2\",\"DE\":\"1\",\"FR\":\"1\",\"CA\":\"0\"}"
     },
     {
-      "name": "dark/1440: 描边 worst US=offline、JP/BR=abnormal、DE=online",
+      "name": "dark/1440: 状态 worst US=offline、JP/BR=abnormal、DE=online",
       "ok": true,
       "detail": "{\"US\":\"offline\",\"JP\":\"abnormal\",\"BR\":\"abnormal\",\"DE\":\"online\"}"
     },
     {
-      "name": "dark/1440: 离线 / 异常国家有描边色，在线没有",
+      "name": "dark/1440: 四档 fill 20/35/55/80 + primary/40 描边，无整国红 / 黄描边",
       "ok": true,
-      "detail": "{\"US\":\"oklch(0.62 0.2 25)\",\"JP\":\"oklch(0.82 0.16 80)\",\"DE\":\"oklch(0.175 0.005 285)\"}"
+      "detail": "{\"fills\":{\"CA\":\"oklab(0.662 -0.0168454 -0.178206 / 0.2)\",\"DE\":\"oklab(0.662 -0.0168454 -0.178206 / 0.35)\",\"JP\":\"oklab(0.662 -0.0168454 -0.178206 / 0.55)\",\"US\":\"oklab(0.662 -0.0168454 -0.178206 / 0.8)\",\"NZ\":\"oklab(0.7 0.00388229 -0.0144889 / 0.2)\"},\"classes\":{\"US\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/80 stroke-primary/40\",\"JP\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/55 stroke-primary/40\",\"DE\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/35 stroke-primary/40\",\"FR\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/35 stroke-primary/40\",\"CA\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/20 stroke-primary/40\"}}"
     },
     {
-      "name": "dark/1440: 有节点国家按台数加深（US 比 DE 深）",
+      "name": "dark/1440: 质心圆点半径 6/5/4/3px 且圆点用卡片色描边",
       "ok": true,
-      "detail": "{\"US\":\"oklab(0.662 -0.0168454 -0.178206 / 0.75)\",\"DE\":\"oklab(0.662 -0.0168454 -0.178206 / 0.3)\",\"CA\":\"oklab(0.662 -0.0168454 -0.178206 / 0.15)\"}"
+      "detail": "{\"AU\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"BR\":{\"radius\":3,\"fillClass\":\"stroke-card fill-warning\"},\"CA\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"DE\":{\"radius\":4,\"fillClass\":\"stroke-card fill-primary\"},\"FR\":{\"radius\":4,\"fillClass\":\"stroke-card fill-primary\"},\"GB\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"JP\":{\"radius\":5,\"fillClass\":\"stroke-card fill-warning\"},\"US\":{\"radius\":6,\"fillClass\":\"stroke-card fill-destructive\"}}"
     },
     {
-      "name": "dark/1440: 图例包含无节点 / 4 档 / 离线 / 异常",
+      "name": "dark/1440: 离线 US 红点、降级 JP/BR 黄点、在线 primary",
       "ok": true,
-      "detail": "无节点1 台2–3 台4–6 台7+ 台离线异常"
+      "detail": "{\"AU\":\"stroke-card fill-primary\",\"BR\":\"stroke-card fill-warning\",\"CA\":\"stroke-card fill-primary\",\"DE\":\"stroke-card fill-primary\",\"FR\":\"stroke-card fill-primary\",\"GB\":\"stroke-card fill-primary\",\"JP\":\"stroke-card fill-warning\",\"US\":\"stroke-card fill-destructive\"}"
+    },
+    {
+      "name": "dark/1440: ≥2 台国家在圆点右侧显示 12px N 标签",
+      "ok": true,
+      "detail": "{\"AU\":{\"label\":null,\"font\":null,\"dotRight\":1261.09130859375,\"labelLeft\":null},\"BR\":{\"label\":null,\"font\":null,\"dotRight\":677.913818359375,\"labelLeft\":null},\"CA\":{\"label\":null,\"font\":null,\"dotRight\":527.051513671875,\"labelLeft\":null},\"DE\":{\"label\":\"3\",\"font\":12.000016,\"dotRight\":876.0316162109375,\"labelLeft\":880.031494140625},\"FR\":{\"label\":\"2\",\"font\":12.000016,\"dotRight\":851.2798461914062,\"labelLeft\":855.2798461914062},\"GB\":{\"label\":null,\"font\":null,\"dotRight\":834.7120971679688,\"labelLeft\":null},\"JP\":{\"label\":\"5\",\"font\":12.000016,\"dotRight\":1270.8192138671875,\"labelLeft\":1274.819091796875},\"US\":{\"label\":\"8\",\"font\":12.000016,\"dotRight\":537.7793579101562,\"labelLeft\":541.779296875}}"
+    },
+    {
+      "name": "dark/1440: 相邻国家的 N 标签互不重叠",
+      "ok": true,
+      "detail": "{\"880.031494140625,598.0224609375\":\"3\",\"855.2798461914062,612.0222778320312\":\"2\",\"1274.819091796875,644.949951171875\":\"5\",\"541.779296875,634.1980590820312\":\"8\"}"
+    },
+    {
+      "name": "dark/1440: 图例在卡片底部右侧、12px、10×10、四档 + 离线/异常",
+      "ok": true,
+      "detail": "{\"text\":\"1 台2–3 台4–6 台7+ 台离线异常\",\"fontSize\":12,\"width\":1120,\"height\":16,\"top\":947.21875,\"right\":1400,\"bottom\":963.21875,\"tier0\":{\"exists\":true,\"text\":\"1 台\",\"width\":10,\"height\":10},\"tier3\":{\"exists\":true,\"text\":\"7+ 台\",\"width\":10,\"height\":10},\"offline\":{\"exists\":true,\"text\":\"离线\",\"width\":10,\"height\":10},\"abnormal\":{\"exists\":true,\"text\":\"异常\",\"width\":10,\"height\":10},\"belowMap\":true}"
+    },
+    {
+      "name": "dark/1440: 地图内容贴住裁切后的上下边（无额外海洋留白）",
+      "ok": true,
+      "detail": "{\"top\":53.59375,\"bottom\":40,\"svgInsetTop\":0,\"svgInsetBottom\":0}"
+    },
+    {
+      "name": "dark/1440: 地图上下留白 ≤ 卡片高度 15%",
+      "ok": true,
+      "detail": "{\"cardHeight\":510.453125,\"top\":53.59375,\"bottom\":40,\"topRatio\":0.10499250053567602,\"bottomRatio\":0.07836174967094187}"
     },
     {
       "name": "dark/1440: 有节点国家可聚焦、无节点国家不可聚焦",
       "ok": true,
       "detail": null
+    },
+    {
+      "name": "dark/1440: hover 提亮一档 + 1.5px 描边 + tooltip",
+      "ok": true,
+      "detail": "{\"base\":{\"fill\":\"oklab(0.662 -0.0168454 -0.178206 / 0.35)\",\"strokeWidth\":\"0.5px\"},\"hover\":{\"fill\":\"oklab(0.662 -0.0168454 -0.178206 / 0.55)\",\"strokeWidth\":\"1.5px\",\"tip\":\"德国3 台 · 在线 3柏林-01 · 法兰克福-01 · 法兰克福-02\"}}"
+    },
+    {
+      "name": "dark/1440: 键盘聚焦有提亮 + 1.5px 描边 + focus ring",
+      "ok": true,
+      "detail": "{\"fill\":\"oklab(0.662 -0.0168454 -0.178206 / 0.55)\",\"strokeWidth\":\"1.5px\",\"ring\":true,\"tip\":\"德国3 台 · 在线 3柏林-01 · 法兰克福-01 · 法兰克福-02\"}"
     },
     {
       "name": "dark/1440: 页面无 console error",
@@ -108,7 +183,7 @@
     {
       "name": "light/1440: 地图在 KPI 与服务器 × 时间之间",
       "ok": true,
-      "detail": "{\"kpiBottom\":444.765625,\"mapTop\":460.765625,\"mapBottom\":978.359375,\"heatTop\":994.359375}"
+      "detail": "{\"kpiBottom\":444.765625,\"mapTop\":460.765625,\"mapBottom\":971.21875,\"heatTop\":987.21875}"
     },
     {
       "name": "light/1440: 渲染全部国家路径（234）",
@@ -126,29 +201,69 @@
       "detail": "{\"US\":\"3\",\"JP\":\"2\",\"DE\":\"1\",\"FR\":\"1\",\"CA\":\"0\"}"
     },
     {
-      "name": "light/1440: 描边 worst US=offline、JP/BR=abnormal、DE=online",
+      "name": "light/1440: 状态 worst US=offline、JP/BR=abnormal、DE=online",
       "ok": true,
       "detail": "{\"US\":\"offline\",\"JP\":\"abnormal\",\"BR\":\"abnormal\",\"DE\":\"online\"}"
     },
     {
-      "name": "light/1440: 离线 / 异常国家有描边色，在线没有",
+      "name": "light/1440: 四档 fill 20/35/55/80 + primary/40 描边，无整国红 / 黄描边",
       "ok": true,
-      "detail": "{\"US\":\"oklch(0.57 0.208 25.3)\",\"JP\":\"oklch(0.53 0.146 49)\",\"DE\":\"oklch(1 0 0)\"}"
+      "detail": "{\"fills\":{\"CA\":\"oklab(0.424 -0.0151355 -0.198424 / 0.2)\",\"DE\":\"oklab(0.424 -0.0151355 -0.198424 / 0.35)\",\"JP\":\"oklab(0.424 -0.0151355 -0.198424 / 0.55)\",\"US\":\"oklab(0.424 -0.0151355 -0.198424 / 0.8)\",\"NZ\":\"oklab(0.52 -0.0029896 -0.0348721 / 0.2)\"},\"classes\":{\"US\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/80 stroke-primary/40\",\"JP\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/55 stroke-primary/40\",\"DE\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/35 stroke-primary/40\",\"FR\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/35 stroke-primary/40\",\"CA\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/20 stroke-primary/40\"}}"
     },
     {
-      "name": "light/1440: 有节点国家按台数加深（US 比 DE 深）",
+      "name": "light/1440: 质心圆点半径 6/5/4/3px 且圆点用卡片色描边",
       "ok": true,
-      "detail": "{\"US\":\"oklab(0.424 -0.0151355 -0.198424 / 0.75)\",\"DE\":\"oklab(0.424 -0.0151355 -0.198424 / 0.3)\",\"CA\":\"oklab(0.424 -0.0151355 -0.198424 / 0.15)\"}"
+      "detail": "{\"AU\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"BR\":{\"radius\":3,\"fillClass\":\"stroke-card fill-warning\"},\"CA\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"DE\":{\"radius\":4,\"fillClass\":\"stroke-card fill-primary\"},\"FR\":{\"radius\":4,\"fillClass\":\"stroke-card fill-primary\"},\"GB\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"JP\":{\"radius\":5,\"fillClass\":\"stroke-card fill-warning\"},\"US\":{\"radius\":6,\"fillClass\":\"stroke-card fill-destructive\"}}"
     },
     {
-      "name": "light/1440: 图例包含无节点 / 4 档 / 离线 / 异常",
+      "name": "light/1440: 离线 US 红点、降级 JP/BR 黄点、在线 primary",
       "ok": true,
-      "detail": "无节点1 台2–3 台4–6 台7+ 台离线异常"
+      "detail": "{\"AU\":\"stroke-card fill-primary\",\"BR\":\"stroke-card fill-warning\",\"CA\":\"stroke-card fill-primary\",\"DE\":\"stroke-card fill-primary\",\"FR\":\"stroke-card fill-primary\",\"GB\":\"stroke-card fill-primary\",\"JP\":\"stroke-card fill-warning\",\"US\":\"stroke-card fill-destructive\"}"
+    },
+    {
+      "name": "light/1440: ≥2 台国家在圆点右侧显示 12px N 标签",
+      "ok": true,
+      "detail": "{\"AU\":{\"label\":null,\"font\":null,\"dotRight\":1261.09130859375,\"labelLeft\":null},\"BR\":{\"label\":null,\"font\":null,\"dotRight\":677.913818359375,\"labelLeft\":null},\"CA\":{\"label\":null,\"font\":null,\"dotRight\":527.051513671875,\"labelLeft\":null},\"DE\":{\"label\":\"3\",\"font\":12.000016,\"dotRight\":876.0316162109375,\"labelLeft\":880.031494140625},\"FR\":{\"label\":\"2\",\"font\":12.000016,\"dotRight\":851.2798461914062,\"labelLeft\":855.2798461914062},\"GB\":{\"label\":null,\"font\":null,\"dotRight\":834.7120971679688,\"labelLeft\":null},\"JP\":{\"label\":\"5\",\"font\":12.000016,\"dotRight\":1270.8192138671875,\"labelLeft\":1274.819091796875},\"US\":{\"label\":\"8\",\"font\":12.000016,\"dotRight\":537.7793579101562,\"labelLeft\":541.779296875}}"
+    },
+    {
+      "name": "light/1440: 相邻国家的 N 标签互不重叠",
+      "ok": true,
+      "detail": "{\"880.031494140625,590.0224609375\":\"3\",\"855.2798461914062,604.0222778320312\":\"2\",\"1274.819091796875,636.949951171875\":\"5\",\"541.779296875,626.1980590820312\":\"8\"}"
+    },
+    {
+      "name": "light/1440: 图例在卡片底部右侧、12px、10×10、四档 + 离线/异常",
+      "ok": true,
+      "detail": "{\"text\":\"1 台2–3 台4–6 台7+ 台离线异常\",\"fontSize\":12,\"width\":1120,\"height\":16,\"top\":939.21875,\"right\":1400,\"bottom\":955.21875,\"tier0\":{\"exists\":true,\"text\":\"1 台\",\"width\":10,\"height\":10},\"tier3\":{\"exists\":true,\"text\":\"7+ 台\",\"width\":10,\"height\":10},\"offline\":{\"exists\":true,\"text\":\"离线\",\"width\":10,\"height\":10},\"abnormal\":{\"exists\":true,\"text\":\"异常\",\"width\":10,\"height\":10},\"belowMap\":true}"
+    },
+    {
+      "name": "light/1440: 地图内容贴住裁切后的上下边（无额外海洋留白）",
+      "ok": true,
+      "detail": "{\"top\":53.59375,\"bottom\":40,\"svgInsetTop\":0,\"svgInsetBottom\":0}"
+    },
+    {
+      "name": "light/1440: 地图上下留白 ≤ 卡片高度 15%",
+      "ok": true,
+      "detail": "{\"cardHeight\":510.453125,\"top\":53.59375,\"bottom\":40,\"topRatio\":0.10499250053567602,\"bottomRatio\":0.07836174967094187}"
+    },
+    {
+      "name": "亮色 1440: 四档填充对海洋对比度递增且每档可区分",
+      "ok": true,
+      "detail": "{\"CA\":{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.2)\",\"rgb\":[209,216,241],\"ratio\":1.4185754551163567},\"DE\":{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.35)\",\"rgb\":[175,187,230],\"ratio\":1.896409827114116},\"JP\":{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.55)\",\"rgb\":[129,148,216],\"ratio\":2.932567365470492},\"US\":{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.8)\",\"rgb\":[71,99,198],\"ratio\":5.42902468446334},\"NZ\":{\"fill\":\"oklab(0.52 -0.0029896 -0.0348721 / 0.2)\",\"rgb\":[223,225,229],\"ratio\":1.309299654482713}}"
     },
     {
       "name": "light/1440: 有节点国家可聚焦、无节点国家不可聚焦",
       "ok": true,
       "detail": null
+    },
+    {
+      "name": "light/1440: hover 提亮一档 + 1.5px 描边 + tooltip",
+      "ok": true,
+      "detail": "{\"base\":{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.35)\",\"strokeWidth\":\"0.5px\"},\"hover\":{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.55)\",\"strokeWidth\":\"1.5px\",\"tip\":\"德国3 台 · 在线 3柏林-01 · 法兰克福-01 · 法兰克福-02\"}}"
+    },
+    {
+      "name": "light/1440: 键盘聚焦有提亮 + 1.5px 描边 + focus ring",
+      "ok": true,
+      "detail": "{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.55)\",\"strokeWidth\":\"1.5px\",\"ring\":true,\"tip\":\"德国3 台 · 在线 3柏林-01 · 法兰克福-01 · 法兰克福-02\"}"
     },
     {
       "name": "light/1440: 页面无 console error",
@@ -158,7 +273,7 @@
     {
       "name": "dark/390: 地图在 KPI 与服务器 × 时间之间",
       "ok": true,
-      "detail": "{\"kpiBottom\":779.921875,\"mapTop\":795.921875,\"mapBottom\":1070.515625,\"heatTop\":1086.515625}"
+      "detail": "{\"kpiBottom\":779.921875,\"mapTop\":795.921875,\"mapBottom\":1026.890625,\"heatTop\":1042.890625}"
     },
     {
       "name": "dark/390: 渲染全部国家路径（234）",
@@ -176,24 +291,44 @@
       "detail": "{\"US\":\"3\",\"JP\":\"2\",\"DE\":\"1\",\"FR\":\"1\",\"CA\":\"0\"}"
     },
     {
-      "name": "dark/390: 描边 worst US=offline、JP/BR=abnormal、DE=online",
+      "name": "dark/390: 状态 worst US=offline、JP/BR=abnormal、DE=online",
       "ok": true,
       "detail": "{\"US\":\"offline\",\"JP\":\"abnormal\",\"BR\":\"abnormal\",\"DE\":\"online\"}"
     },
     {
-      "name": "dark/390: 离线 / 异常国家有描边色，在线没有",
+      "name": "dark/390: 四档 fill 20/35/55/80 + primary/40 描边，无整国红 / 黄描边",
       "ok": true,
-      "detail": "{\"US\":\"oklch(0.62 0.2 25)\",\"JP\":\"oklch(0.82 0.16 80)\",\"DE\":\"oklch(0.175 0.005 285)\"}"
+      "detail": "{\"fills\":{\"CA\":\"oklab(0.662 -0.0168454 -0.178206 / 0.2)\",\"DE\":\"oklab(0.662 -0.0168454 -0.178206 / 0.35)\",\"JP\":\"oklab(0.662 -0.0168454 -0.178206 / 0.55)\",\"US\":\"oklab(0.662 -0.0168454 -0.178206 / 0.8)\",\"NZ\":\"oklab(0.7 0.00388229 -0.0144889 / 0.2)\"},\"classes\":{\"US\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/80 stroke-primary/40\",\"JP\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/55 stroke-primary/40\",\"DE\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/35 stroke-primary/40\",\"FR\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/35 stroke-primary/40\",\"CA\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/20 stroke-primary/40\"}}"
     },
     {
-      "name": "dark/390: 有节点国家按台数加深（US 比 DE 深）",
+      "name": "dark/390: 质心圆点半径 6/5/4/3px 且圆点用卡片色描边",
       "ok": true,
-      "detail": "{\"US\":\"oklab(0.662 -0.0168454 -0.178206 / 0.75)\",\"DE\":\"oklab(0.662 -0.0168454 -0.178206 / 0.3)\",\"CA\":\"oklab(0.662 -0.0168454 -0.178206 / 0.15)\"}"
+      "detail": "{\"AU\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"BR\":{\"radius\":3,\"fillClass\":\"stroke-card fill-warning\"},\"CA\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"DE\":{\"radius\":4,\"fillClass\":\"stroke-card fill-primary\"},\"FR\":{\"radius\":4,\"fillClass\":\"stroke-card fill-primary\"},\"GB\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"JP\":{\"radius\":5,\"fillClass\":\"stroke-card fill-warning\"},\"US\":{\"radius\":6,\"fillClass\":\"stroke-card fill-destructive\"}}"
     },
     {
-      "name": "dark/390: 图例包含无节点 / 4 档 / 离线 / 异常",
+      "name": "dark/390: 离线 US 红点、降级 JP/BR 黄点、在线 primary",
       "ok": true,
-      "detail": "无节点1 台2–3 台4–6 台7+ 台离线异常"
+      "detail": "{\"AU\":\"stroke-card fill-primary\",\"BR\":\"stroke-card fill-warning\",\"CA\":\"stroke-card fill-primary\",\"DE\":\"stroke-card fill-primary\",\"FR\":\"stroke-card fill-primary\",\"GB\":\"stroke-card fill-primary\",\"JP\":\"stroke-card fill-warning\",\"US\":\"stroke-card fill-destructive\"}"
+    },
+    {
+      "name": "dark/390: ≥2 台国家在圆点右侧显示 12px N 标签",
+      "ok": true,
+      "detail": "{\"AU\":{\"label\":null,\"font\":null,\"dotRight\":313.7157897949219,\"labelLeft\":null},\"BR\":{\"label\":null,\"font\":null,\"dotRight\":152.30859375,\"labelLeft\":null},\"CA\":{\"label\":null,\"font\":null,\"dotRight\":110.55413055419922,\"labelLeft\":null},\"DE\":{\"label\":\"3\",\"font\":12.000007,\"dotRight\":207.86521911621094,\"labelLeft\":211.864990234375},\"FR\":{\"label\":\"2\",\"font\":12.000007,\"dotRight\":201.01463317871094,\"labelLeft\":205.01438903808594},\"GB\":{\"label\":null,\"font\":null,\"dotRight\":195.70594787597656,\"labelLeft\":null},\"JP\":{\"label\":\"5\",\"font\":12.000007,\"dotRight\":317.85455322265625,\"labelLeft\":321.85430908203125},\"US\":{\"label\":\"8\",\"font\":12.000007,\"dotRight\":115.69281768798828,\"labelLeft\":119.69257354736328}}"
+    },
+    {
+      "name": "dark/390: 相邻国家的 N 标签互不重叠",
+      "ok": true,
+      "detail": "{\"211.864990234375,864.6712036132812\":\"3\",\"205.01438903808594,885.5449829101562\":\"2\",\"321.85430908203125,877.659423828125\":\"5\",\"119.69257354736328,874.68359375\":\"8\"}"
+    },
+    {
+      "name": "dark/390: 图例在卡片底部右侧、12px、10×10、四档 + 离线/异常",
+      "ok": true,
+      "detail": "{\"text\":\"1 台2–3 台4–6 台7+ 台离线异常\",\"fontSize\":12,\"width\":310,\"height\":38,\"top\":972.890625,\"right\":350,\"bottom\":1010.890625,\"tier0\":{\"exists\":true,\"text\":\"1 台\",\"width\":10,\"height\":10},\"tier3\":{\"exists\":true,\"text\":\"7+ 台\",\"width\":10,\"height\":10},\"offline\":{\"exists\":true,\"text\":\"离线\",\"width\":10,\"height\":10},\"abnormal\":{\"exists\":true,\"text\":\"异常\",\"width\":10,\"height\":10},\"belowMap\":true}"
+    },
+    {
+      "name": "dark/390: 地图内容贴住裁切后的上下边（无额外海洋留白）",
+      "ok": true,
+      "detail": "{\"top\":53.59375,\"bottom\":62,\"svgInsetTop\":0,\"svgInsetBottom\":0}"
     },
     {
       "name": "dark/390: 有节点国家可聚焦、无节点国家不可聚焦",
@@ -206,6 +341,16 @@
       "detail": "{\"viewport\":390,\"docScroll\":390,\"bodyScroll\":390,\"mainClient\":390,\"mainScroll\":390}"
     },
     {
+      "name": "dark/390: hover 提亮一档 + 1.5px 描边 + tooltip",
+      "ok": true,
+      "detail": "{\"base\":{\"fill\":\"oklab(0.662 -0.0168454 -0.178206 / 0.35)\",\"strokeWidth\":\"0.5px\"},\"hover\":{\"fill\":\"oklab(0.662 -0.0168454 -0.178206 / 0.55)\",\"strokeWidth\":\"1.5px\",\"tip\":\"德国3 台 · 在线 3柏林-01 · 法兰克福-01 · 法兰克福-02\"}}"
+    },
+    {
+      "name": "dark/390: 键盘聚焦有提亮 + 1.5px 描边 + focus ring",
+      "ok": true,
+      "detail": "{\"fill\":\"oklab(0.662 -0.0168454 -0.178206 / 0.55)\",\"strokeWidth\":\"1.5px\",\"ring\":true,\"tip\":\"德国3 台 · 在线 3柏林-01 · 法兰克福-01 · 法兰克福-02\"}"
+    },
+    {
       "name": "dark/390: 页面无 console error",
       "ok": true,
       "detail": ""
@@ -213,7 +358,7 @@
     {
       "name": "light/390: 地图在 KPI 与服务器 × 时间之间",
       "ok": true,
-      "detail": "{\"kpiBottom\":779.921875,\"mapTop\":795.921875,\"mapBottom\":1070.515625,\"heatTop\":1086.515625}"
+      "detail": "{\"kpiBottom\":779.921875,\"mapTop\":795.921875,\"mapBottom\":1026.890625,\"heatTop\":1042.890625}"
     },
     {
       "name": "light/390: 渲染全部国家路径（234）",
@@ -231,24 +376,44 @@
       "detail": "{\"US\":\"3\",\"JP\":\"2\",\"DE\":\"1\",\"FR\":\"1\",\"CA\":\"0\"}"
     },
     {
-      "name": "light/390: 描边 worst US=offline、JP/BR=abnormal、DE=online",
+      "name": "light/390: 状态 worst US=offline、JP/BR=abnormal、DE=online",
       "ok": true,
       "detail": "{\"US\":\"offline\",\"JP\":\"abnormal\",\"BR\":\"abnormal\",\"DE\":\"online\"}"
     },
     {
-      "name": "light/390: 离线 / 异常国家有描边色，在线没有",
+      "name": "light/390: 四档 fill 20/35/55/80 + primary/40 描边，无整国红 / 黄描边",
       "ok": true,
-      "detail": "{\"US\":\"oklch(0.57 0.208 25.3)\",\"JP\":\"oklch(0.53 0.146 49)\",\"DE\":\"oklch(1 0 0)\"}"
+      "detail": "{\"fills\":{\"CA\":\"oklab(0.424 -0.0151355 -0.198424 / 0.2)\",\"DE\":\"oklab(0.424 -0.0151355 -0.198424 / 0.35)\",\"JP\":\"oklab(0.424 -0.0151355 -0.198424 / 0.55)\",\"US\":\"oklab(0.424 -0.0151355 -0.198424 / 0.8)\",\"NZ\":\"oklab(0.52 -0.0029896 -0.0348721 / 0.2)\"},\"classes\":{\"US\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/80 stroke-primary/40\",\"JP\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/55 stroke-primary/40\",\"DE\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/35 stroke-primary/40\",\"FR\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/35 stroke-primary/40\",\"CA\":\"cursor-pointer outline-none transition-colors duration-150 fill-primary/20 stroke-primary/40\"}}"
     },
     {
-      "name": "light/390: 有节点国家按台数加深（US 比 DE 深）",
+      "name": "light/390: 质心圆点半径 6/5/4/3px 且圆点用卡片色描边",
       "ok": true,
-      "detail": "{\"US\":\"oklab(0.424 -0.0151355 -0.198424 / 0.75)\",\"DE\":\"oklab(0.424 -0.0151355 -0.198424 / 0.3)\",\"CA\":\"oklab(0.424 -0.0151355 -0.198424 / 0.15)\"}"
+      "detail": "{\"AU\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"BR\":{\"radius\":3,\"fillClass\":\"stroke-card fill-warning\"},\"CA\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"DE\":{\"radius\":4,\"fillClass\":\"stroke-card fill-primary\"},\"FR\":{\"radius\":4,\"fillClass\":\"stroke-card fill-primary\"},\"GB\":{\"radius\":3,\"fillClass\":\"stroke-card fill-primary\"},\"JP\":{\"radius\":5,\"fillClass\":\"stroke-card fill-warning\"},\"US\":{\"radius\":6,\"fillClass\":\"stroke-card fill-destructive\"}}"
     },
     {
-      "name": "light/390: 图例包含无节点 / 4 档 / 离线 / 异常",
+      "name": "light/390: 离线 US 红点、降级 JP/BR 黄点、在线 primary",
       "ok": true,
-      "detail": "无节点1 台2–3 台4–6 台7+ 台离线异常"
+      "detail": "{\"AU\":\"stroke-card fill-primary\",\"BR\":\"stroke-card fill-warning\",\"CA\":\"stroke-card fill-primary\",\"DE\":\"stroke-card fill-primary\",\"FR\":\"stroke-card fill-primary\",\"GB\":\"stroke-card fill-primary\",\"JP\":\"stroke-card fill-warning\",\"US\":\"stroke-card fill-destructive\"}"
+    },
+    {
+      "name": "light/390: ≥2 台国家在圆点右侧显示 12px N 标签",
+      "ok": true,
+      "detail": "{\"AU\":{\"label\":null,\"font\":null,\"dotRight\":313.7157897949219,\"labelLeft\":null},\"BR\":{\"label\":null,\"font\":null,\"dotRight\":152.30859375,\"labelLeft\":null},\"CA\":{\"label\":null,\"font\":null,\"dotRight\":110.55413055419922,\"labelLeft\":null},\"DE\":{\"label\":\"3\",\"font\":12.000007,\"dotRight\":207.86521911621094,\"labelLeft\":211.864990234375},\"FR\":{\"label\":\"2\",\"font\":12.000007,\"dotRight\":201.01463317871094,\"labelLeft\":205.01438903808594},\"GB\":{\"label\":null,\"font\":null,\"dotRight\":195.70594787597656,\"labelLeft\":null},\"JP\":{\"label\":\"5\",\"font\":12.000007,\"dotRight\":317.85455322265625,\"labelLeft\":321.85430908203125},\"US\":{\"label\":\"8\",\"font\":12.000007,\"dotRight\":115.69281768798828,\"labelLeft\":119.69257354736328}}"
+    },
+    {
+      "name": "light/390: 相邻国家的 N 标签互不重叠",
+      "ok": true,
+      "detail": "{\"211.864990234375,864.6712036132812\":\"3\",\"205.01438903808594,885.5449829101562\":\"2\",\"321.85430908203125,877.659423828125\":\"5\",\"119.69257354736328,874.68359375\":\"8\"}"
+    },
+    {
+      "name": "light/390: 图例在卡片底部右侧、12px、10×10、四档 + 离线/异常",
+      "ok": true,
+      "detail": "{\"text\":\"1 台2–3 台4–6 台7+ 台离线异常\",\"fontSize\":12,\"width\":310,\"height\":38,\"top\":972.890625,\"right\":350,\"bottom\":1010.890625,\"tier0\":{\"exists\":true,\"text\":\"1 台\",\"width\":10,\"height\":10},\"tier3\":{\"exists\":true,\"text\":\"7+ 台\",\"width\":10,\"height\":10},\"offline\":{\"exists\":true,\"text\":\"离线\",\"width\":10,\"height\":10},\"abnormal\":{\"exists\":true,\"text\":\"异常\",\"width\":10,\"height\":10},\"belowMap\":true}"
+    },
+    {
+      "name": "light/390: 地图内容贴住裁切后的上下边（无额外海洋留白）",
+      "ok": true,
+      "detail": "{\"top\":53.59375,\"bottom\":62,\"svgInsetTop\":0,\"svgInsetBottom\":0}"
     },
     {
       "name": "light/390: 有节点国家可聚焦、无节点国家不可聚焦",
@@ -259,6 +424,16 @@
       "name": "light/390: 390 / 视口无横向溢出",
       "ok": true,
       "detail": "{\"viewport\":390,\"docScroll\":390,\"bodyScroll\":390,\"mainClient\":390,\"mainScroll\":390}"
+    },
+    {
+      "name": "light/390: hover 提亮一档 + 1.5px 描边 + tooltip",
+      "ok": true,
+      "detail": "{\"base\":{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.35)\",\"strokeWidth\":\"0.5px\"},\"hover\":{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.55)\",\"strokeWidth\":\"1.5px\",\"tip\":\"德国3 台 · 在线 3柏林-01 · 法兰克福-01 · 法兰克福-02\"}}"
+    },
+    {
+      "name": "light/390: 键盘聚焦有提亮 + 1.5px 描边 + focus ring",
+      "ok": true,
+      "detail": "{\"fill\":\"oklab(0.424 -0.0151355 -0.198424 / 0.55)\",\"strokeWidth\":\"1.5px\",\"ring\":true,\"tip\":\"德国3 台 · 在线 3柏林-01 · 法兰克福-01 · 法兰克福-02\"}"
     },
     {
       "name": "light/390: 页面无 console error",
@@ -273,7 +448,7 @@
     {
       "name": "tooltip: 不超出地图卡左右边界",
       "ok": true,
-      "detail": "{\"tip\":{\"x\":754.90625,\"y\":619,\"width\":218.1875,\"height\":72,\"top\":619,\"right\":973.09375,\"bottom\":691,\"left\":754.90625},\"card\":{\"x\":264,\"y\":460.765625,\"width\":1152,\"height\":517.59375,\"top\":460.765625,\"right\":1416,\"bottom\":978.359375,\"left\":264}}"
+      "detail": "{\"tip\":{\"x\":762.90625,\"y\":611,\"width\":218.1875,\"height\":72,\"top\":611,\"right\":981.09375,\"bottom\":683,\"left\":762.90625},\"card\":{\"x\":264,\"y\":460.765625,\"width\":1152,\"height\":510.453125,\"top\":460.765625,\"right\":1416,\"bottom\":971.21875,\"left\":264}}"
     },
     {
       "name": "键盘 Enter: URL = /servers?country=DE",
@@ -301,9 +476,14 @@
       "detail": "{\"url\":\"/servers?country=JP\",\"chip\":\"🇯🇵地区 JP\",\"rows\":5}"
     },
     {
-      "name": "香港（50m 补全）：地图路径存在且可聚焦",
+      "name": "香港 / 新加坡（50m 补全）：路径存在且可聚焦",
       "ok": true,
-      "detail": "{\"exists\":true,\"role\":\"button\",\"tabIndex\":\"0\",\"tier\":\"0\",\"aria\":\"香港：1 台节点，在线 0，离线 1，异常 0，查看服务器\",\"d\":353}"
+      "detail": "{\"HK\":{\"path\":true,\"role\":\"button\",\"tabIndex\":\"0\",\"tier\":\"0\",\"aria\":\"香港：1 台节点，在线 1，离线 0，异常 0，查看服务器\",\"dLength\":353,\"marker\":true,\"fillClass\":\"stroke-card fill-primary\",\"radius\":3,\"dotWidth\":6,\"label\":null,\"labelFont\":null,\"labelLeft\":null,\"dotRight\":1198.14794921875},\"SG\":{\"path\":true,\"role\":\"button\",\"tabIndex\":\"0\",\"tier\":\"1\",\"aria\":\"新加坡：2 台节点，在线 2，离线 0，异常 0，查看服务器\",\"dLength\":93,\"marker\":true,\"fillClass\":\"stroke-card fill-primary\",\"radius\":3.9999999999999996,\"dotWidth\":7.9998779296875,\"label\":\"2\",\"labelFont\":12.000016,\"labelLeft\":1171.00439453125,\"dotRight\":1167.00439453125}}"
+    },
+    {
+      "name": "小地区圆点：HK r=3px、SG r=4px + N=2 标签，均可见",
+      "ok": true,
+      "detail": "{\"HK\":{\"path\":true,\"role\":\"button\",\"tabIndex\":\"0\",\"tier\":\"0\",\"aria\":\"香港：1 台节点，在线 1，离线 0，异常 0，查看服务器\",\"dLength\":353,\"marker\":true,\"fillClass\":\"stroke-card fill-primary\",\"radius\":3,\"dotWidth\":6,\"label\":null,\"labelFont\":null,\"labelLeft\":null,\"dotRight\":1198.14794921875},\"SG\":{\"path\":true,\"role\":\"button\",\"tabIndex\":\"0\",\"tier\":\"1\",\"aria\":\"新加坡：2 台节点，在线 2，离线 0，异常 0，查看服务器\",\"dLength\":93,\"marker\":true,\"fillClass\":\"stroke-card fill-primary\",\"radius\":3.9999999999999996,\"dotWidth\":7.9998779296875,\"label\":\"2\",\"labelFont\":12.000016,\"labelLeft\":1171.00439453125,\"dotRight\":1167.00439453125}}"
     },
     {
       "name": "香港：Enter 跳 /servers?country=HK，chip 与过滤行正确",
@@ -311,9 +491,24 @@
       "detail": "{\"url\":\"/servers?country=HK\",\"chip\":\"🇭🇰地区 HK\",\"rows\":1}"
     },
     {
+      "name": "390 small regions: 390 / 视口无横向溢出",
+      "ok": true,
+      "detail": "{\"viewport\":390,\"docScroll\":390,\"bodyScroll\":390,\"mainClient\":390,\"mainScroll\":390}"
+    },
+    {
+      "name": "390 小地区：HK / SG 圆点仍为 3 / 4px 且可见",
+      "ok": true,
+      "detail": "{\"HK\":{\"radius\":3,\"width\":5.9996337890625,\"label\":null},\"SG\":{\"radius\":4.000000000000001,\"width\":7.99951171875,\"label\":\"2\"}}"
+    },
+    {
+      "name": "390 点击 SG 圆点：跳 /servers?country=SG，两台都在列表里",
+      "ok": true,
+      "detail": "{\"url\":\"/servers?country=SG\",\"chip\":\"🇸🇬地区 SG\",\"first\":true,\"second\":true,\"empty\":false}"
+    },
+    {
       "name": "390 tooltip: 文案完整且不超出卡片 / 视口",
       "ok": true,
-      "detail": "{\"tip\":{\"x\":94.90625,\"y\":669,\"width\":218.1875,\"height\":72,\"top\":669,\"right\":313.09375,\"bottom\":741,\"left\":94.90625},\"card\":{\"x\":24,\"y\":568.921875,\"width\":342,\"height\":274.59375,\"top\":568.921875,\"right\":366,\"bottom\":843.515625,\"left\":24},\"viewport\":390}"
+      "detail": "{\"tip\":{\"x\":94.90625,\"y\":703,\"width\":218.1875,\"height\":72,\"top\":703,\"right\":313.09375,\"bottom\":775,\"left\":94.90625},\"card\":{\"x\":24,\"y\":612.921875,\"width\":342,\"height\":230.96875,\"top\":612.921875,\"right\":366,\"bottom\":843.890625,\"left\":24},\"viewport\":390}"
     },
     {
       "name": "服务器页地区空态：标题 + 清除按钮 + chip",
@@ -328,12 +523,12 @@
     {
       "name": "dark/1440: 空态仍显示地图，图例注明暂无节点",
       "ok": true,
-      "detail": "{\"legend\":\"无节点1 台2–3 台4–6 台7+ 台暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
+      "detail": "{\"legend\":\"1 台2–3 台4–6 台7+ 台离线异常暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
     },
     {
       "name": "dark/390: 空态仍显示地图，图例注明暂无节点",
       "ok": true,
-      "detail": "{\"legend\":\"无节点1 台2–3 台4–6 台7+ 台暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
+      "detail": "{\"legend\":\"1 台2–3 台4–6 台7+ 台离线异常暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
     },
     {
       "name": "dark/390 empty: 390 / 视口无横向溢出",
@@ -343,14 +538,973 @@
     {
       "name": "light/1440: 空态仍显示地图，图例注明暂无节点",
       "ok": true,
-      "detail": "{\"legend\":\"无节点1 台2–3 台4–6 台7+ 台暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
+      "detail": "{\"legend\":\"1 台2–3 台4–6 台7+ 台离线异常暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
     },
     {
-      "name": "worldMapPaths.json ≤150KB",
+      "name": "light/390: 空态仍显示地图，图例注明暂无节点",
       "ok": true,
-      "detail": "126988 bytes"
+      "detail": "{\"legend\":\"1 台2–3 台4–6 台7+ 台离线异常暂无节点\",\"hasEmpty\":true,\"nodeCountries\":0,\"map\":true}"
+    },
+    {
+      "name": "light/390 empty: 390 / 视口无横向溢出",
+      "ok": true,
+      "detail": "{\"viewport\":390,\"docScroll\":390,\"bodyScroll\":390,\"mainClient\":390,\"mainScroll\":390}"
+    },
+    {
+      "name": "对比图 dark: 改前 / 改后并排生成",
+      "ok": true,
+      "detail": "365px"
+    },
+    {
+      "name": "对比图 light: 改前 / 改后并排生成",
+      "ok": true,
+      "detail": "365px"
+    },
+    {
+      "name": "worldMapPaths.json ≤170KB",
+      "ok": true,
+      "detail": "132487 bytes"
     }
   ],
   "errors": [],
+  "metrics": {
+    "dark-1440": {
+      "pathCount": 234,
+      "nodeCountries": 8,
+      "card": {
+        "width": 1152,
+        "height": 510.453125,
+        "top": 468.765625,
+        "bottom": 979.21875,
+        "right": 1416
+      },
+      "svg": {
+        "width": 1120,
+        "height": 416.859375,
+        "top": 522.359375,
+        "bottom": 939.21875
+      },
+      "gaps": {
+        "top": 53.59375,
+        "bottom": 40,
+        "svgInsetTop": 0,
+        "svgInsetBottom": 0
+      },
+      "markers": {
+        "AU": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 2.6785714285714284,
+          "screenRadius": 3,
+          "dotWidth": 6,
+          "dotRight": 1261.09130859375,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "BR": {
+          "exists": true,
+          "fillClass": "stroke-card fill-warning",
+          "fill": "oklch(0.82 0.16 80)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 2.6785714285714284,
+          "screenRadius": 3,
+          "dotWidth": 5.99993896484375,
+          "dotRight": 677.913818359375,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "CA": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 2.6785714285714284,
+          "screenRadius": 3,
+          "dotWidth": 6,
+          "dotRight": 527.051513671875,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "DE": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 3.571428571428571,
+          "screenRadius": 4,
+          "dotWidth": 7.99993896484375,
+          "dotRight": 876.0316162109375,
+          "label": "3",
+          "labelFont": 12.000016,
+          "labelLeft": 880.031494140625,
+          "labelRight": 887.531494140625,
+          "labelTop": 598.0224609375,
+          "labelBottom": 614.0224609375
+        },
+        "FR": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 3.571428571428571,
+          "screenRadius": 4,
+          "dotWidth": 7.9998779296875,
+          "dotRight": 851.2798461914062,
+          "label": "2",
+          "labelFont": 12.000016,
+          "labelLeft": 855.2798461914062,
+          "labelRight": 862.8423461914062,
+          "labelTop": 612.0222778320312,
+          "labelBottom": 628.0222778320312
+        },
+        "GB": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 2.6785714285714284,
+          "screenRadius": 3,
+          "dotWidth": 5.99993896484375,
+          "dotRight": 834.7120971679688,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "JP": {
+          "exists": true,
+          "fillClass": "stroke-card fill-warning",
+          "fill": "oklch(0.82 0.16 80)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 4.4642857142857135,
+          "screenRadius": 5,
+          "dotWidth": 9.9998779296875,
+          "dotRight": 1270.8192138671875,
+          "label": "5",
+          "labelFont": 12.000016,
+          "labelLeft": 1274.819091796875,
+          "labelRight": 1282.506591796875,
+          "labelTop": 644.949951171875,
+          "labelBottom": 660.949951171875
+        },
+        "US": {
+          "exists": true,
+          "fillClass": "stroke-card fill-destructive",
+          "fill": "oklch(0.62 0.2 25)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 5.357142857142857,
+          "screenRadius": 6,
+          "dotWidth": 11.9998779296875,
+          "dotRight": 537.7793579101562,
+          "label": "8",
+          "labelFont": 12.000016,
+          "labelLeft": 541.779296875,
+          "labelRight": 549.263671875,
+          "labelTop": 634.1980590820312,
+          "labelBottom": 650.1980590820312
+        }
+      },
+      "legend": {
+        "text": "1 台2–3 台4–6 台7+ 台离线异常",
+        "fontSize": 12,
+        "width": 1120,
+        "height": 16,
+        "top": 947.21875,
+        "right": 1400,
+        "bottom": 963.21875,
+        "tier0": {
+          "exists": true,
+          "text": "1 台",
+          "width": 10,
+          "height": 10
+        },
+        "tier3": {
+          "exists": true,
+          "text": "7+ 台",
+          "width": 10,
+          "height": 10
+        },
+        "offline": {
+          "exists": true,
+          "text": "离线",
+          "width": 10,
+          "height": 10
+        },
+        "abnormal": {
+          "exists": true,
+          "text": "异常",
+          "width": 10,
+          "height": 10
+        },
+        "belowMap": true
+      },
+      "contrast": {
+        "CA": {
+          "fill": "oklab(0.662 -0.0168454 -0.178206 / 0.2)",
+          "rgb": [
+            31,
+            41,
+            66
+          ],
+          "ratio": 1.315276387979632
+        },
+        "DE": {
+          "fill": "oklab(0.662 -0.0168454 -0.178206 / 0.35)",
+          "rgb": [
+            42,
+            59,
+            102
+          ],
+          "ratio": 1.7329771707718795
+        },
+        "JP": {
+          "fill": "oklab(0.662 -0.0168454 -0.178206 / 0.55)",
+          "rgb": [
+            57,
+            84,
+            149
+          ],
+          "ratio": 2.601494083682666
+        },
+        "US": {
+          "fill": "oklab(0.662 -0.0168454 -0.178206 / 0.8)",
+          "rgb": [
+            76,
+            115,
+            208
+          ],
+          "ratio": 4.2245032869508305
+        },
+        "NZ": {
+          "fill": "oklab(0.7 0.00388229 -0.0144889 / 0.2)",
+          "rgb": [
+            43,
+            43,
+            49
+          ],
+          "ratio": 1.3501125848498317
+        }
+      }
+    },
+    "light-1440": {
+      "pathCount": 234,
+      "nodeCountries": 8,
+      "card": {
+        "width": 1152,
+        "height": 510.453125,
+        "top": 460.765625,
+        "bottom": 971.21875,
+        "right": 1416
+      },
+      "svg": {
+        "width": 1120,
+        "height": 416.859375,
+        "top": 514.359375,
+        "bottom": 931.21875
+      },
+      "gaps": {
+        "top": 53.59375,
+        "bottom": 40,
+        "svgInsetTop": 0,
+        "svgInsetBottom": 0
+      },
+      "markers": {
+        "AU": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 2.6785714285714284,
+          "screenRadius": 3,
+          "dotWidth": 6,
+          "dotRight": 1261.09130859375,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "BR": {
+          "exists": true,
+          "fillClass": "stroke-card fill-warning",
+          "fill": "oklch(0.53 0.146 49)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 2.6785714285714284,
+          "screenRadius": 3,
+          "dotWidth": 5.99993896484375,
+          "dotRight": 677.913818359375,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "CA": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 2.6785714285714284,
+          "screenRadius": 3,
+          "dotWidth": 6,
+          "dotRight": 527.051513671875,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "DE": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 3.571428571428571,
+          "screenRadius": 4,
+          "dotWidth": 7.99993896484375,
+          "dotRight": 876.0316162109375,
+          "label": "3",
+          "labelFont": 12.000016,
+          "labelLeft": 880.031494140625,
+          "labelRight": 887.531494140625,
+          "labelTop": 590.0224609375,
+          "labelBottom": 606.0224609375
+        },
+        "FR": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 3.571428571428571,
+          "screenRadius": 4,
+          "dotWidth": 7.9998779296875,
+          "dotRight": 851.2798461914062,
+          "label": "2",
+          "labelFont": 12.000016,
+          "labelLeft": 855.2798461914062,
+          "labelRight": 862.8423461914062,
+          "labelTop": 604.0222778320312,
+          "labelBottom": 620.0222778320312
+        },
+        "GB": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 2.6785714285714284,
+          "screenRadius": 3,
+          "dotWidth": 5.99993896484375,
+          "dotRight": 834.7120971679688,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "JP": {
+          "exists": true,
+          "fillClass": "stroke-card fill-warning",
+          "fill": "oklch(0.53 0.146 49)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 4.4642857142857135,
+          "screenRadius": 5,
+          "dotWidth": 9.9998779296875,
+          "dotRight": 1270.8192138671875,
+          "label": "5",
+          "labelFont": 12.000016,
+          "labelLeft": 1274.819091796875,
+          "labelRight": 1282.506591796875,
+          "labelTop": 636.949951171875,
+          "labelBottom": 652.949951171875
+        },
+        "US": {
+          "exists": true,
+          "fillClass": "stroke-card fill-destructive",
+          "fill": "oklch(0.57 0.208 25.3)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 5.357142857142857,
+          "screenRadius": 6,
+          "dotWidth": 11.9998779296875,
+          "dotRight": 537.7793579101562,
+          "label": "8",
+          "labelFont": 12.000016,
+          "labelLeft": 541.779296875,
+          "labelRight": 549.263671875,
+          "labelTop": 626.1980590820312,
+          "labelBottom": 642.1980590820312
+        }
+      },
+      "legend": {
+        "text": "1 台2–3 台4–6 台7+ 台离线异常",
+        "fontSize": 12,
+        "width": 1120,
+        "height": 16,
+        "top": 939.21875,
+        "right": 1400,
+        "bottom": 955.21875,
+        "tier0": {
+          "exists": true,
+          "text": "1 台",
+          "width": 10,
+          "height": 10
+        },
+        "tier3": {
+          "exists": true,
+          "text": "7+ 台",
+          "width": 10,
+          "height": 10
+        },
+        "offline": {
+          "exists": true,
+          "text": "离线",
+          "width": 10,
+          "height": 10
+        },
+        "abnormal": {
+          "exists": true,
+          "text": "异常",
+          "width": 10,
+          "height": 10
+        },
+        "belowMap": true
+      },
+      "contrast": {
+        "CA": {
+          "fill": "oklab(0.424 -0.0151355 -0.198424 / 0.2)",
+          "rgb": [
+            209,
+            216,
+            241
+          ],
+          "ratio": 1.4185754551163567
+        },
+        "DE": {
+          "fill": "oklab(0.424 -0.0151355 -0.198424 / 0.35)",
+          "rgb": [
+            175,
+            187,
+            230
+          ],
+          "ratio": 1.896409827114116
+        },
+        "JP": {
+          "fill": "oklab(0.424 -0.0151355 -0.198424 / 0.55)",
+          "rgb": [
+            129,
+            148,
+            216
+          ],
+          "ratio": 2.932567365470492
+        },
+        "US": {
+          "fill": "oklab(0.424 -0.0151355 -0.198424 / 0.8)",
+          "rgb": [
+            71,
+            99,
+            198
+          ],
+          "ratio": 5.42902468446334
+        },
+        "NZ": {
+          "fill": "oklab(0.52 -0.0029896 -0.0348721 / 0.2)",
+          "rgb": [
+            223,
+            225,
+            229
+          ],
+          "ratio": 1.309299654482713
+        }
+      }
+    },
+    "dark-390": {
+      "pathCount": 234,
+      "nodeCountries": 8,
+      "card": {
+        "width": 342,
+        "height": 230.96875,
+        "top": 795.921875,
+        "bottom": 1026.890625,
+        "right": 366
+      },
+      "svg": {
+        "width": 310,
+        "height": 115.375,
+        "top": 849.515625,
+        "bottom": 964.890625
+      },
+      "gaps": {
+        "top": 53.59375,
+        "bottom": 62,
+        "svgInsetTop": 0,
+        "svgInsetBottom": 0
+      },
+      "markers": {
+        "AU": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 9.67741935483871,
+          "screenRadius": 3,
+          "dotWidth": 5.9996337890625,
+          "dotRight": 313.7157897949219,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "BR": {
+          "exists": true,
+          "fillClass": "stroke-card fill-warning",
+          "fill": "oklch(0.82 0.16 80)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 9.67741935483871,
+          "screenRadius": 3,
+          "dotWidth": 5.9996337890625,
+          "dotRight": 152.30859375,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "CA": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 9.67741935483871,
+          "screenRadius": 3,
+          "dotWidth": 5.999641418457031,
+          "dotRight": 110.55413055419922,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "DE": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 12.903225806451614,
+          "screenRadius": 4,
+          "dotWidth": 7.99951171875,
+          "dotRight": 207.86521911621094,
+          "label": "3",
+          "labelFont": 12.000007,
+          "labelLeft": 211.864990234375,
+          "labelRight": 219.364990234375,
+          "labelTop": 864.6712036132812,
+          "labelBottom": 880.6712036132812
+        },
+        "FR": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 12.903225806451614,
+          "screenRadius": 4,
+          "dotWidth": 7.99951171875,
+          "dotRight": 201.01463317871094,
+          "label": "2",
+          "labelFont": 12.000007,
+          "labelLeft": 205.01438903808594,
+          "labelRight": 212.576904296875,
+          "labelTop": 885.5449829101562,
+          "labelBottom": 901.544921875
+        },
+        "GB": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.662 0.179 264.6)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 9.67741935483871,
+          "screenRadius": 3,
+          "dotWidth": 5.9996337890625,
+          "dotRight": 195.70594787597656,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "JP": {
+          "exists": true,
+          "fillClass": "stroke-card fill-warning",
+          "fill": "oklch(0.82 0.16 80)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 16.129032258064516,
+          "screenRadius": 5,
+          "dotWidth": 9.9993896484375,
+          "dotRight": 317.85455322265625,
+          "label": "5",
+          "labelFont": 12.000007,
+          "labelLeft": 321.85430908203125,
+          "labelRight": 329.54180908203125,
+          "labelTop": 877.659423828125,
+          "labelBottom": 893.659423828125
+        },
+        "US": {
+          "exists": true,
+          "fillClass": "stroke-card fill-destructive",
+          "fill": "oklch(0.62 0.2 25)",
+          "stroke": "oklch(0.175 0.005 285)",
+          "radius": 19.35483870967742,
+          "screenRadius": 6,
+          "dotWidth": 11.999275207519531,
+          "dotRight": 115.69281768798828,
+          "label": "8",
+          "labelFont": 12.000007,
+          "labelLeft": 119.69257354736328,
+          "labelRight": 127.17695617675781,
+          "labelTop": 874.68359375,
+          "labelBottom": 890.68359375
+        }
+      },
+      "legend": {
+        "text": "1 台2–3 台4–6 台7+ 台离线异常",
+        "fontSize": 12,
+        "width": 310,
+        "height": 38,
+        "top": 972.890625,
+        "right": 350,
+        "bottom": 1010.890625,
+        "tier0": {
+          "exists": true,
+          "text": "1 台",
+          "width": 10,
+          "height": 10
+        },
+        "tier3": {
+          "exists": true,
+          "text": "7+ 台",
+          "width": 10,
+          "height": 10
+        },
+        "offline": {
+          "exists": true,
+          "text": "离线",
+          "width": 10,
+          "height": 10
+        },
+        "abnormal": {
+          "exists": true,
+          "text": "异常",
+          "width": 10,
+          "height": 10
+        },
+        "belowMap": true
+      },
+      "contrast": {
+        "CA": {
+          "fill": "oklab(0.662 -0.0168454 -0.178206 / 0.2)",
+          "rgb": [
+            31,
+            41,
+            66
+          ],
+          "ratio": 1.315276387979632
+        },
+        "DE": {
+          "fill": "oklab(0.662 -0.0168454 -0.178206 / 0.35)",
+          "rgb": [
+            42,
+            59,
+            102
+          ],
+          "ratio": 1.7329771707718795
+        },
+        "JP": {
+          "fill": "oklab(0.662 -0.0168454 -0.178206 / 0.55)",
+          "rgb": [
+            57,
+            84,
+            149
+          ],
+          "ratio": 2.601494083682666
+        },
+        "US": {
+          "fill": "oklab(0.662 -0.0168454 -0.178206 / 0.8)",
+          "rgb": [
+            76,
+            115,
+            208
+          ],
+          "ratio": 4.2245032869508305
+        },
+        "NZ": {
+          "fill": "oklab(0.7 0.00388229 -0.0144889 / 0.2)",
+          "rgb": [
+            43,
+            43,
+            49
+          ],
+          "ratio": 1.3501125848498317
+        }
+      }
+    },
+    "light-390": {
+      "pathCount": 234,
+      "nodeCountries": 8,
+      "card": {
+        "width": 342,
+        "height": 230.96875,
+        "top": 795.921875,
+        "bottom": 1026.890625,
+        "right": 366
+      },
+      "svg": {
+        "width": 310,
+        "height": 115.375,
+        "top": 849.515625,
+        "bottom": 964.890625
+      },
+      "gaps": {
+        "top": 53.59375,
+        "bottom": 62,
+        "svgInsetTop": 0,
+        "svgInsetBottom": 0
+      },
+      "markers": {
+        "AU": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 9.67741935483871,
+          "screenRadius": 3,
+          "dotWidth": 5.9996337890625,
+          "dotRight": 313.7157897949219,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "BR": {
+          "exists": true,
+          "fillClass": "stroke-card fill-warning",
+          "fill": "oklch(0.53 0.146 49)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 9.67741935483871,
+          "screenRadius": 3,
+          "dotWidth": 5.9996337890625,
+          "dotRight": 152.30859375,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "CA": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 9.67741935483871,
+          "screenRadius": 3,
+          "dotWidth": 5.999641418457031,
+          "dotRight": 110.55413055419922,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "DE": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 12.903225806451614,
+          "screenRadius": 4,
+          "dotWidth": 7.99951171875,
+          "dotRight": 207.86521911621094,
+          "label": "3",
+          "labelFont": 12.000007,
+          "labelLeft": 211.864990234375,
+          "labelRight": 219.364990234375,
+          "labelTop": 864.6712036132812,
+          "labelBottom": 880.6712036132812
+        },
+        "FR": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 12.903225806451614,
+          "screenRadius": 4,
+          "dotWidth": 7.99951171875,
+          "dotRight": 201.01463317871094,
+          "label": "2",
+          "labelFont": 12.000007,
+          "labelLeft": 205.01438903808594,
+          "labelRight": 212.576904296875,
+          "labelTop": 885.5449829101562,
+          "labelBottom": 901.544921875
+        },
+        "GB": {
+          "exists": true,
+          "fillClass": "stroke-card fill-primary",
+          "fill": "oklch(0.424 0.199 265.638)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 9.67741935483871,
+          "screenRadius": 3,
+          "dotWidth": 5.9996337890625,
+          "dotRight": 195.70594787597656,
+          "label": null,
+          "labelFont": null,
+          "labelLeft": null,
+          "labelRight": null,
+          "labelTop": null,
+          "labelBottom": null
+        },
+        "JP": {
+          "exists": true,
+          "fillClass": "stroke-card fill-warning",
+          "fill": "oklch(0.53 0.146 49)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 16.129032258064516,
+          "screenRadius": 5,
+          "dotWidth": 9.9993896484375,
+          "dotRight": 317.85455322265625,
+          "label": "5",
+          "labelFont": 12.000007,
+          "labelLeft": 321.85430908203125,
+          "labelRight": 329.54180908203125,
+          "labelTop": 877.659423828125,
+          "labelBottom": 893.659423828125
+        },
+        "US": {
+          "exists": true,
+          "fillClass": "stroke-card fill-destructive",
+          "fill": "oklch(0.57 0.208 25.3)",
+          "stroke": "oklch(1 0 0)",
+          "radius": 19.35483870967742,
+          "screenRadius": 6,
+          "dotWidth": 11.999275207519531,
+          "dotRight": 115.69281768798828,
+          "label": "8",
+          "labelFont": 12.000007,
+          "labelLeft": 119.69257354736328,
+          "labelRight": 127.17695617675781,
+          "labelTop": 874.68359375,
+          "labelBottom": 890.68359375
+        }
+      },
+      "legend": {
+        "text": "1 台2–3 台4–6 台7+ 台离线异常",
+        "fontSize": 12,
+        "width": 310,
+        "height": 38,
+        "top": 972.890625,
+        "right": 350,
+        "bottom": 1010.890625,
+        "tier0": {
+          "exists": true,
+          "text": "1 台",
+          "width": 10,
+          "height": 10
+        },
+        "tier3": {
+          "exists": true,
+          "text": "7+ 台",
+          "width": 10,
+          "height": 10
+        },
+        "offline": {
+          "exists": true,
+          "text": "离线",
+          "width": 10,
+          "height": 10
+        },
+        "abnormal": {
+          "exists": true,
+          "text": "异常",
+          "width": 10,
+          "height": 10
+        },
+        "belowMap": true
+      },
+      "contrast": {
+        "CA": {
+          "fill": "oklab(0.424 -0.0151355 -0.198424 / 0.2)",
+          "rgb": [
+            209,
+            216,
+            241
+          ],
+          "ratio": 1.4185754551163567
+        },
+        "DE": {
+          "fill": "oklab(0.424 -0.0151355 -0.198424 / 0.35)",
+          "rgb": [
+            175,
+            187,
+            230
+          ],
+          "ratio": 1.896409827114116
+        },
+        "JP": {
+          "fill": "oklab(0.424 -0.0151355 -0.198424 / 0.55)",
+          "rgb": [
+            129,
+            148,
+            216
+          ],
+          "ratio": 2.932567365470492
+        },
+        "US": {
+          "fill": "oklab(0.424 -0.0151355 -0.198424 / 0.8)",
+          "rgb": [
+            71,
+            99,
+            198
+          ],
+          "ratio": 5.42902468446334
+        },
+        "NZ": {
+          "fill": "oklab(0.52 -0.0029896 -0.0348721 / 0.2)",
+          "rgb": [
+            223,
+            225,
+            229
+          ],
+          "ratio": 1.309299654482713
+        }
+      }
+    },
+    "jsonBytes": 132487
+  },
   "ok": true
 }

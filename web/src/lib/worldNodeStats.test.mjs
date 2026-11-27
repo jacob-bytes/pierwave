@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  WORLD_NODE_MARKER_RADII,
+  worldNodeMarkerRadius,
   worldNodeStats,
   worldNodeStatus,
   worldNodeTier,
@@ -44,6 +46,14 @@ test("档位边界：1 / 2–3 / 4–6 / 7+", () => {
   assert.equal(worldNodeTier(6), 2);
   assert.equal(worldNodeTier(7), 3);
   assert.equal(worldNodeTier(99), 3);
+});
+
+test("地图圆点半径：四档 3 / 4 / 5 / 6px，越小的地区也至少 3px", () => {
+  assert.deepEqual(WORLD_NODE_MARKER_RADII, [3, 4, 5, 6]);
+  assert.deepEqual(
+    [0, 1, 2, 3].map((tier) => worldNodeMarkerRadius(tier)),
+    [3, 4, 5, 6],
+  );
 });
 
 test("多台同国：在线 / 离线 / 异常分别计数，最差状态优先 offline", () => {

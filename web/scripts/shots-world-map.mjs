@@ -4,33 +4,43 @@
 // 用法：node web/scripts/shots-world-map.mjs
 //
 // 覆盖：资源状态视图里的位置（KPI 与「服务器 × 时间」之间）、1440/390 × 亮暗、
-// 着色档位、offline / abnormal 描边、图例、tooltip、鼠标点击与键盘 Enter 跳
+// 四档填充、质心圆点（3/4/5/6px、离线 / 降级状态色、N 标签）、hover / 聚焦、
+// 图例、tooltip、小地区 HK / SG 可见且可点、鼠标点击与键盘 Enter 跳
 // `/servers?country=`、服务器页地区 chip / 过滤 / 空态、地图空态、390 无横向
-// 溢出、JSON ≤150KB。
+// 溢出、地图上下留白、四档对海洋的对比度、JSON 体积。
 import assert from "node:assert/strict";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import { extname, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SCRIPT = fileURLToPath(import.meta.url);
 const WEB = fileURLToPath(new URL("..", import.meta.url));
 const ROOT = resolve(WEB, "..");
-const DIST = resolve(WEB, "dist");
+const BUILD_DIST = resolve(WEB, "dist");
+/** 运行期用 dist 的快照，避免并行 lane 重新 build 时把静态资源换掉。 */
+let DIST = BUILD_DIST;
 const OUT = resolve(WEB, "screenshots/world-map");
+const BEFORE = resolve(OUT, "before");
 const CHROME =
   process.env.CHROME_PATH ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const MAP_JSON = resolve(WEB, "src/lib/worldMapPaths.json");
 const MAP_KEYS = Object.keys(JSON.parse(readFileSync(MAP_JSON, "utf8")));
+/** 完整投影坐标系宽度；组件把 viewBox 纵向裁到 lat +78°..-56°。 */
+const VIEW_WIDTH = 1000;
 const HOUR = 3600;
 const NOW = Math.floor(Date.now() / 1000);
 const END = Math.floor(NOW / HOUR) * HOUR;
@@ -106,6 +116,7 @@ function buildServers({
   emptyNodes = false,
   emptyCountry = null,
   onlyCountry = null,
+  smallRegions = false,
 } = {}) {
   const items = [];
   let index = 0;
@@ -150,6 +161,18 @@ function buildServers({
         billing_cycle_unit: null,
       });
     }
+  }
+  if (smallRegions) {
+    // HK / SG 在 110m 里没有轮廓，由 50m 补齐；给 SG 两台，顺带验证 N 标签。
+    const base =
+      items.find((server) => server.status === "online") ?? items[0];
+    return base
+      ? [
+          { ...base, id: "srv-hk", name: "香港-01", country_code: "HK" },
+          { ...base, id: "srv-sg-1", name: "新加坡-01", country_code: "SG" },
+          { ...base, id: "srv-sg-2", name: "新加坡-02", country_code: "SG" },
+        ]
+      : [];
   }
   if (onlyCountry) {
     // 用一台服务器演示指定地区（HK 不在 110m 轮廓里，由 50m 补齐）。
@@ -337,6 +360,32 @@ function handleApi(route, scenario) {
   return json(route, { error: "not found", code: "not_found" }, 404);
 }
 
+/**
+ * 复制一份 `web/dist` 快照再起静态服务器。并行 lane 可能在同一时刻 rebuild，
+ * 直接服务 dist 会偶发 404 / 页面半截（截图脚本会 timeout）。
+ */
+async function snapshotDist() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const directory = mkdtempSync(resolve(tmpdir(), "pierwave-world-map-"));
+    try {
+      cpSync(BUILD_DIST, directory, { recursive: true });
+      const html = readFileSync(resolve(directory, "index.html"), "utf8");
+      const assets = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+        .map((match) => match[1])
+        .filter((url) => url.startsWith("/assets/"))
+        .map((url) => resolve(directory, url.slice(1)));
+      if (assets.length > 0 && assets.every((file) => existsSync(file))) {
+        return directory;
+      }
+    } catch {
+      // build 正在写 dist；等下一轮再试。
+    }
+    rmSync(directory, { recursive: true, force: true });
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+  }
+  throw new Error("web/dist looks incomplete; run npm run build first");
+}
+
 function startStaticServer() {
   const prefix = DIST.endsWith(sep) ? DIST : `${DIST}${sep}`;
   const server = createServer(async (request, response) => {
@@ -380,6 +429,7 @@ const report = {
   shots: [],
   checks: [],
   errors: [],
+  metrics: {},
 };
 
 function check(name, condition, detail) {
@@ -468,6 +518,292 @@ async function captureCard(page, name) {
   return file;
 }
 
+/**
+ * 地图卡的渲染度量：路径 / 档位 / 质心圆点 / 图例 / 留白。
+ * 圆点半径与文字按屏幕像素记录（SVG 用 viewBox 单位，需乘 scale）。
+ */
+async function mapMetrics(page) {
+  return page.evaluate((viewWidth) => {
+    const cardEl = document.querySelector("[data-world-map]");
+    const svg = document.querySelector("[data-world-map-svg]");
+    const legendEl = document.querySelector("[data-world-map-legend]");
+    const card = cardEl.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+    const legend = legendEl.getBoundingClientRect();
+    const paths = [
+      ...document.querySelectorAll("[data-world-map] [data-country]"),
+    ];
+    const scale = svgRect.width / viewWidth;
+
+    const marker = (code) => {
+      const group = document.querySelector(
+        `[data-world-map-marker="${code}"]`,
+      );
+      const dot = group?.querySelector("[data-world-map-dot]");
+      const label = group?.querySelector("[data-world-map-count]");
+      const dotRect = dot?.getBoundingClientRect();
+      const labelRect = label?.getBoundingClientRect();
+      const radius = dot ? Number(dot.getAttribute("r")) : null;
+      const font = label ? parseFloat(getComputedStyle(label).fontSize) : null;
+      return {
+        exists: Boolean(group),
+        fillClass: dot?.getAttribute("class") ?? "",
+        fill: dot ? getComputedStyle(dot).fill : null,
+        stroke: dot ? getComputedStyle(dot).stroke : null,
+        radius,
+        screenRadius: radius === null ? null : radius * scale,
+        dotWidth: dotRect?.width ?? null,
+        dotRight: dotRect?.right ?? null,
+        label: label?.textContent ?? null,
+        labelFont: font === null ? null : font * scale,
+        labelLeft: labelRect?.left ?? null,
+        labelRight: labelRect?.right ?? null,
+        labelTop: labelRect?.top ?? null,
+        labelBottom: labelRect?.bottom ?? null,
+      };
+    };
+
+    const markers = {};
+    for (const path of paths) {
+      const code = path.getAttribute("data-country");
+      if (path.getAttribute("data-tier") === "none") continue;
+      markers[code] = marker(code);
+    }
+
+    const pathByCountry = new Map(
+      paths.map((path) => [path.getAttribute("data-country"), path]),
+    );
+    const tier = (code) => pathByCountry.get(code)?.getAttribute("data-tier") ?? null;
+    const worst = (code) =>
+      pathByCountry.get(code)?.getAttribute("data-worst") ?? null;
+    const classes = (code) => pathByCountry.get(code)?.getAttribute("class") ?? "";
+    const fill = (code) =>
+      pathByCountry.get(code)
+        ? getComputedStyle(pathByCountry.get(code)).fill
+        : null;
+
+    let contentTop = Infinity;
+    let contentBottom = -Infinity;
+    for (const path of paths) {
+      const rect = path.getBoundingClientRect();
+      contentTop = Math.min(contentTop, Math.max(rect.top, svgRect.top));
+      contentBottom = Math.max(
+        contentBottom,
+        Math.min(rect.bottom, svgRect.bottom),
+      );
+    }
+
+    const legendItem = (selector) => {
+      const item = legendEl.querySelector(selector);
+      const swatch = item?.querySelector('[aria-hidden="true"]');
+      const rect = swatch?.getBoundingClientRect();
+      return {
+        exists: Boolean(item),
+        text: item?.textContent ?? null,
+        width: rect?.width ?? null,
+        height: rect?.height ?? null,
+      };
+    };
+
+    return {
+      pathCount: paths.length,
+      nodeCountries: paths.filter(
+        (path) => path.getAttribute("data-tier") !== "none",
+      ).length,
+      tiers: Object.fromEntries(
+        ["US", "JP", "DE", "FR", "CA"].map((code) => [code, tier(code)]),
+      ),
+      worst: Object.fromEntries(
+        ["US", "JP", "BR", "DE"].map((code) => [code, worst(code)]),
+      ),
+      fills: Object.fromEntries(
+        ["CA", "DE", "JP", "US", "NZ"].map((code) => [code, fill(code)]),
+      ),
+      classes: Object.fromEntries(
+        ["US", "JP", "DE", "FR", "CA"].map((code) => [code, classes(code)]),
+      ),
+      focusable: paths
+        .filter((path) => path.getAttribute("data-tier") !== "none")
+        .every((path) => path.getAttribute("tabindex") === "0"),
+      noNodeFocusable: paths
+        .filter((path) => path.getAttribute("data-tier") === "none")
+        .every((path) => !path.hasAttribute("tabindex")),
+      markers,
+      svg: {
+        width: svgRect.width,
+        height: svgRect.height,
+        top: svgRect.top,
+        bottom: svgRect.bottom,
+      },
+      card: {
+        width: card.width,
+        height: card.height,
+        top: card.top,
+        bottom: card.bottom,
+        right: card.right,
+      },
+      gaps: {
+        top: contentTop - card.top,
+        bottom: card.bottom - contentBottom,
+        svgInsetTop: contentTop - svgRect.top,
+        svgInsetBottom: svgRect.bottom - contentBottom,
+      },
+      legend: {
+        text: legendEl.textContent ?? "",
+        fontSize: parseFloat(getComputedStyle(legendEl).fontSize),
+        width: legend.width,
+        height: legend.height,
+        top: legend.top,
+        right: legend.right,
+        bottom: legend.bottom,
+        tier0: legendItem('[data-world-map-legend-tier="0"]'),
+        tier3: legendItem('[data-world-map-legend-tier="3"]'),
+        offline: legendItem("[data-world-map-legend-offline]"),
+        abnormal: legendItem("[data-world-map-legend-abnormal]"),
+        belowMap: legend.top >= svgRect.bottom - 1,
+      },
+      empty: Boolean(document.querySelector("[data-world-map-empty]")),
+    };
+  }, VIEW_WIDTH);
+}
+
+/**
+ * 四档填充对海洋（卡片底色）的对比度。用 1×1 canvas 先铺卡片色、再叠填充色，
+ * 直接读合成后的像素，避免在脚本里复刻 oklab / oklch 解析。
+ */
+async function measureContrast(page) {
+  return page.evaluate(() => {
+    const card = document.querySelector("[data-world-map]");
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) throw new Error("2d canvas unavailable");
+    const read = () => [...ctx.getImageData(0, 0, 1, 1).data];
+    const pixel = (color) => {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, 1, 1);
+      return read();
+    };
+    const over = (background, color) => {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, 1, 1);
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, 1, 1);
+      return read();
+    };
+    const luminance = ([r, g, b]) => {
+      const channel = (value) => {
+        const normalized = value / 255;
+        return normalized <= 0.04045
+          ? normalized / 12.92
+          : ((normalized + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+    };
+    const ratio = (a, b) => {
+      const first = luminance(a);
+      const second = luminance(b);
+      return (
+        (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05)
+      );
+    };
+
+    const cardColor = getComputedStyle(card).backgroundColor;
+    const cardPixel = pixel(cardColor);
+    const entries = {};
+    for (const code of ["CA", "DE", "JP", "US", "NZ"]) {
+      const path = document.querySelector(`[data-country="${code}"]`);
+      const fill = getComputedStyle(path).fill;
+      const composited = over(cardColor, fill);
+      entries[code] = {
+        fill,
+        rgb: composited.slice(0, 3),
+        ratio: ratio(composited, cardPixel),
+      };
+    }
+    return {
+      cardColor,
+      cardRgb: cardPixel.slice(0, 3),
+      entries,
+    };
+  });
+}
+
+/** 改前 / 改后并排对照图（1440 亮暗各一张）。 */
+async function captureCompare(browser) {
+  for (const theme of ["dark", "light"]) {
+    const beforeFile = resolve(
+      BEFORE,
+      `before-world-map-${theme}-1440.png`,
+    );
+    const afterFile = resolve(OUT, `world-map-${theme}-1440.png`);
+    if (!existsSync(beforeFile) || !existsSync(afterFile)) {
+      report.errors.push(`compare ${theme}: missing before/after image`);
+      continue;
+    }
+    const before = readFileSync(beforeFile).toString("base64");
+    const after = readFileSync(afterFile).toString("base64");
+    const background = theme === "dark" ? "#0b0b0d" : "#f4f5f7";
+    const foreground = theme === "dark" ? "#e7e7ea" : "#1c1d22";
+    const muted = theme === "dark" ? "#9b9ba3" : "#5c5d66";
+    const border = theme === "dark" ? "#2a2a2f" : "#e2e3e7";
+    const page = await browser.newPage({
+      viewport: { width: 1260, height: 700 },
+      deviceScaleFactor: 1,
+    });
+    await page.setContent(
+      `<!doctype html><html><head><meta charset="utf-8"></head>` +
+        `<body style="margin:0;background:${background};color:${foreground};` +
+        `font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Segoe UI',sans-serif">` +
+        `<main style="padding:24px 24px 20px">` +
+        `<p style="margin:0 0 12px;font-size:13px;color:${muted};letter-spacing:.02em">` +
+        `节点分布世界地图 · 1440 ${theme === "dark" ? "暗色 / Dark" : "亮色 / Light"}</p>` +
+        `<div style="display:flex;gap:24px;align-items:flex-start">` +
+        `<figure style="margin:0;flex:0 0 580px">` +
+        `<figcaption style="margin:0 0 8px;font-size:14px;font-weight:600">改前 / Before</figcaption>` +
+        `<img alt="before" src="data:image/png;base64,${before}" style="display:block;width:580px;border-radius:8px;border:1px solid ${border}">` +
+        `</figure>` +
+        `<figure style="margin:0;flex:0 0 580px">` +
+        `<figcaption style="margin:0 0 8px;font-size:14px;font-weight:600">改后 / After</figcaption>` +
+        `<img alt="after" src="data:image/png;base64,${after}" style="display:block;width:580px;border-radius:8px;border:1px solid ${border}">` +
+        `</figure></div></main></body></html>`,
+      { waitUntil: "load" },
+    );
+    // 等两张 data URI 图片真正 decode 完再量高度；否则会按未加载时的
+    // 高度截一张「首屏 + 滚动后首屏」的重复图。
+    await page.evaluate(() =>
+      Promise.all(
+        [...document.images].map((image) =>
+          image.decode().catch(() => undefined),
+        ),
+      ),
+    );
+    const height = await page.evaluate(() =>
+      Math.ceil(document.body.scrollHeight),
+    );
+    await page.setViewportSize({ width: 1260, height: Math.max(height, 200) });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(50);
+    const file = `compare-${theme}-1440.png`;
+    await page.screenshot({
+      path: resolve(OUT, file),
+      clip: { x: 0, y: 0, width: 1260, height },
+      animations: "disabled",
+    });
+    report.shots.push({ name: `compare-${theme}-1440`, file });
+    check(
+      `对比图 ${theme}: 改前 / 改后并排生成`,
+      height > 200,
+      `${height}px`,
+    );
+    await page.close();
+  }
+}
+
+DIST = await snapshotDist();
 const { server: staticServer, port } = await startStaticServer();
 const BASE = `http://127.0.0.1:${port}`;
 const browser = await chromium.launch({
@@ -514,63 +850,18 @@ try {
       JSON.stringify(layout),
     );
 
-    const map = await page.evaluate(() => {
-      const svg = document.querySelector("[data-world-map-svg]");
-      const paths = [...document.querySelectorAll("[data-world-map] [data-country]")];
-      const nodes = paths.filter((path) => path.getAttribute("data-tier") !== "none");
-      const tier = (code) => {
-        const path = paths.find((item) => item.getAttribute("data-country") === code);
-        return path?.getAttribute("data-tier") ?? null;
-      };
-      const cls = (code) => {
-        const path = paths.find((item) => item.getAttribute("data-country") === code);
-        return path?.getAttribute("class") ?? "";
-      };
-      const stroke = (code) => {
-        const path = paths.find((item) => item.getAttribute("data-country") === code);
-        return path ? getComputedStyle(path).stroke : null;
-      };
-      const fill = (code) => {
-        const path = paths.find((item) => item.getAttribute("data-country") === code);
-        return path ? getComputedStyle(path).fill : null;
-      };
-      const legend = document.querySelector("[data-world-map-legend]")?.textContent ?? "";
-      const box = document.querySelector("[data-world-map]")?.getBoundingClientRect();
-      return {
-        pathCount: paths.length,
-        nodeCountries: nodes.length,
-        tiers: {
-          US: tier("US"),
-          JP: tier("JP"),
-          DE: tier("DE"),
-          FR: tier("FR"),
-          CA: tier("CA"),
-        },
-        worst: {
-          US: document.querySelector('[data-country="US"]')?.getAttribute("data-worst"),
-          JP: document.querySelector('[data-country="JP"]')?.getAttribute("data-worst"),
-          BR: document.querySelector('[data-country="BR"]')?.getAttribute("data-worst"),
-          DE: document.querySelector('[data-country="DE"]')?.getAttribute("data-worst"),
-        },
-        classes: {
-          US: cls("US"),
-          JP: cls("JP"),
-          BR: cls("BR"),
-          DE: cls("DE"),
-          CA: cls("CA"),
-        },
-        strokes: { US: stroke("US"), JP: stroke("JP"), DE: stroke("DE") },
-        fills: { US: fill("US"), DE: fill("DE"), CA: fill("CA") },
-        legend,
-        width: box?.width ?? null,
-        height: box?.height ?? null,
-        svgBox: svg?.getBoundingClientRect(),
-        focusable: nodes.every((path) => path.getAttribute("tabindex") === "0"),
-        noNodeFocusable: paths
-          .filter((path) => path.getAttribute("data-tier") === "none")
-          .every((path) => !path.hasAttribute("tabindex")),
-      };
-    });
+    const map = await mapMetrics(page);
+    const contrast = await measureContrast(page);
+    report.metrics[`${theme}-${width}`] = {
+      pathCount: map.pathCount,
+      nodeCountries: map.nodeCountries,
+      card: map.card,
+      svg: map.svg,
+      gaps: map.gaps,
+      markers: map.markers,
+      legend: map.legend,
+      contrast: contrast.entries,
+    };
 
     check(
       `${theme}/${width}: 渲染全部国家路径（${MAP_KEYS.length}）`,
@@ -588,7 +879,7 @@ try {
       JSON.stringify(map.tiers),
     );
     check(
-      `${theme}/${width}: 描边 worst US=offline、JP/BR=abnormal、DE=online`,
+      `${theme}/${width}: 状态 worst US=offline、JP/BR=abnormal、DE=online`,
       map.worst.US === "offline" &&
         map.worst.JP === "abnormal" &&
         map.worst.BR === "abnormal" &&
@@ -596,32 +887,171 @@ try {
       JSON.stringify(map.worst),
     );
     check(
-      `${theme}/${width}: 离线 / 异常国家有描边色，在线没有`,
-      map.classes.US.includes("stroke-destructive") &&
-        map.classes.JP.includes("stroke-warning") &&
-        map.classes.BR.includes("stroke-warning") &&
-        !map.classes.DE.includes("stroke-destructive") &&
-        !map.classes.DE.includes("stroke-warning") &&
-        map.strokes.US !== map.strokes.DE &&
-        map.strokes.JP !== map.strokes.DE,
-      JSON.stringify(map.strokes),
+      `${theme}/${width}: 四档 fill 20/35/55/80 + primary/40 描边，无整国红 / 黄描边`,
+      map.classes.CA.includes("fill-primary/20") &&
+        map.classes.DE.includes("fill-primary/35") &&
+        map.classes.JP.includes("fill-primary/55") &&
+        map.classes.US.includes("fill-primary/80") &&
+        map.classes.US.includes("stroke-primary/40") &&
+        !map.classes.US.includes("stroke-destructive") &&
+        !map.classes.JP.includes("stroke-warning") &&
+        map.fills.US !== map.fills.DE &&
+        map.fills.DE !== map.fills.CA,
+      JSON.stringify({ fills: map.fills, classes: map.classes }),
+    );
+
+    const closeTo = (value, expected, tolerance = 0.25) =>
+      typeof value === "number" && Math.abs(value - expected) <= tolerance;
+    const fillAlpha = (value) => {
+      const match =
+        value.match(/\/\s*([0-9.]+)\)/) ??
+        value.match(/rgba\([^)]*,\s*([0-9.]+)\)/);
+      return match ? Number(match[1]) : 1;
+    };
+    const marker = (code) => map.markers[code];
+    check(
+      `${theme}/${width}: 质心圆点半径 6/5/4/3px 且圆点用卡片色描边`,
+      closeTo(marker("US")?.screenRadius, 6) &&
+        closeTo(marker("JP")?.screenRadius, 5) &&
+        closeTo(marker("DE")?.screenRadius, 4) &&
+        closeTo(marker("FR")?.screenRadius, 4) &&
+        closeTo(marker("CA")?.screenRadius, 3) &&
+        closeTo(marker("AU")?.screenRadius, 3) &&
+        Object.values(map.markers).every(
+          (item) => item?.exists && item.fillClass.includes("stroke-card"),
+        ),
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(map.markers).map(([code, item]) => [
+            code,
+            { radius: item?.screenRadius, fillClass: item?.fillClass },
+          ]),
+        ),
+      ),
     );
     check(
-      `${theme}/${width}: 有节点国家按台数加深（US 比 DE 深）`,
-      map.fills.US !== map.fills.DE && map.fills.DE !== map.fills.CA,
-      JSON.stringify(map.fills),
+      `${theme}/${width}: 离线 US 红点、降级 JP/BR 黄点、在线 primary`,
+      marker("US")?.fillClass.includes("fill-destructive") &&
+        marker("JP")?.fillClass.includes("fill-warning") &&
+        marker("BR")?.fillClass.includes("fill-warning") &&
+        marker("DE")?.fillClass.includes("fill-primary") &&
+        marker("CA")?.fillClass.includes("fill-primary"),
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(map.markers).map(([code, item]) => [
+            code,
+            item?.fillClass,
+          ]),
+        ),
+      ),
     );
     check(
-      `${theme}/${width}: 图例包含无节点 / 4 档 / 离线 / 异常`,
-      map.legend.includes("无节点") &&
-        map.legend.includes("1 台") &&
-        map.legend.includes("2–3 台") &&
-        map.legend.includes("4–6 台") &&
-        map.legend.includes("7+ 台") &&
-        map.legend.includes("离线") &&
-        map.legend.includes("异常"),
-      map.legend,
+      `${theme}/${width}: ≥2 台国家在圆点右侧显示 12px N 标签`,
+      marker("US")?.label === "8" &&
+        marker("JP")?.label === "5" &&
+        marker("DE")?.label === "3" &&
+        marker("FR")?.label === "2" &&
+        marker("CA")?.label === null &&
+        Object.values(map.markers)
+          .filter((item) => item?.label !== null)
+          .every(
+            (item) =>
+              closeTo(item.labelFont, 12, 0.4) &&
+              item.labelLeft >= item.dotRight - 1,
+          ),
+      JSON.stringify(
+        Object.fromEntries(
+          Object.entries(map.markers).map(([code, item]) => [
+            code,
+            {
+              label: item?.label,
+              font: item?.labelFont,
+              dotRight: item?.dotRight,
+              labelLeft: item?.labelLeft,
+            },
+          ]),
+        ),
+      ),
     );
+    const labeledMarkers = Object.values(map.markers).filter(
+      (item) => item?.label !== null,
+    );
+    const labelsOverlap = labeledMarkers.some((first, index) =>
+      labeledMarkers.slice(index + 1).some(
+        (second) =>
+          first.labelLeft < second.labelRight &&
+          second.labelLeft < first.labelRight &&
+          first.labelTop < second.labelBottom &&
+          second.labelTop < first.labelBottom,
+      ),
+    );
+    check(
+      `${theme}/${width}: 相邻国家的 N 标签互不重叠`,
+      !labelsOverlap,
+      JSON.stringify(
+        Object.fromEntries(
+          labeledMarkers.map((item) => [
+            `${item.labelLeft},${item.labelTop}`,
+            item.label,
+          ]),
+        ),
+      ),
+    );
+    check(
+      `${theme}/${width}: 图例在卡片底部右侧、12px、10×10、四档 + 离线/异常`,
+      map.legend.text.includes("1 台") &&
+        map.legend.text.includes("2–3 台") &&
+        map.legend.text.includes("4–6 台") &&
+        map.legend.text.includes("7+ 台") &&
+        map.legend.text.includes("离线") &&
+        map.legend.text.includes("异常") &&
+        map.legend.fontSize === 12 &&
+        map.legend.belowMap &&
+        map.legend.right <= map.card.right + 1 &&
+        map.legend.bottom <= map.card.bottom + 1 &&
+        [map.legend.tier0, map.legend.tier3].every(
+          (item) => closeTo(item.width, 10) && closeTo(item.height, 10),
+        ) &&
+        map.legend.offline.exists &&
+        map.legend.abnormal.exists &&
+        (width !== 1440 || map.legend.height <= 20),
+      JSON.stringify(map.legend),
+    );
+    check(
+      `${theme}/${width}: 地图内容贴住裁切后的上下边（无额外海洋留白）`,
+      map.gaps.svgInsetTop <= 0.15 * map.card.height &&
+        map.gaps.svgInsetBottom <= 0.15 * map.card.height,
+      JSON.stringify(map.gaps),
+    );
+    if (width === 1440) {
+      check(
+        `${theme}/1440: 地图上下留白 ≤ 卡片高度 15%`,
+        map.gaps.top <= 0.15 * map.card.height &&
+          map.gaps.bottom <= 0.15 * map.card.height,
+        JSON.stringify({
+          cardHeight: map.card.height,
+          top: map.gaps.top,
+          bottom: map.gaps.bottom,
+          topRatio: map.gaps.top / map.card.height,
+          bottomRatio: map.gaps.bottom / map.card.height,
+        }),
+      );
+    }
+    if (theme === "light" && width === 1440) {
+      const entries = contrast.entries;
+      check(
+        "亮色 1440: 四档填充对海洋对比度递增且每档可区分",
+        entries.CA.ratio < entries.DE.ratio &&
+          entries.DE.ratio < entries.JP.ratio &&
+          entries.JP.ratio < entries.US.ratio &&
+          entries.CA.ratio >= 1.35 &&
+          entries.DE.ratio >= 1.8 &&
+          entries.JP.ratio >= 2.7 &&
+          entries.US.ratio >= 5 &&
+          entries.NZ.ratio >= 1.2,
+        JSON.stringify(entries),
+      );
+    }
     check(
       `${theme}/${width}: 有节点国家可聚焦、无节点国家不可聚焦`,
       map.focusable && map.noNodeFocusable,
@@ -634,6 +1064,59 @@ try {
       await capture(page, "overview-map-dark-1440");
     }
     await captureCard(page, `world-map-${theme}-${width}`);
+
+    // hover：fill 提亮一档 + 1.5px primary 描边 + tooltip 不变。
+    const de = page.locator('[data-country="DE"]');
+    const base = await de.evaluate((element) => ({
+      fill: getComputedStyle(element).fill,
+      strokeWidth: getComputedStyle(element).strokeWidth,
+    }));
+    await de.hover({ force: true });
+    await page.waitForSelector("[data-world-map-tooltip]", { timeout: 5_000 });
+    await page.waitForTimeout(300);
+    const hover = await page.evaluate(() => {
+      const path = document.querySelector('[data-country="DE"]');
+      return {
+        fill: getComputedStyle(path).fill,
+        strokeWidth: getComputedStyle(path).strokeWidth,
+        tip: document.querySelector("[data-world-map-tooltip]")?.textContent ?? "",
+      };
+    });
+    check(
+      `${theme}/${width}: hover 提亮一档 + 1.5px 描边 + tooltip`,
+      fillAlpha(hover.fill) > fillAlpha(base.fill) + 0.1 &&
+        base.strokeWidth === "0.5px" &&
+        hover.strokeWidth === "1.5px" &&
+        hover.tip.includes("德国"),
+      JSON.stringify({ base, hover }),
+    );
+    await captureCard(page, `world-map-hover-${theme}-${width}`);
+
+    // 键盘聚焦：同 hover 的提亮 + focus ring。
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(80);
+    await de.focus();
+    await page.waitForTimeout(350);
+    const focus = await page.evaluate(() => {
+      const path = document.querySelector('[data-country="DE"]');
+      return {
+        fill: getComputedStyle(path).fill,
+        strokeWidth: getComputedStyle(path).strokeWidth,
+        ring: Boolean(document.querySelector("[data-world-map-focus-ring]")),
+        tip: document.querySelector("[data-world-map-tooltip]")?.textContent ?? "",
+      };
+    });
+    check(
+      `${theme}/${width}: 键盘聚焦有提亮 + 1.5px 描边 + focus ring`,
+      Math.abs(fillAlpha(focus.fill) - fillAlpha(hover.fill)) <= 0.02 &&
+        focus.strokeWidth === "1.5px" &&
+        focus.ring &&
+        focus.tip.includes("德国"),
+      JSON.stringify(focus),
+    );
+    if (width === 1440 && theme === "dark") {
+      await captureCard(page, "world-map-focus-1440");
+    }
     check(
       `${theme}/${width}: 页面无 console error`,
       consoleErrors.length === 0,
@@ -792,7 +1275,7 @@ try {
     await page.close();
   }
 
-  // ---- 4. 香港：110m 没有轮廓，由 50m 补齐后仍可点击 ----------------
+  // ---- 4. 小地区 HK / SG：50m 补全 + 质心圆点可见、可点 ----------------
   {
     const { page } = await openPage(browser, BASE, {
       theme: "dark",
@@ -800,32 +1283,77 @@ try {
       height: 900,
     });
     await page.route("**/api/v1/**", (route) =>
-      handleApi(route, { onlyCountry: "HK" }),
+      handleApi(route, { smallRegions: true }),
     );
     await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
     await waitForMap(page);
-    const hk = await page.evaluate(() => {
-      const path = document.querySelector('[data-country="HK"]');
-      return {
-        exists: Boolean(path),
-        role: path?.getAttribute("role"),
-        tabIndex: path?.getAttribute("tabindex"),
-        tier: path?.getAttribute("data-tier"),
-        aria: path?.getAttribute("aria-label"),
-        d: path?.getAttribute("d")?.length ?? 0,
+    await page.locator("[data-world-map]").scrollIntoViewIfNeeded();
+    const small = await page.evaluate(() => {
+      const svg = document
+        .querySelector("[data-world-map-svg]")
+        .getBoundingClientRect();
+      const info = (code) => {
+        const path = document.querySelector(`[data-country="${code}"]`);
+        const group = document.querySelector(
+          `[data-world-map-marker="${code}"]`,
+        );
+        const dot = group?.querySelector("[data-world-map-dot]");
+        const label = group?.querySelector("[data-world-map-count]");
+        const dotRect = dot?.getBoundingClientRect();
+        const labelRect = label?.getBoundingClientRect();
+        return {
+          path: Boolean(path),
+          role: path?.getAttribute("role"),
+          tabIndex: path?.getAttribute("tabindex"),
+          tier: path?.getAttribute("data-tier"),
+          aria: path?.getAttribute("aria-label"),
+          dLength: path?.getAttribute("d")?.length ?? 0,
+          marker: Boolean(group),
+          fillClass: dot?.getAttribute("class") ?? "",
+          radius: dot
+            ? (Number(dot.getAttribute("r")) * svg.width) / 1000
+            : null,
+          dotWidth: dotRect?.width ?? null,
+          label: label?.textContent ?? null,
+          labelFont: label
+            ? (parseFloat(getComputedStyle(label).fontSize) * svg.width) / 1000
+            : null,
+          labelLeft: labelRect?.left ?? null,
+          dotRight: dotRect?.right ?? null,
+        };
       };
+      return { HK: info("HK"), SG: info("SG") };
     });
     check(
-      "香港（50m 补全）：地图路径存在且可聚焦",
-      hk.exists &&
-        hk.role === "button" &&
-        hk.tabIndex === "0" &&
-        hk.tier === "0" &&
-        hk.d > 0 &&
-        hk.aria?.includes("香港") &&
-        hk.aria?.includes("1 台节点"),
-      JSON.stringify(hk),
+      "香港 / 新加坡（50m 补全）：路径存在且可聚焦",
+      small.HK.path &&
+        small.HK.role === "button" &&
+        small.HK.tabIndex === "0" &&
+        small.HK.tier === "0" &&
+        small.HK.dLength > 0 &&
+        small.HK.aria?.includes("香港") &&
+        small.HK.aria?.includes("1 台节点") &&
+        small.SG.path &&
+        small.SG.tier === "1" &&
+        small.SG.dLength > 0 &&
+        small.SG.aria?.includes("新加坡"),
+      JSON.stringify(small),
     );
+    check(
+      "小地区圆点：HK r=3px、SG r=4px + N=2 标签，均可见",
+      small.HK.marker &&
+        Math.abs(small.HK.radius - 3) <= 0.2 &&
+        small.HK.dotWidth >= 5.9 &&
+        small.SG.marker &&
+        Math.abs(small.SG.radius - 4) <= 0.2 &&
+        small.SG.dotWidth >= 7.9 &&
+        small.SG.label === "2" &&
+        Math.abs(small.SG.labelFont - 12) <= 0.4 &&
+        small.SG.labelLeft >= small.SG.dotRight - 1,
+      JSON.stringify(small),
+    );
+    await captureCard(page, "world-map-small-regions-1440");
+
     await page.locator('[data-country="HK"]').focus();
     await page.keyboard.press("Enter");
     await page.waitForURL(/\/servers\?country=HK$/, { timeout: 10_000 });
@@ -844,6 +1372,83 @@ try {
       filtered.url === "/servers?country=HK" &&
         filtered.chip?.includes("地区 HK") &&
         filtered.rows === 1,
+      JSON.stringify(filtered),
+    );
+    await page.close();
+  }
+  {
+    const { page } = await openPage(browser, BASE, {
+      theme: "dark",
+      width: 390,
+      height: 844,
+    });
+    await page.route("**/api/v1/**", (route) =>
+      handleApi(route, { smallRegions: true }),
+    );
+    await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+    await waitForMap(page);
+    await page.locator("[data-world-map]").scrollIntoViewIfNeeded();
+    await assertNoOverflow(page, "390 small regions");
+    const small = await page.evaluate(() => {
+      const svg = document
+        .querySelector("[data-world-map-svg]")
+        .getBoundingClientRect();
+      const info = (code) => {
+        const dot = document.querySelector(
+          `[data-world-map-marker="${code}"] [data-world-map-dot]`,
+        );
+        const label = document.querySelector(
+          `[data-world-map-marker="${code}"] [data-world-map-count]`,
+        );
+        const rect = dot?.getBoundingClientRect();
+        return {
+          radius: dot
+            ? (Number(dot.getAttribute("r")) * svg.width) / 1000
+            : null,
+          width: rect?.width ?? null,
+          label: label?.textContent ?? null,
+        };
+      };
+      return { HK: info("HK"), SG: info("SG") };
+    });
+    check(
+      "390 小地区：HK / SG 圆点仍为 3 / 4px 且可见",
+      Math.abs(small.HK.radius - 3) <= 0.2 &&
+        small.HK.width >= 5.9 &&
+        Math.abs(small.SG.radius - 4) <= 0.2 &&
+        small.SG.width >= 7.9 &&
+        small.SG.label === "2",
+      JSON.stringify(small),
+    );
+    await captureCard(page, "world-map-small-regions-390");
+    await page
+      .locator('[data-world-map-marker="SG"] [data-world-map-dot]')
+      .click({ force: true });
+    await page.waitForURL(/\/servers\?country=SG$/, { timeout: 10_000 });
+    await page.waitForSelector('[data-slot="server-country-filter"]', {
+      timeout: 10_000,
+    });
+    await page.waitForSelector("text=新加坡-01", { timeout: 10_000 });
+    await page.waitForSelector("text=新加坡-02", { timeout: 10_000 });
+    const filtered = await page.evaluate(() => {
+      const text = document.body.innerText;
+      return {
+        url: location.pathname + location.search,
+        chip: document
+          .querySelector('[data-slot="server-country-filter"]')
+          ?.textContent?.trim(),
+        first: text.includes("新加坡-01"),
+        second: text.includes("新加坡-02"),
+        empty: text.includes("该地区没有服务器"),
+      };
+    });
+    check(
+      "390 点击 SG 圆点：跳 /servers?country=SG，两台都在列表里",
+      filtered.url === "/servers?country=SG" &&
+        filtered.chip?.includes("地区 SG") &&
+        filtered.first &&
+        filtered.second &&
+        !filtered.empty,
       JSON.stringify(filtered),
     );
     await page.close();
@@ -951,6 +1556,7 @@ try {
     ["dark", 1440],
     ["dark", 390],
     ["light", 1440],
+    ["light", 390],
   ]) {
     const { page } = await openPage(browser, BASE, {
       theme,
@@ -980,14 +1586,19 @@ try {
     await page.close();
   }
 
-  // ---- 8. 体积 ----------------
+  // ---- 8. 改前 / 改后对比图（1440 亮暗各一张） ----------------
+  await captureCompare(browser);
+
+  // ---- 9. 体积 ----------------
   const bytes = statSync(MAP_JSON).size;
-  check("worldMapPaths.json ≤150KB", bytes <= 150 * 1024, `${bytes} bytes`);
+  report.metrics.jsonBytes = bytes;
+  check("worldMapPaths.json ≤170KB", bytes <= 170 * 1024, `${bytes} bytes`);
 } catch (error) {
   report.errors.push(`fatal: ${error.stack ?? error.message}`);
 } finally {
   await browser.close();
   staticServer.close();
+  if (DIST !== BUILD_DIST) rmSync(DIST, { recursive: true, force: true });
 }
 
 report.ok = report.errors.length === 0;

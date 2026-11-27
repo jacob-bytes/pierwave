@@ -46,6 +46,16 @@ export function worldNodeTier(total: number): 0 | 1 | 2 | 3 {
   return 0;
 }
 
+/**
+ * 地图圆点半径（屏幕像素）：台数越多点越大。
+ * 小国（HK / SG / MO）的陆地轮廓可能只有 1–2px，圆点必须能单独被看见。
+ */
+export const WORLD_NODE_MARKER_RADII = [3, 4, 5, 6] as const;
+
+export function worldNodeMarkerRadius(tier: 0 | 1 | 2 | 3): number {
+  return WORLD_NODE_MARKER_RADII[tier];
+}
+
 function normalizeStatus(status: string): WorldNodeStatus {
   if (status === "offline") return "offline";
   if (status === "abnormal") return "abnormal";
