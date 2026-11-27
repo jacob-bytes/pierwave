@@ -24,6 +24,20 @@ function subpathPoints(d) {
   });
 }
 
+function bbox(points) {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const [x, y] of points) {
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  return { minX, maxX, minY, maxY };
+}
+
 test("生成结果覆盖 ≥150 个国家/地区，键都是大写 ISO2", () => {
   assert.ok(keys.length >= 150, `only ${keys.length} countries`);
   for (const key of keys) {
@@ -41,28 +55,57 @@ test("南极洲（AQ / numeric 010）被移除", () => {
   assert.equal(paths.AQ, undefined);
 });
 
-test("路径以 M 开头、以 Z 结尾，且每个国家至少一个子路径", () => {
-  for (const [country, d] of Object.entries(paths)) {
-    assert.equal(typeof d, "string", `${country} path must be a string`);
-    assert.ok(d.startsWith("M"), `${country} path must start with M`);
-    assert.ok(d.endsWith("Z"), `${country} path must end with Z`);
-    assert.ok(!d.includes("NaN"), `${country} path contains NaN`);
-    assert.ok(!d.includes("undefined"), `${country} path contains undefined`);
-    const subpaths = subpathPoints(d);
+test("每个国家都是 { d, c }：路径以 M 开头、以 Z 结尾，质心是两位坐标", () => {
+  for (const [country, entry] of Object.entries(paths)) {
+    assert.equal(typeof entry, "object", `${country} must be an object`);
+    assert.equal(typeof entry.d, "string", `${country}.d must be a string`);
+    assert.ok(entry.d.startsWith("M"), `${country} path must start with M`);
+    assert.ok(entry.d.endsWith("Z"), `${country} path must end with Z`);
+    assert.ok(!entry.d.includes("NaN"), `${country} path contains NaN`);
+    assert.ok(!entry.d.includes("undefined"), `${country} path contains undefined`);
+    assert.ok(
+      Array.isArray(entry.c) && entry.c.length === 2,
+      `${country}.c must be [x, y]`,
+    );
+    for (const value of entry.c) {
+      assert.equal(typeof value, "number", `${country}.c must be numeric`);
+      assert.ok(Number.isFinite(value), `${country}.c must be finite`);
+    }
+    const subpaths = subpathPoints(entry.d);
     assert.ok(subpaths.length >= 1, `${country} has no subpaths`);
   }
 });
 
-test("所有坐标落在 viewBox 0–1000 / 0–500 内，且保留 1 位小数", () => {
-  for (const [country, d] of Object.entries(paths)) {
-    for (const points of subpathPoints(d)) {
+test("所有路径坐标落在完整坐标系 0–1000 / 0–500 内，且保留 1 位小数", () => {
+  for (const [country, entry] of Object.entries(paths)) {
+    for (const points of subpathPoints(entry.d)) {
       for (const [x, y] of points) {
         assert.ok(x >= 0 && x <= 1000, `${country} x out of viewBox: ${x}`);
         assert.ok(y >= 0 && y <= 500, `${country} y out of viewBox: ${y}`);
       }
     }
     // 生成器最多保留 1 位小数；出现 2 位以上说明格式化回退了。
-    assert.doesNotMatch(d, /-?\d+\.\d{2,}/, `${country} has >1 decimal place`);
+    assert.doesNotMatch(entry.d, /-?\d+\.\d{2,}/, `${country} has >1 decimal place`);
+  }
+});
+
+test("质心在 0–1000 / 0–500 内、1 位小数，且落在国家路径包围盒里", () => {
+  for (const [country, entry] of Object.entries(paths)) {
+    const [x, y] = entry.c;
+    assert.ok(x >= 0 && x <= 1000, `${country} centroid x out of range: ${x}`);
+    assert.ok(y >= 0 && y <= 500, `${country} centroid y out of range: ${y}`);
+    assert.equal(Math.round(x * 10) / 10, x, `${country} centroid x precision`);
+    assert.equal(Math.round(y * 10) / 10, y, `${country} centroid y precision`);
+    const points = subpathPoints(entry.d).flat();
+    const box = bbox(points);
+    // 质心取最大陆块的外环，可能不落在凹形陆块的填充里，但必须在整体包围盒中。
+    assert.ok(
+      x >= box.minX - 1 &&
+        x <= box.maxX + 1 &&
+        y >= box.minY - 1 &&
+        y <= box.maxY + 1,
+      `${country} centroid ${x},${y} outside bbox ${JSON.stringify(box)}`,
+    );
   }
 });
 
@@ -78,6 +121,6 @@ test("每个国家只出现一次，且没有空路径", () => {
   for (const key of keys) {
     assert.equal(seen.has(key), false, `duplicate key: ${key}`);
     seen.add(key);
-    assert.ok(paths[key].length > 4, `${key} path is empty`);
+    assert.ok(paths[key].d.length > 4, `${key} path is empty`);
   }
 });
