@@ -23,6 +23,7 @@ import { formatChainTime } from "@/lib/chainHealth";
 import { seriesVisual } from "@/lib/seriesStyle";
 import { t, useI18n } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 interface UsageRow {
   ts: number;
@@ -182,6 +183,7 @@ export function ChainTemplateUsageChart({
   className?: string;
 }) {
   useI18n();
+  const chartEnter = useChartEnterAnimation();
   // 后端两种窗口都用 15 分钟桶（168h = 672 点），x 轴格式化保持一致。
   const bucket = 900;
   // 窗口锚点只在挂载时取一次，避免每次渲染都重算时窗（也避免渲染期读时钟）。
@@ -299,7 +301,10 @@ export function ChainTemplateUsageChart({
                   strokeWidth={1.5}
                   dot={false}
                   activeDot={{ r: 3 }}
-                  isAnimationActive={false}
+                  isAnimationActive={chartEnter.isAnimationActive}
+                  animationDuration={chartEnter.animationDuration}
+                  animationEasing={chartEnter.animationEasing}
+                  onAnimationEnd={chartEnter.onAnimationEnd}
                 />
                 <Line
                   type="monotone"
@@ -311,7 +316,10 @@ export function ChainTemplateUsageChart({
                   strokeWidth={1.5}
                   dot={false}
                   activeDot={{ r: 3 }}
-                  isAnimationActive={false}
+                  isAnimationActive={chartEnter.isAnimationActive}
+                  animationDuration={chartEnter.animationDuration}
+                  animationEasing={chartEnter.animationEasing}
+                  onAnimationEnd={chartEnter.onAnimationEnd}
                 />
               </LineChart>
             </ResponsiveContainer>

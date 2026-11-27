@@ -16,6 +16,7 @@ import {
   lineOpacity,
 } from "@/lib/chainTopology";
 import { useI18n } from "@/i18n";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 
 interface LatencyRow {
@@ -133,6 +134,7 @@ export default function LatencyChart({
   hours: number;
 }) {
   const { t } = useI18n();
+  const chartEnter = useChartEnterAnimation();
   const { seqs, rows } = chartRows(points);
 
   if (seqs.length === 0) {
@@ -234,7 +236,10 @@ export default function LatencyChart({
                   strokeWidth: 1.5,
                 }}
                 connectNulls={false}
-                isAnimationActive={false}
+                isAnimationActive={chartEnter.isAnimationActive}
+                animationDuration={chartEnter.animationDuration}
+                animationEasing={chartEnter.animationEasing}
+                onAnimationEnd={chartEnter.onAnimationEnd}
               />
             ))}
           </LineChart>

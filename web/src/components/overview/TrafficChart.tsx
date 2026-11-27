@@ -21,6 +21,7 @@ import {
 } from "./ChartTooltipShell";
 import { CHART_CURSOR_OPACITY, CHART_CURSOR_STROKE } from "./chartTheme";
 import { t } from "@/i18n";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 interface ChartDay extends TrafficDay {
   /** 只有画累计线时才写入；单点时保持 undefined，tooltip 也不显示累计。 */
@@ -275,6 +276,7 @@ export default function TrafficChart({
   showLegend?: boolean;
 }) {
   // 每个图表实例的 pattern id 唯一，避免同页多图时互相引用。
+  const chartEnter = useChartEnterAnimation();
   const patternId = `pw-traffic-uplink-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const dataTableId = `pw-traffic-data-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   const hasTraffic = days.some(
@@ -370,7 +372,10 @@ export default function TrafficChart({
               stackId="traffic"
               fill="var(--primary)"
               radius={[2, 2, 0, 0]}
-              isAnimationActive={false}
+              isAnimationActive={chartEnter.isAnimationActive}
+              animationDuration={chartEnter.animationDuration}
+              animationEasing={chartEnter.animationEasing}
+              onAnimationEnd={chartEnter.onAnimationEnd}
             />
             <Bar
               yAxisId="traffic"
@@ -379,7 +384,10 @@ export default function TrafficChart({
               stackId="traffic"
               fill={`url(#${patternId})`}
               radius={[2, 2, 0, 0]}
-              isAnimationActive={false}
+              isAnimationActive={chartEnter.isAnimationActive}
+              animationDuration={chartEnter.animationDuration}
+              animationEasing={chartEnter.animationEasing}
+              onAnimationEnd={chartEnter.onAnimationEnd}
             />
           </BarChart>
         </ResponsiveContainer>

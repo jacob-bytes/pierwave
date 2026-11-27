@@ -32,6 +32,7 @@ import { ChartTooltipHeading, ChartTooltipShell } from "./ChartTooltipShell";
 import { LineSwatch } from "./ChainSeriesSwatch";
 import { CHART_CURSOR } from "./chartTheme";
 import { t, useI18n } from "@/i18n";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 /**
  * 图例只保留一行「已选链」标签：横向滚动，永不折行。
@@ -282,6 +283,7 @@ export function ChainLatencyTrendChart({
   selectedIds: readonly string[];
 }) {
   useI18n();
+  const chartEnter = useChartEnterAnimation();
   const [tableView, setTableView] = useState(false);
   const desktop = useIsDesktop();
   const groups = useMemo(() => chainLegendGroups(chains), [chains]);
@@ -498,7 +500,10 @@ export function ChainLatencyTrendChart({
                         dot={false}
                         activeDot={{ r: 3 }}
                         connectNulls={false}
-                        isAnimationActive={false}
+                        isAnimationActive={chartEnter.isAnimationActive}
+                        animationDuration={chartEnter.animationDuration}
+                        animationEasing={chartEnter.animationEasing}
+                        onAnimationEnd={chartEnter.onAnimationEnd}
                       />
                     );
                   })}

@@ -68,6 +68,7 @@ import { useServers, useSettings } from "@/lib/queries";
 import { formatAbsoluteTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { t, useI18n } from "@/i18n";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 /** 饼图沿用单一 primary 色相，仅用透明度阶梯区分。 */
 const PIE_OPACITY = [1, 0.8, 0.65, 0.5, 0.35];
@@ -1499,6 +1500,7 @@ function CurrencyMixCard({
   className?: string;
 }) {
   const { t } = useI18n();
+  const chartEnter = useChartEnterAnimation();
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const pieRows = useMemo(
     () => buildCurrencyPieRows(rows, t("overview.cost.mixOther")),
@@ -1569,7 +1571,10 @@ function CurrencyMixCard({
                     outerRadius="92%"
                     paddingAngle={2}
                     stroke="none"
-                    isAnimationActive={false}
+                    isAnimationActive={chartEnter.isAnimationActive}
+                    animationDuration={chartEnter.animationDuration}
+                    animationEasing={chartEnter.animationEasing}
+                    onAnimationEnd={chartEnter.onAnimationEnd}
                     onMouseEnter={(_, index) => setActiveIndex(index)}
                     onMouseLeave={() => setActiveIndex(null)}
                   >

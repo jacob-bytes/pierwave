@@ -13,6 +13,7 @@ import type { ChainProbePoint } from "@/lib/api";
 import { bucketLabel } from "@/lib/chainTopology";
 import { availabilityLabel, bucketLoss, lossLabel } from "@/lib/chainProbe";
 import { useI18n } from "@/i18n";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 interface ProbeRow {
   ts: number;
@@ -128,6 +129,7 @@ export default function ProbeChart({
   thresholdPercent: number;
 }) {
   const { t } = useI18n();
+  const chartEnter = useChartEnterAnimation();
   const rows = chartRows(points);
 
   if (rows.length === 0) {
@@ -208,7 +210,10 @@ export default function ProbeChart({
               strokeWidth: 1.5,
             }}
             connectNulls={false}
-            isAnimationActive={false}
+            isAnimationActive={chartEnter.isAnimationActive}
+            animationDuration={chartEnter.animationDuration}
+            animationEasing={chartEnter.animationEasing}
+            onAnimationEnd={chartEnter.onAnimationEnd}
           />
         </LineChart>
       </ResponsiveContainer>

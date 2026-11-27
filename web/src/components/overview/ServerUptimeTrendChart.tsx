@@ -26,6 +26,7 @@ import {
 } from "./ChartTooltipShell";
 import { CHART_CURSOR } from "./chartTheme";
 import { t, useI18n } from "@/i18n";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 interface TooltipPayload {
   payload?: UptimeTrendPoint;
@@ -104,6 +105,7 @@ export function ServerUptimeTrendChart({
   approximate?: boolean;
 }) {
   useI18n();
+  const chartEnter = useChartEnterAnimation();
   const { points } = trend;
   const first = points[0]?.ts;
   const last = points.at(-1)?.ts;
@@ -194,7 +196,10 @@ export function ServerUptimeTrendChart({
               dot={false}
               activeDot={{ r: 3 }}
               connectNulls={false}
-              isAnimationActive={false}
+              isAnimationActive={chartEnter.isAnimationActive}
+              animationDuration={chartEnter.animationDuration}
+              animationEasing={chartEnter.animationEasing}
+              onAnimationEnd={chartEnter.onAnimationEnd}
             />
           </LineChart>
         </ResponsiveContainer>

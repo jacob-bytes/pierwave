@@ -23,6 +23,7 @@ import {
 } from "./ChartTooltipShell";
 import { CHART_CURSOR_OPACITY, CHART_CURSOR_STROKE } from "./chartTheme";
 import { useI18n } from "@/i18n";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 /** X 轴刻度：`2026-11-05` → `11/5`；与流量趋势图保持一致。 */
 function formatDayTick(value: string): string {
@@ -155,6 +156,7 @@ export default function ProtocolTrendChart({
 }: {
   series: readonly OverviewProtocolSeries[];
 }) {
+  const chartEnter = useChartEnterAnimation();
   const { t } = useI18n();
   const trend = protocolTrend(series);
   // 纵轴上界取所有协议里的最大日流量，步长按 1024 单位取整齐值。
@@ -253,7 +255,10 @@ export default function ProtocolTrendChart({
                   strokeWidth: 1.5,
                 }}
                 connectNulls={false}
-                isAnimationActive={false}
+                isAnimationActive={chartEnter.isAnimationActive}
+                animationDuration={chartEnter.animationDuration}
+                animationEasing={chartEnter.animationEasing}
+                onAnimationEnd={chartEnter.onAnimationEnd}
               />
             ))}
           </LineChart>

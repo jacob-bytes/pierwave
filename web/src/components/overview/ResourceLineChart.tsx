@@ -28,6 +28,7 @@ import {
 } from "./ChartTooltipShell";
 import { CHART_CURSOR } from "./chartTheme";
 import { t, useI18n } from "@/i18n";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 /** 多序列折线图的固定色板；全部走 shadcn chart token，不写死色值。 */
 const CHART_COLORS = [
@@ -111,6 +112,7 @@ export function ResourceLineChart({
   defaultVisibleIds: readonly string[];
 }) {
   useI18n();
+  const chartEnter = useChartEnterAnimation();
   const [hidden, setHidden] = useState<Set<string>>(
     () =>
       new Set(
@@ -265,7 +267,10 @@ export function ResourceLineChart({
                     dot={false}
                     activeDot={{ r: 3 }}
                     connectNulls={false}
-                    isAnimationActive={false}
+                    isAnimationActive={chartEnter.isAnimationActive}
+                    animationDuration={chartEnter.animationDuration}
+                    animationEasing={chartEnter.animationEasing}
+                    onAnimationEnd={chartEnter.onAnimationEnd}
                   />
                 );
               })}

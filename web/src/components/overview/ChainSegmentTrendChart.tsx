@@ -22,6 +22,7 @@ import { ChartGrid } from "./ChartGrid";
 import { ChartTooltipHeading, ChartTooltipShell } from "./ChartTooltipShell";
 import { CHART_CURSOR } from "./chartTheme";
 import { t, useI18n } from "@/i18n";
+import { useChartEnterAnimation } from "@/lib/useChartEnterAnimation";
 
 interface SegmentTrendEntry {
   segment: ChainHealthSegment;
@@ -362,6 +363,7 @@ export function ChainSegmentTrendChart({
   unmeasurableLabel?: string | null;
 }) {
   useI18n();
+  const chartEnter = useChartEnterAnimation();
   const [hidden, setHidden] = useState<Set<number>>(() => new Set());
   const [tableView, setTableView] = useState(false);
 
@@ -550,7 +552,10 @@ export function ChainSegmentTrendChart({
                     dot={false}
                     activeDot={{ r: 3 }}
                     connectNulls={false}
-                    isAnimationActive={false}
+                    isAnimationActive={chartEnter.isAnimationActive}
+                    animationDuration={chartEnter.animationDuration}
+                    animationEasing={chartEnter.animationEasing}
+                    onAnimationEnd={chartEnter.onAnimationEnd}
                   />
                 );
               })}
