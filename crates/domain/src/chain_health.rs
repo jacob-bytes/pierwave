@@ -55,16 +55,25 @@
 //!   `server_id` / `status` 都是 null）。多成员组的成员全部可见，链级
 //!   `estimated = true` 只表示段值是估算。`entry` / `exit` 保留，前端可渐进
 //!   迁移。
-//! * `status` 是链级可用性状态，按**跳**判断而不是按成员：任一 `source` /
-//!   `hop` 组的**全部成员**都离线（这一跳没有在线成员）或组内没有成员 →
-//!   `blocked`（`node_offline`，有离线成员时点名第一台）；每跳都至少有一台
-//!   在线但存在离线成员 → 仍 `degraded`（`node_offline`，点名第一台离线
-//!   成员，链路只是容量下降）；存在 `abnormal` 等非在线成员 → `degraded`
-//!   （`node_unhealthy`）；否则最后一跳不可测 → `unknown`（`unmeasurable`，
-//!   见上一条）；否则无当前样本 / 有断点 → `degraded`（`no_samples`）；否则
-//!   较基线变慢 → `degraded`（`slow`）；否则 `ok`。成员状态优先于数据质量，
-//!   所以掉线导致的缺样本不会被误判成 `no_samples`。链目标节点
-//!   （`role = "target"`）没有成员，不参与判定。
+//! * `status` 是链级可用性状态，按**跳 + 策略**判断而不是按成员：
+//!   * 任一 `source` / `hop` 组的**全部成员**都离线（这一跳没有在线成员）或
+//!     组内没有成员 → `blocked`（`node_offline`，有离线成员时点名第一台）；
+//!   * **均衡类**策略（`round_robin` / `ip_hashed` / `weighted` /
+//!     `least_conn`）的跳有在线成员、但存在离线成员 → `degraded`
+//!     （`node_offline`，点名该跳第一台离线成员，链路只是容量下降）；
+//!   * **单选择**策略（`failover` / `lowest_latency`）的跳部分成员离线但该跳
+//!     仍有在线成员 → 不影响当前通路，**不降级**；
+//!   * 入口组没有上一跳执行选路，但多台入口等价分担流量，按均衡类判断
+//!     （部分离线 → `degraded`）；
+//!   * 存在 `abnormal` / `no_data` 等非在线成员 → `degraded`
+//!     （`node_unhealthy`，沿用旧行为）；
+//!   * 否则最后一跳不可测 → `unknown`（`unmeasurable`，见上一条）；否则无
+//!     当前样本 / 有断点 → `degraded`（`no_samples`）；否则较基线变慢 →
+//!     `degraded`（`slow`）；否则 `ok`。
+//!
+//!   成员状态优先于数据质量，所以掉线导致的缺样本不会被误判成 `no_samples`。
+//!   链目标节点（`role = "target"`）没有成员，不参与判定。逐跳归并规则与
+//!   概览计数共用 [`crate::chains::hop_state`] / [`crate::chains::member_health`]。
 
 use std::collections::HashMap;
 
@@ -330,7 +339,7 @@ pub struct TargetProbeRow {
 ///
 /// 只带展示需要的 `seq` / `name` / `member_name`；具体原因由上层 `cause`
 /// 表达，不在这里重复。`node_offline` 的 `blocked` 与 `degraded` 都会带
-/// 这个字段（前者是「整跳没有在线成员」，后者是「仍可用但少了成员」）；
+/// 这个字段（前者是「整跳没有在线成员」，后者是「均衡类跳仍可用但少了容量」）；
 /// 空组导致 `blocked` 时没有成员可点名，`node` 为 `null`。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StatusNode {
@@ -344,19 +353,21 @@ pub struct StatusNode {
     pub member_name: Option<String>,
 }
 
-/// 链级可用性状态：把节点状态与链路数据合成为一个用户能直接看的状态。
+/// 链级可用性状态：把节点状态、选路策略与链路数据合成为一个用户能直接看的状态。
 ///
-/// 可用性按**跳**判断：多成员组里离线一台只降低容量，链路仍可用。
-/// 判定优先级（高 → 低）：
+/// 可用性按**跳 + 策略**判断，逐跳规则由 [`crate::chains::hop_state`] 给出：
+/// 均衡类跳掉一台是容量下降（`degraded`）；单选择跳掉的是备用成员，当前通路
+/// 不受影响（`ok`）。判定优先级（高 → 低）：
 /// 1. 任一 `source` / `hop` 组的成员**全部离线**（这一跳没有任何在线成员；
 ///    只有 `abnormal` / `no_data`、没有离线成员的跳见第 3 条）或**没有成员**
 ///    （空组）→ `blocked` + `node_offline`，`node` 指向拓扑上先遇到的那台
 ///    离线成员（组 `seq` 升序、组内 `(priority, server_id)` 顺序）；空组没有
 ///    成员可点名时为 `null`；
-/// 2. 每跳都至少有一台在线，但存在离线成员 → `degraded` + `node_offline`，
-///    `node` 同样指向第一台离线成员及其组（链路只是容量下降）；
+/// 2. 每跳都至少有一台在线，但**均衡类**策略的跳存在离线成员 →
+///    `degraded` + `node_offline`，`node` 指向这些跳里拓扑上第一台离线成员
+///    （链路容量下降）；单选择跳的离线成员不算降级，见第 7 条；
 /// 3. 每跳都至少有一台在线，但存在 `abnormal` / `no_data` 等非在线成员 →
-///    `degraded` + `node_unhealthy`；
+///    `degraded` + `node_unhealthy`（不看策略，沿用旧行为）；
 /// 4. 最后一跳不可测（见 [`LastHop`]；引擎 / 协议是链级字段，所以这条链的
 ///    **所有段**都不可测）→ `unknown` + `unmeasurable`：这条链的探测数据
 ///    永远不会齐全，报 `no_samples` 会让用户误以为「Agent 没上报 / 链路坏了」，
@@ -364,8 +375,10 @@ pub struct StatusNode {
 /// 5. 当前窗口没有整体样本，或 `missing_hops` 非空 → `degraded` + `no_samples`；
 /// 6. 整体较基线变慢（与 `summary.slow_chains` 同一个 [`SLOW_DELTA_MS`] 阈值）
 ///    → `degraded` + `slow`；
-/// 7. 其余 → `ok`，`cause` / `node` 都是 `null`。
+/// 7. 其余 → `ok`，`cause` / `node` 都是 `null`（包括 `failover` /
+///    `lowest_latency` 跳部分成员离线、但仍有在线成员）。
 ///
+/// 入口组没有上一跳执行选路，但多台入口等价分担流量，按均衡类判断。
 /// `role = "target"` 的链目标节点不参与判定：它没有成员，`status` 恒为
 /// `null`。成员优先级高于数据质量，所以「成员掉线导致缺样本」会得到
 /// `blocked` / `degraded` 的 `node_offline`，不会被误判成 `no_samples`。
@@ -377,7 +390,8 @@ pub struct ChainStatus {
     /// `unmeasurable`；`ok` 时为 `null`。
     pub cause: Option<&'static str>,
     /// 只有 `node_offline` 时给出第一台离线节点（`blocked` 与 `degraded`
-    /// 都可能带）；空组导致的 `blocked` 没有成员可点名，为 `null`。
+    /// 都可能带；`degraded` 时来自均衡类跳）；空组导致的 `blocked` 没有成员
+    /// 可点名，为 `null`。
     pub node: Option<StatusNode>,
 }
 
@@ -430,13 +444,17 @@ fn group_status(members: &[NodeMember]) -> Option<String> {
     worst.map(|(_, status)| status.to_string())
 }
 
-/// 根据节点（组内全部成员）状态与数据质量判定链级可用性；优先级见
+/// 根据节点（组内全部成员）、选路策略与数据质量判定链级可用性；优先级见
 /// [`ChainStatus`]。
 ///
-/// 可用性按**跳**判断，不按成员：一个必需跳只要还有至少一台 `online` 成员，
-/// 这一跳就能承载流量，多掉的成员只降低容量（`degraded`）；整跳成员全部离线
-/// 或空组才会让整条链不可用（`blocked`）。只有 `abnormal` / `no_data`、没有
-/// 离线成员的跳仍按旧口径降级（没被确认离线，仍可能恢复）。
+/// 可用性按**跳 + 策略**判断，不按成员：一个必需跳只要还有至少一台 `online`
+/// 成员就能承载流量。整跳成员全部离线或空组才会让整条链不可用（`blocked`）。
+/// 仍有在线成员时是否降级取决于策略（[`crate::chains::hop_state`]）：
+/// * 均衡类跳掉一台 = 少一份容量 → `degraded` / `node_offline`；
+/// * 单选择跳（`failover` / `lowest_latency`）掉的是备用成员，当前通路仍可用
+///   → 不降级；
+/// * 只有 `abnormal` / `no_data`、没有离线成员的跳仍按旧口径 `degraded` /
+///   `node_unhealthy`（没被确认离线，仍可能恢复）。
 fn chain_status(
     nodes: &[NodeView],
     missing_hops: &[i64],
@@ -444,62 +462,63 @@ fn chain_status(
     baseline_overall: Option<f64>,
     last_hop_measurable: bool,
 ) -> ChainStatus {
-    // 1. blocked：任一必需跳（source / hop）**成员全部离线**或根本没有成员。
-    // 2. degraded：每跳都还有在线成员，但存在离线成员（node_offline，点名第一
-    //    台离线成员）或状态异常成员（node_unhealthy）。
+    // 1. blocked：任一必需跳（source / hop）没有任何在线成员或根本没有成员。
+    // 2. degraded：仅是均衡类策略的跳存在离线成员（容量减少），或存在
+    //    abnormal / no_data 成员。
     let mut blocked = false;
-    let mut first_offline: Option<(&NodeView, &NodeMember)> = None;
+    let mut capacity_reduced = false;
     let mut unhealthy = false;
+    // blocked 点名拓扑上第一台离线成员；degraded 只点名叫「均衡类跳」里的
+    // 第一台（单选择跳的备用成员离线不构成降级，不能拿来报原因）。
+    let mut first_offline: Option<(&NodeView, &NodeMember)> = None;
+    let mut first_capacity_offline: Option<(&NodeView, &NodeMember)> = None;
     for node in nodes.iter().filter(|node| node.role != "target") {
-        // 空组没有任何成员能承载这一跳：与「全部离线」同档，都是 blocked。
-        if node.members.is_empty() {
-            blocked = true;
-            continue;
-        }
-        let mut online = 0_usize;
-        let mut has_offline = false;
+        // 入口组（`strategy = None`）没有上一跳执行选路，但多台入口等价分担
+        // 容量，按均衡类判断；其余组用实际策略。
+        let strategy = node
+            .strategy
+            .as_deref()
+            .unwrap_or(GroupStrategy::RoundRobin.as_str());
+        let hop = crate::chains::hop_state(
+            strategy,
+            node.members.iter().map(|member| member.status.as_str()),
+        );
+        blocked |= hop.blocks();
+        capacity_reduced |= hop.capacity_reduced;
+        unhealthy |= hop.unhealthy;
         for member in &node.members {
-            match member.status.as_str() {
-                "online" => online += 1,
-                "offline" => {
-                    has_offline = true;
-                    // nodes 按组 seq 升序、members 按 (priority, server_id) 升序，
-                    // 所以第一台命中的就是「拓扑上最先遇到」的离线成员。
-                    if first_offline.is_none() {
-                        first_offline = Some((node, member));
-                    }
-                }
-                // `abnormal` / `no_data` 等库内值都算「非在线」：跳仍可能在
-                // 线成员支撑，但这种状态说不清，整条链只能降级。
-                _ => unhealthy = true,
+            if member.status != "offline" {
+                continue;
+            }
+            // nodes 按组 seq 升序、members 按 (priority, server_id) 升序，
+            // 所以第一台命中的就是「拓扑上最先遇到」的离线成员。
+            if first_offline.is_none() {
+                first_offline = Some((node, member));
+            }
+            if hop.capacity_reduced && first_capacity_offline.is_none() {
+                first_capacity_offline = Some((node, member));
             }
         }
-        // 这一跳已经没有任何在线成员：多成员组也救不回来，整链不可用。
-        // 只有 abnormal / no_data、没有 offline 的跳沿用旧口径降级：它没被
-        // 确认离线，仍有恢复的可能，不能报成阻断。
-        if online == 0 && has_offline {
-            blocked = true;
-        }
     }
-    let offline_node = first_offline.map(|(node, member)| StatusNode {
+    let status_node = |(node, member): (&NodeView, &NodeMember)| StatusNode {
         seq: node.seq,
         name: member.name.clone(),
         member_name: Some(member.name.clone()),
-    });
+    };
     if blocked {
         // 空组会让 `node` 为 null：没有成员可点名。
         return ChainStatus {
             kind: "blocked",
             cause: Some("node_offline"),
-            node: offline_node,
+            node: first_offline.map(status_node),
         };
     }
-    if offline_node.is_some() {
-        // 每跳都还有在线成员：离线的那几台只是让链路降级（容量下降）。
+    if capacity_reduced {
+        // 每跳都还有在线成员，只是均衡类跳少了一份容量：链路降级但仍可用。
         return ChainStatus {
             kind: "degraded",
             cause: Some("node_offline"),
-            node: offline_node,
+            node: first_capacity_offline.map(status_node),
         };
     }
     if unhealthy {
@@ -570,9 +589,10 @@ pub struct ChainHealth {
     /// 最后一跳是否可被 Agent 探测；不可测时它不参与 `series` 齐全判定、
     /// 当前整体值与 `missing_hops`。口径见 [`LastHop`]。
     pub last_hop: LastHop,
-    /// 链级可用性状态（按跳判断）：整跳没有在线成员 → `blocked`，多成员组
-    /// 部分离线 / 成员异常 / 样本不足 / 变慢 → `degraded`，不可测 → `unknown`，
-    /// 其余 `ok`。判定优先级见 [`ChainStatus`]。
+    /// 链级可用性状态（按跳 + 策略判断）：整跳没有在线成员 → `blocked`；
+    /// 均衡类跳部分离线 / 成员异常 / 样本不足 / 变慢 → `degraded`；单选择跳
+    /// 部分离线仍可用；不可测 → `unknown`；其余 `ok`。判定优先级见
+    /// [`ChainStatus`]。
     pub status: ChainStatus,
     /// 固定长度 = `hours * 3600 / bucket`；无样本桶是 `null`。
     pub series: Vec<Option<SeriesPoint>>,
@@ -4464,6 +4484,161 @@ mod tests {
                 member_name: Some("香港-02".into()),
             }),
             "点名拓扑上第一台离线成员"
+        );
+    }
+
+    /// 单选择策略（failover / lowest_latency）跳部分离线：掉的是备用成员，
+    /// 当前通路不受影响，链仍 `ok`（不再因为「有成员离线」无条件 degraded）。
+    #[test]
+    fn a_partially_offline_single_select_hop_keeps_the_chain_ok() {
+        for strategy in ["failover", "lowest_latency"] {
+            let mut chain = topology(
+                "c1",
+                vec![
+                    (
+                        0,
+                        None,
+                        vec![status_member("a", "香港-01", "online", 21_001)],
+                    ),
+                    (
+                        1,
+                        None,
+                        vec![
+                            status_member("b", "东京-01", "online", 21_002),
+                            status_member("c", "东京-02", "offline", 21_003),
+                        ],
+                    ),
+                ],
+            );
+            chain.groups[1].group.strategy = strategy.into();
+            let ts = end_at(NOW, BUCKET) - 60;
+            // 在线成员的样本完整：不能是因为缺样本才判 ok。
+            let samples = vec![
+                sample(ts, "a", forward("c1", 0, "a", 1), "b", 10),
+                sample(ts, "b", forward("c1", 1, "b", 2), "", 5),
+            ];
+            let aggregate = aggregate(
+                &[chain],
+                &samples,
+                &no_probes(),
+                &no_latest(),
+                NOW,
+                1,
+                BUCKET,
+            );
+            let view = &aggregate.chains[0];
+            assert!(view.missing_hops.is_empty(), "{strategy}");
+            assert_eq!(
+                view.status.kind, "ok",
+                "{strategy}: 备选成员离线不影响当前通路"
+            );
+            assert_eq!(view.status.cause, None);
+            assert_eq!(view.status.node, None, "ok 时不点名离线成员");
+            assert_eq!(
+                view.nodes[1].status.as_deref(),
+                Some("offline"),
+                "组级状态仍取最差成员，与链级判定是两回事"
+            );
+        }
+    }
+
+    /// 均衡类策略（round_robin / ip_hashed / weighted / least_conn）跳部分离线：
+    /// 少一份容量 → `degraded` / `node_offline` 并点名那台成员。
+    #[test]
+    fn a_partially_offline_balanced_hop_degrades_the_chain() {
+        for strategy in ["round_robin", "ip_hashed", "weighted", "least_conn"] {
+            let mut chain = topology(
+                "c1",
+                vec![
+                    (
+                        0,
+                        None,
+                        vec![status_member("a", "香港-01", "online", 21_001)],
+                    ),
+                    (
+                        1,
+                        None,
+                        vec![
+                            status_member("b", "东京-01", "online", 21_002),
+                            status_member("c", "东京-02", "offline", 21_003),
+                        ],
+                    ),
+                ],
+            );
+            chain.groups[1].group.strategy = strategy.into();
+            let ts = end_at(NOW, BUCKET) - 60;
+            let samples = vec![
+                sample(ts, "a", forward("c1", 0, "a", 1), "b", 10),
+                sample(ts, "b", forward("c1", 1, "b", 2), "", 5),
+            ];
+            let aggregate = aggregate(
+                &[chain],
+                &samples,
+                &no_probes(),
+                &no_latest(),
+                NOW,
+                1,
+                BUCKET,
+            );
+            let view = &aggregate.chains[0];
+            assert!(view.missing_hops.is_empty(), "{strategy}");
+            assert_eq!(view.status.kind, "degraded", "{strategy}: 容量下降");
+            assert_eq!(view.status.cause, Some("node_offline"));
+            assert_eq!(
+                view.status.node,
+                Some(StatusNode {
+                    seq: 1,
+                    name: "东京-02".into(),
+                    member_name: Some("东京-02".into()),
+                })
+            );
+        }
+    }
+
+    /// `degraded` 只点名叫「均衡类跳」里的离线成员：单选择跳的备用成员离线
+    /// 不构成降级，不能把它当成原因。
+    #[test]
+    fn a_degraded_chain_names_the_balanced_hop_member_not_a_failover_backup() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        status_member("b", "东京-01", "online", 21_002),
+                        status_member("c", "东京-02", "offline", 21_003),
+                    ],
+                ),
+                (
+                    2,
+                    None,
+                    vec![
+                        status_member("d", "大阪-01", "online", 21_004),
+                        status_member("e", "大阪-02", "offline", 21_005),
+                    ],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        chain.groups[2].group.strategy = "round_robin".into();
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.status.kind, "degraded");
+        assert_eq!(view.status.cause, Some("node_offline"));
+        assert_eq!(
+            view.status.node,
+            Some(StatusNode {
+                seq: 2,
+                name: "大阪-02".into(),
+                member_name: Some("大阪-02".into()),
+            }),
+            "东京-02 是 failover 的备用成员，不该被当成降级原因"
         );
     }
 

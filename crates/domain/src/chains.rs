@@ -174,6 +174,114 @@ impl GroupStrategy {
     pub fn from_db(raw: &str) -> Self {
         Self::parse(raw).unwrap_or_default()
     }
+
+    /// 均衡类策略：每个在线成员都是一份容量，掉一台就少一份。
+    ///
+    /// 轮询 / 哈希 / 加权 / 最少连接都是「把流量分给多个成员」，部分成员离线
+    /// 会实际降低吞吐，所以链级只能 `degraded`（容量下降）。
+    pub const fn is_balanced(self) -> bool {
+        matches!(
+            self,
+            Self::RoundRobin | Self::IpHashed | Self::Weighted | Self::LeastConn
+        )
+    }
+
+    /// 单选择策略：同一时刻只有一个成员承载流量，备用成员离线不影响当前通路。
+    ///
+    /// 主备 / 最低延迟都只有一个「选中项」：选中项仍在线时链路完全可用，
+    /// 掉的是没被选中的成员，不该报降级。
+    pub const fn is_single_select(self) -> bool {
+        matches!(self, Self::Failover | Self::LowestLatency)
+    }
+}
+
+/// 一跳（组）的成员状态归类：链级可用性与概览计数共用的唯一口径。
+///
+/// 判断依据是**这一跳有没有在线成员**以及**该跳的策略**，而不是「有没有
+/// 成员离线」：
+///
+/// * 均衡类（[`GroupStrategy::is_balanced`]）把每台在线成员都当作一份容量，
+///   掉一台是容量下降 → [`Self::capacity_reduced`]；
+/// * 单选择（[`GroupStrategy::is_single_select`]）同一时刻只用一个成员，
+///   备用成员离线不影响当前通路 → 部分离线仍是 `ok`；
+/// * 只有 `abnormal` / `no_data` 等既非在线、也非离线的成员 →
+///   [`Self::unhealthy`]（未被确认离线，仍可能恢复，沿用旧口径降级）；
+/// * 整组没有在线成员、但至少有一台**已确认离线** → [`Self::no_online`]
+///   （阻断）；整组只有 `abnormal` 时不算阻断。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HopState {
+    /// 组内没有任何成员（空组）。
+    pub empty: bool,
+    /// 没有任何在线成员，且至少有一台已确认离线的成员。
+    pub no_online: bool,
+    /// 有在线成员、也有离线成员，且该跳策略是均衡类（容量下降）。
+    pub capacity_reduced: bool,
+    /// 存在 `abnormal` / `no_data` 等非在线、也非离线的成员。
+    pub unhealthy: bool,
+}
+
+impl HopState {
+    /// 这一跳是否让整条链无法使用：空组或没有任何在线成员。
+    pub const fn blocks(self) -> bool {
+        self.empty || self.no_online
+    }
+
+    /// 这一跳是否让整条链降级（容量下降或成员状态不明）。
+    pub const fn degrades(self) -> bool {
+        self.capacity_reduced || self.unhealthy
+    }
+}
+
+/// 单个组的成员状态归类；`strategy` 是该组**实际执行**的选路策略。
+///
+/// 入口组（第一组）没有上一跳执行选路，但它同样由多台等价入口分担流量，
+/// 调用方应按均衡类传入（见 [`crate::chain_health`] 与概览计数）。非法策略
+/// 按 [`GroupStrategy::from_db`] 回落轮询（均衡类），与节点视图一致。
+pub fn hop_state<'a>(strategy: &str, statuses: impl IntoIterator<Item = &'a str>) -> HopState {
+    let balanced = GroupStrategy::from_db(strategy).is_balanced();
+    let mut total = 0_usize;
+    let mut online = 0_usize;
+    let mut offline = 0_usize;
+    let mut unhealthy = false;
+    for status in statuses {
+        total += 1;
+        match status {
+            "online" => online += 1,
+            "offline" => offline += 1,
+            // `abnormal` / `no_data` / 未知值都算「非在线」：没有确认离线。
+            _ => unhealthy = true,
+        }
+    }
+    HopState {
+        empty: total == 0,
+        no_online: online == 0 && offline > 0,
+        capacity_reduced: balanced && online > 0 && offline > 0,
+        unhealthy,
+    }
+}
+
+/// 整条链的成员可用性（不含数据质量），由逐跳 [`HopState`] 归并。
+///
+/// `blocked` 优先：任一跳阻断就整链阻断，`degraded` 清零（与 chain-health 的
+/// `status.kind` 优先级一致）。概览的 blocked / degraded 计数就用这个结果。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MemberHealth {
+    pub blocked: bool,
+    pub degraded: bool,
+}
+
+/// 逐跳归并链级成员可用性；不碰样本，所以概览与 chain-health 用的是同一套规则。
+pub fn member_health(hops: impl IntoIterator<Item = HopState>) -> MemberHealth {
+    let mut blocked = false;
+    let mut degraded = false;
+    for hop in hops {
+        blocked |= hop.blocks();
+        degraded |= hop.degrades();
+    }
+    MemberHealth {
+        blocked,
+        degraded: degraded && !blocked,
+    }
 }
 
 /// 成员权重必须是 1–100 的整数。

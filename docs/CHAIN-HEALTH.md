@@ -102,8 +102,9 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 ```
 
 （示例：大阪-01 是单成员出口，离线时这一跳没有任何在线成员，所以第 3 /
-最后一跳与最近 2h 的链级桶都是 `null`，链状态是 `blocked`；如果是多成员组
-只掉一台，链只会是 `degraded / node_offline`。）
+最后一跳与最近 2h 的链级桶都是 `null`，链状态是 `blocked`；如果掉的是**均衡类**
+多成员组的一台，链是 `degraded / node_offline`；如果是 `failover` /
+`lowest_latency` 组掉了一台备用成员、仍有在线成员，链仍是 `ok`。）
 
 `entry` / `exit` 是链的展示起点/终点（口径见 §1.1），保留不删；`nodes` 是
 完整的拓扑节点（口径见 §1.2）；`status` 是链级可用性状态（口径见 §1.3）；
@@ -172,8 +173,8 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
   成员自身的 `servers.status` 原样保留在 `members[].status`，不被组级状态
   覆盖。空组没有成员可引用，组级 `status` 是 `null`；链目标节点也是 `null`。
   **组级状态只描述最差成员**：多成员组里一台离线会让组级变 `offline`，但链路
-  是否可用取决于这一跳还有没有在线成员（见 §1.3）——组级 `offline` 不等于
-  链级 `blocked`；
+  是否可用取决于这一跳还有没有在线成员、以及该跳策略是否均衡类（见 §1.3）——
+  组级 `offline` 既不等于链级 `blocked`，也不必然等于链级 `degraded`；
 - **server_id / name（兼容字段）**：仍是该组 `(priority, server_id)` 最小的
   代表成员（与 `entry` / `exit` 同口径），保留给只读一台的旧前端。
   `name` 优先取组名，组名为空时回退代表成员名；空组回退 `第 N 跳`；
@@ -209,31 +210,41 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
             "node": { "seq": 1, "name": "东京-02", "member_name": "东京-02" } | null }
 ```
 
-`status` 把节点状态与链路数据合成一个用户能直接看的状态。可用性**按跳**判断，
-不按成员：一条链的每个必需跳（`source` / `hop`）只要还有**至少一台在线成员**，
-这一跳就能承载流量；多掉的成员只是容量下降，链路仍然可用。判定**按以下优先级**
-（高 → 低，命中即停）：
+`status` 把节点状态、选路策略与链路数据合成一个用户能直接看的状态。可用性
+**按跳 + 策略**判断，不按成员：一条链的每个必需跳（`source` / `hop`）只要还有
+**至少一台在线成员**，这一跳就能承载流量；仍有在线成员时是否降级取决于该跳的
+策略（逐跳规则由 `crate::chains::hop_state` 统一给出，概览计数共用同一份实现）。
+判定**按以下优先级**（高 → 低，命中即停）：
 
 | 优先级 | 条件 | `kind` | `cause` | `node` |
 |---|---|---|---|---|
 | 1 | 任一必需跳**全部成员离线**（这一跳没有任何在线成员）或**没有成员**（空组） | `blocked` | `node_offline` | 拓扑上第一台离线成员（`seq` 是该成员所在组）；空组没有成员可点名时为 `null` |
-| 2 | 每跳都至少有一台 `online`，但存在 `offline` 成员 | `degraded` | `node_offline` | 第一台离线成员（`seq` 是该成员所在组） |
+| 2 | 每跳都至少有一台 `online`，但**均衡类**策略（`round_robin` / `ip_hashed` / `weighted` / `least_conn`）的跳存在 `offline` 成员 | `degraded` | `node_offline` | 这些均衡类跳里拓扑上第一台离线成员（`seq` 是该成员所在组） |
 | 3 | 每跳都至少有一台 `online`，但存在 `abnormal` / `no_data` 等非在线成员 | `degraded` | `node_unhealthy` | `null` |
 | 4 | 最后一跳不可测（`last_hop.measurable = false`；引擎 / 协议是链级字段，所以这条链的所有段都不可测） | `unknown` | `unmeasurable` | `null` |
 | 5 | 当前 2h 窗口没有「所有段齐全」的整体样本，**或** `missing_hops` 非空 | `degraded` | `no_samples` | `null` |
 | 6 | 整体较基线变慢（与 `summary.slow_chains` 同一个 `SLOW_DELTA_MS` = 8ms 阈值） | `degraded` | `slow` | `null` |
-| 7 | 其余 | `ok` | `null` | `null` |
+| 7 | 其余（包括 `failover` / `lowest_latency` 跳部分成员离线、但仍有在线成员） | `ok` | `null` | `null` |
 
-- **多成员组只掉一台不阻断**：例如 `[东京-01 online, 东京-02 offline]` 的中转组，
-  链是 `degraded` / `node_offline`（点名东京-02），不是 `blocked`——这一跳仍有
-  在线成员可以承载流量。只有该跳**一台在线成员都不剩**（全部离线）才 `blocked`；
-- **入口组与最后一跳同规则**：入口组、最后一跳只要组内还有在线成员就不阻断；
-  单成员组离线仍然 `blocked`（与旧行为一致，因为这一跳确实没有在线成员）；
+- **首选可用就不该显示降级**：`failover` / `lowest_latency` 同一时刻只用一个
+  成员，掉的是**备用成员**，当前通路不受影响。例如
+  `[东京-02 offline, 东京-03 online]` 的 `failover` 组，当前选中东京-03，
+  链是 `ok`，不是 `degraded`；
+- **均衡类跳掉一台 = 少一份容量**：`round_robin` / `ip_hashed` / `weighted` /
+  `least_conn` 把流量分给多台，`[东京-01 online, 东京-02 offline]` 的均衡类
+  中转组会让链 `degraded` / `node_offline`（点名东京-02），不是 `blocked`——
+  这一跳仍有在线成员可以承载流量。只有该跳**一台在线成员都不剩**（全部离线）
+  才 `blocked`；
+- **入口组按均衡类处理**：入口组没有上一跳执行选路，`nodes[].strategy` 为
+  `null`，但它同样由多台等价入口分担容量，部分离线 → `degraded`；最后一跳
+  同理按该组自己的策略判断。单成员组离线仍然 `blocked`（这一跳确实没有在线
+  成员）；
 - **空组**：没有任何成员能承载这一跳，与「全部离线」同档，判 `blocked`。它没有
   成员可点名，所以 `node` 是 `null`（旧口径把空组算作 `degraded/node_unhealthy`）。
   有成员的阻断跳仍会点名第一台离线成员；
 - **只有 abnormal / no_data、没有离线成员的跳**沿用旧口径 `degraded` /
   `node_unhealthy`：这些状态没有被确认离线，仍可能恢复，不升级成 `blocked`；
+  该规则**不看策略**（即使是 `failover`，成员状态不明也降级）；
 - **`target` 不参与判定**：链目标节点没有成员，`members` 是空数组、`status`
   恒为 `null`；这个 `null` 不能把链判成 `node_unhealthy`；
 - **成员优先于数据质量**：成员离线必然让相关段在当前窗口缺样本，但结果会是
@@ -246,17 +257,34 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
   链上却没有 slow」；
 - **`node` 语义**：只有 `node_offline` 时出现，`seq` 是离线成员**所在组**的
   `seq`，`name` / `member_name` 都是该**成员名**（`name` 保留旧字段语义，
-  `member_name` 是显式的新字段，便于前端不区分组节点名与成员名）。多个成员
-  离线时取组 `seq` 最小、组内 `(priority, server_id)` 最早的那台。`blocked` 与
-  `degraded` 都可能带 `node`；空组阻断时没有成员可点名，`node` 为 `null`；
+  `member_name` 是显式的新字段，便于前端不区分组节点名与成员名）。
+  `blocked` 时取拓扑上第一台离线成员；`degraded` 时**只**从均衡类跳里取第一台
+  （`failover` / `lowest_latency` 的备用成员离线不构成降级，不能拿来当原因）。
+  多个候选时取组 `seq` 最小、组内 `(priority, server_id)` 最早的那台。`blocked`
+  与 `degraded` 都可能带 `node`；空组阻断时没有成员可点名，`node` 为 `null`；
 - **`unknown` / `unmeasurable`**：Agent 只为 `native + tcp` 的 forward 跑目标
   探测（见 §1.4），所以 realm / nftables / tunnel / udp / both 链的探测数据
   **永远不会齐全**。这类链报 `degraded` / `no_samples` 会让人以为「Agent
   没上报」或「链路坏了」，因此单独给 `unknown` + `unmeasurable`。节点状态的
   优先级仍然更高：真正不可用的不可测链还是 `blocked` / `node_offline`；
-- **口径变化的影响**：`summary` 里没有 `blocked` 计数字段；概览页 / 链列表上的
-  blocked / degraded / ok 数量由前端按 `status.kind` 汇总，所以本次判定变化会
-  直接反映到这些计数（多成员组部分离线从 `blocked` 变为 `degraded`）。
+- **概览计数同口径**：`summary` 里没有 `blocked` / `degraded` 计数字段，但
+  `GET /api/v1/overview` 的 `chains.blocked` / `chains.degraded` 与本接口的
+  `status.kind` 用**同一份逐跳规则**（`crate::chains::hop_state`）：
+  * `blocked` = 配置不可下发（证书 / 能力等，`blocked_reason`）**或**任一必需跳
+    没有在线成员；
+  * `degraded` = 非 blocked，且仅均衡类策略的跳存在离线成员（容量下降）或存在
+    `abnormal` / `no_data` 成员；`failover` / `lowest_latency` 的备用成员离线
+    不计入；
+  * **不再用 `forward_status.target_fail_count` 阈值**：那是运行态健康，不是
+    成员可用性；概览的 `chains.degraded` 现在只反映上一条的成员状态；
+  * 概览计数是**成员状态**口径，不含本接口的数据质量降级（`no_samples` /
+    `slow` / `unmeasurable`）；同一批链在有完整当前样本时，逐条按
+    `status.kind` 统计与概览计数一致（路由层测试覆盖）；
+  * 实现是一次读出链拓扑后在内存归并，复杂度 O(链数 × 组数 × 成员数)，SQL
+    次数固定（拓扑 3 条 + 证书至多 1 条 + 转发计数 1 条），没有 N+1；
+- **口径变化的影响**：链列表上的 blocked 标记仍走配置 `blocked_reason`（不含
+  成员离线）；概览的 blocked / degraded 走上面的统一口径。前端若自行按
+  `status.kind` 汇总，得到的结果与概览端点一致（数据质量降级除外）。
   `summary.slow_chains` 仍是「可测链里整体 delta ≥ 8ms 的条数」这个**纯数值**
   口径，不按 `kind` 过滤：一条同时变慢的 `degraded/node_offline` 链仍会计入
   （旧版 `blocked` 链也同样计入），但它自己的 `status.cause` 是 `node_offline`
@@ -549,65 +577,48 @@ USE TEMP B-TREE FOR ORDER BY
 
 ## 7. 造数
 
-`scripts/seed-preview.sh` 现在额外写入：
+`scripts/seed-preview.sh` 写入 15 台主机 / 8 个链模板 / 26 条链（80 组 /
+98 成员），覆盖新的链级判定（§1.3）需要看到的每一种状态：
 
-- 3 条链、9 个组、10 个成员（`chain_groups` 不再为空）：
-  - 港日中转链：香港-01 → 东京-01 → 新加坡-01 → 大阪-01（4 组 / **4 段**，
-    最后一段是 大阪-01 → 链目标）；
-  - 港新直达链：香港-02 → 新加坡-02（2 组 / 2 段，含最后一跳）；
-  - 港日多路径：香港-01 →（东京-01 / 东京-02）→ 大阪-01（中间组两台，
-    `estimated: true`）。**东京-01 在线、东京-02 离线、大阪-01 在线**，用来
-    展示 `nodes[1].member_count = 2`、`members` 两台齐全、组级 `status =
-    offline`，而链级是 `degraded / node_offline`：还有东京-01 这条路径可以
-    承载流量，链路仍然可用（`node` 点名 `seq 1` 的东京-02）；
-- **东京-02 在 2 小时前掉线**（`servers.status = offline`，`last_seen_at` 同步
-  回拨 2h；大阪-01 已恢复在线）。为了避免「已离线却仍有最新样本」的自相矛盾，
-  凡是由它发起、或以它为目标的数据都只写到掉线之前：
-  - 港日多路径入口组发往东京-02 的时延样本停在掉线前（东京-01 那条路径照常）；
-  - 上游段照常上报，所以港日多路径的 `status` 是 `degraded` / `node_offline`
-    （点名 `seq 1` 的**东京-02**，非代表成员），**不是** `no_samples`，也不是
-    `blocked`：这就是「多成员组部分成员离线只降低容量」在预览库里的可见证据。
-    单成员组离线（例如整条链某个组只有一台且它离线）仍然是 `blocked`；
-  - 港新直达链的两台机器都在线，数据完整，`status` 是 `ok`；
-- 最近 24h、每 5 分钟一条的 `forward_latency_samples`（**3035 条**；11 个
-  forward/target 组合 × 289 个桶，其中与东京-02 相关的流各少 24 条）：
-  - 每条链最后一跳到目标的样本也写入（`target_server_id` 为空），用来验证
-    它归到最后一跳段、`missing_hops` 不再包含这一跳、且不计入
-    `unmapped_forwards`；
-  - 多路径链的入口组上报两个真实 `target_server_id`，中转组两台各自上报；
-- 最近 24h、每 5 分钟一桶的 `forward_probe_samples`（**2770 条**；10 个
-  forward × 289 个桶，其中与东京-02 相关的流各少 24 条；港日多路径入口
-  的探测按 forward 聚合，不拆到两个目标）：
-  - 港日中转链第 2 段（东京-01 → 新加坡-01）最近 2h 每桶 `7/240 ≈ 2.92%`；
-  - 其余在线段 `<0.2%`（每 3 个桶 1 次失败，`1/240 ≈ 0.14%`）；
-  - 整链连乘约 `3.06%`，用于对照「单段丢包 vs 整链」；
-  - 最后一跳到链目标的探测也写入，聚合时归到最后一跳段（不再被丢弃）。
-
-> 窗口内没有「所有段齐全」的整体样本时，`diagnosis` 是 `unknown`；这是
-> `blocked` / `degraded` 链的真实形态，不是缺陷。「单段变慢 → single_hop」
-> 由领域层/路由层单测覆盖，不依赖预览库。
-
-「当前通路」（`active_server_id`）另有两组不挂模板的管理员链；既有 8 个
-模板 / 24 条链原样保留：
-
-- 781 主备三跳：香港-01 →（东京-02 priority 0、离线 / 东京-03 priority 1、
-  在线）→ 新加坡-01，中间组与出口组都是 `failover`。入口 香港-01 的
-  `forward_status.targets_json` 写两台候选（东京-02 `active:false`、东京-03
-  `active:true`），东京-03 的规则再把新加坡-01 标成 `active:true`；响应里
-  `nodes[1].strategy = "failover"`、`nodes[1].active_server_id = 东京-03`、
-  `nodes[2].active_server_id = 新加坡-01`。因为东京-02 离线、东京-03 在线，
-  链级是 `degraded / node_offline`（点名东京-02）——一主一备里掉一台只是
-  容量下降，当前通路不受影响，链路仍然可用。
-- 782 最低延迟双跳：香港-02 →（东京-01 / 东京-03 / 首尔-01），最后一组
-  `lowest_latency`。入口规则只把时延最低的东京-01 标成 `active:true`
-  （24h 样本均值约 11ms，东京-03 约 12ms、首尔-01 约 22ms），另两台
-  `active:false`；响应里 `nodes[1].active_server_id = 东京-01`。
-- 只有上述 3 条 forward 写 `targets_json`；其余（包括既有 24 条链）保持
-  `NULL`，用来验证旧格式没有 `active` 键时不会算出当前通路。两条新链的
-  时延 / 探测样本仍由通用 CTE 按最近 24h、5 分钟粒度生成。
-
-重复执行幂等：固定 id + 先删后插；只写 `data/preview.db`，不碰
-`data/pierwave.db`。
+- **ok（多路径 / 单选择跳部分成员离线）**
+  - 港日多路径（603）：香港-01 →（东京-01 在线 / 东京-02 离线）→ 大阪-01。
+    中间组是 `lowest_latency`，东京-02 离线只是少一个候选，东京-01 仍在承载，
+    链路是 `ok`；
+  - 管理员 · 主备三跳（781）：中间组 `failover` 的 priority 0 东京-02 离线、
+    priority 1 东京-03 在线，当前通路仍走东京-03，链路是 `ok`；
+  - 港新直达链（602）、nora · 港日双路 C（717）、demo · 港新入口 C（733）、
+    mei · 港日新四跳（722）、nora · 四跳空闲（763）等成员全部 `online` 的链
+    都有完整 24h 样本，状态是 `ok`；763 只是累计流量为 0。
+- **degraded（均衡类跳部分成员离线）**
+  - kenji · 港日双路（711）：入口组 `ip_hashed` 两台成员，香港-02 在线 /
+    香港-03 离线（其余跳在线）→ `degraded` / `node_offline`，点名香港-03。
+- **blocked（必需跳整组离线 / 单成员跳离线）**
+  - mei · 港日双路 B（713）：中转组 `lowest_latency` 只有东京-02 一台且离线，
+    这一跳没有任何在线成员；
+  - nora · 港日新四跳（723）：`ip_hashed` 东京跳只有离线的东京-02；
+  - nora · 五跳备线（752）：入口 `ip_hashed` 的 4 台成员全部离线 / 无数据，
+    是「整组离线」的证据；nora · 三跳空闲（772）的出口只有离线的香港-03。
+- **停用**：美西备用线模板（703）保持 `enabled = 0`，模板洞察的 `status` 是
+  `blocked` / `disabled`；链 716 仍保留，用于展示「停用模板仍有历史链」的
+  计数口径，链路状态因美西-01 离线而是 `blocked`。
+- **样本口径**：`servers.status = 'online'` 的成员（包括 Agent 在线但 Xray
+  停止的新加坡-02 / 曼谷-01）都写满最近 24h；只有离线成员按 `last_seen_at`
+  截断，指向离线下一跳的样本同样截断。因此不存在「成员全在线却
+  `no_samples`」的链。
+  - 时延 `forward_latency_samples` **32166 条**、每跳探测
+    `forward_probe_samples` **26590 条**：最近 24h、5 分钟粒度；
+  - 每条链最后一跳到目标的样本也写入（`target_server_id` 为空），归到最后一跳
+    段，`missing_hops` 不再包含这一跳，也不计入 `unmapped_forwards`；
+  - 706 活跃链第 4 跳（新加坡-01 → 新加坡-03）时延刻意偏高、丢包约 2.9%，
+    其余路径约 0.2%，用于单跳诊断。
+- **当前通路**：只有 781 / 782 两条管理员链的 `forward_status.targets_json`
+  带 active 键（781 入口写东京-02 `active:false` / 东京-03 `active:true`，
+  东京-03 的规则再写新加坡-01；782 入口只把时延最低的东京-01 标成
+  `active:true`）。其余链保持旧格式（无 active 键），验证缺键不会被当成
+  false / 当前通路。
+- **幂等**：固定 id + 事务内先删后插；连续两次执行的 totals 一致（26 条链 /
+  80 组 / 98 成员 / 32166 时延 / 26590 探测 / 9408 可用率样本）。只写
+  `data/preview.db`，不碰 `data/pierwave.db`。
 
 ## 8. 测试
 
@@ -628,10 +639,13 @@ USE TEMP B-TREE FOR ORDER BY
   的三种 kind：全在线 + 当前数据完整 → `ok`、`abnormal` / `no_data` →
   `degraded` / `node_unhealthy`、无样本 → `degraded` / `no_samples`、变慢 →
   `degraded` / `slow`、单成员组离线 → `blocked` / `node_offline` 并点名
-  `seq` 最小的离线节点、**多成员组只掉第二台成员 → `degraded` /
-  `node_offline` 并点名该成员**、**该组两台全离线 → `blocked`**、
+  `seq` 最小的离线节点、**均衡类（round_robin / ip_hashed / weighted /
+  least_conn）组只掉第二台成员 → `degraded` / `node_offline` 并点名该成员**、
+  **failover / lowest_latency 组部分离线、但仍有在线成员 → `ok`（首选仍在线，
+  不再 degraded）**、**该组两台全离线 → `blocked`**、
   **入口组部分离线 → `degraded`（不阻断）**、**多组分别降级仍是 `degraded`**、
   **部分离线 + abnormal 混合 → `degraded` 且 cause 优先 `node_offline`**、
+  **degraded 只点名均衡类跳的离线成员，不拿 failover 的备用成员当原因**、
   **空组 → `blocked` 且 `node: null`**、离线优先于 slow、链目标
   `status: null` 不参与判定；起点/终点覆盖单成员、多成员按
   `(priority, server_id)` 选第一台、`public_port` 为空回退 `listen_port`、
@@ -658,6 +672,11 @@ USE TEMP B-TREE FOR ORDER BY
   `listen_port` 口径、多成员优先级、`server_ids` 筛选后 entry/exit 仍取
   原链首尾、筛选后只汇总保留的链、筛选（命中/未知/空数组/非法/201 个 id）、
   非法 `hours`/`bucket`、缓存 key 隔离、非管理员 401/403；
+- 概览计数（`crates/domain/src/repo.rs` / `crates/master/src/routes/overview.rs`）：
+  failover 部分离线不算 degraded、均衡类部分离线算 degraded、整组离线算
+  blocked、abnormal 成员算 degraded、`target_fail_count` 不再影响计数；同一批链
+  同时请求概览与 chain-health，按 `status.kind` 统计出的 blocked / degraded 与
+  概览计数一致；
 - 查询计划（`crates/domain/tests/query_plan.rs`）：`forward_probe_samples`
   的逐桶查询必须走 `idx_forward_probe_samples_forward_ts`，不允许全表扫描；
 - 缓存层（`crates/master/src/state.rs`）：`(hours, bucket, 筛选)` 三维
@@ -785,21 +804,25 @@ display-only composite and does not change dispatch or probing.
 with data quality: `kind` is `ok` / `degraded` / `blocked` / `unknown`, `cause`
 is `node_offline` / `node_unhealthy` / `unmeasurable` / `no_samples` / `slow`
 (`null` for `ok`), and `node` is `{ seq, name, member_name }` for the first
-offline member, otherwise `null`. Availability is judged **per hop**, not per
-member: as long as a required (`source` / `hop`) group still has **at least one
-online member**, that hop can carry traffic and losing some of its members only
-reduces capacity. Rules are applied in order, first match wins:
+offline member, otherwise `null`. Availability is judged **per hop and
+strategy**, not per member: as long as a required (`source` / `hop`) group still
+has **at least one online member**, that hop can carry traffic; whether the chain
+degrades depends on the hop's strategy (the per-hop rule lives in
+`crate::chains::hop_state` and is shared with the overview counters). Rules are
+applied in order, first match wins:
 
 1. any `source` / `hop` group whose members are **all offline** (the hop has no
    online member left) or which has **no members** (empty group) → `blocked` /
    `node_offline`; `node` = the first offline member in topology order (`seq` is
    the group containing it, `name` / `member_name` are that member's name), or
    `null` when the blocking hop is empty and there is no member to name;
-2. every hop still has an online member, but some `offline` member exists →
-   `degraded` / `node_offline`, `node` = the first offline member (the chain is
-   still usable, only with less capacity);
+2. every hop still has an online member, but a **balanced** strategy hop
+   (`round_robin` / `ip_hashed` / `weighted` / `least_conn`) has an `offline`
+   member → `degraded` / `node_offline`, `node` = the first offline member among
+   those balanced hops (the chain is still usable, only with less capacity);
 3. every hop still has an online member, but some member has `abnormal` /
-   `no_data` or another non-online status → `degraded` / `node_unhealthy`;
+   `no_data` or another non-online status → `degraded` / `node_unhealthy` (this
+   rule ignores strategy);
 4. the final hop is unmeasurable (`last_hop.measurable = false`; engine and
    protocol are chain-wide, so no segment of the chain can be probed) →
    `unknown` / `unmeasurable`. Reporting `no_samples` here would suggest the
@@ -808,15 +831,21 @@ reduces capacity. Rules are applied in order, first match wins:
    non-empty `missing_hops` → `degraded` / `no_samples`;
 6. the overall delta is at least 8ms (`SLOW_DELTA_MS`, the same predicate used by
    `summary.slow_chains`) → `degraded` / `slow`;
-7. otherwise → `ok`.
+7. otherwise → `ok`, including a `failover` / `lowest_latency` hop with some
+   members offline but at least one online member left.
 
-A hop whose members are all `abnormal` / `no_data` but none offline stays
-`degraded` / `node_unhealthy` (not confirmed offline, may recover), matching the
-previous behaviour. The entry group and the final hop follow the same rule: one
-offline member of a multi-member entry group only degrades the chain, while a
-single-member hop going offline is still `blocked`. An empty required hop is
-`blocked` because nothing can carry it (previously it was
-`degraded` / `node_unhealthy`); it has no member to name, so `node` is `null`.
+The selected member staying available must not show as degraded: `failover` /
+`lowest_latency` pick a single member at a time, so an offline backup does not
+reduce the current path. A balanced hop losing one member is real capacity loss,
+so it degrades. The entry group has no previous hop to execute routing
+(`nodes[].strategy` is `null`), but its members are equivalent entry points that
+share capacity, so it is judged as balanced; the final hop follows its own
+strategy. A hop whose members are all `abnormal` / `no_data` but none offline
+stays `degraded` / `node_unhealthy` (not confirmed offline, may recover),
+matching the previous behaviour. A single-member hop going offline is still
+`blocked`. An empty required hop is `blocked` because nothing can carry it
+(previously it was `degraded` / `node_unhealthy`); it has no member to name, so
+`node` is `null`.
 
 `last_hop` is `{ "measurable": bool, "reason": null | "engine_unsupported" |
 "protocol_unsupported" }`: `engine_unsupported` for realm / nftables / tunnel,
@@ -834,25 +863,40 @@ must be a `node_offline` verdict (`blocked` or `degraded`), never `no_samples`.
 not rewritten by `status`; the two answer different questions ("which hop has no
 data" vs "can this chain be used right now"). A group's own `nodes[].status` is
 only the worst member: one offline member makes the group `offline` even when the
-chain is still usable, so a group `offline` does not imply a chain `blocked`.
+chain is still usable, so a group `offline` implies neither a chain `blocked`
+nor necessarily a chain `degraded` (it also depends on the hop's strategy).
 `node` is set for `node_offline` in both `blocked` and `degraded`: `seq` is the
 group containing the offline member, and `name` / `member_name` both carry the
 member name (`name` keeps its old meaning; `member_name` is the explicit new
 field so clients do not have to distinguish group-node names from member names).
-With several offline members it names the one with the smallest group `seq` and,
-within that group, the earliest `(priority, server_id)`.
+For `blocked` it names the first offline member in topology order; for
+`degraded` it only considers **balanced** hops (an offline backup of a
+`failover` / `lowest_latency` hop is not a degradation cause). With several
+offline members it names the one with the smallest group `seq` and, within that
+group, the earliest `(priority, server_id)`.
 
-The response `summary` has no `blocked` counter; the overview / chain-list
-blocked / degraded / ok counts are aggregated by the front end from
-`status.kind`, so they follow this verdict (a partially offline multi-member
-group moves from `blocked` to `degraded`). `summary.slow_chains` keeps its purely
-numeric definition (measurable chains whose overall delta is ≥ 8ms) and is not
-filtered by `kind`: a slow chain with a `degraded` / `node_offline` verdict is
-still counted (as a `blocked` slow chain was before), while its own
-`status.cause` is `node_offline` because that rule has higher priority. Every
-pre-existing field (`segments` / `series` / `loss_pct` / `loss_partial` /
-`diagnosis` / `missing_hops`) keeps its exact semantics; `status` is an additive
-composite view.
+The response `summary` has no `blocked` / `degraded` counter, but the overview
+endpoint (`GET /api/v1/overview`) exposes `chains.blocked` / `chains.degraded`
+using **the same per-hop rule** (`crate::chains::hop_state`): `blocked` means the
+configuration cannot be delivered (`blocked_reason`: certificate / capability)
+**or** a required hop has no online member; `degraded` means not blocked and only
+balanced hops have offline members (capacity loss) or some member is
+`abnormal` / `no_data`. The old `forward_status.target_fail_count` threshold is no
+longer used for the overview `degraded` counter — that is runtime health, not
+member availability. The overview counters are the **member-state** verdict;
+they do not include the data-quality downgrades of this endpoint (`no_samples` /
+`slow` / `unmeasurable`). For the same batch of chains with complete current
+samples, counting `status.kind` matches the overview counters (covered by a
+route-level test). The computation reads the topology once and merges it in
+memory: O(chains × groups × members), with a fixed number of SQL queries (three
+topology queries + at most one certificate query + one forward counter query),
+no N+1. `summary.slow_chains` keeps its purely numeric definition (measurable
+chains whose overall delta is ≥ 8ms) and is not filtered by `kind`: a slow chain
+with a `degraded` / `node_offline` verdict is still counted (as a `blocked` slow
+chain was before), while its own `status.cause` is `node_offline` because that
+rule has higher priority. Every pre-existing field (`segments` / `series` /
+`loss_pct` / `loss_partial` / `diagnosis` / `missing_hops`) keeps its exact
+semantics; `status` is an additive composite view.
 
 Time windows: `series` covers the last `hours`; the current value uses the last
 2 hours of bucket medians and the baseline uses the 24 hours before that. The
@@ -988,54 +1032,48 @@ are kept apart because `scope` / `warnings` are cached with the body, so one id
 changing from unknown to matched must not reuse the old entry — with
 `X-Chain-Health-Cache: hit|miss`.
 
-`scripts/seed-preview.sh` adds 3 chains / 9 groups / 10 members. The middle
-group of 港日多路径 has **two members: 东京-01 online and 东京-02 offline**, so
-the preview shows `nodes[1].member_count = 2`, both `members`, a group `status`
-of `offline`, and a chain `degraded` / `node_offline` that names 东京-02 at seq 1
-(a non-representative member): 东京-01 still carries the hop, so the chain stays
-usable with less capacity instead of being blocked. 东京-02 went offline 2 hours
-ago (`servers.status = offline`, with `last_seen_at` moved back 2 hours; 大阪-01
-is back online), and **no sample is written for 东京-02 after that point**: the
-multi-path entry group's latency samples targeting 东京-02 stop there while the
-东京-01 path keeps reporting. Upstream segments keep reporting, so the chain is
-`degraded` / `node_offline` rather than `no_samples` or `blocked`, which is the
-visible proof that a partially offline multi-member group only reduces capacity.
-A hop with no online member left (for example a single-member hop going offline)
-is still `blocked`. 港新直达链 has both nodes online and complete data, so it is
-`ok`. The seed writes 24 hours of 5-minute latency samples (**3035 rows**: 11
-forward/target streams × 289 buckets, minus 24 rows for each stream touching
-东京-02) and per-hop probes (**2770 rows**: 10 forwards × 289 buckets, minus the
-same 24 rows; the multi-path entry probe is aggregated per forward and is not
-split between the two targets). The second segment's probe failure rate is about
-2.92%
-for the last 2 hours (7/240 per bucket) while the remaining online segments stay
-below 0.2% (1/240 every third bucket), so the compounded chain loss is about
-3.06%. Final-hop latency samples are written with an empty `target_server_id`
-for every stream that is still online. Because a chain without a complete
-current bucket has no overall value, its `diagnosis` is `unknown`; the
-"single-segment slowdown → `single_hop`" rule is covered by unit and route tests
-rather than by the preview database. The
-script is idempotent and only writes `data/preview.db`.
+`scripts/seed-preview.sh` writes 15 servers / 8 chain templates / 26 chains
+(80 groups / 98 members), covering every verdict the per-hop rules in §1.3 can
+produce:
 
-Two template-less admin chains exercise the current path (`active_server_id`)
-while the existing 8 templates / 24 chains stay untouched. 781 is a three-hop
-failover chain 香港-01 → (东京-02 offline at priority 0 / 东京-03 online at
-priority 1) → 新加坡-01, with `failover` on both the middle and exit groups.
-香港-01's `forward_status.targets_json` marks 东京-02 `active:false` and
-东京-03 `active:true`, and 东京-03's own rule marks 新加坡-01 `active:true`;
-the response therefore reports `nodes[1].strategy = "failover"`,
-`nodes[1].active_server_id = 东京-03` and `nodes[2].active_server_id = 新加坡-01`.
-The chain still resolves to `degraded / node_offline` (naming 东京-02) because
-东京-02 is offline while 东京-03 is online: losing one member of a failover group
-only reduces capacity, so the current path is unaffected and the chain stays
-usable. 782 is a two-hop chain 香港-02 →
-(东京-01 / 东京-03 / 首尔-01) with `lowest_latency` on the final group;
-东京-01 carries `active:true` (24-hour mean ~11 ms vs ~12 ms and ~22 ms) and
-the other two `active:false`, so `nodes[1].active_server_id = 东京-01`. Only
-these three forwards carry `targets_json`; every other row, including the
-existing 24 chains, stays `NULL` so the old format (no `active` key) never
-produces a current path. The new chains get their 24-hour / 5-minute latency
-and probe samples from the same CTEs as the rest of the seed.
+- **ok (multi-path / single-select hop with a lost member)**
+  - 港日多路径 (603) is 香港-01 → (东京-01 online / 东京-02 offline) → 大阪-01;
+    the middle group is `lowest_latency`, so the offline candidate only removes
+    a spare and 东京-01 still carries the hop. The chain is `ok`.
+  - 管理员 · 主备三跳 (781) has a `failover` middle group with priority 0
+    东京-02 offline and priority 1 东京-03 online; the current path still runs
+    through 东京-03, so the chain is `ok`.
+  - 港新直达链 (602), nora · 港日双路 C (717), demo · 港新入口 C (733),
+    mei · 港日新四跳 (722) and nora · 四跳空闲 (763) have only `online` members
+    and complete 24-hour samples, so they are `ok`; 763 simply has zero traffic.
+- **degraded (balanced hop with a lost member)** — kenji · 港日双路 (711) has an
+  `ip_hashed` entry group with 香港-02 online / 香港-03 offline while the other
+  hops stay online, so it is `degraded` / `node_offline` naming 香港-03.
+- **blocked (a required hop with no online member)** — mei · 港日双路 B (713)
+  has a single `lowest_latency` member 东京-02 offline, so that hop has no
+  online member; nora · 港日新四跳 (723) has the same single offline 东京-02 in
+  its `ip_hashed` hop; nora · 五跳备线 (752) has all four members of its
+  `ip_hashed` entry group offline / no-data (the whole-group-offline case), and
+  nora · 三跳空闲 (772) exits through the single offline 香港-03.
+- **disabled** — the 美西备用线 template (703) stays `enabled = 0` and its
+  template insight reports `blocked` / `disabled`; chain 716 stays as a
+  historical chain on that template and is `blocked` because 美西-01 is offline.
+- **Samples** — every `online` member (including 新加坡-02 / 曼谷-01, where the
+  Agent is online but Xray is stopped) gets the full last 24 hours; only
+  `offline` members stop at `last_seen_at`, and streams pointing at an offline
+  next hop stop at the same point. There is therefore no chain whose members are
+  all online but whose `status` is `no_samples`. The seed writes **32166**
+  `forward_latency_samples` and **26590** `forward_probe_samples` at 5-minute
+  granularity over 24 hours; final-hop samples use an empty `target_server_id`
+  so they land on the final segment. The fourth hop of the active 706 chain
+  (新加坡-01 → 新加坡-03) is deliberately slow and loses about 2.9% of probes
+  (other paths ~0.2%). Only the three forwards of 781 / 782 carry `targets_json`
+  with `active` keys; every other chain keeps the old format so the missing key
+  is never read as false / a current path.
+- **Idempotency** — fixed ids plus delete-then-insert inside one transaction;
+  two consecutive runs report identical totals (26 chains / 80 groups / 98
+  members / 32166 latency / 26590 probe / 9408 availability samples) and only
+  write `data/preview.db`.
 
 Tests also cover the unmeasurable-final-hop regression: realm / nftables /
 tunnel / native+udp / native+both chains keep their `series` (the unmeasurable
@@ -1066,11 +1104,14 @@ group status as the worst member (`online` + `abnormal` → `abnormal`; `no_data
 data, `degraded` / `node_unhealthy` for `abnormal` / `no_data`, `degraded` /
 `no_samples`, `degraded` / `slow`, a single-member hop going offline →
 `blocked` / `node_offline` naming the smallest-`seq` offline member, a second
-member of a multi-member group going offline → `degraded` / `node_offline`
-naming that member, every member of a group going offline → `blocked`, a
-partially offline entry group → `degraded` (not blocked), several degraded
-groups staying `degraded`, partial offline plus `abnormal` → `degraded` with
-`node_offline` as the cause, an empty group → `blocked` with `node: null`,
+member of a multi-member **balanced** group going offline → `degraded` /
+`node_offline` naming that member, a `failover` / `lowest_latency` group
+partially offline with an online member left → `ok` (the selected member is
+still available, no longer degraded), every member of a group going offline →
+`blocked`, a partially offline entry group → `degraded` (not blocked), several
+degraded groups staying `degraded`, partial offline plus `abnormal` → `degraded`
+with `node_offline` as the cause (and the named member comes from a balanced
+hop, never a failover backup), an empty group → `blocked` with `node: null`,
 offline outranking a slowdown, and the
 target's `null` status not affecting the verdict), entry/exit (single member,
 multi-member priority,
@@ -1090,6 +1131,12 @@ samples), summary worst-loss selection, filtering
 (hit/unknown/empty/invalid/201 ids), entry/exit preserved under `server_ids`
 filtering, loss under `server_ids` filtering, latency regression, bad
 `hours`/`bucket`, cache-key isolation, cross-view representative agreement plus
-query plans and 401/403. No migration is added; `crates/proto` and
+query plans and 401/403. Overview counters are covered as well: a failover chain
+with one offline backup is not degraded, a balanced chain with one offline
+member is degraded, an all-offline hop is blocked, an abnormal member is
+degraded, the old `target_fail_count` threshold no longer affects the counter,
+and requesting the overview and chain-health for the same three chains yields
+identical `blocked` / `degraded` counts when aggregated by `status.kind`. No
+migration is added; `crates/proto` and
 `crates/agent` are unchanged (the agent only probes native + tcp forwards, which
 is exactly the boundary `last_hop` reports), and no `web/` changes are made.

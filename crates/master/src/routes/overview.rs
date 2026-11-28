@@ -615,7 +615,8 @@ mod tests {
     use tower::ServiceExt;
 
     use pierwave_domain::repo::{
-        nodes, packages, servers, sessions, traffic, user_packages, users,
+        chains as chain_repo, latency, nodes, packages, servers, sessions, traffic, user_packages,
+        users,
     };
     use pierwave_domain::time;
     use pierwave_domain::Db;
@@ -1937,6 +1938,211 @@ mod tests {
         assert!(nft_view["blocked_reason"]
             .as_str()
             .is_some_and(|reason| reason.contains("nft")));
+    }
+
+    /// 概览的 `chains.blocked` / `chains.degraded` 必须与 chain-health 的
+    /// `status.kind` 逐条一致：同一批链（failover 部分离线 / 均衡类部分离线 /
+    /// 整组离线）同时请求两个接口，按 `status.kind` 统计后对比概览计数。
+    ///
+    /// failover 部分离线链补了当前窗口的时延样本，所以 chain-health 是 `ok`
+    /// 而不是 `no_samples`——否则这个用例只能证明「两个都降级」，证明不了
+    /// 「首选可用就不该显示降级」。
+    #[tokio::test]
+    async fn overview_chain_counts_match_chain_health_status_kinds() {
+        use pierwave_domain::chains::forward_id;
+
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+
+        async fn server(pool: &sqlx::SqlitePool, name: &str, address: &str) -> String {
+            servers::create(pool, name, address, "external")
+                .await
+                .unwrap()
+                .0
+                .id
+        }
+        let hk = server(pool, "香港-01", "10.0.0.1").await;
+        let tokyo_on = server(pool, "东京-01", "10.0.0.2").await;
+        let tokyo_off = server(pool, "东京-02", "10.0.0.3").await;
+        let osaka_on = server(pool, "大阪-01", "10.0.0.4").await;
+        let osaka_off = server(pool, "大阪-02", "10.0.0.5").await;
+        let dead1 = server(pool, "首尔-01", "10.0.0.6").await;
+        let dead2 = server(pool, "首尔-02", "10.0.0.7").await;
+        for id in [&hk, &tokyo_on, &osaka_on] {
+            servers::mark_online(pool, id).await.unwrap();
+        }
+        for id in [&tokyo_off, &osaka_off, &dead1, &dead2] {
+            servers::mark_offline(pool, id).await.unwrap();
+        }
+
+        async fn add_chain(
+            pool: &sqlx::SqlitePool,
+            name: &str,
+            port_base: i64,
+            groups: &[(&str, &[&str])],
+        ) -> String {
+            chain_repo::create(
+                pool,
+                chain_repo::NewChain {
+                    name: name.into(),
+                    target_host: "1.1.1.1".into(),
+                    target_port: 443,
+                    enabled: true,
+                    engine: "native".into(),
+                    protocol: "tcp".into(),
+                    transport: "none".into(),
+                    tunnel_security: "tls".into(),
+                    groups: groups
+                        .iter()
+                        .enumerate()
+                        .map(|(seq, (strategy, members))| chain_repo::NewChainGroup {
+                            name: None,
+                            strategy: (*strategy).into(),
+                            cert_id: None,
+                            public_port: None,
+                            use_internal_address: false,
+                            members: members
+                                .iter()
+                                .enumerate()
+                                .map(|(priority, server_id)| chain_repo::NewChainGroupMember {
+                                    server_id: (*server_id).into(),
+                                    listen_port: port_base + seq as i64 * 10 + priority as i64,
+                                    priority: priority as i64,
+                                    weight: 1,
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                    proxy_protocol: false,
+                },
+            )
+            .await
+            .unwrap()
+            .chain
+            .id
+        }
+
+        let failover = add_chain(
+            pool,
+            "主备部分离线",
+            9101,
+            &[
+                ("round_robin", &[hk.as_str()]),
+                ("failover", &[tokyo_off.as_str(), tokyo_on.as_str()]),
+            ],
+        )
+        .await;
+        let balanced = add_chain(
+            pool,
+            "均衡类部分离线",
+            9201,
+            &[
+                ("round_robin", &[hk.as_str()]),
+                ("round_robin", &[osaka_on.as_str(), osaka_off.as_str()]),
+            ],
+        )
+        .await;
+        let blocked = add_chain(
+            pool,
+            "整组离线",
+            9301,
+            &[
+                ("round_robin", &[hk.as_str()]),
+                ("failover", &[dead1.as_str(), dead2.as_str()]),
+            ],
+        )
+        .await;
+
+        // 当前窗口（hours=1 / bucket=900）的完整样本：failover 链首选在线，
+        // 不能因为「有成员离线 + 缺样本」被判成 no_samples。
+        let now = repo::now();
+        let ts = now - now.rem_euclid(900) + 900 - 60;
+        latency::record_sample(
+            pool,
+            ts,
+            &hk,
+            &forward_id(&failover, 0, &hk, 1),
+            &tokyo_on,
+            10,
+        )
+        .await
+        .unwrap();
+        latency::record_sample(
+            pool,
+            ts,
+            &tokyo_on,
+            &forward_id(&failover, 1, &tokyo_on, 2),
+            "",
+            5,
+        )
+        .await
+        .unwrap();
+        latency::record_sample(
+            pool,
+            ts,
+            &hk,
+            &forward_id(&balanced, 0, &hk, 1),
+            &osaka_on,
+            10,
+        )
+        .await
+        .unwrap();
+        latency::record_sample(
+            pool,
+            ts,
+            &osaka_on,
+            &forward_id(&balanced, 1, &osaka_on, 2),
+            "",
+            5,
+        )
+        .await
+        .unwrap();
+
+        let (status, overview) = request(&app, Some(&admin), "/api/v1/overview?days=7").await;
+        assert_eq!(status, StatusCode::OK, "overview: {overview}");
+        let (status, health) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "chain-health: {health}");
+
+        let views = health["chains"].as_array().unwrap();
+        assert_eq!(views.len(), 3);
+        let kind_of = |id: &str| {
+            views
+                .iter()
+                .find(|view| view["id"] == id)
+                .map(|view| view["status"]["kind"].as_str().unwrap().to_string())
+                .unwrap()
+        };
+        assert_eq!(kind_of(&failover), "ok", "首选在线 → 不该显示降级");
+        assert_eq!(kind_of(&balanced), "degraded", "均衡类少一份容量");
+        assert_eq!(kind_of(&blocked), "blocked", "整跳无在线成员");
+
+        let blocked_count = views
+            .iter()
+            .filter(|view| view["status"]["kind"] == "blocked")
+            .count() as i64;
+        let degraded_count = views
+            .iter()
+            .filter(|view| view["status"]["kind"] == "degraded")
+            .count() as i64;
+        assert_eq!(
+            overview["chains"]["total"].as_i64(),
+            Some(views.len() as i64)
+        );
+        assert_eq!(
+            overview["chains"]["blocked"].as_i64(),
+            Some(blocked_count),
+            "概览 blocked 与按 status.kind 统计必须一致：{overview}"
+        );
+        assert_eq!(
+            overview["chains"]["degraded"].as_i64(),
+            Some(degraded_count),
+            "概览 degraded 与按 status.kind 统计必须一致：{overview}"
+        );
     }
 
     /// 概览缓存是 TTL 语义：计费入账不参与 key，最多陈旧一个 TTL；

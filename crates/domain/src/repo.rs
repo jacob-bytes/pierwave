@@ -7988,32 +7988,66 @@ pub mod chains {
             .collect())
     }
 
-    /// 概览用：与链列表同口径的 blocked 链数。
+    /// 概览用：被整链阻断的链数。
     ///
-    /// 口径完全走 [`crate::chains::blocked_reason`]：证书过期 / 能力不足等
-    /// **配置层面整链无法下发**才算 blocked；`listening = 0` 是运行态健康，
-    /// 不计入（与链列表一致）。
+    /// blocked 的两种来源都算：
+    /// 1. 配置层面无法下发（[`crate::chains::blocked_reason`]：证书过期 /
+    ///    能力不足等）；
+    /// 2. 任一必需跳没有任何在线成员（空组 / 全部离线，见 [`health_counts`]）。
     ///
-    /// 固定 3 条 SQL（链 / 组 / 成员）+ 最多 1 条证书批量查询，查询次数与链
-    /// 数量无关，不存在 N+1；没有链时只发 1 条查询直接返回 0。
+    /// `listening = 0` 是运行态健康，不算 blocked。固定 3 条拓扑 SQL + 至多
+    /// 1 条证书批量查询，内存归并，查询次数与链数量无关，不存在 N+1。
     pub async fn count_blocked(pool: &SqlitePool, now: i64) -> anyhow::Result<i64> {
-        let chains =
-            sqlx::query_as::<_, Chain>("SELECT * FROM chains ORDER BY created_at ASC, rowid ASC")
-                .fetch_all(pool)
-                .await?;
-        if chains.is_empty() {
-            return Ok(0);
-        }
+        let chains_list = list_topology(pool).await?;
+        let config_blocked = blocked_reasons(pool, &chains_list, now).await?;
+        Ok(health_counts(&chains_list, &config_blocked).0)
+    }
 
-        let mut groups = load_all_groups(pool).await?;
-        let chains_list: Vec<ChainWithGroups> = chains
-            .into_iter()
-            .map(|chain| ChainWithGroups {
-                groups: groups.remove(&chain.id).unwrap_or_default(),
-                chain,
-            })
-            .collect();
-        Ok(blocked_reasons(pool, &chains_list, now).await?.len() as i64)
+    /// 按跳 + 策略归并出概览的 `(blocked, degraded)` 链数。
+    ///
+    /// 与 chain-health 的 `status.kind` 共用同一套逐跳规则
+    /// （[`crate::chains::hop_state`] / [`crate::chains::member_health`]）：
+    /// * `blocked` = 配置不可下发（`config_blocked`）**或**任一必需跳没有在线
+    ///   成员（空组 / 全部离线）；
+    /// * `degraded` = 非 blocked，且仅均衡类策略的跳有离线成员（容量下降）或
+    ///   存在 `abnormal` / `no_data` 成员；单选择策略跳的离线备份成员不计入。
+    ///
+    /// 入口组没有上一跳执行选路，但多台入口等价分担容量，按其配置的策略会
+    /// 被忽略、统一按均衡类判断（与 chain-health 的 `nodes[0].strategy = null`
+    /// 同一口径）。
+    ///
+    /// 复杂度 O(链数 × 组数 × 成员数)：只遍历已经读出的内存拓扑，不逐链查库。
+    pub(crate) fn health_counts(
+        chains_list: &[ChainWithGroups],
+        config_blocked: &HashMap<String, crate::chains::BlockedReason>,
+    ) -> (i64, i64) {
+        let mut blocked = 0_i64;
+        let mut degraded = 0_i64;
+        for chain in chains_list {
+            let hops = chain.groups.iter().enumerate().map(|(index, group)| {
+                // 入口组（index 0）的策略不会被上一跳执行：多台入口等价分担
+                // 容量，按均衡类判断；其余组用该组实际策略。
+                let strategy = if index == 0 {
+                    crate::chains::GroupStrategy::RoundRobin.as_str()
+                } else {
+                    group.group.strategy.as_str()
+                };
+                crate::chains::hop_state(
+                    strategy,
+                    group
+                        .members
+                        .iter()
+                        .map(|member| member.server_status.as_str()),
+                )
+            });
+            let health = crate::chains::member_health(hops);
+            if config_blocked.contains_key(&chain.chain.id) || health.blocked {
+                blocked += 1;
+            } else if health.degraded {
+                degraded += 1;
+            }
+        }
+        (blocked, degraded)
     }
 
     /// 批量算出哪些链 blocked，返回 `chain_id -> 原因`。
@@ -11604,11 +11638,16 @@ mod stats_rollup_tests {
 ///   前的历史行（subject 仍为 `"{user_id}@{node_tag}"` 且没有对应节点切片）才按
 ///   `@` 拆 tag 兜底。删掉的节点 JOIN 不到，流量归入 `unknown` 而不是丢弃；
 ///   `protocol_series` 与 `protocols` 复用同一次聚合，两个卡片的口径必然一致；
-/// * `chains.blocked` 与链列表的 `blocked_reason` **同口径**：配置层面无法下发
-///   （nftables 能力不足 / 多目标不支持 / TLS 证书或跳间能力不满足）才计数，
-///   `listening = 0` 属于运行态健康，不再计入。判定统一走
-///   [`crate::chains::blocked_reason`]，不在概览 SQL 里另算一套；
-///   `chains.forwards_*` 只统计独立端口转发规则，不含链推导出的转发。
+/// * `chains.blocked` / `chains.degraded` 与 chain-health 的 `status.kind` **同
+///   一套「按跳 + 策略」口径**（[`crate::chains::hop_state`]）：
+///   * `blocked` = 配置层面无法下发（nftables 能力不足 / 多目标不支持 / TLS
+///     证书或跳间能力不满足，走 [`crate::chains::blocked_reason`]）**或**任一
+///     必需跳没有在线成员；
+///   * `degraded` = 非 blocked，且仅均衡类策略的跳存在离线成员（容量下降）
+///     或存在 `abnormal` / `no_data` 成员；
+///   * 不再使用 `forward_status.target_fail_count` 阈值（那是运行态健康，不是
+///     成员可用性）；`listening = 0` 同样不计入；
+///   * `chains.forwards_*` 只统计独立端口转发规则，不含链推导出的转发。
 pub mod overview {
     use std::collections::HashMap;
 
@@ -12702,65 +12741,43 @@ pub mod overview {
         Ok((top_users, top_nodes, package_split))
     }
 
-    /// 链路健康：一次 CTE 把链 → 组 → 成员 → 心跳状态对齐，算降级；
-    /// 转发总数 / 失败数、握手失败也作为标量子查询并在同一条 SQL 里取回。
+    /// 链路健康卡片：`total` / `blocked` / `degraded` 与 chain-health 同一套
+    /// 「按跳 + 策略」口径，`forwards_*` / `handshake_failures` 是一次标量
+    /// 子查询取回的运行态计数。
     ///
-    /// `blocked` 不走 SQL 计数：必须复用 `crate::chains::blocked_reason`，才能
-    /// 与链列表逐条对齐（证书过期、能力不足等），见 `count_blocked`。
+    /// `blocked` / `degraded` 走内存归并（[`super::chains::health_counts`]），复用
+    /// [`crate::chains::blocked_reason`] 与 [`crate::chains::hop_state`]，不再用
+    /// `forward_status.target_fail_count` 阈值；也不在 SQL 里另写一套规则。
     ///
-    /// forward id 的格式必须与 `crate::chains::forward_id` 一致：单成员组用
-    /// `chain-<id>-<seq>`，多成员组追加 `-<server_id>`。
+    /// 查询次数固定：拓扑 3 条 + 证书至多 1 条 + 下面这 1 条，与链数无关；
+    /// 内存复杂度 O(链数 × 组数 × 成员数)。
     async fn chain_row(pool: &SqlitePool, now: i64) -> anyhow::Result<ChainRow> {
         #[derive(sqlx::FromRow)]
         struct Health {
-            total: i64,
-            degraded: i64,
             forwards_total: i64,
             forwards_failing: i64,
             handshake_failures: i64,
         }
         let health = sqlx::query_as::<_, Health>(
-            "WITH group_sizes AS (
-                 SELECT group_id, COUNT(*) AS members
-                 FROM chain_group_members
-                 GROUP BY group_id
-             ),
-             derived AS (
-                 SELECT c.id AS chain_id,
-                        m.server_id AS server_id,
-                        CASE WHEN gs.members <= 1
-                             THEN 'chain-' || c.id || '-' || g.seq
-                             ELSE 'chain-' || c.id || '-' || g.seq || '-' || m.server_id
-                        END AS forward_id
-                 FROM chains c
-                 JOIN chain_groups g ON g.chain_id = c.id
-                 JOIN group_sizes gs ON gs.group_id = g.id
-                 JOIN chain_group_members m ON m.group_id = g.id
-             )
-             SELECT (SELECT COUNT(*) FROM chains) AS total,
-                    COUNT(DISTINCT CASE WHEN fs.target_fail_count >= ? THEN d.chain_id END)
-                        AS degraded,
-                    (SELECT COUNT(*) FROM forwards) AS forwards_total,
+            "SELECT (SELECT COUNT(*) FROM forwards) AS forwards_total,
                     (SELECT COUNT(*)
                      FROM forwards f
                      JOIN forward_status ffs
                        ON ffs.server_id = f.server_id AND ffs.forward_id = f.id
                      WHERE ffs.listening = 0) AS forwards_failing,
                     (SELECT COUNT(*) FROM forward_status
-                     WHERE target_error IS NOT NULL) AS handshake_failures
-             FROM derived d
-             LEFT JOIN forward_status fs
-               ON fs.server_id = d.server_id AND fs.forward_id = d.forward_id",
+                     WHERE target_error IS NOT NULL) AS handshake_failures",
         )
-        .bind(crate::chains::DEGRADED_AFTER_FAILURES)
         .fetch_one(pool)
         .await?;
 
-        let blocked = super::chains::count_blocked(pool, now).await?;
+        let chains_list = super::chains::list_topology(pool).await?;
+        let config_blocked = super::chains::blocked_reasons(pool, &chains_list, now).await?;
+        let (blocked, degraded) = super::chains::health_counts(&chains_list, &config_blocked);
 
         Ok(ChainRow {
-            total: health.total,
-            degraded: health.degraded,
+            total: chains_list.len() as i64,
+            degraded,
             blocked,
             forwards_total: health.forwards_total,
             forwards_failing: health.forwards_failing,
@@ -13518,43 +13535,150 @@ pub mod overview {
             assert_eq!(snapshot.chains.blocked, 0);
         }
 
+        /// 概览的 `blocked` / `degraded` 按「跳 + 策略」计数：
+        /// * failover / lowest_latency 组部分离线 → 不降级（备用成员离线）；
+        /// * 均衡类组部分离线 → degraded；
+        /// * 任一组全离线 → blocked；
+        /// * abnormal 成员 → degraded；
+        /// * `target_fail_count` 不再参与（它只是运行态健康，不是成员可用性）。
         #[tokio::test]
-        async fn chain_health_marks_degraded_after_two_failures_and_keeps_blocked_config_only() {
+        async fn chain_row_counts_member_state_by_hop_strategy_not_target_failures() {
             let pool = setup().await;
             let now = at("2026-11-15T12:00:00+08:00");
-            let (server, _) = super::super::servers::create(&pool, "hk-1", "10.0.0.1", "external")
+            async fn server(pool: &SqlitePool, name: &str, address: &str) -> String {
+                let (server, _) = super::super::servers::create(pool, name, address, "external")
+                    .await
+                    .unwrap();
+                server.id
+            }
+            let entry = server(&pool, "entry", "10.0.0.1").await;
+            let failover_on = server(&pool, "failover-on", "10.0.0.2").await;
+            let failover_off = server(&pool, "failover-off", "10.0.0.3").await;
+            let balanced_on = server(&pool, "balanced-on", "10.0.0.4").await;
+            let balanced_off = server(&pool, "balanced-off", "10.0.0.5").await;
+            let offline1 = server(&pool, "offline-1", "10.0.0.6").await;
+            let offline2 = server(&pool, "offline-2", "10.0.0.7").await;
+            let abnormal = server(&pool, "abnormal", "10.0.0.8").await;
+            for id in [&entry, &failover_on, &balanced_on] {
+                super::super::servers::mark_online(&pool, id).await.unwrap();
+            }
+            super::super::servers::mark_offline(&pool, &failover_off)
                 .await
                 .unwrap();
-            let chain = super::super::chains::create(
+            super::super::servers::mark_offline(&pool, &balanced_off)
+                .await
+                .unwrap();
+            super::super::servers::mark_offline(&pool, &offline1)
+                .await
+                .unwrap();
+            super::super::servers::mark_offline(&pool, &offline2)
+                .await
+                .unwrap();
+            // 仓储没有 abnormal 的公开 setter；直接改库模拟历史脏数据。
+            sqlx::query("UPDATE servers SET status = 'abnormal' WHERE id = ?")
+                .bind(&abnormal)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            async fn add_chain(
+                pool: &SqlitePool,
+                name: &str,
+                port_base: i64,
+                groups: &[(&str, &[&str])],
+            ) -> String {
+                let chain = super::super::chains::create(
+                    pool,
+                    super::super::chains::NewChain {
+                        name: name.into(),
+                        target_host: "1.1.1.1".into(),
+                        target_port: 443,
+                        enabled: true,
+                        engine: "native".into(),
+                        protocol: "tcp".into(),
+                        proxy_protocol: false,
+                        transport: "none".into(),
+                        tunnel_security: "tls".into(),
+                        groups: groups
+                            .iter()
+                            .enumerate()
+                            .map(
+                                |(seq, (strategy, members))| super::super::chains::NewChainGroup {
+                                    name: None,
+                                    strategy: (*strategy).into(),
+                                    cert_id: None,
+                                    public_port: None,
+                                    use_internal_address: false,
+                                    members: members
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(priority, server_id)| {
+                                            super::super::chains::NewChainGroupMember {
+                                                server_id: (*server_id).into(),
+                                                listen_port: port_base
+                                                    + seq as i64 * 10
+                                                    + priority as i64,
+                                                priority: priority as i64,
+                                                weight: 1,
+                                            }
+                                        })
+                                        .collect(),
+                                },
+                            )
+                            .collect(),
+                    },
+                )
+                .await
+                .unwrap();
+                chain.chain.id
+            }
+
+            let failover_chain = add_chain(
                 &pool,
-                super::super::chains::NewChain {
-                    name: "港-日".into(),
-                    target_host: "1.1.1.1".into(),
-                    target_port: 443,
-                    enabled: true,
-                    engine: "native".into(),
-                    protocol: "tcp".into(),
-                    proxy_protocol: false,
-                    transport: "none".into(),
-                    tunnel_security: "tls".into(),
-                    groups: vec![super::super::chains::NewChainGroup {
-                        name: None,
-                        strategy: "round_robin".into(),
-                        cert_id: None,
-                        public_port: None,
-                        use_internal_address: false,
-                        members: vec![super::super::chains::NewChainGroupMember {
-                            server_id: server.id.clone(),
-                            listen_port: 9001,
-                            priority: 0,
-                            weight: 1,
-                        }],
-                    }],
-                },
+                "failover 部分离线",
+                9001,
+                &[
+                    ("round_robin", &[entry.as_str()]),
+                    ("failover", &[failover_on.as_str(), failover_off.as_str()]),
+                ],
             )
-            .await
-            .unwrap();
-            let forward_id = crate::chains::forward_id(&chain.chain.id, 0, &server.id, 1);
+            .await;
+            add_chain(
+                &pool,
+                "均衡类部分离线",
+                9101,
+                &[
+                    ("round_robin", &[entry.as_str()]),
+                    (
+                        "round_robin",
+                        &[balanced_on.as_str(), balanced_off.as_str()],
+                    ),
+                ],
+            )
+            .await;
+            add_chain(
+                &pool,
+                "整组离线",
+                9201,
+                &[
+                    ("round_robin", &[entry.as_str()]),
+                    ("failover", &[offline1.as_str(), offline2.as_str()]),
+                ],
+            )
+            .await;
+            add_chain(
+                &pool,
+                "abnormal 成员",
+                9301,
+                &[
+                    ("round_robin", &[entry.as_str()]),
+                    ("failover", &[abnormal.as_str()]),
+                ],
+            )
+            .await;
+
+            // failover 链即便连续目标失败（旧口径会判 degraded），成员状态仍是 ok。
+            let forward_id = crate::chains::forward_id(&failover_chain, 0, &entry, 1);
             let failing = || super::super::forwards::NewForwardStatus {
                 forward_id: forward_id.clone(),
                 listening: true,
@@ -13567,28 +13691,30 @@ pub mod overview {
                 probe_attempts: None,
                 probe_failures: None,
             };
+            for _ in 0..2 {
+                super::super::forwards::save_status(&pool, &entry, &[failing()])
+                    .await
+                    .unwrap();
+            }
 
-            // 第一次失败：不降级（连续两次才算）。
-            super::super::forwards::save_status(&pool, &server.id, &[failing()])
-                .await
-                .unwrap();
             let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
-            assert_eq!(snapshot.chains.total, 1);
-            assert_eq!(snapshot.chains.degraded, 0);
-            assert_eq!(snapshot.chains.handshake_failures, 1);
+            assert_eq!(snapshot.chains.total, 4);
+            assert_eq!(
+                snapshot.chains.degraded, 2,
+                "均衡类部分离线 + abnormal 成员，failover 部分离线不算"
+            );
+            assert_eq!(snapshot.chains.blocked, 1, "整组离线 → blocked");
+            assert_eq!(
+                snapshot.chains.handshake_failures, 1,
+                "同一 forward 目标失败只落一行"
+            );
+            assert_eq!(snapshot.chains.forwards_total, 0);
+            assert_eq!(snapshot.chains.forwards_failing, 0);
 
-            // 第二次失败：链降级。
-            super::super::forwards::save_status(&pool, &server.id, &[failing()])
-                .await
-                .unwrap();
-            let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
-            assert_eq!(snapshot.chains.degraded, 1);
-
-            // 监听失败：运行态不健康，但这不是配置层面的 blocked
-            // （概览与链列表同口径：blocked 只看证书/能力等「整链无法下发」）。
+            // 监听失败仍是运行态健康：既不计 blocked，也不改变成员状态计数。
             super::super::forwards::save_status(
                 &pool,
-                &server.id,
+                &entry,
                 &[super::super::forwards::NewForwardStatus {
                     forward_id,
                     listening: false,
@@ -13605,9 +13731,9 @@ pub mod overview {
             .await
             .unwrap();
             let snapshot = super::snapshot(&pool, now, 7).await.unwrap();
-            assert_eq!(snapshot.chains.degraded, 0);
+            assert_eq!(snapshot.chains.degraded, 2);
             assert_eq!(
-                snapshot.chains.blocked, 0,
+                snapshot.chains.blocked, 1,
                 "listening=0 不计入 blocked，与链列表 blocked_reason 一致"
             );
             assert_eq!(snapshot.chains.handshake_failures, 0);

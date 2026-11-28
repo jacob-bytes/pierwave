@@ -52,13 +52,20 @@ only 24 or 168 (omitted/empty = 24); anything else is 400
 - `chains` = 仍然存在（未删除）且 `chains.template_id = 模板 id` 的链数，
   **含用户链与管理员链、含停用链**；
 - `users` = 这些链的 `owner_user_id` 去重数；管理员链 owner 为空，不计入；
-- `status`：模板被停用 → `blocked/disabled`；否则与链级可用性同一口径，
-  **按组**判断：模板**某个组的候选全部离线**（这一跳没有任何在线候选）→
-  `blocked/member_offline`；组内还有在线候选、只是掉了部分成员 → `degraded`
-  （`cause` 为 `null`，容量下降）；任一非 `online` 但没有被确认离线的候选
-  （`abnormal` / `no_data` / 服务器已被删除）→ `degraded`（`cause` 为
-  `null`）；全部 online → `ok`；模板没有任何候选成员 → `degraded`
-  （`cause` 为 `null`）。模板状态只看模板定义，不看某条链是否停用；
+- `status`：模板被停用 → `blocked/disabled`；否则与链级可用性同一口径
+  （逐组规则复用 `crate::chains::hop_state`），**按组 + 策略**判断：
+  - 模板**某个组的候选全部离线**（这一跳没有任何在线候选）→
+    `blocked/member_offline`；
+  - **均衡类**策略（`round_robin` / `ip_hashed` / `weighted` / `least_conn`）
+    的组还有在线候选、只是掉了部分候选 → `degraded`（`cause` 为 `null`，
+    容量下降）；
+  - **单选择**策略（`failover` / `lowest_latency`）的组部分候选离线、但仍有
+    在线候选 → `ok`（掉的是备用候选，当前选择不受影响；不再算 degraded）；
+  - 任一非 `online` 但未被确认离线的候选（`abnormal` / `no_data` / 服务器已
+    删除）→ `degraded`（`cause` 为 `null`，不看策略）；
+  - 全部 online → `ok`；模板没有任何候选成员 → `degraded`（`cause` 为 `null`）。
+
+  模板状态只看模板定义，不看某条链是否停用；
 - `strategies`：按**每条链第一跳**（`seq` 最小且非空组）的
   `chain_groups.strategy` 聚合。一条链即使中间跳策略不同也只贡献第一跳，
   所以按链去重；`chains` 是该策略的链数（不是跳数）；
@@ -69,14 +76,19 @@ English: `chains` counts every row whose `template_id` matches (user and admin
 chains, enabled or disabled). `users` deduplicates non-null `owner_user_id`;
 admin chains (owner NULL) are not users. `status` is `blocked/disabled` for a
 disabled template; otherwise it follows the same per-group rule as chain
-availability: a template group whose candidates are **all offline** (no online
-candidate left on that hop) makes the template `blocked/member_offline`, while a
-group that still has an online candidate and only lost some members makes it
-`degraded` with a null cause (capacity reduced). Any non-online candidate that
-is not confirmed offline (`abnormal` / `no_data`, including a deleted server)
-also makes it `degraded` with a null cause; no candidates at all is `degraded`,
-and all online is `ok`. The template status only looks at the template
-definition, not at whether a particular chain is disabled. `strategies` counts
+availability (the per-hop rule is `crate::chains::hop_state`), judged **per
+group and strategy**: a group whose candidates are **all offline** (no online
+candidate left on that hop) makes the template `blocked/member_offline`; a
+**balanced** group (`round_robin` / `ip_hashed` / `weighted` / `least_conn`)
+that still has an online candidate but lost some candidates makes it `degraded`
+with a null cause (capacity reduced); a **single-select** group (`failover` /
+`lowest_latency`) that lost some candidates while an online candidate remains
+stays `ok` (the lost ones are backups and the current selection is unaffected).
+Any non-online candidate that is not confirmed offline (`abnormal` / `no_data`,
+including a deleted server) still makes it `degraded` with a null cause,
+regardless of strategy; no candidates at all is `degraded`, and all online is
+`ok`. The template status only looks at the template definition, not at whether
+a particular chain is disabled. `strategies` counts
 each chain once by the strategy of its first non-empty group. `targets` aggregate
 actual chain targets. Items are ordered by `chains` desc, `name` asc, then `id`
 asc.
@@ -338,13 +350,14 @@ members / 样本。原有 5 个模板 / 17 条链的 id、名称、目标、成�
 `(server_id, listen_port)` 全局唯一，priority 取 0..4：
 
 - `港日双路`（`…701`）：3 跳，候选 `[香港-01, 香港-02, 香港-03]` →
-  `[东京-01, 东京-02]` → `[新加坡-01, 新加坡-02, 大阪-01]`；香港-03、东京-02
-  离线但每个组都还有在线候选 → `degraded`（`cause` 为 `null`，容量下降）；
-  5 条链（管理员 `港日多路径` + kenji +
+  `[东京-01, 东京-02]` → `[新加坡-01, 新加坡-02, 大阪-01]`。入口组是
+  `ip_hashed`（均衡类），香港-03 离线 → 模板 `degraded`（`cause` 为 `null`，
+  容量下降）；中转组是 `lowest_latency`（单选择），东京-02 离线只掉备用候选、
+  东京-01 仍在线，**不影响模板状态**。5 条链（管理员 `港日多路径` + kenji +
   mei 两条 + nora），`users = 3`。603「港日多路径」的中转组有两台成员
-  （东京-01 / 东京-02），东京-02 离线只让这条链 `degraded/node_offline`
-  （东京-01 仍承载这一跳）；
-  `香港-03` 是未被使用的候选（`chains = 0`）；
+  （东京-01 / 东京-02，`lowest_latency`），东京-02 离线只掉备用、东京-01
+  仍承载这一跳，所以链级是 `ok`（组级 `status` 仍是 `offline`，成员明细照常
+  展示两台）；`香港-03` 是未被使用的候选（`chains = 0`）；
 - `港日新四跳`（`…704`）：4 跳，候选 `[香港-01, 香港-02]` →
   `[东京-01, 东京-02]` → `[新加坡-01, 新加坡-02]` → `[大阪-01]`；最后一跳
   单成员、大阪-01 在线，4 条链（kenji / mei / nora / demo，`users = 4`）的
@@ -401,11 +414,14 @@ members / 样本。原有 5 个模板 / 17 条链的 id、名称、目标、成�
   模板洞察的成员状态直接透传 `servers.status`，所以新加坡-02 在详情里仍是
   `online`，只有样本在它停止后截断（状态契约见 §1.1 / §2）；
 - 状态分布：模板层 `degraded`（`cause` 为 `null`）是 `港日双路` / `港日新四跳` /
-  `五跳全展开` / `三跳大扇出`（候选含离线的香港-03 / 东京-02 / 吉隆坡-01，但
-  每个组都还有在线候选，只降低容量）；`ok` 是 `港新单跳` / `港新入口分叉` /
-  `四跳混合`，`美西备用线` 是
-  `blocked/disabled`；链层 `港日多路径` 为 `degraded/node_offline`（东京-02
-  离线，东京-01 仍承载这一跳），`nora · 五跳备线` / `nora · 三跳空闲` 为
+  `五跳全展开`（离线候选只落在**均衡类**组里：701 入口 `ip_hashed` 的香港-03、
+  704 第二跳 `ip_hashed` 的东京-02、706 入口 `ip_hashed` 的香港-03 / 东京-02 /
+  美西-01，每组都还有在线候选，只降低容量）；`ok` 是 `港新单跳` / `港新入口
+  分叉` / `四跳混合` / `三跳大扇出`（708 最后一跳 `lowest_latency` 掉的是离线
+  的备用候选香港-03，当前选择仍在），`美西备用线` 是
+  `blocked/disabled`；链层 `港日多路径` 为 `ok`（中转组 `lowest_latency` 的
+  东京-02 离线只掉备用，东京-01 仍承载这一跳；组级 `status` 仍是 `offline`），
+  `nora · 五跳备线` / `nora · 三跳空闲` 为
   `blocked/node_offline`（前者入口四台全部离线，后者最后一跳是离线的单成员
   香港-03），`nora · 四跳空闲` 为
   `degraded/no_samples`；既有链 `港新直达链` / `mei · 港日新四跳` /
@@ -446,9 +462,10 @@ first part of the 24h window, while 763's members are still online (Xray is
 stopped), so it keeps samples up to three hours ago to show “configured but
 idle”. The older templates are unchanged: `港日双路` is a 3-hop degraded template
 with three entry / two middle / three exit candidates, five chains (an admin
-multi-path chain plus four user chains) and three users; its admin chain
-`港日多路径` has a multi-member middle hop and is `degraded/node_offline` because
-东京-02 is offline while 东京-01 still carries that hop. `港日新四跳` is a 4-hop
+multi-path chain plus four user chains) and three users; it is degraded because
+its balanced entry group (`ip_hashed`) lost 香港-03, while the middle
+`lowest_latency` hop only lost the backup 东京-02, so its admin chain
+`港日多路径` is `ok` (东京-01 still carries that hop). `港日新四跳` is a 4-hop
 template whose last hop is a single online member (大阪-01), so all four chains
 have current p50/loss on their final edges while the template itself is
 `degraded` because the offline 东京-02 candidate still leaves 东京-01 online on
@@ -465,11 +482,16 @@ before rounding up so that two runs never differ by a row when `last_seen_secs`
 sits exactly on a 300-second boundary. The insight contract passes
 `servers.status` through, so 新加坡-02 still shows as `online` in the detail
 while its samples are cut off. At the template level `港日双路` / `港日新四跳` /
-`五跳全展开` / `三跳大扇出` are `degraded` (null cause: offline candidates
-remain but every group still has an online candidate), `港新单跳` /
-`港新入口分叉` / `四跳混合` are `ok`, and `美西备用线` is `blocked/disabled`;
-at the chain level `港日多路径` is `degraded/node_offline` (东京-02 is offline
-but 东京-01 still carries the hop), `nora · 五跳备线` and `nora · 三跳空闲` are
+`五跳全展开` are `degraded` (null cause: their offline candidates sit in
+**balanced** groups only — the 701 entry `ip_hashed` 香港-03, the 704 middle
+`ip_hashed` 东京-02, and the 706 entry `ip_hashed` 香港-03 / 东京-02 / 美西-01 —
+while every group still has an online candidate, so only capacity is reduced),
+`港新单跳` / `港新入口分叉` / `四跳混合` / `三跳大扇出` are `ok` (708's last hop
+is `lowest_latency`; the offline candidate 香港-03 is a backup and the current
+selection is unaffected), and `美西备用线` is `blocked/disabled`;
+at the chain level `港日多路径` is `ok` (its middle `lowest_latency` hop lost the
+backup 东京-02; 东京-01 still carries the hop, and the group-level `status`
+remains `offline`), `nora · 五跳备线` and `nora · 三跳空闲` are
 `blocked/node_offline` (the former has all four entry members offline, the latter
 ends on the offline single-member 香港-03), `nora · 四跳空闲` is
 `degraded/no_samples`, and the
@@ -481,8 +503,10 @@ member has no current samples (its `servers.status` is untouched).
 
 - 领域层（`crates/domain/src/chain_template_insight.rs`）：列表链数 / 用户
   去重 / 管理员链不计 users / 状态 disabled / degraded / 无成员 / 服务器已删除、
-  **组内部分成员离线 → `degraded`、整组候选全离线 → `blocked/member_offline`
-  （入口组同规则）**；排序 `chains` 降序 → 名称升序；详情节点跟随真实链
+  **按组策略判断：均衡类（round_robin / ip_hashed / weighted / least_conn）组
+  部分候选离线 → `degraded`；failover / lowest_latency 组部分候选离线但仍有在线
+  候选 → `ok`；整组候选全离线 → `blocked/member_offline`；abnormal 候选 →
+  `degraded`（不看策略，入口组同规则）**；排序 `chains` 降序 → 名称升序；详情节点跟随真实链
   （模板 2 跳→1 跳后仍是 2 组、计数不归零；模板 1 跳→2 跳不会凭空多节点）、
   `stale` / `stale_reason`（跳数 / 候选成员变化）、`unused_candidates`、
   目标节点、同目标 / 不同目标、边合并、边 p50 与丢包、管理员链不产生用户、
@@ -499,9 +523,11 @@ member has no current samples (its `servers.status` is untouched).
 - 查询计划（`crates/domain/tests/query_plan.rs`）：模板列表必须走
   `idx_chain_templates_created`，用户名字必须走 `users` 主键。
 
-English: domain tests cover counts/status (a group with all candidates offline →
-`blocked/member_offline`; a group with some offline candidates but an online one
-left → `degraded`, including the entry group), edges/series/formatting, nodes
+English: domain tests cover counts/status per group strategy (a group with all
+candidates offline → `blocked/member_offline`; a balanced group with some
+offline candidates but an online one left → `degraded`; a `failover` /
+`lowest_latency` group with an offline backup but an online candidate left →
+`ok`; an `abnormal` candidate → `degraded` regardless of strategy), edges/series/formatting, nodes
 following the real chain after template edits (`stale` / `stale_reason` /
 `unused_candidates`, counts never collapsing), `series` backfilled from the
 existing chains (deleting one rewinds history) and the current unfinished

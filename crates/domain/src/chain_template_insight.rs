@@ -8,11 +8,16 @@
 //!   含管理员链与用户链；`users` 是这些链里 `owner_user_id` 的去重数，
 //!   管理员链（owner 为空）不计入；
 //! * `status`：模板停用 → `blocked/disabled`；否则模板**每个组的候选成员**
-//!   里某组**全部离线**（这一跳没有在线候选）→ `blocked/member_offline`；
-//!   组内还有在线候选、只是部分成员离线 → `degraded`（`cause` 为 `null`，
-//!   链路只是容量下降）；任一非 `online` 但未确认离线的候选（`abnormal` /
-//!   `no_data` / 服务器已删除）→ `degraded`（没有专门的 cause）；全部 online
-//!   → `ok`；模板没有任何候选成员 → `degraded`；
+//!   按组判断（与链级可用性同一套 [`crate::chains::hop_state`]）：
+//!   * 某组**全部候选离线**（这一跳没有任何在线候选）→ `blocked/member_offline`；
+//!   * **均衡类**策略（`round_robin` / `ip_hashed` / `weighted` /
+//!     `least_conn`）的组有在线候选、但有候选离线 → `degraded`（`cause` 为
+//!     `null`，容量下降）；
+//!   * **单选择**策略（`failover` / `lowest_latency`）的组部分候选离线但仍有
+//!     在线候选 → `ok`（掉的是备用候选，当前选择不受影响）；
+//!   * 任一非 `online` 但未确认离线的候选（`abnormal` / `no_data` / 服务器已
+//!     删除）→ `degraded`（没有专门的 cause）；
+//!   * 全部 online → `ok`；模板没有任何候选成员 → `degraded`；
 //! * 详情 `nodes[].members[].chains` / `users` = 实际链在该组包含该成员的
 //!   去重链 / 用户数（键是真实组的 `seq`，不是模板的 `seq`）；
 //! * 详情的 `nodes` **只来自真实链的实际拓扑**（`chain_groups` /
@@ -374,10 +379,13 @@ fn paths_of(chains: &[&ChainWithGroups]) -> Vec<PathChain> {
 
 /// 模板级状态：候选成员来自模板定义，而不是某条链的实际成员。
 ///
-/// 与链级可用性同一口径，按**组**判断：某组的候选**全部离线**（这一跳没有
-/// 在线候选）才 `blocked/member_offline`；组内还有在线候选、只是掉了部分
-/// 成员 → `degraded`（容量下降）；其它非在线候选（`abnormal` / `no_data` /
-/// 服务器已删除）同样只 `degraded`。
+/// 与链级可用性同一口径（[`crate::chains::hop_state`]），按**组 + 策略**判断：
+///
+/// * 某组的候选**全部离线**（这一跳没有在线候选）→ `blocked/member_offline`；
+/// * **均衡类**策略的组还有在线候选、只是掉了部分候选 → `degraded`（容量下降）；
+/// * **单选择**策略（`failover` / `lowest_latency`）的组部分候选离线但仍有在线
+///   候选 → 不算降级（掉的是备用候选）；
+/// * 其它非在线候选（`abnormal` / `no_data` / 服务器已删除）→ `degraded`。
 fn status_of(
     enabled: bool,
     groups: &[ChainTemplateGroup],
@@ -392,31 +400,29 @@ fn status_of(
     {
         return TemplateStatus::degraded();
     }
-    let mut offline = false;
-    let mut non_online = false;
     let mut blocked = false;
+    let mut degraded = false;
     for group in groups {
-        let mut online = 0_usize;
-        let mut has_offline = false;
-        for server_id in &group.server_ids {
-            match servers.get(server_id) {
-                Some(server) if server.status == "online" => online += 1,
-                Some(server) if server.status == "offline" => {
-                    has_offline = true;
-                    offline = true;
-                }
-                // 服务器被删除 / 状态缺失 / abnormal / no_data 都算「非在线」，
-                // 但没被确认离线，只降级不阻断。
-                _ => non_online = true,
-            }
-        }
-        if online == 0 && has_offline {
-            blocked = true;
-        }
+        // 服务器被删除 / 状态缺失 / abnormal / no_data 都映射成 `"unknown"`：
+        // 与 hop_state 的「非在线、也非离线」一档，只降级不阻断。
+        let statuses: Vec<&str> = group
+            .server_ids
+            .iter()
+            .map(|server_id| match servers.get(server_id) {
+                Some(server) if server.status == "online" => "online",
+                Some(server) if server.status == "offline" => "offline",
+                _ => "unknown",
+            })
+            .collect();
+        let hop = crate::chains::hop_state(&group.strategy, statuses);
+        // 模板组没有任何候选时沿用旧口径（不阻断）：整体「没有任何候选」
+        // 已在上面提前返回 degraded，这里只忽略单组的空候选列表。
+        blocked |= hop.no_online;
+        degraded |= hop.degrades();
     }
     if blocked {
         TemplateStatus::blocked("member_offline")
-    } else if offline || non_online {
+    } else if degraded {
         TemplateStatus::degraded()
     } else {
         TemplateStatus::ok()
@@ -1419,6 +1425,71 @@ mod tests {
             status_of(true, &shape_of(&all_offline_group), &servers),
             TemplateStatus::blocked("member_offline")
         );
+    }
+
+    /// 模板状态按「组 + 策略」判断：均衡类部分离线降级，单选择策略部分离线
+    /// 仍可用；整组离线仍然阻断，abnormal 候选仍降级。
+    #[test]
+    fn status_respects_each_groups_strategy() {
+        let servers = HashMap::from([
+            ("s1".to_string(), server("香港-01", "online")),
+            ("s2".to_string(), server("东京-01", "online")),
+            ("s3".to_string(), server("东京-02", "offline")),
+            ("s4".to_string(), server("东京-03", "abnormal")),
+        ]);
+
+        for strategy in ["round_robin", "ip_hashed", "weighted", "least_conn"] {
+            let balanced = template(
+                "t1",
+                "均衡类部分离线",
+                true,
+                &[("round_robin", &["s1"]), (strategy, &["s2", "s3"])],
+            );
+            assert_eq!(
+                status_of(true, &shape_of(&balanced), &servers),
+                TemplateStatus::degraded(),
+                "{strategy}: 均衡类跳少一份容量 → degraded"
+            );
+        }
+
+        for strategy in ["failover", "lowest_latency"] {
+            let single = template(
+                "t2",
+                "单选择部分离线",
+                true,
+                &[("round_robin", &["s1"]), (strategy, &["s2", "s3"])],
+            );
+            assert_eq!(
+                status_of(true, &shape_of(&single), &servers),
+                TemplateStatus::ok(),
+                "{strategy}: 掉的是备用候选，仍有在线候选 → ok"
+            );
+
+            let all_offline = template(
+                "t3",
+                "单选择全离线",
+                true,
+                &[("round_robin", &["s1"]), (strategy, &["s3"])],
+            );
+            assert_eq!(
+                status_of(true, &shape_of(&all_offline), &servers),
+                TemplateStatus::blocked("member_offline"),
+                "{strategy}: 这一跳没有任何在线候选 → blocked"
+            );
+
+            // abnormal 不看策略：没被确认离线，仍只降级。
+            let abnormal = template(
+                "t4",
+                "单选择 abnormal",
+                true,
+                &[("round_robin", &["s1"]), (strategy, &["s2", "s4"])],
+            );
+            assert_eq!(
+                status_of(true, &shape_of(&abnormal), &servers),
+                TemplateStatus::degraded(),
+                "{strategy}: abnormal 候选沿用旧口径降级"
+            );
+        }
     }
 
     #[test]
