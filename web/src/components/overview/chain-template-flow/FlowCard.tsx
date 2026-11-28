@@ -28,6 +28,16 @@ const ROLE_ICON = {
   fold: LayersIcon,
 } as const;
 
+function tagText(
+  tag: FoldedCard["tag"],
+  translate: TFunction,
+): string {
+  if (tag === "active") return translate("overview.chainLatency.flowActive");
+  if (tag === "preferred") return translate("overview.chainLatency.flowPreferred");
+  if (tag === "candidate") return translate("overview.chainLatency.flowCandidate");
+  return "";
+}
+
 function statusText(
   status: ChainTemplateMemberStatus,
   translate: TFunction,
@@ -84,13 +94,9 @@ function CardTooltip({
           {card.tag !== undefined ? (
             <>
               <dt className="text-background/70">
-                {t("overview.chainLatency.flowPreferred")}
+                {t("overview.chainLatency.flowPathTag")}
               </dt>
-              <dd>
-                {card.tag === "preferred"
-                  ? t("overview.chainLatency.flowPreferred")
-                  : t("overview.chainLatency.flowCandidate")}
-              </dd>
+              <dd>{tagText(card.tag, t)}</dd>
             </>
           ) : null}
         </dl>
@@ -257,13 +263,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
         ? t("overview.chainLatency.chainTarget")
         : card.name
     : templateTitle;
-  const tagText = !chain
-    ? ""
-    : card.tag === "preferred"
-      ? t("overview.chainLatency.flowPreferred")
-      : card.tag === "candidate"
-        ? t("overview.chainLatency.flowCandidate")
-        : "";
+  const tagLabel = chain ? tagText(card.tag, t) : "";
   const subtitle = chain
     ? card.kind === "fold"
       ? card.offlineHidden > 0
@@ -271,7 +271,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
             n: card.offlineHidden,
           })
         : ""
-      : tagText
+      : tagLabel
     : templateSubtitle;
   const status = statusText(card.status, t);
   // 目标 / 未知不画点：链路详情把「不知道」留白，不画成灰色「正常」。
@@ -280,7 +280,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
     ? t("overview.chainLatency.flowChainCardAria", {
         name: title,
         status,
-        tag: tagText === "" ? "" : ` · ${tagText}`,
+        tag: tagLabel === "" ? "" : ` · ${tagLabel}`,
       })
     : t("overview.chainTemplateInsight.flowCardAria", {
         name: title,
@@ -325,6 +325,7 @@ export const TemplateCardNode = memo(function TemplateCardNode({
     "data-status": card.status,
     "data-flow-target": chain && isTarget ? "" : undefined,
     "data-chain-tag": chain ? card.tag : undefined,
+    "data-chain-tag-text": chain && tagLabel !== "" ? tagLabel : undefined,
     "data-hot":
       interaction?.highlight != null
         ? hot

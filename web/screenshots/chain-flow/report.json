@@ -1,5 +1,5 @@
 {
-  "base": "http://127.0.0.1:62378",
+  "base": "http://127.0.0.1:59007",
   "dist": "web/dist",
   "mode": "chain",
   "screenshots": [
@@ -13,6 +13,22 @@
     "chain-folded-expanded-1440-dark.png",
     "chain-unmeasurable-1440-dark.png",
     "chain-missing-1440-dark.png",
+    "active-failover-1440-dark.png",
+    "active-failover-390-dark.png",
+    "active-failover-1440-light.png",
+    "active-failover-390-light.png",
+    "active-lowest-1440-dark.png",
+    "active-lowest-390-dark.png",
+    "active-lowest-1440-light.png",
+    "active-lowest-390-light.png",
+    "active-round-robin-1440-dark.png",
+    "active-round-robin-390-dark.png",
+    "active-round-robin-1440-light.png",
+    "active-round-robin-390-light.png",
+    "active-legacy-1440-dark.png",
+    "active-legacy-390-dark.png",
+    "active-legacy-1440-light.png",
+    "active-legacy-390-light.png",
     "chain-march-reduced-1440-dark.png",
     "template-regression-1440-dark.png"
   ],
@@ -37,6 +53,72 @@
       "hiddenPills": 4,
       "preferred": 2,
       "candidate": 2,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "香港-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "大阪-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "洛杉矶-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "大阪-01",
+        "洛杉矶-01",
+        "链目标"
+      ],
       "targets": 1,
       "targetDots": 0,
       "unknownDots": 0,
@@ -45,6 +127,7 @@
           "role": "entry",
           "label": "香港入口",
           "count": "2 台",
+          "strategy": null,
           "shown": "2",
           "total": "2"
         },
@@ -52,6 +135,7 @@
           "role": "hop",
           "label": "东京中转",
           "count": "2 台",
+          "strategy": null,
           "shown": "2",
           "total": "2"
         },
@@ -59,6 +143,7 @@
           "role": "hop",
           "label": "大阪中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -66,6 +151,7 @@
           "role": "hop",
           "label": "洛杉矶中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -73,6 +159,7 @@
           "role": "target",
           "label": "目标",
           "count": "1 个",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         }
@@ -140,6 +227,8 @@
         "clientWidth": 904,
         "scrollWidth": 904
       },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
       "viewportTransform": "matrix(0.949, 0, 0, 0.949, 0.28, 16.998)",
       "selectedPillTabIndex": "0",
       "tabbableCards": 7,
@@ -189,6 +278,72 @@
       "hiddenPills": 4,
       "preferred": 2,
       "candidate": 2,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "香港-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "大阪-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "洛杉矶-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "大阪-01",
+        "洛杉矶-01",
+        "链目标"
+      ],
       "targets": 1,
       "targetDots": 0,
       "unknownDots": 0,
@@ -197,6 +352,7 @@
           "role": "entry",
           "label": "香港入口",
           "count": "2 台",
+          "strategy": null,
           "shown": "2",
           "total": "2"
         },
@@ -204,6 +360,7 @@
           "role": "hop",
           "label": "东京中转",
           "count": "2 台",
+          "strategy": null,
           "shown": "2",
           "total": "2"
         },
@@ -211,6 +368,7 @@
           "role": "hop",
           "label": "大阪中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -218,6 +376,7 @@
           "role": "hop",
           "label": "洛杉矶中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -225,6 +384,7 @@
           "role": "target",
           "label": "目标",
           "count": "1 个",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         }
@@ -292,6 +452,8 @@
         "clientWidth": 342,
         "scrollWidth": 952
       },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
       "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
       "selectedPillTabIndex": "0",
       "tabbableCards": 7,
@@ -323,6 +485,38 @@
       "hiddenPills": 0,
       "preferred": 0,
       "candidate": 0,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
       "targets": 1,
       "targetDots": 0,
       "unknownDots": 0,
@@ -331,6 +525,7 @@
           "role": "entry",
           "label": "香港入口",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -338,6 +533,7 @@
           "role": "hop",
           "label": "东京中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -345,6 +541,7 @@
           "role": "target",
           "label": "目标",
           "count": "1 个",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         }
@@ -396,6 +593,8 @@
         "clientWidth": 904,
         "scrollWidth": 904
       },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
       "viewportTransform": "matrix(1, 0, 0, 1, 172, 18)",
       "selectedPillTabIndex": "0",
       "tabbableCards": 3,
@@ -427,6 +626,74 @@
       "hiddenPills": 0,
       "preferred": 0,
       "candidate": 0,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "大阪-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "新加坡-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "法兰克福-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "洛杉矶-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "大阪-01",
+        "新加坡-01",
+        "法兰克福-01",
+        "洛杉矶-01",
+        "链目标"
+      ],
       "targets": 1,
       "targetDots": 0,
       "unknownDots": 0,
@@ -435,6 +702,7 @@
           "role": "entry",
           "label": "香港入口",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -442,6 +710,7 @@
           "role": "hop",
           "label": "东京中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -449,6 +718,7 @@
           "role": "hop",
           "label": "大阪中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -456,6 +726,7 @@
           "role": "hop",
           "label": "新加坡中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -463,6 +734,7 @@
           "role": "hop",
           "label": "法兰克福中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -470,6 +742,7 @@
           "role": "hop",
           "label": "洛杉矶中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -477,6 +750,7 @@
           "role": "target",
           "label": "目标",
           "count": "1 个",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         }
@@ -560,6 +834,8 @@
         "clientWidth": 904,
         "scrollWidth": 904
       },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
       "viewportTransform": "matrix(0.9, 0, 0, 0.9, 0, 24.2)",
       "selectedPillTabIndex": "0",
       "tabbableCards": 7,
@@ -595,6 +871,70 @@
       "hiddenPills": 3,
       "preferred": 1,
       "candidate": 3,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "香港-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "香港-03",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "香港-04",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "+2 台",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
       "targets": 1,
       "targetDots": 0,
       "unknownDots": 0,
@@ -603,6 +943,7 @@
           "role": "entry",
           "label": "香港入口",
           "count": "4 / 6 台",
+          "strategy": null,
           "shown": "4",
           "total": "6"
         },
@@ -610,6 +951,7 @@
           "role": "hop",
           "label": "东京中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -617,6 +959,7 @@
           "role": "target",
           "label": "目标",
           "count": "1 个",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         }
@@ -668,6 +1011,8 @@
         "clientWidth": 904,
         "scrollWidth": 904
       },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
       "viewportTransform": "matrix(1, 0, 0, 1, 172, 12)",
       "selectedPillTabIndex": "0",
       "tabbableCards": 7,
@@ -704,6 +1049,38 @@
       "hiddenPills": 0,
       "preferred": 0,
       "candidate": 0,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
       "targets": 1,
       "targetDots": 0,
       "unknownDots": 0,
@@ -712,6 +1089,7 @@
           "role": "entry",
           "label": "香港入口",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -719,6 +1097,7 @@
           "role": "hop",
           "label": "东京中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -726,6 +1105,7 @@
           "role": "target",
           "label": "目标",
           "count": "1 个",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         }
@@ -776,6 +1156,8 @@
         "clientWidth": 904,
         "scrollWidth": 904
       },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
       "viewportTransform": "matrix(1, 0, 0, 1, 172, 18)",
       "selectedPillTabIndex": "0",
       "tabbableCards": 3,
@@ -804,6 +1186,38 @@
       "hiddenPills": 0,
       "preferred": 0,
       "candidate": 0,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
       "targets": 1,
       "targetDots": 0,
       "unknownDots": 0,
@@ -812,6 +1226,7 @@
           "role": "entry",
           "label": "香港入口",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -819,6 +1234,7 @@
           "role": "hop",
           "label": "东京中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -826,6 +1242,7 @@
           "role": "target",
           "label": "目标",
           "count": "1 个",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         }
@@ -876,6 +1293,8 @@
         "clientWidth": 904,
         "scrollWidth": 904
       },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
       "viewportTransform": "matrix(1, 0, 0, 1, 172, 18)",
       "selectedPillTabIndex": "0",
       "tabbableCards": 3,
@@ -886,6 +1305,2626 @@
       ]
     },
     "chain-missingTooltip": "东京-01 → 链目标时延不可用丢包—无历史数据",
+    "failover-dark-1440": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 5,
+      "hotCards": 4,
+      "dimCards": 1,
+      "edges": 5,
+      "hotEdges": 3,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk3",
+        "fold-edge:2:cf:1:s-tk3->cf:2:新加坡-1",
+        "fold-edge:4:cf:2:新加坡-1->cf:3:__target"
+      ],
+      "dimEdges": 2,
+      "pills": 5,
+      "visiblePills": 3,
+      "hiddenPills": 2,
+      "preferred": 0,
+      "candidate": 1,
+      "active": 1,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-03",
+          "tag": "active",
+          "tagText": "当前",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "offline",
+          "hot": "false",
+          "offlineDot": true
+        },
+        {
+          "name": "新加坡-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-03",
+        "新加坡-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转（主备）",
+          "count": "故障转移·2选1",
+          "strategy": "failover",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "新加坡出口",
+          "count": "1 台",
+          "strategy": "failover",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "22ms",
+        "21ms",
+        "9ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 3,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk3",
+        "fold-edge:2:cf:1:s-tk3->cf:2:新加坡-1",
+        "fold-edge:4:cf:2:新加坡-1->cf:3:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "22ms",
+        "21ms",
+        "9ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转（主备）",
+          "count": "故障转移·2选1"
+        },
+        {
+          "label": "新加坡出口",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 74, 12)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 5,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "failover-dark-390": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 5,
+      "hotCards": 4,
+      "dimCards": 1,
+      "edges": 5,
+      "hotEdges": 3,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk3",
+        "fold-edge:2:cf:1:s-tk3->cf:2:新加坡-1",
+        "fold-edge:4:cf:2:新加坡-1->cf:3:__target"
+      ],
+      "dimEdges": 2,
+      "pills": 5,
+      "visiblePills": 3,
+      "hiddenPills": 2,
+      "preferred": 0,
+      "candidate": 1,
+      "active": 1,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-03",
+          "tag": "active",
+          "tagText": "当前",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "offline",
+          "hot": "false",
+          "offlineDot": true
+        },
+        {
+          "name": "新加坡-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-03",
+        "新加坡-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转（主备）",
+          "count": "故障转移·2选1",
+          "strategy": "failover",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "新加坡出口",
+          "count": "1 台",
+          "strategy": "failover",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "22ms",
+        "21ms",
+        "9ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 3,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk3",
+        "fold-edge:2:cf:1:s-tk3->cf:2:新加坡-1",
+        "fold-edge:4:cf:2:新加坡-1->cf:3:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "22ms",
+        "21ms",
+        "9ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转（主备）",
+          "count": "故障转移·2选1"
+        },
+        {
+          "label": "新加坡出口",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "compact",
+      "hostScroll": {
+        "clientWidth": 342,
+        "scrollWidth": 756
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 5,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "failover-light-1440": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 5,
+      "hotCards": 4,
+      "dimCards": 1,
+      "edges": 5,
+      "hotEdges": 3,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk3",
+        "fold-edge:2:cf:1:s-tk3->cf:2:新加坡-1",
+        "fold-edge:4:cf:2:新加坡-1->cf:3:__target"
+      ],
+      "dimEdges": 2,
+      "pills": 5,
+      "visiblePills": 3,
+      "hiddenPills": 2,
+      "preferred": 0,
+      "candidate": 1,
+      "active": 1,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-03",
+          "tag": "active",
+          "tagText": "当前",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "offline",
+          "hot": "false",
+          "offlineDot": true
+        },
+        {
+          "name": "新加坡-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-03",
+        "新加坡-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转（主备）",
+          "count": "故障转移·2选1",
+          "strategy": "failover",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "新加坡出口",
+          "count": "1 台",
+          "strategy": "failover",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "22ms",
+        "21ms",
+        "9ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 3,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk3",
+        "fold-edge:2:cf:1:s-tk3->cf:2:新加坡-1",
+        "fold-edge:4:cf:2:新加坡-1->cf:3:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "22ms",
+        "21ms",
+        "9ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转（主备）",
+          "count": "故障转移·2选1"
+        },
+        {
+          "label": "新加坡出口",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 74, 12)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 5,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "failover-light-390": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 5,
+      "hotCards": 4,
+      "dimCards": 1,
+      "edges": 5,
+      "hotEdges": 3,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk3",
+        "fold-edge:2:cf:1:s-tk3->cf:2:新加坡-1",
+        "fold-edge:4:cf:2:新加坡-1->cf:3:__target"
+      ],
+      "dimEdges": 2,
+      "pills": 5,
+      "visiblePills": 3,
+      "hiddenPills": 2,
+      "preferred": 0,
+      "candidate": 1,
+      "active": 1,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-03",
+          "tag": "active",
+          "tagText": "当前",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "offline",
+          "hot": "false",
+          "offlineDot": true
+        },
+        {
+          "name": "新加坡-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-03",
+        "新加坡-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转（主备）",
+          "count": "故障转移·2选1",
+          "strategy": "failover",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "新加坡出口",
+          "count": "1 台",
+          "strategy": "failover",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "22ms",
+        "21ms",
+        "9ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 3,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk3",
+        "fold-edge:2:cf:1:s-tk3->cf:2:新加坡-1",
+        "fold-edge:4:cf:2:新加坡-1->cf:3:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "22ms",
+        "21ms",
+        "9ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转（主备）",
+          "count": "故障转移·2选1"
+        },
+        {
+          "label": "新加坡出口",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "compact",
+      "hostScroll": {
+        "clientWidth": 342,
+        "scrollWidth": 756
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 5,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "lowest-dark-1440": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 5,
+      "hotCards": 3,
+      "dimCards": 2,
+      "edges": 6,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk1",
+        "fold-edge:3:cf:1:s-tk1->cf:2:__target"
+      ],
+      "dimEdges": 4,
+      "pills": 6,
+      "visiblePills": 2,
+      "hiddenPills": 4,
+      "preferred": 0,
+      "candidate": 2,
+      "active": 1,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "active",
+          "tagText": "当前",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-03",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "首尔-01",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京出口",
+          "count": "最低延迟·3选1",
+          "strategy": "lowest_latency",
+          "shown": "3",
+          "total": "3"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "13ms",
+        "10ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk1",
+        "fold-edge:3:cf:1:s-tk1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "13ms",
+        "10ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京出口",
+          "count": "最低延迟·3选1"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 172, 12)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 5,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "lowest-dark-390": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 5,
+      "hotCards": 3,
+      "dimCards": 2,
+      "edges": 6,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk1",
+        "fold-edge:3:cf:1:s-tk1->cf:2:__target"
+      ],
+      "dimEdges": 4,
+      "pills": 6,
+      "visiblePills": 2,
+      "hiddenPills": 4,
+      "preferred": 0,
+      "candidate": 2,
+      "active": 1,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "active",
+          "tagText": "当前",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-03",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "首尔-01",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京出口",
+          "count": "最低延迟·3选1",
+          "strategy": "lowest_latency",
+          "shown": "3",
+          "total": "3"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "13ms",
+        "10ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk1",
+        "fold-edge:3:cf:1:s-tk1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "13ms",
+        "10ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京出口",
+          "count": "最低延迟·3选1"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "compact",
+      "hostScroll": {
+        "clientWidth": 342,
+        "scrollWidth": 560
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 5,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "lowest-light-1440": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 5,
+      "hotCards": 3,
+      "dimCards": 2,
+      "edges": 6,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk1",
+        "fold-edge:3:cf:1:s-tk1->cf:2:__target"
+      ],
+      "dimEdges": 4,
+      "pills": 6,
+      "visiblePills": 2,
+      "hiddenPills": 4,
+      "preferred": 0,
+      "candidate": 2,
+      "active": 1,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "active",
+          "tagText": "当前",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-03",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "首尔-01",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京出口",
+          "count": "最低延迟·3选1",
+          "strategy": "lowest_latency",
+          "shown": "3",
+          "total": "3"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "13ms",
+        "10ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk1",
+        "fold-edge:3:cf:1:s-tk1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "13ms",
+        "10ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京出口",
+          "count": "最低延迟·3选1"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 172, 12)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 5,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "lowest-light-390": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 5,
+      "hotCards": 3,
+      "dimCards": 2,
+      "edges": 6,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk1",
+        "fold-edge:3:cf:1:s-tk1->cf:2:__target"
+      ],
+      "dimEdges": 4,
+      "pills": 6,
+      "visiblePills": 2,
+      "hiddenPills": 4,
+      "preferred": 0,
+      "candidate": 2,
+      "active": 1,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "active",
+          "tagText": "当前",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-03",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "首尔-01",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京出口",
+          "count": "最低延迟·3选1",
+          "strategy": "lowest_latency",
+          "shown": "3",
+          "total": "3"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "13ms",
+        "10ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:s-tk1",
+        "fold-edge:3:cf:1:s-tk1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "13ms",
+        "10ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京出口",
+          "count": "最低延迟·3选1"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "compact",
+      "hostScroll": {
+        "clientWidth": 342,
+        "scrollWidth": 560
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 5,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "round-robin-dark-1440": {
+      "kind": "chain",
+      "zoom": "95%",
+      "cards": 6,
+      "hotCards": 0,
+      "dimCards": 0,
+      "edges": 6,
+      "hotEdges": 0,
+      "hotEdgeIds": [],
+      "dimEdges": 0,
+      "pills": 6,
+      "visiblePills": 4,
+      "hiddenPills": 2,
+      "preferred": 0,
+      "candidate": 0,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "新加坡-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "香港-02",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "大阪-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": null,
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "新加坡入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "香港分流",
+          "count": "2 台分担",
+          "strategy": "round_robin",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "大阪中转",
+          "count": "1 台",
+          "strategy": "lowest_latency",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京三出口",
+          "count": "1 台",
+          "strategy": "failover",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "17ms",
+        "18ms",
+        "23ms",
+        "8ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 0,
+      "marchIds": [],
+      "marchAnimation": null,
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "17ms",
+        "18ms",
+        "23ms",
+        "8ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "新加坡入口",
+          "count": "1 台"
+        },
+        {
+          "label": "香港分流",
+          "count": "2 台分担"
+        },
+        {
+          "label": "大阪中转",
+          "count": "1 台"
+        },
+        {
+          "label": "东京三出口",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(0.949, 0, 0, 0.949, 0.28, 16.998)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 6,
+      "cardWidths": [
+        129.06402587890625,
+        129.06396484375,
+        129.06396484375,
+        129.06402587890625,
+        129.06402587890625,
+        129.06396484375
+      ]
+    },
+    "round-robin-dark-390": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 6,
+      "hotCards": 0,
+      "dimCards": 0,
+      "edges": 6,
+      "hotEdges": 0,
+      "hotEdgeIds": [],
+      "dimEdges": 0,
+      "pills": 6,
+      "visiblePills": 4,
+      "hiddenPills": 2,
+      "preferred": 0,
+      "candidate": 0,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "新加坡-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "香港-02",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "大阪-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": null,
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "新加坡入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "香港分流",
+          "count": "2 台分担",
+          "strategy": "round_robin",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "大阪中转",
+          "count": "1 台",
+          "strategy": "lowest_latency",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京三出口",
+          "count": "1 台",
+          "strategy": "failover",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "17ms",
+        "18ms",
+        "23ms",
+        "8ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 0,
+      "marchIds": [],
+      "marchAnimation": null,
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "17ms",
+        "18ms",
+        "23ms",
+        "8ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "新加坡入口",
+          "count": "1 台"
+        },
+        {
+          "label": "香港分流",
+          "count": "2 台分担"
+        },
+        {
+          "label": "大阪中转",
+          "count": "1 台"
+        },
+        {
+          "label": "东京三出口",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "compact",
+      "hostScroll": {
+        "clientWidth": 342,
+        "scrollWidth": 952
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 6,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "round-robin-light-1440": {
+      "kind": "chain",
+      "zoom": "95%",
+      "cards": 6,
+      "hotCards": 0,
+      "dimCards": 0,
+      "edges": 6,
+      "hotEdges": 0,
+      "hotEdgeIds": [],
+      "dimEdges": 0,
+      "pills": 6,
+      "visiblePills": 4,
+      "hiddenPills": 2,
+      "preferred": 0,
+      "candidate": 0,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "新加坡-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "香港-02",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "大阪-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": null,
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "新加坡入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "香港分流",
+          "count": "2 台分担",
+          "strategy": "round_robin",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "大阪中转",
+          "count": "1 台",
+          "strategy": "lowest_latency",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京三出口",
+          "count": "1 台",
+          "strategy": "failover",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "17ms",
+        "18ms",
+        "23ms",
+        "8ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 0,
+      "marchIds": [],
+      "marchAnimation": null,
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "17ms",
+        "18ms",
+        "23ms",
+        "8ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "新加坡入口",
+          "count": "1 台"
+        },
+        {
+          "label": "香港分流",
+          "count": "2 台分担"
+        },
+        {
+          "label": "大阪中转",
+          "count": "1 台"
+        },
+        {
+          "label": "东京三出口",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(0.949, 0, 0, 0.949, 0.28, 16.998)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 6,
+      "cardWidths": [
+        129.06402587890625,
+        129.06396484375,
+        129.06396484375,
+        129.06402587890625,
+        129.06402587890625,
+        129.06396484375
+      ]
+    },
+    "round-robin-light-390": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 6,
+      "hotCards": 0,
+      "dimCards": 0,
+      "edges": 6,
+      "hotEdges": 0,
+      "hotEdgeIds": [],
+      "dimEdges": 0,
+      "pills": 6,
+      "visiblePills": 4,
+      "hiddenPills": 2,
+      "preferred": 0,
+      "candidate": 0,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "新加坡-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "香港-02",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "大阪-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": null,
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": null,
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "新加坡入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "香港分流",
+          "count": "2 台分担",
+          "strategy": "round_robin",
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "hop",
+          "label": "大阪中转",
+          "count": "1 台",
+          "strategy": "lowest_latency",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京三出口",
+          "count": "1 台",
+          "strategy": "failover",
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "17ms",
+        "18ms",
+        "23ms",
+        "8ms"
+      ],
+      "pillWidths": [
+        56,
+        56,
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 0,
+      "marchIds": [],
+      "marchAnimation": null,
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "17ms",
+        "18ms",
+        "23ms",
+        "8ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "新加坡入口",
+          "count": "1 台"
+        },
+        {
+          "label": "香港分流",
+          "count": "2 台分担"
+        },
+        {
+          "label": "大阪中转",
+          "count": "1 台"
+        },
+        {
+          "label": "东京三出口",
+          "count": "1 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "compact",
+      "hostScroll": {
+        "clientWidth": 342,
+        "scrollWidth": 952
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 6,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "legacy-dark-1440": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 4,
+      "hotCards": 3,
+      "dimCards": 1,
+      "edges": 4,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:2:cf:1:东京-1->cf:2:__target"
+      ],
+      "dimEdges": 2,
+      "pills": 4,
+      "visiblePills": 2,
+      "hiddenPills": 2,
+      "preferred": 1,
+      "candidate": 1,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "2 台",
+          "strategy": null,
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "19ms",
+        "42ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:2:cf:1:东京-1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "19ms",
+        "42ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "2 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 172, 12)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 4,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "legacy-dark-390": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 4,
+      "hotCards": 3,
+      "dimCards": 1,
+      "edges": 4,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:2:cf:1:东京-1->cf:2:__target"
+      ],
+      "dimEdges": 2,
+      "pills": 4,
+      "visiblePills": 2,
+      "hiddenPills": 2,
+      "preferred": 1,
+      "candidate": 1,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "2 台",
+          "strategy": null,
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "19ms",
+        "42ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:2:cf:1:东京-1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "19ms",
+        "42ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "2 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "compact",
+      "hostScroll": {
+        "clientWidth": 342,
+        "scrollWidth": 560
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 4,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "legacy-light-1440": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 4,
+      "hotCards": 3,
+      "dimCards": 1,
+      "edges": 4,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:2:cf:1:东京-1->cf:2:__target"
+      ],
+      "dimEdges": 2,
+      "pills": 4,
+      "visiblePills": 2,
+      "hiddenPills": 2,
+      "preferred": 1,
+      "candidate": 1,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "2 台",
+          "strategy": null,
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "19ms",
+        "42ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:2:cf:1:东京-1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "19ms",
+        "42ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "2 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "full",
+      "hostScroll": {
+        "clientWidth": 904,
+        "scrollWidth": 904
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 172, 12)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 4,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "legacy-light-390": {
+      "kind": "chain",
+      "zoom": "100%",
+      "cards": 4,
+      "hotCards": 3,
+      "dimCards": 1,
+      "edges": 4,
+      "hotEdges": 2,
+      "hotEdgeIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:2:cf:1:东京-1->cf:2:__target"
+      ],
+      "dimEdges": 2,
+      "pills": 4,
+      "visiblePills": 2,
+      "hiddenPills": 2,
+      "preferred": 1,
+      "candidate": 1,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "链目标"
+      ],
+      "targets": 1,
+      "targetDots": 0,
+      "unknownDots": 0,
+      "headers": [
+        {
+          "role": "entry",
+          "label": "香港入口",
+          "count": "1 台",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        },
+        {
+          "role": "hop",
+          "label": "东京中转",
+          "count": "2 台",
+          "strategy": null,
+          "shown": "2",
+          "total": "2"
+        },
+        {
+          "role": "target",
+          "label": "目标",
+          "count": "1 个",
+          "strategy": null,
+          "shown": "1",
+          "total": "1"
+        }
+      ],
+      "pillTexts": [
+        "19ms",
+        "42ms"
+      ],
+      "pillWidths": [
+        56,
+        56
+      ],
+      "pulses": 0,
+      "marches": 2,
+      "marchIds": [
+        "fold-edge:0:cf:0:香港-1->cf:1:东京-1",
+        "fold-edge:2:cf:1:东京-1->cf:2:__target"
+      ],
+      "marchAnimation": {
+        "name": "template-flow-march-flow",
+        "duration": "1s",
+        "iteration": "infinite"
+      },
+      "unavailableEdges": 0,
+      "dashedEdges": 0,
+      "visiblePillValues": [
+        "19ms",
+        "42ms"
+      ],
+      "headerTitles": [
+        {
+          "label": "香港入口",
+          "count": "1 台"
+        },
+        {
+          "label": "东京中转",
+          "count": "2 台"
+        },
+        {
+          "label": "目标",
+          "count": "1 个"
+        }
+      ],
+      "reset": false,
+      "rightHint": "",
+      "rightHintColumns": 0,
+      "hostMode": "compact",
+      "hostScroll": {
+        "clientWidth": 342,
+        "scrollWidth": 560
+      },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
+      "viewportTransform": "matrix(1, 0, 0, 1, 0, 0)",
+      "selectedPillTabIndex": "0",
+      "tabbableCards": 4,
+      "cardWidths": [
+        136,
+        136,
+        136,
+        136
+      ]
+    },
+    "en": {
+      "active": "Current",
+      "balanced": "Balanced across 2"
+    },
     "reduced": {
       "kind": "chain",
       "zoom": "95%",
@@ -906,6 +3945,72 @@
       "hiddenPills": 4,
       "preferred": 2,
       "candidate": 2,
+      "active": 0,
+      "tagRows": [
+        {
+          "name": "香港-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "香港-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-01",
+          "tag": "preferred",
+          "tagText": "首选",
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "东京-02",
+          "tag": "candidate",
+          "tagText": "候选",
+          "status": "online",
+          "hot": "false",
+          "offlineDot": false
+        },
+        {
+          "name": "大阪-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "洛杉矶-01",
+          "tag": null,
+          "tagText": null,
+          "status": "online",
+          "hot": "true",
+          "offlineDot": false
+        },
+        {
+          "name": "链目标",
+          "tag": null,
+          "tagText": null,
+          "status": "unknown",
+          "hot": "true",
+          "offlineDot": false
+        }
+      ],
+      "hotCardNames": [
+        "香港-01",
+        "东京-01",
+        "大阪-01",
+        "洛杉矶-01",
+        "链目标"
+      ],
       "targets": 1,
       "targetDots": 0,
       "unknownDots": 0,
@@ -914,6 +4019,7 @@
           "role": "entry",
           "label": "香港入口",
           "count": "2 台",
+          "strategy": null,
           "shown": "2",
           "total": "2"
         },
@@ -921,6 +4027,7 @@
           "role": "hop",
           "label": "东京中转",
           "count": "2 台",
+          "strategy": null,
           "shown": "2",
           "total": "2"
         },
@@ -928,6 +4035,7 @@
           "role": "hop",
           "label": "大阪中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -935,6 +4043,7 @@
           "role": "hop",
           "label": "洛杉矶中转",
           "count": "1 台",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         },
@@ -942,6 +4051,7 @@
           "role": "target",
           "label": "目标",
           "count": "1 个",
+          "strategy": null,
           "shown": "1",
           "total": "1"
         }
@@ -1009,6 +4119,8 @@
         "clientWidth": 904,
         "scrollWidth": 904
       },
+      "pageOverflow": 0,
+      "bodyOverflow": 0,
       "viewportTransform": "matrix(0.949, 0, 0, 0.949, 0.28, 16.998)",
       "selectedPillTabIndex": "0",
       "tabbableCards": 7,
@@ -1034,27 +4146,6 @@
       "template": 44
     }
   },
-  "templateDiff": [
-    {
-      "file": "template-collapsed-1440-dark.png",
-      "diffPixels": 0,
-      "identicalBytes": true
-    },
-    {
-      "file": "template-expanded-1440-dark.png",
-      "diffPixels": 0,
-      "identicalBytes": true
-    },
-    {
-      "file": "template-collapsed-1440-light.png",
-      "diffPixels": 0,
-      "identicalBytes": true
-    },
-    {
-      "file": "template-expanded-1440-light.png",
-      "diffPixels": 0,
-      "identicalBytes": true
-    }
-  ],
+  "templateDiff": null,
   "errors": []
 }

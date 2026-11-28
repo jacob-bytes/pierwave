@@ -494,6 +494,24 @@ USE TEMP B-TREE FOR ORDER BY
 > `diagnosis` 因此是 `unknown`；这不是缺陷，而是 `blocked` 链的真实形态。
 > 「单段变慢 → single_hop」由领域层/路由层单测覆盖，不依赖预览库。
 
+「当前通路」（`active_server_id`）另有两组不挂模板的管理员链；既有 8 个
+模板 / 24 条链原样保留：
+
+- 781 主备三跳：香港-01 →（东京-02 priority 0、离线 / 东京-03 priority 1、
+  在线）→ 新加坡-01，中间组与出口组都是 `failover`。入口 香港-01 的
+  `forward_status.targets_json` 写两台候选（东京-02 `active:false`、东京-03
+  `active:true`），东京-03 的规则再把新加坡-01 标成 `active:true`；响应里
+  `nodes[1].strategy = "failover"`、`nodes[1].active_server_id = 东京-03`、
+  `nodes[2].active_server_id = 新加坡-01`。因为东京-02 离线，链级仍是
+  `blocked / node_offline`——成员状态优先于数据质量，不影响当前通路。
+- 782 最低延迟双跳：香港-02 →（东京-01 / 东京-03 / 首尔-01），最后一组
+  `lowest_latency`。入口规则只把时延最低的东京-01 标成 `active:true`
+  （24h 样本均值约 11ms，东京-03 约 12ms、首尔-01 约 22ms），另两台
+  `active:false`；响应里 `nodes[1].active_server_id = 东京-01`。
+- 只有上述 3 条 forward 写 `targets_json`；其余（包括既有 24 条链）保持
+  `NULL`，用来验证旧格式没有 `active` 键时不会算出当前通路。两条新链的
+  时延 / 探测样本仍由通用 CTE 按最近 24h、5 分钟粒度生成。
+
 重复执行幂等：固定 id + 先删后插；只写 `data/preview.db`，不碰
 `data/pierwave.db`。
 
@@ -826,6 +844,24 @@ for every stream that is still online. Because the blocked chain has no current
 data, its `diagnosis` is `unknown`; the "single-segment slowdown → `single_hop`"
 rule is covered by unit and route tests rather than by the preview database. The
 script is idempotent and only writes `data/preview.db`.
+
+Two template-less admin chains exercise the current path (`active_server_id`)
+while the existing 8 templates / 24 chains stay untouched. 781 is a three-hop
+failover chain 香港-01 → (东京-02 offline at priority 0 / 东京-03 online at
+priority 1) → 新加坡-01, with `failover` on both the middle and exit groups.
+香港-01's `forward_status.targets_json` marks 东京-02 `active:false` and
+东京-03 `active:true`, and 东京-03's own rule marks 新加坡-01 `active:true`;
+the response therefore reports `nodes[1].strategy = "failover"`,
+`nodes[1].active_server_id = 东京-03` and `nodes[2].active_server_id = 新加坡-01`.
+The chain still resolves to `blocked / node_offline` because 东京-02 is offline,
+which does not affect the current path. 782 is a two-hop chain 香港-02 →
+(东京-01 / 东京-03 / 首尔-01) with `lowest_latency` on the final group;
+东京-01 carries `active:true` (24-hour mean ~11 ms vs ~12 ms and ~22 ms) and
+the other two `active:false`, so `nodes[1].active_server_id = 东京-01`. Only
+these three forwards carry `targets_json`; every other row, including the
+existing 24 chains, stays `NULL` so the old format (no `active` key) never
+produces a current path. The new chains get their 24-hour / 5-minute latency
+and probe samples from the same CTEs as the rest of the seed.
 
 Tests also cover the unmeasurable-final-hop regression: realm / nftables /
 tunnel / native+udp / native+both chains keep their `series` (the unmeasurable

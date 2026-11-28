@@ -2,6 +2,10 @@ import { memo } from "react";
 import type { NodeProps } from "@xyflow/react";
 import { useI18n, type TFunction } from "@/i18n";
 import {
+  chainColumnPlan,
+  type ChainColumnPlan,
+} from "@/lib/chainHealth";
+import {
   TEMPLATE_COLUMN_LABEL_PADDING,
   TEMPLATE_COLUMN_RULE_GAP,
   type TemplateLayoutHeader,
@@ -28,13 +32,31 @@ function headerLabel(
 }
 
 /**
- * 列头计数：目标列用 Targets，其余列用 Nodes；折叠时写 `shown / total`，
+ * 列头右侧文案：多成员中继列优先显示策略（`故障转移·3选1` / `3 台分担`）；
+ * 其余列保持旧的计数口径：目标列用 Targets，折叠时写 `shown / total`，
  * 只有一个时用 One 单数。
  */
+function planText(plan: ChainColumnPlan, translate: TFunction): string {
+  if (plan.kind === "balanced") {
+    return translate("overview.chainLatency.flowBalanced", { n: plan.count });
+  }
+  const strategy =
+    plan.strategy === "failover"
+      ? translate("overview.chainLatency.flowStrategyFailover")
+      : translate("overview.chainLatency.flowStrategyLowestLatency");
+  return translate("overview.chainLatency.flowStrategyChoose", {
+    strategy,
+    n: plan.count,
+  });
+}
+
 function headerCount(
   header: TemplateLayoutHeader,
   translate: TFunction,
 ): string {
+  // 策略只作用于多成员的中继列：入口 / 目标 / 单成员保持旧的台数计数。
+  const plan = chainColumnPlan(header.strategy ?? null, header.total, header.role);
+  if (plan !== null) return planText(plan, translate);
   const target = header.role === "target";
   if (header.shown < header.total) {
     return target
@@ -89,11 +111,15 @@ export const TemplateColumnHeaderNode = memo(function TemplateColumnHeaderNode({
       data-role={header.role}
       data-shown={header.shown}
       data-total={header.total}
+      data-strategy={header.strategy ?? undefined}
       aria-hidden="true"
       className="relative flex h-full w-full items-end gap-1.5 text-xs leading-none text-muted-foreground"
       style={{ paddingBottom: TEMPLATE_COLUMN_LABEL_PADDING }}
     >
-      <span data-template-flow-column-label className="truncate font-medium">
+      <span
+        data-template-flow-column-label
+        className="min-w-0 truncate font-medium"
+      >
         {title}
       </span>
       <span

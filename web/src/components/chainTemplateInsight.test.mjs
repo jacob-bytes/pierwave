@@ -362,6 +362,7 @@ test("列头：每列一个不可交互节点，随缩放平移、不参与高�
       'aria-hidden="true"',
       "data-template-flow-column-label",
       "data-template-flow-column-count",
+      "data-strategy={header.strategy ?? undefined}",
       "data-template-flow-column-rule",
       'translate("overview.chainTemplateInsight.flowColumnNodes"',
       'translate("overview.chainTemplateInsight.flowColumnNodesOne"',
@@ -370,7 +371,7 @@ test("列头：每列一个不可交互节点，随缩放平移、不参与高�
       'translate("overview.chainTemplateInsight.flowColumnTargetsOne"',
       'translate("overview.chainTemplateInsight.flowColumnTargetsFolded"',
       // 列名 / 计数同色，只靠字重区分；细线在列头内上移 6px 离开卡片。
-      'className="truncate font-medium"',
+      'className="min-w-0 truncate font-medium"',
       'className="shrink-0 text-muted-foreground tabular-nums"',
       "style={{ paddingBottom: TEMPLATE_COLUMN_LABEL_PADDING }}",
       "style={{ bottom: TEMPLATE_COLUMN_RULE_GAP }}",

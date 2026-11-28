@@ -1212,6 +1212,74 @@ export interface ChainTopology {
 export type ChainNodeRole = "source" | "hop" | "target";
 
 /**
+ * 组选路策略（契约 `nodes[].strategy`）。
+ *
+ * 描述的是「上一跳进入本组时用什么策略」；入口组与目标节点恒为 null。
+ * 未知值按 null 处理，前端不猜一个不存在的策略。
+ */
+export type ChainRouteStrategy =
+  | "round_robin"
+  | "failover"
+  | "lowest_latency"
+  | "ip_hashed"
+  | "weighted"
+  | "least_conn";
+
+const CHAIN_ROUTE_STRATEGIES: ReadonlySet<string> = new Set([
+  "round_robin",
+  "failover",
+  "lowest_latency",
+  "ip_hashed",
+  "weighted",
+  "least_conn",
+]);
+
+/** 会确定单一当前成员的策略：只有这两者才可能有 `active_server_id`。 */
+export function isChainSingleChoiceStrategy(
+  strategy: ChainRouteStrategy | null,
+): strategy is "failover" | "lowest_latency" {
+  return strategy === "failover" || strategy === "lowest_latency";
+}
+
+/**
+ * 多成员分担策略：没有「首选 / 候选 / 当前」，列头只表达 `N 台分担`。
+ */
+export function isChainBalancedStrategy(
+  strategy: ChainRouteStrategy | null,
+): strategy is "round_robin" | "ip_hashed" | "weighted" | "least_conn" {
+  return (
+    strategy === "round_robin" ||
+    strategy === "ip_hashed" ||
+    strategy === "weighted" ||
+    strategy === "least_conn"
+  );
+}
+
+/**
+ * 列头的策略口径：只对 `hop` 且多成员的组返回计划；入口 / 目标和单成员
+ * 列保持旧的「N 台」计数，不显示策略名。
+ */
+export type ChainColumnPlan =
+  | { kind: "choose"; strategy: ChainRouteStrategy; count: number }
+  | { kind: "balanced"; strategy: ChainRouteStrategy; count: number };
+
+export function chainColumnPlan(
+  strategy: ChainRouteStrategy | null,
+  memberCount: number | null,
+  role: ChainNodeRole | "entry",
+): ChainColumnPlan | null {
+  if (role !== "hop") return null;
+  if (memberCount === null || memberCount <= 1) return null;
+  if (isChainSingleChoiceStrategy(strategy)) {
+    return { kind: "choose", strategy, count: memberCount };
+  }
+  if (isChainBalancedStrategy(strategy)) {
+    return { kind: "balanced", strategy, count: memberCount };
+  }
+  return null;
+}
+
+/**
  * 组内一台成员：`chains[].nodes[].members[]`。
  *
  * 多路径链的一个「跳」其实是若干台服务器组成的组，`nodes[].name` 是组名，
@@ -1253,6 +1321,13 @@ export interface ChainHealthNode {
    * 几台）。两者都没有时为 null，表示「不知道是不是组」，不显示 `2 台`。
    */
   memberCount: number | null;
+  /** 上一跳进入本组的选路策略；入口 / 目标 / 旧主控为 null。 */
+  strategy: ChainRouteStrategy | null;
+  /**
+   * 从入口代表成员沿 Agent 上报的当前选中走出来的成员 id；只有单选中策略
+   * （failover / lowest_latency）才可能有值。旧主控 / 断链为 null。
+   */
+  activeServerId: string | null;
 }
 
 /** 拓扑图节点：角色与位置已确定，供组件直接渲染标签、成员与状态点。 */
@@ -1267,6 +1342,10 @@ export interface ChainTopologyNode {
   members: ChainNodeMember[];
   /** 组成员数；单节点 / 旧契约 / 目标节点为 null。 */
   memberCount: number | null;
+  /** 上一跳进入本组的选路策略；入口 / 目标 / 旧契约为 null。 */
+  strategy: ChainRouteStrategy | null;
+  /** 该列当前通路成员；入口 / 目标 / 旧契约 / 断链为 null。 */
+  activeServerId: string | null;
 }
 
 export interface ChainTopologyGraph {
@@ -1312,6 +1391,18 @@ function readMembers(raw: unknown): ChainNodeMember[] {
   return members.slice(0, 64);
 }
 
+/**
+ * 读 `nodes[].strategy`：只认六个契约值，大小写 / 空白容忍；未知值按 null
+ * 处理，让调用方回退到旧的首选 / 候选口径，而不是猜一个新策略。
+ */
+function readStrategy(value: unknown): ChainRouteStrategy | null {
+  const raw = trimmedString(value);
+  if (raw === null) return null;
+  const strategy = raw.toLowerCase();
+  if (!CHAIN_ROUTE_STRATEGIES.has(strategy)) return null;
+  return strategy as ChainRouteStrategy;
+}
+
 function readNode(raw: unknown, index: number): ChainHealthNode | null {
   if (!isRecord(raw)) return null;
   const name = trimmedString(raw.name);
@@ -1338,6 +1429,8 @@ function readNode(raw: unknown, index: number): ChainHealthNode | null {
     status: rawStatus === null ? null : rawStatus.toLowerCase(),
     members,
     memberCount,
+    strategy: readStrategy(raw.strategy),
+    activeServerId: trimmedString(raw.active_server_id),
   };
 }
 
@@ -1415,6 +1508,9 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
       // 目标节点不是服务器组：契约即使给了 members 也不渲染，避免把
       // 「链目标」画成一台可点的成员。
       const isTarget = role === "target";
+      // 入口没有「上一跳」、目标没有选路：两者即使被脏数据写上策略 / 当前
+      // 成员也一律置空，避免把入口的代表成员误标成「当前」。
+      const isEntry = role === "source";
       return {
         seq: node.seq,
         name: node.name,
@@ -1423,6 +1519,8 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
         serverId: isTarget ? null : node.serverId,
         members: isTarget ? [] : node.members,
         memberCount: isTarget ? null : node.memberCount,
+        strategy: isTarget || isEntry ? null : node.strategy,
+        activeServerId: isTarget || isEntry ? null : node.activeServerId,
       };
     });
     const edges: ChainTopologyEdge[] = [];
@@ -1441,6 +1539,8 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
         serverId: null,
         members: [],
         memberCount: null,
+        strategy: null,
+        activeServerId: null,
       });
       edges.push(topologyEdge(1, segments));
     }
@@ -1468,6 +1568,8 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
     serverId: null,
     members: [],
     memberCount: null,
+    strategy: null,
+    activeServerId: null,
   }));
   const edges = [...fallback.edges];
   if (fallback.targetMissing) {
@@ -1481,6 +1583,8 @@ export function chainTopologyGraph(chain: ChainHealthChain): ChainTopologyGraph 
       serverId: null,
       members: [],
       memberCount: null,
+      strategy: null,
+      activeServerId: null,
     });
     edges.push({ seq, p50: null, missing: true });
   }

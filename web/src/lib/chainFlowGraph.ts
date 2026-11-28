@@ -24,6 +24,7 @@ import {
   chainLastHopUnmeasurable,
   chainTopologyEdgeEstimated,
   chainTopologyGraph,
+  isChainBalancedStrategy,
   type ChainHealthChain,
   type ChainTopologyNode,
 } from "./chainHealth.ts";
@@ -87,6 +88,46 @@ function preferredIndex(node: ChainTopologyNode): number {
   return index;
 }
 
+/** 当前通路成员在该组里的下标；没有命中时为 -1。 */
+function activeIndex(node: ChainTopologyNode): number {
+  const serverId = (node.activeServerId ?? "").trim();
+  if (serverId === "") return -1;
+  return node.members.findIndex(
+    (member) => (member.serverId ?? "").trim() === serverId,
+  );
+}
+
+/**
+ * 多成员列的卡片顺序：
+ * - 有当前通路时把 active 排第一，折叠不会把它吃掉；
+ * - 没有 active 时沿用首选排第一（旧行为）；
+ * - 轮询等多成员分担策略保持契约顺序：它们没有首选，顺序不该暗示优先级。
+ */
+function orderedMembers(
+  node: ChainTopologyNode,
+  role: "entry" | "hop",
+): { members: ChainTopologyNode["members"]; active: number; preferred: number } {
+  const members = node.members;
+  const preferred = preferredIndex(node);
+  // 入口列不受新策略影响：仍按代表成员（server_id）排第一。
+  const balanced =
+    role === "hop" &&
+    members.length > 1 &&
+    isChainBalancedStrategy(node.strategy);
+  if (balanced) return { members, active: -1, preferred };
+  const active = role === "hop" ? activeIndex(node) : -1;
+  const first = active >= 0 ? active : preferred;
+  if (first <= 0) return { members, active, preferred };
+  return {
+    members: [
+      members[first],
+      ...members.filter((_, index) => index !== first),
+    ],
+    active,
+    preferred,
+  };
+}
+
 function columnCards(
   node: ChainTopologyNode,
   role: "entry" | "hop",
@@ -105,25 +146,24 @@ function columnCards(
       ),
     ];
   }
-  const preferred = preferredIndex(node);
-  const ordered =
-    preferred > 0
-      ? [
-          node.members[preferred],
-          ...node.members.filter((_, index) => index !== preferred),
-        ]
-      : node.members;
-  const multi = ordered.length > 1;
-  return ordered.map((member, index) => {
+  const ordered = orderedMembers(node, role);
+  const multi = ordered.members.length > 1;
+  // 轮询 / 哈希 / 加权 / 最少连接：多成员列不出现首选 / 候选，列头写 N 台分担。
+  const balanced =
+    role === "hop" && multi && isChainBalancedStrategy(node.strategy);
+  return ordered.members.map((member, index) => {
     const status = cardStatus(member.status);
-    const tag: TemplateCardTag | undefined =
-      !multi
-        ? undefined
-        : preferred >= 0
-          ? index === 0
-            ? "preferred"
-            : "candidate"
-          : "candidate";
+    let tag: TemplateCardTag | undefined;
+    if (!multi || balanced) {
+      tag = undefined;
+    } else if (index === 0 && ordered.active >= 0) {
+      // 当前通路成员已经排到第一张：它是「当前」，其余是同组候选。
+      tag = "active";
+    } else if (index === 0 && ordered.preferred >= 0) {
+      tag = "preferred";
+    } else {
+      tag = "candidate";
+    }
     return card(
       `cf:${node.seq}:${member.serverId ?? member.name}`,
       member.name,
@@ -177,6 +217,8 @@ export function buildChainFlowGraph(
       members: columnCards(node, role),
       title: node.name,
       memberCount: node.memberCount,
+      // 入口没有「上一跳」；只有中继列带选路策略（旧契约 / 未知值为 null）。
+      strategy: role === "hop" ? node.strategy : null,
     });
   });
 

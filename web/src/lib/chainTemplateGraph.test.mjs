@@ -27,9 +27,11 @@ import {
   TEMPLATE_PULSE_LIMIT,
   TEMPLATE_PULSE_WIDTH_RATIO,
   TEMPLATE_ROW_GAP,
+  activeTemplatePath,
   buildTemplateGraph,
   carrierTemplateEdges,
   clampTemplateZoom,
+  defaultTemplatePath,
   densePillRails,
   fitViewport,
   foldTemplateGraph,
@@ -1850,6 +1852,114 @@ test("preferredTemplatePath: 每列单卡或 preferred，逐段相连", () => {
   assert.equal(preferredTemplatePath(pathGraph({ noPreferred: true })), null);
   // 首选卡之间没有连线：不点亮一条不存在的路径。
   assert.equal(preferredTemplatePath(pathGraph({ missingEdge: true })), null);
+});
+
+/** 三列（入口 / 中继 / 目标）的折叠图，用来验证 active / preferred 路径。 */
+function pathGraphThree({ active = true, broken = false, entryTags = true } = {}) {
+  const base = {
+    chains: 0,
+    users: 0,
+    offline: false,
+    degraded: false,
+    upstreamIds: [],
+  };
+  const card = (id, tag, role, seq) => ({
+    ...base,
+    id,
+    name: id,
+    seq,
+    role,
+    status: "online",
+    ...(tag === undefined ? {} : { tag }),
+  });
+  const edge = (id, source, target, sourceSeq, targetSeq) => ({
+    id,
+    source,
+    target,
+    sourceSeq,
+    targetSeq,
+    chains: 0,
+    users: 0,
+    p50Ms: 20,
+    lastP50Ms: null,
+    unavailable: false,
+    degraded: false,
+    merged: false,
+    paths: 1,
+  });
+  const edges = [
+    edge("a-c", "a", "c", 0, 1),
+    edge("a-d", "a", "d", 0, 1),
+    edge("d-t", "d", "t", 1, 2),
+  ];
+  if (!broken) edges.push(edge("c-t", "c", "t", 1, 2));
+  return {
+    hops: 2,
+    targetSeq: 2,
+    columns: [
+      {
+        seq: 0,
+        role: "entry",
+        cards: [
+          card("a", entryTags ? "preferred" : undefined, "entry", 0),
+          card("b", entryTags ? "candidate" : undefined, "entry", 0),
+        ],
+        total: 2,
+      },
+      {
+        seq: 1,
+        role: "hop",
+        cards: [
+          card("c", active ? "active" : undefined, "hop", 1),
+          card("d", active ? "candidate" : "preferred", "hop", 1),
+        ],
+        total: 2,
+      },
+      { seq: 2, role: "target", cards: [card("t", undefined, "target", 2)], total: 1 },
+    ],
+    edges,
+    unused: [],
+    empty: false,
+    maxChains: 1,
+    hiddenMembers: 0,
+    hiddenTargets: 0,
+    foldColumns: [],
+  };
+}
+
+test("activeTemplatePath: 每列取 active，入口取代表成员，逐段相连", () => {
+  const folded = pathGraphThree();
+  const path = activeTemplatePath(folded);
+  assert.deepEqual([...path.nodes].sort(), ["a", "c", "t"]);
+  assert.deepEqual([...path.edges].sort(), ["a-c", "c-t"]);
+  // 默认高亮优先走 active，而不是首选的 a-d-t。
+  const fallback = defaultTemplatePath(folded);
+  assert.deepEqual([...fallback.nodes].sort(), ["a", "c", "t"]);
+  assert.deepEqual([...fallback.edges].sort(), ["a-c", "c-t"]);
+});
+
+test("activeTemplatePath: 入口没有 tag 时取第一张代表成员", () => {
+  const path = activeTemplatePath(pathGraphThree({ entryTags: false }));
+  assert.deepEqual([...path.nodes].sort(), ["a", "c", "t"]);
+});
+
+test("defaultTemplatePath: active 不完整 / 断线时回退首选路径", () => {
+  const broken = pathGraphThree({ broken: true });
+  // 同一列还保留一张 preferred 卡（用于验证回退），active 仍然优先。
+  broken.columns[1].cards[1].tag = "preferred";
+  // 中继列有 active，但 active 卡到目标没有连线：整条 active 路径作废。
+  assert.equal(activeTemplatePath(broken), null);
+  const fallback = defaultTemplatePath(broken);
+  assert.deepEqual([...fallback.nodes].sort(), ["a", "d", "t"]);
+  assert.deepEqual([...fallback.edges].sort(), ["a-d", "d-t"]);
+});
+
+test("defaultTemplatePath: 没有 active 时完全沿用首选路径", () => {
+  const folded = pathGraphThree({ active: false });
+  assert.equal(activeTemplatePath(folded), null);
+  const path = defaultTemplatePath(folded);
+  assert.deepEqual([...path.nodes].sort(), ["a", "d", "t"]);
+  assert.deepEqual([...path.edges].sort(), ["a-d", "d-t"]);
 });
 
 test("carrierTemplateEdges: 相邻列第一张非折叠卡之间的连线", () => {

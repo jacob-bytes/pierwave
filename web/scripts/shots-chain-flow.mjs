@@ -1,5 +1,9 @@
 // 链路详情「完整链路」复用模板拓扑画布的验收脚本（静态构建 + API mock）。
 //
+// 覆盖：多成员 / 单卡 / 长链 / 折叠 / 最后一跳（缺数据 / 不可测），
+// failover（当前=东京-03、东京-02 离线）、lowest_latency（当前=东京-01）、
+// round_robin（无首选候选、N 台分担）与旧主控缺字段回退。
+//
 // 前置：已执行 `cd web && npm run build`（或 `make web-build`）。脚本自己起一个
 // 静态文件服务器，不依赖 master / 数据库；所有接口用 Playwright route 注入。
 //
@@ -33,6 +37,7 @@ const CHROME =
   process.env.CHROME_PATH ??
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const HEADLESS = process.env.HEADED !== "1";
+const WIDTHS = [1440, 390];
 mkdirSync(OUT, { recursive: true });
 
 async function loadPlaywright() {
@@ -116,7 +121,18 @@ function members(prefix, count, status = "online") {
   }));
 }
 
-function chainNode(seq, name, role, list, { serverId = null, status = "online" } = {}) {
+function chainNode(
+  seq,
+  name,
+  role,
+  list,
+  {
+    serverId = null,
+    status = "online",
+    strategy,
+    activeServerId,
+  } = {},
+) {
   return {
     seq,
     name,
@@ -125,6 +141,9 @@ function chainNode(seq, name, role, list, { serverId = null, status = "online" }
     server_id: serverId ?? (list[0]?.server_id ?? null),
     member_count: list.length,
     members: list,
+    // 旧契约 fixture 不传这两个字段：归一化后必须回退到首选 / 候选。
+    ...(strategy === undefined ? {} : { strategy }),
+    ...(activeServerId === undefined ? {} : { active_server_id: activeServerId }),
   };
 }
 
@@ -150,12 +169,13 @@ function chainFixture({
   segments,
   estimated = false,
   lastHop = { measurable: true, reason: null },
+  status = { kind: "ok", cause: null, node: null },
 }) {
   return {
     id,
     name,
     hops: nodes.length - 1,
-    status: { kind: "ok", cause: null, node: null },
+    status,
     last_hop: lastHop,
     nodes,
     missing_hops: [],
@@ -290,6 +310,126 @@ function fixtureFolded() {
   });
 }
 
+/**
+ * failover：当前通路 = 东京-03；东京-02 离线（主备组里非代表成员离线）。
+ * 列头显示 `故障转移·2选1`，东京-03 是「当前」，东京-02 是「候选」。
+ */
+function fixtureFailover() {
+  const entry = members("香港", 1);
+  const hop = [
+    { server_id: "s-tk2", name: "东京-02", status: "offline" },
+    { server_id: "s-tk3", name: "东京-03", status: "online" },
+  ];
+  const exit = members("新加坡", 1);
+  return chainFixture({
+    id: "chain-failover",
+    name: "香港 → 东京（主备）→ 新加坡",
+    status: {
+      kind: "blocked",
+      cause: "node_offline",
+      node: { seq: 1, name: "东京-02", member_name: "东京-02" },
+    },
+    nodes: [
+      chainNode(0, "香港入口", "source", entry),
+      chainNode(1, "东京中转（主备）", "hop", hop, {
+        serverId: "s-tk2",
+        status: "offline",
+        strategy: "failover",
+        activeServerId: "s-tk3",
+      }),
+      chainNode(2, "新加坡出口", "hop", exit, {
+        strategy: "failover",
+        activeServerId: "新加坡-1",
+      }),
+      { seq: 3, name: "链目标", role: "target", status: null },
+    ],
+    segments: [
+      chainSegment(1, "香港-01", "东京-03", 22.4, 0.2),
+      chainSegment(2, "东京-03", "新加坡-01", 21.1, 0.1),
+      chainSegment(3, "新加坡-01", "10.0.0.8", 9.2, 0),
+    ],
+  });
+}
+
+/**
+ * lowest_latency：三台全在线，当前通路 = 东京-01。
+ * 列头显示 `最低延迟·3选1`，东京-01 是「当前」，另两台「候选」。
+ */
+function fixtureLowestLatency() {
+  const entry = members("香港", 1);
+  const hop = [
+    { server_id: "s-tk1", name: "东京-01", status: "online" },
+    { server_id: "s-tk3", name: "东京-03", status: "online" },
+    { server_id: "s-se1", name: "首尔-01", status: "online" },
+  ];
+  return chainFixture({
+    id: "chain-lowest",
+    name: "香港 → 东京（最低延迟）",
+    nodes: [
+      chainNode(0, "香港入口", "source", entry),
+      chainNode(1, "东京出口", "hop", hop, {
+        strategy: "lowest_latency",
+        activeServerId: "s-tk1",
+      }),
+      { seq: 2, name: "链目标", role: "target", status: null },
+    ],
+    segments: [
+      chainSegment(1, "香港-02", "东京-01", 13.1, 0.1),
+      chainSegment(2, "东京-01", "10.0.0.8", 10.2, 0),
+    ],
+  });
+}
+
+/**
+ * round_robin：多成员组没有首选 / 候选，列头写 `2 台分担`；
+ * 单成员组不显示策略；默认高亮没有可判定的首选路径，整图不着色。
+ */
+function fixtureRoundRobin() {
+  return chainFixture({
+    id: "chain-round-robin",
+    name: "新加坡 → 香港（轮询）→ 东京",
+    nodes: [
+      chainNode(0, "新加坡入口", "source", members("新加坡", 1)),
+      chainNode(1, "香港分流", "hop", members("香港", 2), {
+        strategy: "round_robin",
+      }),
+      chainNode(2, "大阪中转", "hop", members("大阪", 1), {
+        strategy: "lowest_latency",
+      }),
+      chainNode(3, "东京三出口", "hop", members("东京", 1), {
+        strategy: "failover",
+      }),
+      { seq: 4, name: "链目标", role: "target", status: null },
+    ],
+    segments: [
+      chainSegment(1, "新加坡-01", "香港-01", 17.2, 0.1),
+      chainSegment(2, "香港-01", "大阪-01", 18.4, 0.1),
+      chainSegment(3, "大阪-01", "东京-01", 23.1, 0.2),
+      chainSegment(4, "东京-01", "10.0.0.8", 8.3, 0),
+    ],
+  });
+}
+
+/**
+ * 旧主控：nodes 完全没有 strategy / active_server_id，回退到首选 / 候选；
+ * 列头保持旧的台数，不出现「当前 / N 台分担」。
+ */
+function fixtureLegacy() {
+  return chainFixture({
+    id: "chain-legacy",
+    name: "旧主控：香港 → 东京",
+    nodes: [
+      chainNode(0, "香港入口", "source", members("香港", 1)),
+      chainNode(1, "东京中转", "hop", members("东京", 2)),
+      { seq: 2, name: "链目标", role: "target", status: null },
+    ],
+    segments: [
+      chainSegment(1, "香港-01", "东京-01", 18.6, 0.1),
+      chainSegment(2, "东京-01", "10.0.0.8", 42.3, 0),
+    ],
+  });
+}
+
 const CHAINS = [
   fixtureMulti(),
   fixtureSingle(),
@@ -297,6 +437,10 @@ const CHAINS = [
   fixtureUnmeasurable(),
   fixtureMissing(),
   fixtureFolded(),
+  fixtureFailover(),
+  fixtureLowestLatency(),
+  fixtureRoundRobin(),
+  fixtureLegacy(),
 ];
 const CHAIN_BY_ID = new Map(CHAINS.map((item) => [item.id, item]));
 
@@ -701,6 +845,21 @@ async function chainSnapshot(page) {
       hiddenPills: all('[data-template-flow-pill][data-pill-hidden="true"]').length,
       preferred: all('[data-template-flow-card][data-chain-tag="preferred"]').length,
       candidate: all('[data-template-flow-card][data-chain-tag="candidate"]').length,
+      active: all('[data-template-flow-card][data-chain-tag="active"]').length,
+      tagRows: all("[data-template-flow-card]").map((card) => ({
+        name: text(card.querySelector("[data-template-flow-card-title]")),
+        tag: card.getAttribute("data-chain-tag"),
+        tagText: card.getAttribute("data-chain-tag-text"),
+        status: card.getAttribute("data-status"),
+        hot: card.getAttribute("data-hot"),
+        offlineDot: (() => {
+          const dot = card.querySelector("[data-template-flow-status-dot]");
+          return dot === null ? false : dot.className.includes("bg-destructive");
+        })(),
+      })),
+      hotCardNames: all('[data-template-flow-card][data-hot="true"]').map((card) =>
+        text(card.querySelector("[data-template-flow-card-title]")),
+      ),
       targets: all("[data-flow-target]").length,
       targetDots: all('[data-flow-target] [data-template-flow-status-dot]').length,
       unknownDots: all(
@@ -710,6 +869,7 @@ async function chainSnapshot(page) {
         role: header.getAttribute("data-role"),
         label: text(header.querySelector("[data-template-flow-column-label]")),
         count: text(header.querySelector("[data-template-flow-column-count]")),
+        strategy: header.getAttribute("data-strategy"),
         shown: header.getAttribute("data-shown"),
         total: header.getAttribute("data-total"),
       })),
@@ -756,6 +916,9 @@ async function chainSnapshot(page) {
           ? null
           : { clientWidth: host.clientWidth, scrollWidth: host.scrollWidth };
       })(),
+      pageOverflow:
+        document.documentElement.scrollWidth - window.innerWidth,
+      bodyOverflow: document.body.scrollWidth - window.innerWidth,
       viewportTransform:
         getComputedStyle(root.querySelector(".react-flow__viewport")).transform,
       selectedPillTabIndex: (() => {
@@ -1160,6 +1323,190 @@ try {
         assert.equal(snapshot.marchIds.length, snapshot.hotEdges - 1);
       } finally {
         if (errors.length > 0) report.errors.push(...errors.map((item) => `${id}: ${item}`));
+        await context.close();
+      }
+    }
+
+    /* ---------------- 当前通路 / 分担策略 ---------------- */
+    const SCENARIOS = [
+      {
+        id: "chain-failover",
+        key: "failover",
+        headerCount: "故障转移·2选1",
+        strategy: "failover",
+        active: 1,
+        preferred: 0,
+        candidate: 1,
+        hot: ["香港-01", "东京-03", "新加坡-01", "链目标"],
+        activeName: "东京-03",
+        candidateName: "东京-02",
+        offlineName: "东京-02",
+      },
+      {
+        id: "chain-lowest",
+        key: "lowest",
+        headerCount: "最低延迟·3选1",
+        strategy: "lowest_latency",
+        active: 1,
+        preferred: 0,
+        candidate: 2,
+        hot: ["香港-01", "东京-01", "链目标"],
+        activeName: "东京-01",
+        candidateName: "东京-03",
+        offlineName: null,
+      },
+      {
+        id: "chain-round-robin",
+        key: "round-robin",
+        headerCount: "2 台分担",
+        strategy: "round_robin",
+        active: 0,
+        preferred: 0,
+        candidate: 0,
+        hot: [],
+        activeName: null,
+        candidateName: null,
+        offlineName: null,
+      },
+      {
+        id: "chain-legacy",
+        key: "legacy",
+        headerCount: "2 台",
+        strategy: null,
+        active: 0,
+        preferred: 1,
+        candidate: 1,
+        hot: ["香港-01", "东京-01", "链目标"],
+        activeName: null,
+        candidateName: "东京-02",
+        offlineName: null,
+      },
+    ];
+
+    for (const scenario of SCENARIOS) {
+      for (const theme of ["dark", "light"]) {
+        for (const width of WIDTHS) {
+          const { context, page, errors } = await newPage({
+            width,
+            height: width === 390 ? 844 : 1000,
+            theme,
+          });
+          const label = `${scenario.key}/${theme}/${width}`;
+          try {
+            await openChain(page, scenario.id, { theme });
+            const snapshot = await chainSnapshot(page);
+            report.assertions[`${scenario.key}-${theme}-${width}`] = snapshot;
+
+            assert.equal(snapshot.pageOverflow, 0, `${label}: page overflow`);
+            assert.equal(snapshot.bodyOverflow, 0, `${label}: body overflow`);
+            assert.equal(snapshot.active, scenario.active, `${label}: active tags`);
+            assert.equal(snapshot.preferred, scenario.preferred, `${label}: preferred`);
+            assert.equal(snapshot.candidate, scenario.candidate, `${label}: candidates`);
+            assert.deepEqual(
+              [...snapshot.hotCardNames].sort(),
+              [...scenario.hot].sort(),
+              `${label}: default highlight`,
+            );
+            const activeRow = snapshot.tagRows.find((row) => row.name === scenario.activeName);
+            if (scenario.activeName !== null) {
+              assert.ok(activeRow, `${label}: active card present`);
+              assert.equal(activeRow.tag, "active", `${label}: active tag`);
+              assert.equal(activeRow.tagText, "当前", `${label}: 当前 copy`);
+              assert.equal(activeRow.hot, "true", `${label}: active is hot`);
+            }
+            const candidateRow = snapshot.tagRows.find(
+              (row) => row.name === scenario.candidateName,
+            );
+            if (scenario.candidateName !== null) {
+              assert.ok(candidateRow, `${label}: candidate card present`);
+              assert.equal(candidateRow.tag, "candidate", `${label}: candidate tag`);
+              assert.equal(candidateRow.tagText, "候选", `${label}: 候选 copy`);
+            }
+            if (scenario.offlineName !== null) {
+              const offline = snapshot.tagRows.find(
+                (row) => row.name === scenario.offlineName,
+              );
+              assert.ok(offline, `${label}: offline card present`);
+              assert.equal(offline.status, "offline", `${label}: offline status`);
+              assert.equal(offline.offlineDot, true, `${label}: offline red dot`);
+            }
+            const hopHeader = snapshot.headers[1];
+            assert.equal(hopHeader.count, scenario.headerCount, `${label}: header copy`);
+            if (scenario.strategy === null) {
+              assert.equal(hopHeader.strategy, null, `${label}: old contract header`);
+            } else {
+              assert.equal(
+                hopHeader.strategy,
+                scenario.strategy,
+                `${label}: header strategy`,
+              );
+            }
+            // 入口列不出现「当前」；轮询等分担只作用于中继列。
+            assert.equal(snapshot.headers[0].strategy, null, `${label}: entry strategy`);
+            if (width === 390) {
+              assert.equal(snapshot.hostMode, "compact", `${label}: compact`);
+              assert.ok(
+                snapshot.hostScroll.scrollWidth > snapshot.hostScroll.clientWidth,
+                `${label}: compact canvas scrolls`,
+              );
+              // 390 画布可横向滚动：把策略列滚到可视区，截图才看得到完整列头。
+              await page.evaluate(() => {
+                const host = document.querySelector(
+                  "[data-chain-flow] [data-template-flow]",
+                );
+                const header = host?.querySelectorAll(
+                  "[data-template-flow-column-header]",
+                )[1];
+                if (host === null || header === undefined || header === null) return;
+                const hostRect = host.getBoundingClientRect();
+                const headerRect = header.getBoundingClientRect();
+                host.scrollLeft += headerRect.left - hostRect.left - 12;
+              });
+              await page.waitForTimeout(150);
+              await page.screenshot({
+                path: path.join(OUT, `${SHOT_PREFIX}active-${scenario.key}-390-${theme}.png`),
+                fullPage: true,
+                animations: "disabled",
+              });
+              report.screenshots.push(
+                `${SHOT_PREFIX}active-${scenario.key}-390-${theme}.png`,
+              );
+            } else {
+              assert.equal(snapshot.hostMode, "full", `${label}: full canvas`);
+              await shot(
+                page.locator("[data-chain-flow]"),
+                `active-${scenario.key}-1440-${theme}.png`,
+                page,
+              );
+            }
+          } finally {
+            if (errors.length > 0) {
+              report.errors.push(...errors.map((item) => `${label}: ${item}`));
+            }
+            await context.close();
+          }
+        }
+      }
+    }
+
+    /* ---------------- 英文文案：Current / Balanced across ---------------- */
+    {
+      const { context, page, errors } = await newPage({ locale: "en" });
+      try {
+        await openChain(page, "chain-lowest");
+        const lowest = await chainSnapshot(page);
+        const active = lowest.tagRows.find((row) => row.name === "东京-01");
+        assert.equal(active?.tagText, "Current", "en active copy");
+        await openChain(page, "chain-round-robin");
+        const balanced = await chainSnapshot(page);
+        assert.equal(
+          balanced.headers[1].count,
+          "Balanced across 2",
+          "en balanced copy",
+        );
+        report.assertions.en = { active: active?.tagText, balanced: balanced.headers[1].count };
+      } finally {
+        if (errors.length > 0) report.errors.push(...errors.map((item) => `en: ${item}`));
         await context.close();
       }
     }

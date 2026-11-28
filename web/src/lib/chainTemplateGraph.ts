@@ -19,6 +19,7 @@
  * 不可用路径不给当前 P50（`p50Ms = null`），历史值只以 `lastP50Ms` 出现。
  */
 
+import type { ChainRouteStrategy } from "./chainHealth.ts";
 import { targetLabel } from "./chainTemplateInsight.ts";
 import type {
   ChainTemplateDetail,
@@ -209,8 +210,11 @@ const ROOT_GROUP = "__root__";
 
 export type TemplateCardRole = "entry" | "hop" | "target" | "fold";
 
-/** 路径卡标记：链路详情默认点亮 preferred 卡组成的路径。 */
-export type TemplateCardTag = "preferred" | "candidate";
+/**
+ * 路径卡标记：链路详情默认点亮 active（若完整）或 preferred 卡组成的路径。
+ * `active` 只出现在多成员的中继列；入口 / 目标不标。
+ */
+export type TemplateCardTag = "active" | "preferred" | "candidate";
 
 /**
  * 可透传的卡片附加信息。
@@ -251,6 +255,11 @@ export interface TemplateGraphColumn {
   title?: string;
   /** 列头成员数（链路详情用节点 `member_count`）；缺省按成员数组长度。 */
   memberCount?: number | null;
+  /**
+   * 进入本列的选路策略（链路详情用节点 `strategy`）；入口 / 目标 / 旧契约
+   * 缺省。列头据此显示「故障转移·3选1」或「3 台分担」。
+   */
+  strategy?: ChainRouteStrategy | null;
 }
 
 export interface TemplateEdgeExtras {
@@ -342,6 +351,8 @@ export interface FoldedColumn {
   title?: string;
   /** 列头成员数（链路详情用节点 `member_count`）；缺省按 total。 */
   memberCount?: number | null;
+  /** 进入本列的选路策略；入口 / 目标 / 旧契约缺省。 */
+  strategy?: ChainRouteStrategy | null;
 }
 
 export interface FoldedEdge extends TemplateEdgeExtras {
@@ -455,6 +466,8 @@ export interface TemplateLayoutHeader {
   title?: string;
   /** 列头成员数（链路详情用节点 `member_count`）。 */
   memberCount?: number | null;
+  /** 进入本列的选路策略；入口 / 目标 / 旧契约缺省。 */
+  strategy?: ChainRouteStrategy | null;
 }
 
 export interface TemplateGraphLayout {
@@ -1119,6 +1132,7 @@ export function foldTemplateGraph(
       ...(column.memberCount !== undefined
         ? { memberCount: column.memberCount }
         : {}),
+      ...(column.strategy !== undefined ? { strategy: column.strategy } : {}),
     });
   }
 
@@ -1229,6 +1243,9 @@ export function foldTemplateGraph(
         : {}),
       ...(graphTargetColumn.memberCount !== undefined
         ? { memberCount: graphTargetColumn.memberCount }
+        : {}),
+      ...(graphTargetColumn.strategy !== undefined
+        ? { strategy: graphTargetColumn.strategy }
         : {}),
     });
   }
@@ -1566,6 +1583,7 @@ export function layoutTemplateGraph(
       ...(column.memberCount !== undefined
         ? { memberCount: column.memberCount }
         : {}),
+      ...(column.strategy !== undefined ? { strategy: column.strategy } : {}),
     });
   }
 
@@ -2051,6 +2069,66 @@ export function preferredTemplatePath(
     if (preferred.length !== 1) return null;
     chosen.push(preferred[0]);
   }
+  return pathThroughChosen(folded, chosen);
+}
+
+/**
+ * 默认点亮的当前通路：每列取唯一的 `active` 卡；没有 active 的入口列取
+ * 代表成员（preferred，缺失时第一张），其余列（目标单卡 / 单成员列）按
+ * 「只有一张卡」处理。任一列多张卡却定不出唯一 active / preferred，或相邻
+ * 两列之间没有连线时返回 `null` —— 由调用方回退到首选路径。
+ */
+export function activeTemplatePath(
+  folded: FoldedGraph,
+): TemplateHighlight | null {
+  const columns = folded.columns.filter((column) => column.cards.length > 0);
+  if (columns.length === 0) return null;
+  const chosen: FoldedCard[] = [];
+  for (const column of columns) {
+    const cards = column.cards.filter((card) => card.kind !== "fold");
+    if (cards.length === 0) return null;
+    if (cards.length === 1) {
+      chosen.push(cards[0]);
+      continue;
+    }
+    const actives = cards.filter((card) => card.tag === "active");
+    if (actives.length > 1) return null;
+    if (actives.length === 1) {
+      chosen.push(actives[0]);
+      continue;
+    }
+    // 入口没有「当前」：沿用多入口链既有的代表成员路径。
+    if (column.role === "entry") {
+      const preferred = cards.filter((card) => card.tag === "preferred");
+      chosen.push(preferred.length === 1 ? preferred[0] : cards[0]);
+      continue;
+    }
+    // 中继 / 目标列缺失当前成员：整条当前通路不成立，交给 defaultTemplatePath
+    // 回退到完整的首选路径，绝不把 active 与 preferred 混成一条假路径。
+    return null;
+  }
+  return pathThroughChosen(folded, chosen);
+}
+
+/**
+ * 链路详情的默认高亮：有 `active` 卡的链优先走当前通路；当前通路不完整
+ * （缺列 / 断线）时回退到既有的首选路径。没有 active 的链保持旧行为。
+ */
+export function defaultTemplatePath(
+  folded: FoldedGraph,
+): TemplateHighlight | null {
+  const hasActive = folded.columns.some((column) =>
+    column.cards.some((card) => card.tag === "active"),
+  );
+  if (!hasActive) return preferredTemplatePath(folded);
+  return activeTemplatePath(folded) ?? preferredTemplatePath(folded);
+}
+
+/** 把选中的卡片序列连成高亮路径；相邻卡片之间没有边则整条作废。 */
+function pathThroughChosen(
+  folded: FoldedGraph,
+  chosen: readonly FoldedCard[],
+): TemplateHighlight | null {
   const nodes = new Set<string>();
   const edges = new Set<string>();
   for (const card of chosen) nodes.add(card.id);

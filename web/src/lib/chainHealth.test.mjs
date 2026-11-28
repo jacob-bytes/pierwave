@@ -15,6 +15,7 @@ import {
   chainLatestSeriesTs,
   chainLegendGroups,
   chainLatencyWindow,
+  chainColumnPlan,
   chainLossAt,
   chainLossTone,
   CHAIN_ROUTE_ELLIPSIS,
@@ -43,7 +44,9 @@ import {
   formatMs,
   formatPercentValue,
   formatSignedMs,
+  isChainBalancedStrategy,
   isChainHealthUnsupported,
+  isChainSingleChoiceStrategy,
   normalizeChainHealth,
   resolveChainLatencyRange,
   segmentSeries,
@@ -1223,6 +1226,147 @@ test("nodes[].members and member_count normalize into one group node", () => {
   assert.equal(graph.nodes[1].memberCount, 2);
   assert.equal(graph.nodes[1].serverId, "s-b");
   assert.equal(graph.nodes[1].members.length, 2);
+});
+
+test("nodes[].strategy / active_server_id：只认契约值，旧主控缺字段为 null", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 3,
+        missing_hops: [],
+        series: [],
+        nodes: [
+          {
+            seq: 0,
+            name: "香港入口",
+            role: "source",
+            status: "online",
+            member_count: 1,
+            strategy: "round_robin",
+            active_server_id: "s-hk",
+            members: [{ server_id: "s-hk", name: "香港-01", status: "online" }],
+          },
+          {
+            seq: 1,
+            name: "东京中转",
+            role: "hop",
+            status: "online",
+            server_id: "s-tk2",
+            member_count: 3,
+            strategy: " Failover ",
+            active_server_id: " s-tk3 ",
+            members: [
+              { server_id: "s-tk1", name: "东京-01", status: "online" },
+              { server_id: "s-tk2", name: "东京-02", status: "online" },
+              { server_id: "s-tk3", name: "东京-03", status: "online" },
+            ],
+          },
+          {
+            seq: 2,
+            name: "大阪中转",
+            role: "hop",
+            status: "online",
+            member_count: 2,
+            strategy: "bogus_strategy",
+            members: [
+              { server_id: "s-os1", name: "大阪-01", status: "online" },
+              { server_id: "s-os2", name: "大阪-02", status: "online" },
+            ],
+          },
+          { seq: 3, name: "链目标", role: "target", status: null },
+        ],
+        segments: [],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.equal(item.nodes[0].strategy, "round_robin");
+  assert.equal(item.nodes[0].activeServerId, "s-hk");
+  // 大小写 / 空白容忍，成员 id 去掉两端空白。
+  assert.equal(item.nodes[1].strategy, "failover");
+  assert.equal(item.nodes[1].activeServerId, "s-tk3");
+  // 未知策略按 null，交给旧的 preferred / candidate 口径。
+  assert.equal(item.nodes[2].strategy, null);
+  assert.equal(item.nodes[2].activeServerId, null);
+
+  // 入口 / 目标没有「上一跳」：即使脏数据写了策略 / 当前成员也不透出。
+  const graph = chainTopologyGraph(item);
+  assert.equal(graph.nodes[0].strategy, null);
+  assert.equal(graph.nodes[0].activeServerId, null);
+  assert.equal(graph.nodes[1].strategy, "failover");
+  assert.equal(graph.nodes[1].activeServerId, "s-tk3");
+  assert.equal(graph.nodes.at(-1).strategy, null);
+  assert.equal(graph.nodes.at(-1).activeServerId, null);
+});
+
+test("旧主控 nodes 缺 strategy / active_server_id：一律 null，不报错", () => {
+  const item = normalizeChainHealth(
+    payload([
+      chain({
+        hops: 2,
+        missing_hops: [],
+        series: [],
+        nodes: [
+          {
+            seq: 0,
+            name: "香港入口",
+            role: "source",
+            status: "online",
+            member_count: 1,
+            members: [{ server_id: "s-hk", name: "香港-01", status: "online" }],
+          },
+          {
+            seq: 1,
+            name: "东京中转",
+            role: "hop",
+            status: "online",
+            member_count: 2,
+            members: [
+              { server_id: "s-tk1", name: "东京-01", status: "online" },
+              { server_id: "s-tk2", name: "东京-02", status: "online" },
+            ],
+          },
+          { seq: 2, name: "链目标", role: "target", status: null },
+        ],
+        segments: [],
+      }),
+    ]),
+  ).snapshot.chains[0];
+
+  assert.ok(item.nodes.every((node) => node.strategy === null));
+  assert.ok(item.nodes.every((node) => node.activeServerId === null));
+});
+
+test("列头策略口径：多成员 hop 才显示策略 / 分担，入口、目标、单成员不显示", () => {
+  assert.deepEqual(chainColumnPlan("failover", 3, "hop"), {
+    kind: "choose",
+    strategy: "failover",
+    count: 3,
+  });
+  assert.deepEqual(chainColumnPlan("lowest_latency", 3, "hop"), {
+    kind: "choose",
+    strategy: "lowest_latency",
+    count: 3,
+  });
+  assert.deepEqual(chainColumnPlan("round_robin", 4, "hop"), {
+    kind: "balanced",
+    strategy: "round_robin",
+    count: 4,
+  });
+  assert.deepEqual(chainColumnPlan("least_conn", 2, "hop"), {
+    kind: "balanced",
+    strategy: "least_conn",
+    count: 2,
+  });
+  assert.equal(chainColumnPlan("failover", 1, "hop"), null);
+  assert.equal(chainColumnPlan("round_robin", 1, "hop"), null);
+  assert.equal(chainColumnPlan("failover", 3, "source"), null);
+  assert.equal(chainColumnPlan("round_robin", 3, "target"), null);
+  assert.equal(chainColumnPlan(null, 3, "hop"), null);
+  assert.equal(isChainSingleChoiceStrategy("failover"), true);
+  assert.equal(isChainSingleChoiceStrategy("round_robin"), false);
+  assert.equal(isChainBalancedStrategy("weighted"), true);
+  assert.equal(isChainBalancedStrategy("lowest_latency"), false);
 });
 
 test("member_count without members keeps the count but exposes no members", () => {

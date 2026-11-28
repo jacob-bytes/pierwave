@@ -34,6 +34,7 @@ import {
   TEMPLATE_PILL_DENSE_LIMIT,
   carrierTemplateEdges,
   clampTemplateZoom,
+  defaultTemplatePath,
   stepTemplateZoom,
   fitViewport,
   foldTemplateGraph,
@@ -43,7 +44,6 @@ import {
   highlightTemplatePath,
   initialViewport,
   layoutTemplateGraph,
-  preferredTemplatePath,
   templateCanvasHeight,
   templatePanDuration,
   type TemplateGraph,
@@ -140,11 +140,12 @@ function FlowCanvas({
     [chain, folded, metrics],
   );
   /**
-   * 链路详情默认点亮首选路径（其余 35%）；hover 卡片 / 连线时改用 hover
-   * 的路径。模板图没有 preferred 标记，这里保持 null，外观不变。
+   * 链路详情默认点亮当前通路（有 active 且完整）或首选路径（其余 35%）；
+   * hover 卡片 / 连线时改用 hover 的路径。模板图没有 active / preferred
+   * 标记，这里保持 null，外观不变。
    */
   const preferred = useMemo(
-    () => (chain ? preferredTemplatePath(folded) : null),
+    () => (chain ? defaultTemplatePath(folded) : null),
     [chain, folded],
   );
   const carrierEdges = useMemo(

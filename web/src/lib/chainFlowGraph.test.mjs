@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { normalizeChainHealth } from "./chainHealth.ts";
 import { buildChainFlowGraph } from "./chainFlowGraph.ts";
+import {
+  CHAIN_FLOW_METRICS,
+  foldTemplateGraph,
+  layoutTemplateGraph,
+} from "./chainTemplateGraph.ts";
 
 const TEXTS = {
   unmeasurableText: "不可测量（引擎不支持探测）",
@@ -151,6 +156,297 @@ test("server_id 指向第二台时把首选卡排到第一张，折叠不会吃�
   assert.equal(cards[0].id, "cf:0:s-hk2");
   assert.equal(cards[0].tag, "preferred");
   assert.equal(cards[1].tag, "candidate");
+});
+
+function taggedCards(graph, columnIndex) {
+  return graph.columns[columnIndex].members.map((card) => [
+    card.name,
+    card.tag ?? null,
+  ]);
+}
+
+test("failover：active 命中成员标「当前」，其余候选，且 active 排第一", () => {
+  const graph = graphFor({
+    nodes: [
+      {
+        seq: 0,
+        name: "香港入口",
+        role: "source",
+        status: "online",
+        server_id: "s-hk",
+        member_count: 1,
+        members: [member("s-hk", "香港-01", "online")],
+      },
+      {
+        seq: 1,
+        name: "东京中转（主备）",
+        role: "hop",
+        status: "offline",
+        server_id: "s-tk2",
+        member_count: 2,
+        strategy: "failover",
+        active_server_id: "s-tk3",
+        members: [
+          member("s-tk2", "东京-02", "offline"),
+          member("s-tk3", "东京-03", "online"),
+        ],
+      },
+      {
+        seq: 2,
+        name: "新加坡出口",
+        role: "hop",
+        status: "online",
+        server_id: "s-sg",
+        member_count: 1,
+        strategy: "failover",
+        active_server_id: "s-sg",
+        members: [member("s-sg", "新加坡-01", "online")],
+      },
+      { seq: 3, name: "链目标", role: "target", status: null },
+    ],
+    hops: 3,
+    segments: [
+      segment(1, "香港-01", "东京-03", 14),
+      segment(2, "东京-03", "新加坡-01", 30),
+      segment(3, "新加坡-01", "10.0.0.8", 60),
+    ],
+  });
+  assert.deepEqual(taggedCards(graph, 1), [
+    ["东京-03", "active"],
+    ["东京-02", "candidate"],
+  ]);
+  assert.equal(graph.columns[1].strategy, "failover");
+  assert.equal(graph.columns[1].memberCount, 2);
+  // 单成员中继列不标 tag；入口列即使有 strategy 也不标「当前」。
+  assert.deepEqual(taggedCards(graph, 2), [["新加坡-01", null]]);
+  assert.deepEqual(taggedCards(graph, 0), [["香港-01", null]]);
+  assert.equal(graph.columns[0].strategy, null);
+});
+
+test("lowest_latency：三台里 active 是东京-01，其余候选", () => {
+  const graph = graphFor({
+    nodes: [
+      {
+        seq: 0,
+        name: "香港入口",
+        role: "source",
+        status: "online",
+        server_id: "s-hk",
+        member_count: 1,
+        members: [member("s-hk", "香港-02", "online")],
+      },
+      {
+        seq: 1,
+        name: "东京出口",
+        role: "hop",
+        status: "online",
+        server_id: "s-tk1",
+        member_count: 3,
+        strategy: "lowest_latency",
+        active_server_id: "s-tk1",
+        members: [
+          member("s-tk1", "东京-01", "online"),
+          member("s-tk3", "东京-03", "online"),
+          member("s-se1", "首尔-01", "online"),
+        ],
+      },
+      { seq: 2, name: "链目标", role: "target", status: null },
+    ],
+    hops: 2,
+    segments: [
+      segment(1, "香港-02", "东京-01", 11),
+      segment(2, "东京-01", "10.0.0.8", 20),
+    ],
+  });
+  assert.deepEqual(taggedCards(graph, 1), [
+    ["东京-01", "active"],
+    ["东京-03", "candidate"],
+    ["首尔-01", "candidate"],
+  ]);
+  assert.equal(graph.columns[1].strategy, "lowest_latency");
+});
+
+test("round_robin / 多成员分担：不出现首选 / 候选，列头拿得到 N", () => {
+  const graph = graphFor({
+    nodes: [
+      {
+        seq: 0,
+        name: "香港入口",
+        role: "source",
+        status: "online",
+        server_id: "s-hk",
+        member_count: 1,
+        members: [member("s-hk", "香港-01", "online")],
+      },
+      {
+        seq: 1,
+        name: "东京中转",
+        role: "hop",
+        status: "online",
+        member_count: 3,
+        strategy: "round_robin",
+        members: [
+          member("s-tk1", "东京-01", "online"),
+          member("s-tk2", "东京-02", "online"),
+          member("s-tk3", "东京-03", "online"),
+        ],
+      },
+      { seq: 2, name: "链目标", role: "target", status: null },
+    ],
+    hops: 2,
+    segments: [
+      segment(1, "香港-01", "东京-01", 14),
+      segment(2, "东京-01", "10.0.0.8", 20),
+    ],
+  });
+  assert.deepEqual(taggedCards(graph, 1), [
+    ["东京-01", null],
+    ["东京-02", null],
+    ["东京-03", null],
+  ]);
+  assert.equal(
+    allCards(graph).filter(
+      (card) => card.tag === "preferred" || card.tag === "candidate",
+    ).length,
+    0,
+  );
+  assert.equal(graph.columns[1].strategy, "round_robin");
+  assert.equal(graph.columns[1].memberCount, 3);
+});
+
+test("折叠 / 布局透传列策略：active 卡排第一，折叠不会吃掉当前通路", () => {
+  const members6 = Array.from({ length: 6 }, (_, index) =>
+    member(`s-tk${index + 1}`, `东京-0${index + 1}`, "online"),
+  );
+  const graph = graphFor({
+    nodes: [
+      {
+        seq: 0,
+        name: "香港入口",
+        role: "source",
+        status: "online",
+        server_id: "s-hk",
+        member_count: 1,
+        members: [member("s-hk", "香港-01", "online")],
+      },
+      {
+        seq: 1,
+        name: "东京中转",
+        role: "hop",
+        status: "online",
+        server_id: "s-tk1",
+        member_count: 6,
+        strategy: "failover",
+        active_server_id: "s-tk6",
+        members: members6,
+      },
+      { seq: 2, name: "链目标", role: "target", status: null },
+    ],
+    hops: 2,
+    segments: [
+      segment(1, "香港-01", "东京-06", 14),
+      segment(2, "东京-06", "10.0.0.8", 20),
+    ],
+  });
+  assert.equal(graph.columns[1].members[0].id, "cf:1:s-tk6");
+  assert.equal(graph.columns[1].members[0].tag, "active");
+  const folded = foldTemplateGraph(graph);
+  const foldedColumn = folded.columns.find((column) => column.seq === 1);
+  assert.ok(foldedColumn);
+  assert.equal(foldedColumn.cards[0].id, "cf:1:s-tk6");
+  assert.equal(foldedColumn.cards[0].tag, "active");
+  assert.equal(foldedColumn.cards.at(-1).kind, "fold");
+  const layout = layoutTemplateGraph(folded, { metrics: CHAIN_FLOW_METRICS });
+  const header = layout.headers.find((item) => item.seq === 1);
+  assert.ok(header);
+  assert.equal(header.strategy, "failover");
+  assert.equal(header.memberCount, 6);
+  assert.equal(header.total, 6);
+});
+
+test("active_server_id 不在成员里：不标「当前」，回退首选 / 候选", () => {
+  const graph = graphFor({
+    nodes: [
+      {
+        seq: 0,
+        name: "香港入口",
+        role: "source",
+        status: "online",
+        member_count: 1,
+        members: [member("s-hk", "香港-01", "online")],
+      },
+      {
+        seq: 1,
+        name: "东京中转",
+        role: "hop",
+        status: "online",
+        server_id: "s-tk1",
+        member_count: 2,
+        strategy: "failover",
+        active_server_id: "s-missing",
+        members: [
+          member("s-tk1", "东京-01", "online"),
+          member("s-tk2", "东京-02", "online"),
+        ],
+      },
+      { seq: 2, name: "链目标", role: "target", status: null },
+    ],
+    hops: 2,
+    segments: [
+      segment(1, "香港-01", "东京-01", 14),
+      segment(2, "东京-01", "10.0.0.8", 20),
+    ],
+  });
+  assert.deepEqual(taggedCards(graph, 1), [
+    ["东京-01", "preferred"],
+    ["东京-02", "candidate"],
+  ]);
+  assert.equal(
+    allCards(graph).filter((card) => card.tag === "active").length,
+    0,
+  );
+});
+
+test("入口多成员保留既有首选 / 候选；脏 active_server_id 也不标「当前」", () => {
+  const graph = graphFor({
+    nodes: [
+      {
+        seq: 0,
+        name: "香港入口",
+        role: "source",
+        status: "online",
+        server_id: "s-hk1",
+        member_count: 2,
+        strategy: "round_robin",
+        active_server_id: "s-hk2",
+        members: [
+          member("s-hk1", "香港-01", "online"),
+          member("s-hk2", "香港-02", "online"),
+        ],
+      },
+      { seq: 1, name: "链目标", role: "target", status: null },
+    ],
+    hops: 1,
+    segments: [segment(1, "香港-01", "10.0.0.8", 20)],
+  });
+  assert.deepEqual(taggedCards(graph, 0), [
+    ["香港-01", "preferred"],
+    ["香港-02", "candidate"],
+  ]);
+  assert.equal(graph.columns[0].strategy, null);
+});
+
+test("旧主控缺 strategy / active_server_id：回退首选 / 候选，不报错", () => {
+  const graph = graphFor();
+  for (const column of graph.columns) {
+    assert.equal(column.strategy ?? null, null);
+  }
+  assert.equal(graph.columns[1].members[0].tag, "preferred");
+  assert.equal(graph.columns[1].members[1].tag, "candidate");
+  assert.equal(
+    allCards(graph).filter((card) => card.tag === "active").length,
+    0,
+  );
 });
 
 test("只有 member_count 没有 members：整列一张组名卡", () => {
