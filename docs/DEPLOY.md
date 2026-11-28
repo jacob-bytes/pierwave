@@ -53,6 +53,8 @@ PIERWAVE_ADMIN_PASSWORD='换成强密码' ./pierwave-master
 | `PIERWAVE_WEB_DIR` | `web/dist` | 前端产物（`make web-build` 生成） |
 | `PIERWAVE_SECRET_KEY` | 未设置 | 备份/设置加密的主密钥，base64 的 32 字节；未设置时自动生成 `data/secret.key`（0600）。**必须备份**，丢失后已加密的备份与设置无法解密 / master key for backup and secret encryption; auto-generated as `data/secret.key` when unset. Back it up: losing it makes encrypted data unrecoverable |
 | `PIERWAVE_ADMIN_PASSWORD` | 随机 | 仅首次建库时生效，密码会打印在日志里 |
+| `PIERWAVE_AGENT_RELEASE_SOURCE` | `https://github.com/jacob-bytes/pierwave-agent/releases/download` | Agent 发布产物回源地址，按 `{source}/{version}/{file}` 拼接；离线时可指向本地目录 / Origin for agent release artifacts, joined as `{source}/{version}/{file}`; a local directory works offline |
+| `PIERWAVE_AGENT_LATEST_URL` | `https://api.github.com/repos/jacob-bytes/pierwave-agent/releases/latest` | 查询 Agent 最新版本的 GitHub API；可指向本地 JSON 文件 / GitHub API endpoint for the latest agent version; a local JSON file works offline |
 | `PIERWAVE_AGENT_DIST` | 未设置 | agent 二进制目录；设置后 `/api/agent/download/*` 才可用 |
 | `PIERWAVE_ENFORCE` | 开 | 设为 `0` 关闭超额断流 |
 | `PIERWAVE_CHAIN_AVAILABILITY_THRESHOLD` | `99` | 链可用率告警阈值（百分比 0–100）/ Chain availability alert threshold (percent, 0–100) |
@@ -127,8 +129,13 @@ curl -fsSL https://panel.example.com/api/agent/install.sh?token=… | sudo bash
 脚本会按 `uname -m` 选架构、下载 `/api/agent/download/pierwave-agent-<target>`、写
 `/etc/pierwave-agent/config.toml`（0600）、装 systemd 单元并启动。
 
-因此部署前要做两件事（或者直接从 [Releases](https://github.com/jacob-bytes/pierwave/releases)
-下载对应架构的 `pierwave-agent-<target>` 放进分发目录，跳过编译）：
+Agent 自 0.19.x 起在独立仓库发布，主控默认从
+[jacob-bytes/pierwave-agent](https://github.com/jacob-bytes/pierwave-agent/releases) 回源；
+主仓 `v*` 的 Releases 不再包含任何 agent 产物。升级走的是同一条回源链路
+（`/api/agent/release/{version}/{file}`）。
+
+部署前要做两件事（或者直接从上面 Agent 仓库的 Releases 下载对应架构的 `pierwave-agent-<target>`
+放进分发目录，跳过编译）：
 
 ```bash
 # 1) 交叉编译（本机没有对应 target 就先 rustup target add）
@@ -140,6 +147,44 @@ mkdir -p /srv/pierwave/dist
 cp target/x86_64-unknown-linux-musl/release/pierwave-agent \
    /srv/pierwave/dist/pierwave-agent-x86_64-unknown-linux-musl
 ```
+
+> **English.** The panel's one-click command is unchanged: the master fetches agent
+> artifacts from the [pierwave-agent](https://github.com/jacob-bytes/pierwave-agent)
+> repository by default, and `v*` releases in the master repository no longer contain any
+> agent artifacts. Upgrades use the same origin path
+> (`/api/agent/release/{version}/{file}`). For an offline install, download
+> `pierwave-agent-<target>` from the agent repository and drop it into the
+> `PIERWAVE_AGENT_DIST` directory, or build it from the transitional `crates/agent` source.
+
+### 旧主控的兜底 / Older masters
+
+0.19.0 之前的主控默认指向主仓 `jacob-bytes/pierwave`（那时 agent 产物还在主仓），而主仓 `v*`
+已不再包含 agent 产物，这类主控的安装/升级会拿不到文件（回源 404）。不用换二进制，给主控设置两个环境变量并重启即可：
+
+```bash
+PIERWAVE_AGENT_RELEASE_SOURCE=https://github.com/jacob-bytes/pierwave-agent/releases/download
+PIERWAVE_AGENT_LATEST_URL=https://api.github.com/repos/jacob-bytes/pierwave-agent/releases/latest
+```
+
+0.19.x 起这两个默认值已经指向 Agent 仓库，无需配置；显式设置仍会覆盖默认值，用于自建镜像或离线目录。
+本地目录镜像按 `{source}/{tag}/{file}` 摆放，例如
+`/srv/pierwave/agent/<tag>/pierwave-agent-x86_64-unknown-linux-musl`。
+
+> **English.** Masters before 0.19.0 default to `jacob-bytes/pierwave`; because `v*`
+> releases there no longer contain agent artifacts, install/upgrade cannot fetch the files
+> (origin 404). No binary swap is needed — set the two environment variables above on the
+> master and restart it. The 0.19.x defaults already point at the agent repository; explicit
+> values still override them for a mirror or an offline directory laid out as
+> `{source}/{tag}/{file}`.
+
+### 签名密钥轮换后的升级 / Upgrading after a key rotation
+
+签名密钥轮换前安装的 Agent 内置旧公钥，**批量升级会验签失败**，这类节点需要重新安装
+（见 [RELEASE.md](RELEASE.md)）。
+
+> **English.** Agents installed before the signing-key rotation embed the old public key;
+> batch upgrades will fail signature verification, so those nodes must be reinstalled (see
+> [RELEASE.md](RELEASE.md)).
 
 ## 明文 `ws://` 限制
 

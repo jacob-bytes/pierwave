@@ -80,11 +80,12 @@
 | `pierwave-common` | 主控与 Agent 共用的底层工具：私有文件权限、发布验签/校验和、可翻译错误 |
 | `pierwave-domain` | 数据模型、SQL 与业务规则；re-export `pierwave-common` |
 | `pierwave-master` | axum API、鉴权、SPA 静态资源 |
-| `pierwave-agent` | 收敛器、进程监督、上报；只依赖 `common` + `proto`，**不依赖** `domain` |
+| `pierwave-agent` | 收敛器、进程监督、上报；只依赖 `common` + `proto`，**不依赖** `domain`；自 0.19.x 起在 [pierwave-agent](https://github.com/jacob-bytes/pierwave-agent) 按独立 `v*` 版本线发布 |
 | `pierwave-mcp` | 只读 MCP stdio 服务 |
 
-Agent 不依赖 `pierwave-domain`：它只共享 `pierwave-common`，因此可以独立发版、拆到单独仓库，
-而不用把主控的 SQL/tokio 依赖一起带走。
+Agent 不依赖 `pierwave-domain`：它只共享 `pierwave-common`，因此不带主控的 SQL/tokio 依赖。
+自 0.19.x 起它在独立仓库按自己的 `v*` 版本线发布；主仓保留 `crates/agent` 源码用于 e2e 与验证，
+不再随主控发布。
 
 ## 界面
 
@@ -144,8 +145,9 @@ curl -fsSL https://<主控地址>/api/agent/install.sh?token=<token> | sudo bash
 
 脚本按架构下载 Agent、写 `/etc/pierwave-agent/config.toml`（0600）、装 systemd 并启动。
 预编译的 Linux 二进制（musl，x86_64 / aarch64）在
-[Releases](https://github.com/jacob-bytes/pierwave/releases) 页；把 `pierwave-agent-<target>`
-放进 `PIERWAVE_AGENT_DIST` 指向的目录即可离线安装。
+[pierwave-agent](https://github.com/jacob-bytes/pierwave-agent/releases) 仓库发布，主控的
+安装/升级中转默认也从那里回源；把 `pierwave-agent-<target>` 放进 `PIERWAVE_AGENT_DIST`
+指向的目录即可离线安装。
 
 端口、数据库、前端目录等环境变量与反代要求见 [docs/DEPLOY.md](docs/DEPLOY.md)。
 

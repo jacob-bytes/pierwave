@@ -84,11 +84,13 @@ failure. Heartbeats carry facts only; the agent's single action is "converge to 
 | `pierwave-common` | Shared low-level utilities: private-file permissions, release signature/checksum verification, translatable errors |
 | `pierwave-domain` | Data models, SQL and business rules; re-exports `pierwave-common` |
 | `pierwave-master` | axum API, auth, SPA assets |
-| `pierwave-agent` | Converger, process supervision, reporting; depends on `common` + `proto`, **not** on `domain` |
+| `pierwave-agent` | Converger, process supervision, reporting; depends on `common` + `proto`, **not** on `domain`; released on its own `v*` track since 0.19.x from [pierwave-agent](https://github.com/jacob-bytes/pierwave-agent) |
 | `pierwave-mcp` | Read-only MCP stdio server |
 
-The agent does not depend on `pierwave-domain`: it only shares `pierwave-common`, so it can be versioned and
-split into its own repository without dragging in the control plane's SQL/tokio stack.
+The agent does not depend on `pierwave-domain`: it only shares `pierwave-common`, so it carries none of
+the control plane's SQL/tokio stack. Since 0.19.x it is released from its own repository on its own `v*`
+tag line; the in-tree `crates/agent` source is kept for e2e and verification and no longer ships with
+the master.
 
 ## Screens
 
@@ -148,10 +150,11 @@ curl -fsSL https://<master>/api/agent/install.sh?token=<token> | sudo bash
 ```
 
 The installer picks the architecture, downloads the agent, writes `/etc/pierwave-agent/config.toml` (0600),
-installs a systemd unit and starts it. Prebuilt Linux binaries (musl, x86_64 / aarch64) are on the
-[Releases](https://github.com/jacob-bytes/pierwave/releases) page; drop `pierwave-agent-<target>` into the
-`PIERWAVE_AGENT_DIST` directory for offline installs. Paths, environment variables and reverse-proxy
-requirements are in [docs/DEPLOY.md](docs/DEPLOY.md).
+installs a systemd unit and starts it. Prebuilt Linux binaries (musl, x86_64 / aarch64) are published in the
+[pierwave-agent](https://github.com/jacob-bytes/pierwave-agent/releases) repository, which also feeds the
+master's install/upgrade proxy by default; drop `pierwave-agent-<target>` into the `PIERWAVE_AGENT_DIST`
+directory for offline installs. Paths, environment variables and reverse-proxy requirements are in
+[docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## Security
 
