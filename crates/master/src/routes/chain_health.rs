@@ -582,6 +582,49 @@ mod tests {
         now - now.rem_euclid(bucket) + bucket
     }
 
+    /// 从响应体推导时间轴窗口，而不是用测试线程自己的 `repo::now()`。
+    ///
+    /// 请求可能刚好跨过桶边界落地：服务器用响应里的 `generated_at` 对齐出
+    /// `end`，本地先算的 `end` 会与响应里的首桶/末桶错位，导致断言随机失败。
+    fn response_series_window(body: &Value, hours: i64, bucket: i64) -> (i64, i64) {
+        let generated_at = body["generated_at"]
+            .as_i64()
+            .unwrap_or_else(|| panic!("响应缺少 generated_at：{body}"));
+        let end = end_at(generated_at, bucket);
+        (end - hours * 3600, end)
+    }
+
+    /// 样本 `ts` 落在序列里的下标；越界说明样本不在响应时间轴内，直接 panic。
+    fn sample_series_index(
+        series_start: i64,
+        ts: i64,
+        bucket: i64,
+        len: usize,
+        body: &Value,
+    ) -> usize {
+        let index = (ts - series_start).div_euclid(bucket);
+        assert!(
+            index >= 0 && (index as usize) < len,
+            "样本 ts={ts} 不在序列窗口 [{series_start}, ...) 内：body: {body}"
+        );
+        index as usize
+    }
+
+    /// 响应跨桶时首桶/样本下标必须跟着 `generated_at` 走：桶开头 30s 采样，
+    /// 样本落在上一个桶（下标 2），不能写死成最后一个桶。
+    #[test]
+    fn response_window_and_sample_index_follow_generated_at() {
+        let generated_at = 1_800_000_030;
+        let body = json!({ "generated_at": generated_at });
+        let (series_start, series_end) = response_series_window(&body, 1, 900);
+        assert_eq!(series_end, end_at(generated_at, 900));
+        assert_eq!(series_start, series_end - 3600);
+        assert_eq!(
+            sample_series_index(series_start, generated_at - 120, 900, 4, &body),
+            2
+        );
+    }
+
     #[tokio::test]
     async fn chain_health_requires_admin() {
         let (app, state, _admin) = setup().await;
@@ -815,8 +858,9 @@ mod tests {
             Some(40001),
         )
         .await;
-        let end = end_at(repo::now(), 900);
-        let ts = end - 60;
+        // 样本必须是过去时间：用 end - 60 会让 ts 落在未来，请求跨桶后
+        // 窗口一缩就被排除。具体落在哪个桶由响应里的 generated_at 决定。
+        let ts = repo::now() - 120;
         // 第 1 段 16ms / 2/240；第 2 段 58ms / 24/240；最后一跳 5ms / 0/240。
         latency::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), "", 16)
             .await
@@ -844,76 +888,92 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "body: {body}");
+        // 用响应自己的 generated_at 对齐窗口与首桶，避免请求跨桶后与本地
+        // 先算的 end 错位。
+        let (series_start, _series_end) = response_series_window(&body, 1, 900);
         let view = &body["chains"][0];
 
-        assert_eq!(view["entry"]["server_id"], a);
-        assert_eq!(view["entry"]["server_name"], "香港-01");
-        assert_eq!(view["entry"]["address"], "203.0.113.11:40001");
-        assert_eq!(view["entry"]["ip"], "203.0.113.11");
-        assert_eq!(view["entry"]["port"], 40001);
+        assert_eq!(view["entry"]["server_id"], a, "body: {body}");
+        assert_eq!(view["entry"]["server_name"], "香港-01", "body: {body}");
+        assert_eq!(
+            view["entry"]["address"], "203.0.113.11:40001",
+            "body: {body}"
+        );
+        assert_eq!(view["entry"]["ip"], "203.0.113.11", "body: {body}");
+        assert_eq!(view["entry"]["port"], 40001, "body: {body}");
         assert!(
             view["entry"].get("address_source").is_none(),
-            "正常公网地址不带 address_source：{view}"
+            "正常公网地址不带 address_source：{view}；body: {body}"
         );
         let exit_port = listen_port_of(pool, &chain_id, &c).await;
-        assert_eq!(view["exit"]["server_id"], c);
-        assert_eq!(view["exit"]["server_name"], "大阪-01");
+        assert_eq!(view["exit"]["server_id"], c, "body: {body}");
+        assert_eq!(view["exit"]["server_name"], "大阪-01", "body: {body}");
         assert_eq!(
             view["exit"]["address"],
-            format!("198.51.100.23:{exit_port}")
+            format!("198.51.100.23:{exit_port}"),
+            "body: {body}"
         );
-        assert_eq!(view["exit"]["port"], exit_port);
+        assert_eq!(view["exit"]["port"], exit_port, "body: {body}");
 
         let segments = view["segments"].as_array().unwrap();
         let chain_series_len = view["series"].as_array().unwrap().len();
-        assert_eq!(chain_series_len, 4);
-        assert_eq!(segments.len(), 3, "3 组 = 3 段（含最后一跳）");
-        assert_eq!(view["missing_hops"], json!([]));
+        assert_eq!(chain_series_len, 4, "body: {body}");
+        assert_eq!(segments.len(), 3, "3 组 = 3 段（含最后一跳）：body: {body}");
+        assert_eq!(view["missing_hops"], json!([]), "body: {body}");
         for segment in segments {
             assert_eq!(
                 segment["series"].as_array().unwrap().len(),
                 chain_series_len,
-                "段 {} 的序列必须与链级同长",
+                "段 {} 的序列必须与链级同长：body: {body}",
                 segment["seq"]
             );
         }
-        let first = &segments[0]["series"][3];
-        assert_eq!(first["ts"], end - 900);
-        assert_eq!(first["p50"], 16.0);
-        assert_eq!(first["loss_pct"], 0.8333);
-        assert!(segments[0]["series"][2].is_null(), "没有样本的桶是 null");
-        let second = &segments[1]["series"][3];
-        assert_eq!(second["p50"], 58.0);
-        assert_eq!(second["loss_pct"], 10.0);
+        // 样本桶下标由响应时间轴推导；请求落在桶边界前后都能找到同一个样本。
+        let sample_index = sample_series_index(series_start, ts, 900, chain_series_len, &body);
+        let sample_bucket_ts = ts.div_euclid(900) * 900;
+        // 只有一个样本桶，下一个桶必然为空。
+        let empty_index = (sample_index + 1) % chain_series_len;
+        let first = &segments[0]["series"][sample_index];
+        assert_eq!(first["ts"], sample_bucket_ts, "body: {body}");
+        assert_eq!(first["p50"], 16.0, "body: {body}");
+        assert_eq!(first["loss_pct"], 0.8333, "body: {body}");
         assert!(
-            segments[1]["series"][2].is_null(),
-            "该段没有时延样本时整桶 null"
+            segments[0]["series"][empty_index].is_null(),
+            "没有样本的桶是 null：body: {body}"
         );
-        let last = &segments[2]["series"][3];
-        assert_eq!(last["p50"], 5.0);
-        assert_eq!(last["loss_pct"], 0.0);
-        assert!(segments[2]["series"][2].is_null());
+        let second = &segments[1]["series"][sample_index];
+        assert_eq!(second["p50"], 58.0, "body: {body}");
+        assert_eq!(second["loss_pct"], 10.0, "body: {body}");
+        assert!(
+            segments[1]["series"][empty_index].is_null(),
+            "该段没有时延样本时整桶 null：body: {body}"
+        );
+        let last = &segments[2]["series"][sample_index];
+        assert_eq!(last["p50"], 5.0, "body: {body}");
+        assert_eq!(last["loss_pct"], 0.0, "body: {body}");
+        assert!(segments[2]["series"][empty_index].is_null(), "body: {body}");
 
         // 既有字段回归：逐段/整链时延与丢包口径不变（只是多了最后一跳）。
-        assert_eq!(segments[0]["p50"], 16.0);
-        assert_eq!(segments[1]["p50"], 58.0);
-        assert_eq!(segments[2]["p50"], 5.0);
-        assert_eq!(segments[2]["seq"], 3);
-        assert_eq!(segments[2]["to"], "链目标");
-        assert_eq!(segments[0]["attempts"], 240);
-        assert_eq!(segments[0]["failures"], 2);
-        assert_eq!(segments[0]["loss_pct"], 0.8333);
-        assert_eq!(segments[1]["loss_pct"], 10.0);
-        assert_eq!(segments[2]["attempts"], 240);
-        assert_eq!(segments[2]["failures"], 0);
-        assert_eq!(segments[2]["loss_pct"], 0.0);
-        assert_eq!(view["loss_pct"], 10.75);
+        assert_eq!(segments[0]["p50"], 16.0, "body: {body}");
+        assert_eq!(segments[1]["p50"], 58.0, "body: {body}");
+        assert_eq!(segments[2]["p50"], 5.0, "body: {body}");
+        assert_eq!(segments[2]["seq"], 3, "body: {body}");
+        assert_eq!(segments[2]["to"], "链目标", "body: {body}");
+        assert_eq!(segments[0]["attempts"], 240, "body: {body}");
+        assert_eq!(segments[0]["failures"], 2, "body: {body}");
+        assert_eq!(segments[0]["loss_pct"], 0.8333, "body: {body}");
+        assert_eq!(segments[1]["loss_pct"], 10.0, "body: {body}");
+        assert_eq!(segments[2]["attempts"], 240, "body: {body}");
+        assert_eq!(segments[2]["failures"], 0, "body: {body}");
+        assert_eq!(segments[2]["loss_pct"], 0.0, "body: {body}");
+        assert_eq!(view["loss_pct"], 10.75, "body: {body}");
         assert_eq!(
             view["loss_samples"],
-            json!({ "attempts": 720, "failures": 26 })
+            json!({ "attempts": 720, "failures": 26 }),
+            "body: {body}"
         );
-        assert_eq!(view["series"][3]["p50"], 79.0);
-        assert_eq!(view["series"][3]["samples"], 3);
+        assert_eq!(view["series"][sample_index]["p50"], 79.0, "body: {body}");
+        assert_eq!(view["series"][sample_index]["samples"], 3, "body: {body}");
     }
 
     /// 多成员组：起点/终点都按 `(priority, server_id)` 选第一台。
@@ -1773,8 +1833,9 @@ mod tests {
             vec![(vec![&a], "round_robin"), (vec![&b, &c, &d], "failover")],
         )
         .await;
-        let end = end_at(repo::now(), 900);
-        let ts = end - 60;
+        // 样本必须是过去时间：用 end - 60 会让 ts 落在未来，请求跨桶后
+        // 窗口一缩就被排除。具体窗口由响应里的 generated_at 推导。
+        let ts = repo::now() - 120;
         // 单成员入口段：a 的 forward 指向 b；三成员段：b / c 各有自己的
         // forward，d 没有时延样本。
         latency::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), &b, 20)
@@ -1795,14 +1856,16 @@ mod tests {
         chain_probe::record_sample(pool, ts, &c, &forward_id(&chain_id, 1, &c, 3), 100, 4)
             .await
             .unwrap();
-        // 入口规则把 c 标成当前选中（b 未选中、d 离线）。
+        // 入口规则把 c 标成当前选中（b 未选中、d 离线）。这里不写探测时延：
+        // save_status 会给 a 的 forward 额外落一条「当前时间」的 latency 样本，
+        // 与本用例的 20/10/30 混在一起，跨桶时会把成员 p50 拉偏。
         save_probes(
             &state,
             &a,
             &forward_id(&chain_id, 0, &a, 1),
             &[
-                (b.as_str(), true, Some(12), Some(false)),
-                (c.as_str(), true, Some(23), Some(true)),
+                (b.as_str(), true, None, Some(false)),
+                (c.as_str(), true, None, Some(true)),
                 (d.as_str(), false, None, Some(false)),
             ],
         )
@@ -1815,9 +1878,16 @@ mod tests {
         )
         .await;
         assert_eq!(status, StatusCode::OK, "body: {body}");
+        // 用响应自己的 generated_at 推导窗口，确认样本真的落在本次请求的
+        // 聚合范围内；不能依赖测试线程开始时算的 end。
+        let (series_start, series_end) = response_series_window(&body, 1, 900);
+        assert!(
+            (series_start..series_end).contains(&ts),
+            "样本必须是响应窗口内的过去时间：ts={ts} window=[{series_start}, {series_end}) body: {body}"
+        );
         let view = &body["chains"][0];
         let segments = view["segments"].as_array().unwrap();
-        assert_eq!(segments.len(), 2);
+        assert_eq!(segments.len(), 2, "body: {body}");
 
         // 单成员段也返回一个元素的数组。
         assert_eq!(
@@ -1826,11 +1896,12 @@ mod tests {
                 "server_id": a, "name": "香港-01", "status": "online",
                 "p50_ms": 20.0, "loss_pct": 0.0,
                 "attempts": 100, "failures": 0, "active": false,
-            }])
+            }]),
+            "body: {body}"
         );
 
         let members = segments[1]["members"].as_array().unwrap();
-        assert_eq!(members.len(), 3);
+        assert_eq!(members.len(), 3, "body: {body}");
         // 顺序与 nodes[].members 一致（priority, server_id）。
         assert_eq!(
             members
@@ -1842,35 +1913,39 @@ mod tests {
                 .unwrap()
                 .iter()
                 .map(|member| &member["server_id"])
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
+            "body: {body}"
         );
-        assert_eq!(members[0]["server_id"], b);
-        assert_eq!(members[0]["name"], "东京-01");
-        assert_eq!(members[0]["status"], "online");
-        assert_eq!(members[0]["p50_ms"], 10.0);
-        assert_eq!(members[0]["loss_pct"], 1.0);
-        assert_eq!(members[0]["attempts"], 100);
-        assert_eq!(members[0]["failures"], 1);
-        assert_eq!(members[0]["active"], false);
-        assert_eq!(members[1]["server_id"], c);
-        assert_eq!(members[1]["p50_ms"], 30.0);
-        assert_eq!(members[1]["loss_pct"], 4.0);
-        assert_eq!(members[1]["active"], true, "failover 的当前成员");
-        assert_eq!(members[2]["server_id"], d);
-        assert_eq!(members[2]["status"], "offline");
-        assert_eq!(members[2]["p50_ms"], Value::Null);
-        assert_eq!(members[2]["loss_pct"], Value::Null);
-        assert_eq!(members[2]["attempts"], 0);
-        assert_eq!(members[2]["active"], false);
+        assert_eq!(members[0]["server_id"], b, "body: {body}");
+        assert_eq!(members[0]["name"], "东京-01", "body: {body}");
+        assert_eq!(members[0]["status"], "online", "body: {body}");
+        assert_eq!(members[0]["p50_ms"], 10.0, "body: {body}");
+        assert_eq!(members[0]["loss_pct"], 1.0, "body: {body}");
+        assert_eq!(members[0]["attempts"], 100, "body: {body}");
+        assert_eq!(members[0]["failures"], 1, "body: {body}");
+        assert_eq!(members[0]["active"], false, "body: {body}");
+        assert_eq!(members[1]["server_id"], c, "body: {body}");
+        assert_eq!(members[1]["p50_ms"], 30.0, "body: {body}");
+        assert_eq!(members[1]["loss_pct"], 4.0, "body: {body}");
+        assert_eq!(
+            members[1]["active"], true,
+            "failover 的当前成员；body: {body}"
+        );
+        assert_eq!(members[2]["server_id"], d, "body: {body}");
+        assert_eq!(members[2]["status"], "offline", "body: {body}");
+        assert_eq!(members[2]["p50_ms"], Value::Null, "body: {body}");
+        assert_eq!(members[2]["loss_pct"], Value::Null, "body: {body}");
+        assert_eq!(members[2]["attempts"], 0, "body: {body}");
+        assert_eq!(members[2]["active"], false, "body: {body}");
 
         // 段级口径不变：成员样本一起取中位数、计数相加。
-        assert_eq!(segments[1]["p50"], 20.0, "10 / 30 的中位数");
-        assert_eq!(segments[1]["attempts"], 200);
-        assert_eq!(segments[1]["failures"], 5);
-        assert_eq!(segments[1]["loss_pct"], 2.5);
+        assert_eq!(segments[1]["p50"], 20.0, "10 / 30 的中位数；body: {body}");
+        assert_eq!(segments[1]["attempts"], 200, "body: {body}");
+        assert_eq!(segments[1]["failures"], 5, "body: {body}");
+        assert_eq!(segments[1]["loss_pct"], 2.5, "body: {body}");
         // 既有节点断言回归。
-        assert_eq!(view["nodes"][1]["member_count"], 3);
-        assert_eq!(view["nodes"][1]["active_server_id"], c);
+        assert_eq!(view["nodes"][1]["member_count"], 3, "body: {body}");
+        assert_eq!(view["nodes"][1]["active_server_id"], c, "body: {body}");
     }
 
     /// 上一跳通路成员离线：该跳之后的 active 全部中断，但已确定的成员保留。

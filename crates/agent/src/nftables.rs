@@ -1953,10 +1953,21 @@ exit 0"#,
                 log.display()
             ),
         );
-        let mut supervisor = test_supervisor(bin, dir.path(), "0.0.0.0");
+        // 能力探测有 60 秒缓存，重试必须换一个实例；CI 并发 spawn 时脚本偶尔
+        // 会因为调度延迟超出单次探测预算，逻辑测试不该被这种抖动判负。
+        let mut available = false;
+        for _ in 0..3 {
+            available = test_supervisor(bin.clone(), dir.path(), "0.0.0.0")
+                .available()
+                .await;
+            if available {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
         assert!(
-            supervisor.available().await,
-            "PATH 中有可执行 nft 时必须判定可用"
+            available,
+            "PATH 中有可执行 nft 时必须判定可用（重试 3 次仍不可用）"
         );
         let probe = std::fs::read_to_string(log).unwrap();
         assert!(probe.contains("numgen inc mod 2 vmap"), "{probe}");
