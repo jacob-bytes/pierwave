@@ -44,13 +44,14 @@ jobs:
 
       - name: Build
         run: |
+          # Agent 自 0.19.0 起在 pierwave-agent 仓库单独发布；这里只出主控。
           cross build --release --locked --target ${{ matrix.target }} \
-            -p pierwave-master -p pierwave-agent
+            -p pierwave-master
 
       - name: Package
         run: |
           mkdir -p dist
-          for bin in pierwave-master pierwave-agent; do
+          for bin in pierwave-master; do
             cp "target/${{ matrix.target }}/release/$bin" "dist/$bin-${{ matrix.target }}"
           done
           (cd dist && sha256sum ./* > "SHA256SUMS-${{ matrix.target }}")

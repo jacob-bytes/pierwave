@@ -26,13 +26,17 @@ use crate::updates::UpdateService;
 /// 每台服务器一条广播通道；没有 Agent 在线时发送方仍在，消息自然丢弃。
 const AGENT_CHANNEL_CAPACITY: usize = 64;
 
-/// 发布产物的默认回源地址。
+/// Agent 发布产物的默认回源地址。
+///
+/// Agent 自 0.19.0 起在独立仓库发布，主控自己的版本仍走 `pierwave` 仓库
+/// （见 `domain::updates::LATEST_RELEASE_URL`）。旧主控可用
+/// `PIERWAVE_AGENT_RELEASE_SOURCE` 覆盖。
 pub const DEFAULT_RELEASE_SOURCE: &str =
-    "https://github.com/jacob-bytes/pierwave/releases/download";
+    "https://github.com/jacob-bytes/pierwave-agent/releases/download";
 
-/// 查询最新版本的默认 GitHub API 地址。
+/// 查询 Agent 最新版本的默认 GitHub API 地址。
 pub const DEFAULT_LATEST_URL: &str =
-    "https://api.github.com/repos/jacob-bytes/pierwave/releases/latest";
+    "https://api.github.com/repos/jacob-bytes/pierwave-agent/releases/latest";
 
 /// 异地备份的进程内并发保护与重试参数。
 ///
