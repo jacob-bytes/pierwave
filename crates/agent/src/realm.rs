@@ -890,6 +890,8 @@ async fn probe_rule(spec: &ProbeSpec) -> (tls_probe::ProbeError, Vec<TargetProbe
             server_id: target.server_id.clone(),
             ok: result.error.is_none(),
             latency_ms: result.latency_ms,
+            // realm 不按 failover / lowest_latency 选路，没有「当前选中」可报。
+            active: None,
         })
         .collect();
     // 任一成员握手成功 = 这一跳可达；否则取第一个失败原因。
@@ -1740,6 +1742,7 @@ mod tests {
                     server_id: "srv-b".into(),
                     ok: false,
                     latency_ms: None,
+                    active: None,
                 }],
             },
         );
@@ -1760,6 +1763,7 @@ mod tests {
                     server_id: "srv-b".into(),
                     ok: true,
                     latency_ms: Some(12),
+                    active: None,
                 }],
             },
         );
@@ -1772,6 +1776,7 @@ mod tests {
                 server_id: "srv-b".into(),
                 ok: true,
                 latency_ms: Some(12),
+                active: None,
             }],
             "逐目标 RTT 必须随快照带出（链路延迟用）"
         );

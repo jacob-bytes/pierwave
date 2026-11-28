@@ -1,13 +1,22 @@
 //! `GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]`
 //! （仅管理员）。
 //!
-//! 跨链时延聚合：一次读链拓扑（链 / 组 / 成员 3 条 SQL，不按链循环），
-//! 一次取窗口时延样本（`forward_latency_samples` 的 `forward_id IN (...)`），
-//! 一次取时间轴窗口内的 5 分钟探测桶（`forward_probe_samples` 的
-//! `forward_id IN (...)`），剩下的归并全部在
-//! [`pierwave_domain::chain_health`] 里做。查询次数与链数、成员数无关，
-//! 没有 N+1。`entry` / `exit` 与逐段 `segments[].series` 也全部由同一批
-//! 结果内存归并，不新增 SQL。
+//! 跨链时延聚合：链拓扑与最近探测共 4 条 SQL（链 / 组 / 成员 3 条，加
+//! `forward_status` 的 `forward_id, targets_json` 1 条；都按 `IN (...)` 或
+//! 全量读，不按链循环，最近探测的 id 列表为空时直接跳过），另加一次窗口
+//! 时延样本（`forward_latency_samples` 的 `forward_id IN (...)`）与一次
+//! 时间轴窗口内的 5 分钟探测桶（`forward_probe_samples` 的
+//! `forward_id IN (...)`）。剩下的归并全部在
+//! [`pierwave_domain::chain_health`] 里做。
+//! 查询次数与链数、成员数无关，没有 N+1。`entry` / `exit`、逐段
+//! `segments[].series` 与 `nodes[].active_server_id` 也全部由同一批结果内存
+//! 归并，不新增 SQL。
+//!
+//! `targets[].active`（协议 30）只对 failover / lowest_latency 有值：同一
+//! forward 至多一个 `Some(true)`，`None`（旧 Agent / 非单一选中策略）表示
+//! 未知。拓扑视图从入口代表成员逐跳沿这个「当前选中」走出当前通路，写成
+//! `nodes[].active_server_id`；入口组与链目标恒为 null，缺记录 / 无 active /
+//! 选中项不在本组 / 上一跳成员不在线时，从该跳起全部 null。
 //!
 //! 丢包口径：链级 `loss_pct` 取最近 [`aggregate::CURRENT_WINDOW_SECS`]（2 小时，
 //! 与 p50 的当前窗口一致）的 attempts/failures；`series[].loss_pct` 取该时间桶
@@ -34,7 +43,7 @@
 //! server_ids))`：同一个 id 从「未知」变成「存在」必须 miss；响应头
 //! `X-Chain-Health-Cache: hit|miss`。口径细节见 `docs/CHAIN-HEALTH.md`。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use axum::extract::{Query, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue};
@@ -210,7 +219,18 @@ async fn build_chain_health(
     let probes =
         repo::chain_probe::buckets_for_forwards(pool, &forward_ids, probe_since, probe_until)
             .await?;
-    let result = aggregate::aggregate(&chains, &samples, &probes, now, hours, bucket);
+    // 最近一轮心跳的逐目标探测（协议 30 的 `active` 也在这段 JSON 里），
+    // 供 `nodes[].active_server_id` 沿当前选中走通路。空 id 列表不查库。
+    let latest_targets = latest_target_map(pool, &forward_ids).await?;
+    let result = aggregate::aggregate(
+        &chains,
+        &samples,
+        &probes,
+        &latest_targets,
+        now,
+        hours,
+        bucket,
+    );
 
     let response = ChainHealthResponse {
         generated_at: now,
@@ -229,6 +249,37 @@ async fn build_chain_health(
         },
     };
     serde_json::to_value(response).map_err(|error| AppError::Internal(error.into()))
+}
+
+/// 按 forward id 读最近一轮心跳里的逐目标探测 JSON 并解析。
+///
+/// 仓储只负责取 `targets_json`；解析放在这里，失败（历史脏数据 / 手改库）
+/// 只记 warn 并当「没有数据」处理，绝不让整个 chain-health 500。
+async fn latest_target_map(
+    pool: &sqlx::SqlitePool,
+    forward_ids: &[String],
+) -> AppResult<HashMap<String, Vec<aggregate::TargetProbeRow>>> {
+    if forward_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = repo::forwards::latest_targets(pool, forward_ids).await?;
+    let mut latest = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let Some(raw) = row.targets_json.as_deref() else {
+            continue;
+        };
+        match serde_json::from_str::<Vec<aggregate::TargetProbeRow>>(raw) {
+            Ok(probes) => {
+                latest.insert(row.forward_id, probes);
+            }
+            Err(error) => tracing::warn!(
+                forward_id = %row.forward_id,
+                %error,
+                "解析 forward_status.targets_json 失败，按无数据处理"
+            ),
+        }
+    }
+    Ok(latest)
 }
 
 /// 保留「至少一个成员落在选中服务器」的链；不筛选时原样返回。
@@ -432,6 +483,95 @@ mod tests {
             .find(|member| member.server_id == server_id)
             .expect("成员必须存在")
             .listen_port
+    }
+
+    /// 建一条可按组指定选路策略的链（用于 strategy / active 的 HTTP 用例）。
+    async fn chain_with_strategies(
+        pool: &sqlx::SqlitePool,
+        name: &str,
+        groups: Vec<(Vec<&str>, &str)>,
+    ) -> String {
+        static NEXT_PORT: AtomicI64 = AtomicI64::new(30_000);
+        let groups = groups
+            .into_iter()
+            .enumerate()
+            .map(|(seq, (members, strategy))| {
+                let members = members
+                    .into_iter()
+                    .enumerate()
+                    .map(|(priority, server_id)| NewChainGroupMember {
+                        server_id: server_id.into(),
+                        listen_port: NEXT_PORT.fetch_add(1, Ordering::Relaxed),
+                        priority: priority as i64,
+                        weight: 1,
+                    })
+                    .collect();
+                NewChainGroup {
+                    name: Some(format!("hop-{seq}")),
+                    strategy: strategy.into(),
+                    cert_id: None,
+                    public_port: None,
+                    use_internal_address: false,
+                    members,
+                }
+            })
+            .collect();
+        repo::chains::create(
+            pool,
+            NewChain {
+                name: name.into(),
+                target_host: "target.example".into(),
+                target_port: 443,
+                enabled: true,
+                engine: "native".into(),
+                protocol: "tcp".into(),
+                proxy_protocol: false,
+                transport: "none".into(),
+                tunnel_security: "tls".into(),
+                groups,
+            },
+        )
+        .await
+        .unwrap()
+        .chain
+        .id
+    }
+
+    /// 写一条心跳探测缓存：`(server_id, ok, latency_ms, active)`。
+    async fn save_probes(
+        state: &AppState,
+        server_id: &str,
+        forward_id: &str,
+        probes: &[(&str, bool, Option<u32>, Option<bool>)],
+    ) {
+        repo::forwards::save_status(
+            &state.db.pool,
+            server_id,
+            &[repo::forwards::NewForwardStatus {
+                forward_id: forward_id.to_string(),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(probes.iter().any(|(_, ok, _, _)| *ok)),
+                target_error: None,
+                targets: probes
+                    .iter()
+                    .map(
+                        |(server_id, ok, latency_ms, active)| repo::forwards::NewTargetProbe {
+                            server_id: (*server_id).to_string(),
+                            ok: *ok,
+                            latency_ms: *latency_ms,
+                            active: *active,
+                        },
+                    )
+                    .collect(),
+                traffic_in: None,
+                traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
+            }],
+        )
+        .await
+        .unwrap();
     }
 
     fn end_at(now: i64, bucket: i64) -> i64 {
@@ -1456,6 +1596,243 @@ mod tests {
             view["series"].as_array().unwrap().last().unwrap()["p50"],
             30.0
         );
+    }
+
+    /// 响应里的 `nodes[].strategy` 取组策略（入口 / 目标为 null），
+    /// `active_server_id` 从入口代表成员沿心跳 `active=true` 逐跳走出；
+    /// 缓存与 `server_ids` 筛选的行为不变。
+    #[tokio::test]
+    async fn chain_health_reports_node_strategy_and_active_path() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        let c = server(pool, "东京-02", "10.0.0.3").await;
+        let d = server(pool, "大阪-01", "10.0.0.4").await;
+        for id in [&a, &b, &c, &d] {
+            servers::mark_online(pool, id).await.unwrap();
+        }
+        let chain_id = chain_with_strategies(
+            pool,
+            "港日多路径",
+            vec![
+                (vec![&a], "round_robin"),
+                (vec![&b, &c], "failover"),
+                (vec![&d], "failover"),
+            ],
+        )
+        .await;
+        // 入口 → 第 1 跳选中 c；c → 第 2 跳选中 d。
+        save_probes(
+            &state,
+            &a,
+            &forward_id(&chain_id, 0, &a, 1),
+            &[
+                (b.as_str(), true, Some(12), Some(false)),
+                (c.as_str(), true, Some(23), Some(true)),
+            ],
+        )
+        .await;
+        save_probes(
+            &state,
+            &c,
+            &forward_id(&chain_id, 1, &c, 2),
+            &[(d.as_str(), true, Some(4), Some(true))],
+        )
+        .await;
+        let uri = "/api/v1/overview/chain-health?hours=1&bucket=900";
+        let (status, headers, body) = request(&app, Some(&admin), uri).await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(headers["x-chain-health-cache"], "miss");
+        let nodes = body["chains"][0]["nodes"].as_array().unwrap();
+        assert_eq!(nodes.len(), 4);
+        assert_eq!(nodes[0]["strategy"], Value::Null, "入口组没有选路策略");
+        assert_eq!(nodes[0]["active_server_id"], Value::Null);
+        assert_eq!(nodes[1]["strategy"], "failover");
+        assert_eq!(nodes[1]["active_server_id"], c);
+        assert_eq!(nodes[2]["strategy"], "failover");
+        assert_eq!(nodes[2]["active_server_id"], d);
+        assert_eq!(nodes[3]["strategy"], Value::Null);
+        assert_eq!(nodes[3]["active_server_id"], Value::Null, "链目标恒为 null");
+
+        // 缓存语义不变：同一个 key 第二次命中，整份响应复用。
+        let (status, headers, second) = request(&app, Some(&admin), uri).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers["x-chain-health-cache"], "hit");
+        assert_eq!(second, body);
+
+        // 筛选语义不变：按成员 c 命中整条链，active 仍按整条链算。
+        let (status, headers, filtered) =
+            request(&app, Some(&admin), &format!("{uri}&server_ids={c}")).await;
+        assert_eq!(status, StatusCode::OK, "body: {filtered}");
+        assert_eq!(headers["x-chain-health-cache"], "miss", "筛选是不同 key");
+        assert_eq!(filtered["summary"]["total_chains"], 1);
+        assert_eq!(filtered["chains"][0]["nodes"][1]["active_server_id"], c);
+        assert_eq!(filtered["chains"][0]["nodes"][2]["active_server_id"], d);
+    }
+
+    /// 上一跳通路成员离线：该跳之后的 active 全部中断，但已确定的成员保留。
+    #[tokio::test]
+    async fn chain_health_active_path_stops_after_an_offline_member() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        let c = server(pool, "东京-02", "10.0.0.3").await;
+        let d = server(pool, "大阪-01", "10.0.0.4").await;
+        servers::mark_online(pool, &a).await.unwrap();
+        servers::mark_online(pool, &b).await.unwrap();
+        servers::mark_online(pool, &d).await.unwrap();
+        // c 保持默认 offline，但仍被入口选中过。
+        let chain_id = chain_with_strategies(
+            pool,
+            "离线中断",
+            vec![
+                (vec![&a], "round_robin"),
+                (vec![&b, &c], "failover"),
+                (vec![&d], "failover"),
+            ],
+        )
+        .await;
+        save_probes(
+            &state,
+            &a,
+            &forward_id(&chain_id, 0, &a, 1),
+            &[
+                (b.as_str(), true, Some(12), Some(false)),
+                (c.as_str(), true, Some(23), Some(true)),
+            ],
+        )
+        .await;
+        save_probes(
+            &state,
+            &c,
+            &forward_id(&chain_id, 1, &c, 2),
+            &[(d.as_str(), true, Some(4), Some(true))],
+        )
+        .await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let nodes = body["chains"][0]["nodes"].as_array().unwrap();
+        assert_eq!(nodes[1]["active_server_id"], c, "被选中的离线成员仍可见");
+        assert_eq!(
+            nodes[2]["active_server_id"],
+            Value::Null,
+            "离线后不能继续走"
+        );
+    }
+
+    /// 旧 Agent 的 JSON 没有 active 键：落库保持旧格式，响应该跳为 null，
+    /// 不能因为缺字段报错。
+    #[tokio::test]
+    async fn chain_health_reads_legacy_probe_json_without_active() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        let c = server(pool, "东京-02", "10.0.0.3").await;
+        servers::mark_online(pool, &a).await.unwrap();
+        let chain_id = chain_with_strategies(
+            pool,
+            "旧 Agent",
+            vec![(vec![&a], "round_robin"), (vec![&b, &c], "failover")],
+        )
+        .await;
+        let entry = forward_id(&chain_id, 0, &a, 1);
+        save_probes(
+            &state,
+            &a,
+            &entry,
+            &[
+                (b.as_str(), true, Some(12), None),
+                (c.as_str(), true, Some(23), None),
+            ],
+        )
+        .await;
+        // 与协议 29 完全一致的旧格式：没有 active 键。
+        let rows = repo::forwards::latest_targets(pool, &[entry])
+            .await
+            .unwrap();
+        let raw = rows[0].targets_json.as_deref().expect("targets 必须落库");
+        assert!(!raw.contains("active"), "旧 Agent 格式不能多出新键：{raw}");
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        assert_eq!(
+            body["chains"][0]["nodes"][1]["active_server_id"],
+            Value::Null
+        );
+    }
+
+    /// `targets_json` 是坏 JSON：只影响该跳（以及之后）的 active，接口仍然 200。
+    #[tokio::test]
+    async fn chain_health_treats_invalid_probe_json_as_no_data() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "10.0.0.1").await;
+        let b = server(pool, "东京-01", "10.0.0.2").await;
+        let c = server(pool, "东京-02", "10.0.0.3").await;
+        let d = server(pool, "大阪-01", "10.0.0.4").await;
+        for id in [&a, &b, &c, &d] {
+            servers::mark_online(pool, id).await.unwrap();
+        }
+        let chain_id = chain_with_strategies(
+            pool,
+            "坏 JSON",
+            vec![
+                (vec![&a], "round_robin"),
+                (vec![&b, &c], "failover"),
+                (vec![&d], "failover"),
+            ],
+        )
+        .await;
+        save_probes(
+            &state,
+            &a,
+            &forward_id(&chain_id, 0, &a, 1),
+            &[
+                (b.as_str(), true, Some(12), Some(false)),
+                (c.as_str(), true, Some(23), Some(true)),
+            ],
+        )
+        .await;
+        let bad_forward = forward_id(&chain_id, 1, &c, 2);
+        save_probes(
+            &state,
+            &c,
+            &bad_forward,
+            &[(d.as_str(), true, Some(4), Some(true))],
+        )
+        .await;
+        // 模拟历史脏数据 / 手改库：仓储的正常写路径不会产生坏 JSON。
+        sqlx::query("UPDATE forward_status SET targets_json = ? WHERE forward_id = ?")
+            .bind("{not json")
+            .bind(&bad_forward)
+            .execute(pool)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "坏 JSON 不能让接口 500：{body}");
+        let nodes = body["chains"][0]["nodes"].as_array().unwrap();
+        assert_eq!(nodes[1]["active_server_id"], c, "上一跳记录仍然有效");
+        assert_eq!(nodes[2]["active_server_id"], Value::Null, "坏数据当无数据");
     }
 
     /// B7：缓存 key 分开存「命中的」与「未知的」——同一个 id 从存在变成

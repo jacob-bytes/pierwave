@@ -1767,7 +1767,8 @@ async fn load_status_map(
 /// 读取一条 `forward_status` 行里的逐目标探测结果。
 ///
 /// JSON 由仓储按 `pierwave_domain::repo::forwards::NewTargetProbe` 写入，
-/// 与线协议的 `TargetProbe` 同形。旧 Agent 没有 targets（列为 NULL）或
+/// 与线协议的 `TargetProbe` 同形；协议 30 的 `active` 原样透传（旧 Agent
+/// 缺键为 None，不做二次推断）。旧 Agent 没有 targets（列为 NULL）或
 /// 历史脏数据都按「未探测」处理，绝不让整条链视图 500。
 fn status_target_probes(row: Option<&ForwardStatusRow>) -> Vec<TargetProbe> {
     row.and_then(|row| row.targets_json.as_deref())
@@ -7561,6 +7562,7 @@ mod tests {
                             server_id: (*server_id).to_string(),
                             ok: *ok,
                             latency_ms: *latency_ms,
+                            active: None,
                         },
                     )
                     .collect(),
@@ -7941,6 +7943,7 @@ mod tests {
                     server_id: fixture.b.clone(),
                     ok: true,
                     latency_ms: Some(17),
+                    active: None,
                 }],
                 traffic_in: Some(1_024),
                 traffic_out: Some(2_048),

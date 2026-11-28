@@ -4410,6 +4410,7 @@ pub mod forwards {
     use std::collections::HashMap;
 
     use serde::Serialize;
+    use sqlx::QueryBuilder;
 
     use super::*;
 
@@ -4481,6 +4482,12 @@ pub mod forwards {
         pub server_id: String,
         pub ok: bool,
         pub latency_ms: Option<u32>,
+        /// Agent 上报的「当前选中」（协议 30）。
+        ///
+        /// `None` 不输出键：旧 Agent / 没有单一选中项时，落库 JSON 与协议 29
+        /// 逐字节一致；`Some(true/false)` 才多出 `"active"` 字段。
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub active: Option<bool>,
     }
 
     /// 在调用方已开启的 `BEGIN IMMEDIATE` 事务里插入规则。
@@ -4896,6 +4903,31 @@ pub mod forwards {
         .await?)
     }
 
+    /// 按 `forward_id` 取最近一轮心跳里的逐目标探测 JSON。
+    ///
+    /// 只取 `forward_id` / `targets_json` 两列；空列表直接返回，不生成 `IN ()`。
+    /// 解析 JSON 是调用方的事，仓储不解释 `active` 等字段。
+    pub async fn latest_targets(
+        pool: &SqlitePool,
+        forward_ids: &[String],
+    ) -> anyhow::Result<Vec<ForwardTargetsRow>> {
+        if forward_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut builder = QueryBuilder::new(
+            "SELECT forward_id, targets_json FROM forward_status WHERE forward_id IN (",
+        );
+        let mut separated = builder.separated(", ");
+        for id in forward_ids {
+            separated.push_bind(id.clone());
+        }
+        separated.push_unseparated(")");
+        Ok(builder
+            .build_query_as::<ForwardTargetsRow>()
+            .fetch_all(pool)
+            .await?)
+    }
+
     /// 用一次心跳里的 `forwards` 整体替换该服务器的状态缓存。
     ///
     /// 整体替换而不是 upsert：Agent 已经从期望态里删掉的规则不会再上报，
@@ -5098,6 +5130,82 @@ pub mod forwards {
             }
         }
         Ok(())
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        async fn setup() -> SqlitePool {
+            let db = crate::Db::connect("sqlite::memory:").await.unwrap();
+            db.migrate().await.unwrap();
+            db.pool
+        }
+
+        fn status(forward_id: &str, targets: Vec<NewTargetProbe>) -> NewForwardStatus {
+            NewForwardStatus {
+                forward_id: forward_id.into(),
+                listening: true,
+                error: String::new(),
+                target_ok: Some(true),
+                target_error: None,
+                targets,
+                traffic_in: None,
+                traffic_out: None,
+                probe_attempts: None,
+                probe_failures: None,
+            }
+        }
+
+        /// `latest_targets` 只取请求的 forward；空列表不查库；NULL JSON 原样保留。
+        #[tokio::test]
+        async fn latest_targets_reads_the_requested_rows_and_keeps_null_json() {
+            let pool = setup().await;
+            let server = super::super::servers::create(&pool, "hk-1", "1.2.3.4", "external")
+                .await
+                .unwrap()
+                .0
+                .id;
+            save_status(
+                &pool,
+                &server,
+                &[
+                    status(
+                        "fwd-a",
+                        vec![NewTargetProbe {
+                            server_id: "srv-next".into(),
+                            ok: true,
+                            latency_ms: Some(17),
+                            active: Some(true),
+                        }],
+                    ),
+                    status("fwd-b", Vec::new()),
+                ],
+            )
+            .await
+            .unwrap();
+
+            let rows = latest_targets(&pool, &["fwd-a".to_string(), "fwd-b".to_string()])
+                .await
+                .unwrap();
+            assert_eq!(rows.len(), 2);
+            let a = rows.iter().find(|row| row.forward_id == "fwd-a").unwrap();
+            let json: serde_json::Value =
+                serde_json::from_str(a.targets_json.as_deref().expect("fwd-a 必须有 JSON"))
+                    .unwrap();
+            assert_eq!(json[0]["server_id"], "srv-next");
+            assert_eq!(json[0]["active"], true);
+            let b = rows.iter().find(|row| row.forward_id == "fwd-b").unwrap();
+            assert!(
+                b.targets_json.is_none(),
+                "空 targets 落 NULL，读取时保持 NULL"
+            );
+
+            let only_a = latest_targets(&pool, &["fwd-a".to_string()]).await.unwrap();
+            assert_eq!(only_a.len(), 1, "不请求的 forward 不能带出来");
+            assert_eq!(only_a[0].forward_id, "fwd-a");
+
+            assert!(latest_targets(&pool, &[]).await.unwrap().is_empty());
+        }
     }
 }
 

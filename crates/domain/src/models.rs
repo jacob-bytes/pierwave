@@ -400,6 +400,17 @@ pub struct ForwardStatusRow {
     pub updated_at: i64,
 }
 
+/// 链视图用的一行「最近逐目标探测」：只取 `forward_status` 的两个字段。
+///
+/// `targets_json` 是 Agent 上报的 `TargetProbe` 数组（含协议 30 的 `active`）；
+/// 仓储只负责原样取出，不解释内容——domain 不依赖线协议，解析放在调用方。
+/// 旧 Agent / 未探测的规则该列为 `NULL`。
+#[derive(Debug, Clone, FromRow)]
+pub struct ForwardTargetsRow {
+    pub forward_id: String,
+    pub targets_json: Option<String>,
+}
+
 /// 合并进列表的运行时状态：心跳里没有这条规则时为 `None`。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ForwardRuntime {

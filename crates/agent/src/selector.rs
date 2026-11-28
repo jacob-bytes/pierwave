@@ -171,14 +171,11 @@ impl Selector {
                 self.round_robin_cursor = self.round_robin_cursor.wrapping_add(1);
                 Some(healthy[slot])
             }
-            ForwardStrategy::Failover => health.iter().position(|target| target.healthy),
-            ForwardStrategy::LowestLatency => health
-                .iter()
-                .enumerate()
-                .filter(|(_, target)| target.healthy)
-                // 延迟未知的目标排在最后；并列时下标小的优先（顺序即优先级）。
-                .min_by_key(|(index, target)| (target.latency_ms.unwrap_or(u32::MAX), *index))
-                .map(|(index, _)| index),
+            // 主备 / 最低延迟有唯一「当前选中」，与心跳的 `active` 标记共用
+            // 同一份判定（见 [`Self::current`]），避免两处逻辑漂移。
+            ForwardStrategy::Failover | ForwardStrategy::LowestLatency => {
+                Self::current(strategy, health)
+            }
             ForwardStrategy::IpHashed => {
                 let healthy = healthy_indices(health);
                 if healthy.is_empty() {
@@ -215,6 +212,33 @@ impl Selector {
                 self.least_conn_cursor = self.least_conn_cursor.wrapping_add(1);
                 Some(ties[slot])
             }
+        }
+    }
+
+    /// 这条规则此刻的「当前选中」目标下标（协议 30 的逐目标 `active` 标记）。
+    ///
+    /// 只有能给出**确定答案**的策略才返回 `Some`：
+    /// * `Failover`：列表里第一个健康目标（顺序即主备优先级）；
+    /// * `LowestLatency`：健康目标里延迟最低的一个；延迟未知的排最后，
+    ///   并列时下标小的优先（列表顺序即优先级）；
+    /// * 其余策略（轮询 / 哈希 / 加权 / 最少连接）没有单一选中项，返回 `None`。
+    ///
+    /// 空列表或全部不健康返回 `None`；调用方据此把 `active` 留空，而不是
+    /// 伪造一个 `false`/`true`。`pick` 的这两个分支必须调用这里，保证心跳
+    /// 上报的就是真正会被选中的下标。
+    pub fn current(strategy: ForwardStrategy, health: &[TargetHealth]) -> Option<usize> {
+        match strategy {
+            ForwardStrategy::Failover => health.iter().position(|target| target.healthy),
+            ForwardStrategy::LowestLatency => health
+                .iter()
+                .enumerate()
+                .filter(|(_, target)| target.healthy)
+                .min_by_key(|(index, target)| (target.latency_ms.unwrap_or(u32::MAX), *index))
+                .map(|(index, _)| index),
+            ForwardStrategy::RoundRobin
+            | ForwardStrategy::IpHashed
+            | ForwardStrategy::Weighted
+            | ForwardStrategy::LeastConn => None,
         }
     }
 
@@ -843,5 +867,128 @@ mod tests {
         assert_eq!(selector.weight(0), 1, "0 必须夹紧到 1");
         assert_eq!(selector.weight(1), 100, "超过 100 必须夹紧到 100");
         assert_eq!(selector.active_snapshot(), vec![0, 0]);
+    }
+
+    // ---- current（心跳「当前选中」标记） ----
+
+    /// failover：第一个健康目标；全部不健康 / 空列表都是 None。
+    #[test]
+    fn current_failover_is_the_first_healthy_target() {
+        assert_eq!(
+            Selector::current(
+                ForwardStrategy::Failover,
+                &[TargetHealth::down(), TargetHealth::up()]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            Selector::current(
+                ForwardStrategy::Failover,
+                &[TargetHealth::up(), TargetHealth::up()]
+            ),
+            Some(0),
+            "按列表顺序取第一个，不按延迟"
+        );
+        assert_eq!(
+            Selector::current(
+                ForwardStrategy::Failover,
+                &[TargetHealth::down(), TargetHealth::down()]
+            ),
+            None
+        );
+        assert_eq!(Selector::current(ForwardStrategy::Failover, &[]), None);
+    }
+
+    /// lowest_latency：最低延迟的健康目标；并列取下标小的，未知延迟排最后。
+    #[test]
+    fn current_lowest_latency_handles_ties_and_unknown_latency() {
+        assert_eq!(
+            Selector::current(
+                ForwardStrategy::LowestLatency,
+                &[
+                    TargetHealth::with_latency(80),
+                    TargetHealth::with_latency(12),
+                    TargetHealth::down(),
+                ]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            Selector::current(
+                ForwardStrategy::LowestLatency,
+                &[
+                    TargetHealth::with_latency(30),
+                    TargetHealth::with_latency(30),
+                ]
+            ),
+            Some(0),
+            "并列时下标小的优先"
+        );
+        assert_eq!(
+            Selector::current(
+                ForwardStrategy::LowestLatency,
+                &[TargetHealth::up(), TargetHealth::with_latency(9)]
+            ),
+            Some(1),
+            "未知延迟排在已知延迟之后"
+        );
+        assert_eq!(
+            Selector::current(ForwardStrategy::LowestLatency, &[TargetHealth::up()]),
+            Some(0),
+            "全部未知延迟时按顺序回退到第一个健康目标"
+        );
+        assert_eq!(
+            Selector::current(
+                ForwardStrategy::LowestLatency,
+                &[TargetHealth::down(), TargetHealth::down()]
+            ),
+            None
+        );
+        assert_eq!(Selector::current(ForwardStrategy::LowestLatency, &[]), None);
+    }
+
+    /// 其它策略没有唯一的「当前选中」，必须返回 None，不能伪造一个。
+    #[test]
+    fn current_is_none_for_strategies_without_a_single_selection() {
+        let health = [TargetHealth::up(), TargetHealth::up()];
+        for strategy in [
+            ForwardStrategy::RoundRobin,
+            ForwardStrategy::IpHashed,
+            ForwardStrategy::Weighted,
+            ForwardStrategy::LeastConn,
+        ] {
+            assert_eq!(
+                Selector::current(strategy, &health),
+                None,
+                "{strategy:?} 不应报告当前选中"
+            );
+        }
+    }
+
+    /// `pick` 的 failover / lowest_latency 分支必须与 `current` 完全一致。
+    #[test]
+    fn pick_matches_current_for_the_two_state_free_strategies() {
+        let cases = [
+            vec![TargetHealth::up(), TargetHealth::down()],
+            vec![TargetHealth::down(), TargetHealth::up()],
+            vec![TargetHealth::down(), TargetHealth::down()],
+            vec![
+                TargetHealth::with_latency(50),
+                TargetHealth::with_latency(5),
+                TargetHealth::up(),
+            ],
+            vec![TargetHealth::up(), TargetHealth::up()],
+            Vec::new(),
+        ];
+        for strategy in [ForwardStrategy::Failover, ForwardStrategy::LowestLatency] {
+            for health in &cases {
+                let mut selector = Selector::new();
+                assert_eq!(
+                    selector.pick(strategy, ip("10.0.0.1"), health),
+                    Selector::current(strategy, health),
+                    "{strategy:?} 与 current 必须一致：{health:?}"
+                );
+            }
+        }
     }
 }

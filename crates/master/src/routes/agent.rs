@@ -495,6 +495,8 @@ async fn handle_agent_message(state: &AppState, server_id: &str, agent_version: 
                             server_id: probe.server_id.clone(),
                             ok: probe.ok,
                             latency_ms: probe.latency_ms,
+                            // 协议 30：原样落库，None 不写键（旧 Agent JSON 不变）。
+                            active: probe.active,
                         })
                         .collect(),
                     // 旧 Agent 没有流量字段 → None → 链路视图 null，不能当 0。
@@ -1671,11 +1673,13 @@ mod tests {
                         server_id: "srv-next".into(),
                         ok: true,
                         latency_ms: Some(17),
+                        active: Some(true),
                     },
                     pierwave_proto::TargetProbe {
                         server_id: "srv-down".into(),
                         ok: false,
                         latency_ms: None,
+                        active: None,
                     },
                 ],
                 traffic_in: Some(4096),
@@ -1723,6 +1727,17 @@ mod tests {
         assert_eq!(probes[0].latency_ms, Some(17));
         assert!(!probes[1].ok);
         assert_eq!(probes[1].latency_ms, None, "失败目标不能写成 0ms");
+        // 协议 30：active 原样落库；None 不写键（旧 Agent 的 JSON 逐字节不变）。
+        assert_eq!(probes[0].active, Some(true));
+        assert_eq!(probes[1].active, None);
+        assert!(
+            raw.contains("\"active\":true"),
+            "带 active 的目标必须写进 JSON：{raw}"
+        );
+        assert!(
+            !raw.contains("\"active\":null"),
+            "None 不能输出 active 键：{raw}"
+        );
 
         // 流量原样落库；None 保持 NULL（realm / 旧 Agent），不能变成 0。
         assert_eq!(rows[0].traffic_in, Some(4096));

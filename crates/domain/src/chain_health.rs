@@ -58,8 +58,9 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
+use crate::chains::GroupStrategy;
 use crate::models::{ChainGroupMember, ChainGroupWithMembers, ChainWithGroups};
 use crate::repo::chain_probe::ProbeBucketRow;
 use crate::repo::latency::LatencySample;
@@ -247,6 +248,31 @@ pub struct NodeView {
     pub member_count: usize,
     /// 该组全部成员，顺序同 `(priority, server_id)`；链目标节点是空数组。
     pub members: Vec<NodeMember>,
+    /// 该组的选路策略：`round_robin` / `failover` / `lowest_latency` /
+    /// `ip_hashed` / `weighted` / `least_conn`。入口组没有上一跳、链目标
+    /// 节点没有选路，两者都是 null；库里的非法值回落 `round_robin`。
+    pub strategy: Option<String>,
+    /// 从入口代表成员沿 Agent 上报的「当前选中」走出的当前通路成员
+    /// （`server_id`）。入口组与链目标恒为 null；某跳没有单一选中项、
+    /// 没有心跳记录、选中项不在该组或上一跳成员不在线时，从该跳起都是 null。
+    pub active_server_id: Option<String>,
+}
+
+/// 心跳 `forward_status.targets_json` 里的一个目标探测结果（链视图用）。
+///
+/// 与线协议的 `TargetProbe` 同形，但 domain 不依赖 proto，所以单独定义。
+/// 每个字段都有 serde 默认值：旧 Agent 的 JSON 没有 `active`（缺键 / null）
+/// 时解析成 None，不因为新增字段让整条链视图失败。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct TargetProbeRow {
+    #[serde(default)]
+    pub server_id: String,
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub latency_ms: Option<u32>,
+    #[serde(default)]
+    pub active: Option<bool>,
 }
 
 /// 链级可用性状态里被点名的节点（具体到成员）。
@@ -587,6 +613,7 @@ pub fn aggregate(
     chains: &[ChainWithGroups],
     samples: &[LatencySample],
     probes: &[ProbeBucketRow],
+    latest_targets: &HashMap<String, Vec<TargetProbeRow>>,
     now: i64,
     hours: i64,
     bucket: i64,
@@ -609,7 +636,14 @@ pub fn aggregate(
     let baseline_start = current_start - baseline_count * bucket;
     let since = series_start.min(baseline_start);
 
-    let layouts: Vec<Layout> = chains.iter().map(Layout::from_chain).collect();
+    let mut layouts: Vec<Layout> = chains.iter().map(Layout::from_chain).collect();
+    // 每链算完 Layout 后，把「当前通路」写进节点；没有任何心跳记录时全是 null。
+    for layout in &mut layouts {
+        let active = active_members(layout, latest_targets);
+        for (node, active) in layout.nodes.iter_mut().zip(active) {
+            node.active_server_id = active;
+        }
+    }
     let mut forward_map: HashMap<String, (usize, usize, usize)> = HashMap::new();
     for (chain_index, layout) in layouts.iter().enumerate() {
         for (group_index, members) in layout.groups.iter().enumerate() {
@@ -1033,7 +1067,7 @@ struct ChainViewBuild {
 }
 
 /// 一条链的拓扑在内存里的展开形态。
-struct Layout {
+pub struct Layout {
     chain_id: String,
     chain_name: String,
     hops: i64,
@@ -1052,6 +1086,11 @@ struct Layout {
     group_seq: Vec<i64>,
     /// 每组排好序的成员（priority, server_id）。
     groups: Vec<Vec<Member>>,
+    /// 每组在链里的选路策略；入口组为 None（没有上一跳），其余组是
+    /// `GroupStrategy::from_db(...).as_str()`（非法值已回落 `round_robin`）。
+    strategies: Vec<Option<&'static str>>,
+    /// 每组排好序后的成员数，`active_members` 算 forward id 用。
+    group_member_counts: Vec<usize>,
     /// 段编号：中间段取目标组 seq，最后一跳取最后一组 seq + 1。
     segment_seq: Vec<i64>,
     /// 无样本时的 from/to 兜底。
@@ -1112,6 +1151,15 @@ impl Layout {
             .last()
             .and_then(|members| members.first())
             .map(|member| endpoint(member, member.listen_port));
+        let strategies: Vec<Option<&'static str>> = groups
+            .iter()
+            .enumerate()
+            .map(|(index, group)| {
+                // 入口组没有上一跳，永远不执行选路；链目标在 nodes 里另补。
+                (index > 0).then(|| GroupStrategy::from_db(&group.group.strategy).as_str())
+            })
+            .collect();
+        let group_member_counts: Vec<usize> = members.iter().map(Vec::len).collect();
         let estimated = members.iter().any(|group| group.len() > 1);
         let hops = groups.len() as i64;
         let final_hop_seq = group_seq.last().map(|last| last + 1);
@@ -1186,6 +1234,8 @@ impl Layout {
                 status: group_status(&node_members),
                 member_count: node_members.len(),
                 members: node_members,
+                strategy: strategies[index].map(str::to_string),
+                active_server_id: None,
             });
         }
         if let Some(seq) = final_hop_seq {
@@ -1197,6 +1247,8 @@ impl Layout {
                 status: None,
                 member_count: 0,
                 members: Vec::new(),
+                strategy: None,
+                active_server_id: None,
             });
         }
 
@@ -1213,6 +1265,8 @@ impl Layout {
             final_hop_seq,
             group_seq,
             groups: members,
+            strategies,
+            group_member_counts,
             segment_seq,
             segment_from,
             segment_to,
@@ -1265,6 +1319,77 @@ impl Layout {
             .find(|member| member.id == server_id)
             .map(|member| member.name.as_str())
     }
+}
+
+/// 计算从入口代表成员出发、沿 Agent 上报的「当前选中」走出的通路。
+///
+/// 返回数组与 `layout.nodes` 一一对应（每个组一个 + 末尾链目标）：
+/// * `source`（入口组）与 `target` 恒为 None——入口没有上一跳，目标不是成员；
+/// * 第 i 跳看**第 i-1 跳当前通路成员**的 forward 探测记录
+///   （`forward_id = chains::forward_id(chain_id, 上一跳 seq, 成员 id, 成员数)`），
+///   其中恰好一个 `active = Some(true)` 的目标就是这一跳的当前通路成员；
+/// * 上一跳成员不是 `online`、没有心跳记录、没有唯一 `active`、或 `active`
+///   的 `server_id` 不在本组时，从该跳起全部 None（不猜、不跳过去继续走）。
+///
+/// 单成员组走兼容字段时 Agent 拿不到 server_id（空串），此时按「唯一成员
+/// 可确定」归到该成员，与样本归属的既有口径一致。
+pub fn active_members(
+    layout: &Layout,
+    latest: &HashMap<String, Vec<TargetProbeRow>>,
+) -> Vec<Option<String>> {
+    let mut active = vec![None; layout.nodes.len()];
+    let Some(mut previous) = layout.groups.first().and_then(|members| members.first()) else {
+        // 入口组没有成员：没有起点可走。
+        return active;
+    };
+    let mut previous_group = 0_usize;
+    for (group_index, members) in layout.groups.iter().enumerate().skip(1) {
+        // active 只对「有单一选中项」的策略有意义；轮询 / 哈希 / 加权 /
+        // 最少连接即使收到脏的 active=true 也不能当成当前通路。
+        if !matches!(
+            layout.strategies[group_index],
+            Some("failover" | "lowest_latency")
+        ) {
+            break;
+        }
+        // 上一跳通路成员必须在线；离线/异常就从这一跳起断开。
+        if previous.status != "online" {
+            break;
+        }
+        let forward_id = crate::chains::forward_id(
+            &layout.chain_id,
+            layout.group_seq[previous_group],
+            &previous.id,
+            layout.group_member_counts[previous_group],
+        );
+        let Some(probes) = latest.get(&forward_id) else {
+            break;
+        };
+        // 同规则至多一个 Some(true)；0 个或多个都说明没有单一选中项。
+        let selected: Vec<&TargetProbeRow> = probes
+            .iter()
+            .filter(|probe| probe.active == Some(true))
+            .collect();
+        let [selected] = selected.as_slice() else {
+            break;
+        };
+        let next = if !selected.server_id.is_empty() {
+            members
+                .iter()
+                .find(|member| member.id == selected.server_id)
+        } else if members.len() == 1 {
+            members.first()
+        } else {
+            None
+        };
+        let Some(next) = next else {
+            break;
+        };
+        active[group_index] = Some(next.id.clone());
+        previous = next;
+        previous_group = group_index;
+    }
+    active
 }
 
 /// 把一个成员 + 端口组装成起点/终点。
@@ -1776,6 +1901,34 @@ mod tests {
         Vec::new()
     }
 
+    /// 没有最近探测记录：`active_server_id` 全部为 null。
+    fn no_latest() -> HashMap<String, Vec<TargetProbeRow>> {
+        HashMap::new()
+    }
+
+    type ProbeEntries<'a> = [(String, &'a [(&'a str, Option<bool>)])];
+
+    /// 一批 forward 的逐目标探测：`(forward_id, [(server_id, active)])`。
+    fn latest_probes(entries: &ProbeEntries<'_>) -> HashMap<String, Vec<TargetProbeRow>> {
+        entries
+            .iter()
+            .map(|(forward_id, probes)| {
+                (
+                    forward_id.clone(),
+                    probes
+                        .iter()
+                        .map(|(server_id, active)| TargetProbeRow {
+                            server_id: (*server_id).to_string(),
+                            ok: true,
+                            latency_ms: Some(10),
+                            active: *active,
+                        })
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
     /// 当前窗口内的一个 5 分钟探测桶：`(forward_id, attempts, failures)`。
     fn probes(entries: &[(String, i64, i64)]) -> Vec<ProbeBucketRow> {
         probes_in_bucket(end_at(NOW, BUCKET) - 60, entries)
@@ -1818,7 +1971,7 @@ mod tests {
                 ),
             ],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 2);
 
@@ -1871,7 +2024,7 @@ mod tests {
                 ),
             ],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         let entry = view.entry.as_ref().unwrap();
         assert_eq!(
@@ -1894,7 +2047,7 @@ mod tests {
                 vec![full_member("a", "A", "203.0.113.11", None, 21_001, 0)],
             )],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let entry = aggregate.chains[0].entry.as_ref().unwrap();
         assert_eq!(
             entry.address.as_deref(),
@@ -1945,7 +2098,7 @@ mod tests {
                 ),
             ],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let entry = aggregate.chains[0].entry.as_ref().unwrap();
         assert_eq!(entry.address.as_deref(), Some("10.0.0.11:8443"));
         assert_eq!(entry.ip.as_deref(), Some("10.0.0.11"));
@@ -1970,7 +2123,7 @@ mod tests {
                 vec![full_member("a", "A", "", None, 21_001, 0)],
             )],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let entry = aggregate.chains[0].entry.as_ref().unwrap();
         assert_eq!(entry.server_id, "a");
         assert_eq!(entry.address, None);
@@ -1996,7 +2149,7 @@ mod tests {
                 ),
             ],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let entry = aggregate.chains[0].entry.as_ref().unwrap();
         assert_eq!(entry.ip.as_deref(), Some("2001:db8::11"));
         assert_eq!(entry.address.as_deref(), Some("[2001:db8::11]:443"));
@@ -2019,7 +2172,7 @@ mod tests {
                 vec![full_member("a", "A", "203.0.113.11", None, 0, 0)],
             )],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let entry = aggregate.chains[0].entry.as_ref().unwrap();
         assert_eq!(entry.ip.as_deref(), Some("203.0.113.11"));
         assert_eq!(entry.port, None);
@@ -2029,7 +2182,7 @@ mod tests {
     #[test]
     fn groups_without_members_have_no_entry_or_exit() {
         let chain = chain("c1", vec![(0, vec![]), (1, vec![])]);
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert!(view.entry.is_none());
         assert!(view.exit.is_none());
@@ -2060,7 +2213,7 @@ mod tests {
             ],
         );
 
-        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.series.len(), 4);
         for segment in &view.segments {
@@ -2105,7 +2258,7 @@ mod tests {
         )];
         // 计数行存在但 attempts = 0：必须保持 null，不能写成 0%。
         let probes = probes_in_bucket(end - BUCKET + 60, &[(forward("c1", 0, "a", 1), 0, 0)]);
-        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &probes, &no_latest(), NOW, 1, BUCKET);
         let point = aggregate.chains[0].segments[0].series[3].as_ref().unwrap();
         assert_eq!(point.p50, 20.0);
         assert_eq!(point.loss_pct, None);
@@ -2117,7 +2270,7 @@ mod tests {
         let end = end_at(NOW, BUCKET);
         // 只有探测、没有时延样本：整桶为 null，不能只返回丢包。
         let probes = probes_in_bucket(end - BUCKET + 60, &[(forward("c1", 0, "a", 1), 100, 50)]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         assert!(aggregate.chains[0].segments[0].series[3].is_none());
     }
 
@@ -2141,7 +2294,15 @@ mod tests {
             sample(ts, "c", forward("c1", 2, "c", 1), "", 5),
         ];
 
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
         assert_eq!(
             aggregate.unmapped_forwards, 0,
             "最后一跳的空目标是预期格式，不是 unmapped"
@@ -2191,7 +2352,15 @@ mod tests {
         );
         let ts = end_at(NOW, BUCKET) - 60;
         let samples = vec![sample(ts, "a", forward("c1", 0, "a", 1), "", 10)];
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
         assert_eq!(aggregate.unmapped_forwards, 1);
         assert!(aggregate.chains[0].series.last().unwrap().is_none());
         assert!(aggregate.chains[0].segments[0].p50.is_none());
@@ -2203,7 +2372,15 @@ mod tests {
         let ts = end_at(NOW, BUCKET) - 60;
         // 目标不在下一组里（链改过成员后的历史样本）：必须进 warnings。
         let samples = vec![sample(ts, "a", forward("c1", 0, "a", 1), "ghost", 10)];
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
         assert_eq!(aggregate.unmapped_forwards, 1);
         assert!(aggregate.chains[0].series.last().unwrap().is_none());
     }
@@ -2229,7 +2406,15 @@ mod tests {
             // 最后一跳：多成员中转组各自探测链目标，仍然只算最后一段。
             sample(ts, "c", forward("c1", 2, "c", 1), "", 60),
         ];
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         assert!(view.estimated, "多成员组必须标注估算");
         assert_eq!(view.segments[0].p50, Some(15.0), "10/20 的中位数");
@@ -2247,7 +2432,7 @@ mod tests {
     #[test]
     fn chains_without_samples_keep_null_series_and_unknown_diagnosis() {
         let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 2);
         assert_eq!(view.missing_hops, vec![2], "最后一跳没有样本时仍声明缺失");
@@ -2272,6 +2457,7 @@ mod tests {
             std::slice::from_ref(&chain),
             &[],
             &no_probes(),
+            &no_latest(),
             NOW,
             1,
             BUCKET,
@@ -2293,6 +2479,7 @@ mod tests {
             std::slice::from_ref(&chain),
             &samples,
             &no_probes(),
+            &no_latest(),
             NOW,
             1,
             BUCKET,
@@ -2306,7 +2493,7 @@ mod tests {
     #[test]
     fn groups_without_members_are_reported_as_missing_instead_of_panicking() {
         let chain = chain("c1", vec![(0, vec![]), (1, vec![])]);
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.hops, 2);
         assert_eq!(view.missing_hops, vec![1, 2]);
@@ -2397,7 +2584,15 @@ mod tests {
             |_| 10,
         ));
 
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            24,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].p50, Some(20.0));
         assert_eq!(view.segments[1].p50, Some(55.0));
@@ -2462,7 +2657,15 @@ mod tests {
             |_| 10,
         ));
 
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            24,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].contribution_pct, 50);
         assert_eq!(view.segments[1].contribution_pct, 50);
@@ -2483,7 +2686,15 @@ mod tests {
             sample(ts, "a", forward("c1", 0, "a", 1), "", 20),
             sample(ts, "b", forward("c1", 1, "b", 1), "", 5),
         ];
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 48, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            48,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         let index = ((ts - (end - 48 * 3600)) / BUCKET) as usize;
         assert!(
@@ -2510,7 +2721,15 @@ mod tests {
         let ts = end_at(NOW, BUCKET) - 60;
         // 只有第 1 段有样本：整体桶必须 null，第 1 段自己仍然有 p50。
         let samples = vec![sample(ts, "a", forward("c1", 0, "a", 1), "", 20)];
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].p50, Some(20.0));
         assert!(view.segments[1].p50.is_none());
@@ -2522,7 +2741,7 @@ mod tests {
         let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
         // 计数行存在但 attempts = 0（差分被丢弃等）：必须当作「没有探测」。
         let probes = probes(&[(forward("c1", 0, "a", 1), 0, 0)]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].attempts, 0);
         assert_eq!(view.segments[0].failures, 0);
@@ -2544,7 +2763,7 @@ mod tests {
     fn a_segment_loss_is_failures_over_attempts() {
         let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
         let probes = probes(&[(forward("c1", 0, "a", 1), 240, 2)]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].attempts, 240);
         assert_eq!(view.segments[0].failures, 2);
@@ -2589,7 +2808,7 @@ mod tests {
             (forward("c1", 0, "a", 1), 100, 1),
             (forward("c1", 1, "b", 1), 100, 1),
         ]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].loss_pct, Some(1.0));
         assert_eq!(view.segments[1].loss_pct, Some(1.0));
@@ -2618,7 +2837,7 @@ mod tests {
         );
         // 只有第 1 段有探测：算法只能覆盖已知段，不能把第 2 段当 0%。
         let probes = probes(&[(forward("c1", 0, "a", 1), 100, 1)]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].loss_pct, Some(1.0));
         assert_eq!(view.segments[1].loss_pct, None);
@@ -2646,7 +2865,7 @@ mod tests {
         );
         // 整链四段（3 个中间段 + 最后一跳）都没有探测：这是「无数据」，
         // 不是「部分跳缺数据」。
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments.len(), 4);
         assert!(view
@@ -2679,7 +2898,7 @@ mod tests {
             (forward("c1", 0, "a", 1), 100, 1),
             (forward("c1", 1, "b", 1), 100, 1),
         ]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].loss_pct, Some(1.0));
         assert_eq!(view.segments[1].loss_pct, Some(1.0));
@@ -2735,7 +2954,7 @@ mod tests {
             &[(forward("c1", 0, "a", 1), 100, 1)],
         ));
 
-        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert!(view.series[0].is_none(), "没有时延样本的桶仍是 null");
         assert_eq!(view.series[1].as_ref().unwrap().loss_pct, Some(1.99));
@@ -2772,7 +2991,7 @@ mod tests {
         // 只给较老的那个桶写探测；另一个桶只有时延、没有探测。
         let probes = probes_in_bucket(end - 2 * BUCKET + 60, &[(forward("c1", 0, "a", 1), 100, 1)]);
 
-        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.series[2].as_ref().unwrap().loss_pct, Some(1.0));
         assert_eq!(view.series[3].as_ref().unwrap().loss_pct, None);
@@ -2784,7 +3003,7 @@ mod tests {
         let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
         // 最后一组的 forward 探测的是链目标：归到最后一跳，不能算进第 1 段。
         let probes = probes(&[(forward("c1", 1, "b", 1), 240, 240)]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].attempts, 0, "第 1 段没有探测");
         assert_eq!(view.segments[0].loss_pct, None);
@@ -2806,7 +3025,7 @@ mod tests {
             (forward("c1", 0, "a1", 2), 100, 0),
             (forward("c1", 0, "a2", 2), 100, 10),
         ]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.segments[0].attempts, 200);
         assert_eq!(view.segments[0].failures, 10);
@@ -2832,7 +3051,7 @@ mod tests {
             (forward("c1", 1, "b1", 2), 100, 1),
             (forward("c1", 1, "b2", 2), 100, 2),
         ]);
-        let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &samples, &probes, &no_latest(), NOW, 1, BUCKET);
         assert_eq!(aggregate.unmapped_forwards, 0);
         let view = &aggregate.chains[0];
         assert!(view.missing_hops.is_empty());
@@ -2870,7 +3089,15 @@ mod tests {
             // 最后一跳：x 的 forward 在 seq=2，目标是链目标，空目标。
             sample(ts, "x", forward("c1", 2, "x", 1), "", 50),
         ];
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
         assert_eq!(aggregate.unmapped_forwards, 0);
         let view = &aggregate.chains[0];
         assert!(view.missing_hops.is_empty());
@@ -2886,7 +3113,15 @@ mod tests {
         let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
         let ts = end_at(NOW, BUCKET) - 60;
         let samples = vec![sample(ts, "b", forward("c1", 1, "b", 1), "ghost", 10)];
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
         assert_eq!(aggregate.unmapped_forwards, 1);
         let view = &aggregate.chains[0];
         assert_eq!(view.missing_hops, vec![2], "没有合法样本时仍声明缺失");
@@ -2898,7 +3133,7 @@ mod tests {
     fn a_probe_only_final_hop_is_not_a_missing_hop() {
         let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
         let probes = probes(&[(forward("c1", 1, "b", 1), 100, 1)]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert!(view.missing_hops.is_empty());
         assert!(
@@ -2914,7 +3149,7 @@ mod tests {
     fn a_zero_attempt_final_probe_is_not_data() {
         let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
         let probes = probes(&[(forward("c1", 1, "b", 1), 0, 0)]);
-        let aggregate = aggregate(&[chain], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.missing_hops, vec![2]);
         assert_eq!(view.segments[1].attempts, 0);
@@ -2940,7 +3175,7 @@ mod tests {
                 (2, None, vec![osaka]),
             ],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(
             view.nodes,
@@ -2953,6 +3188,8 @@ mod tests {
                     status: Some("online".into()),
                     member_count: 1,
                     members: vec![node_member("a", "香港-01", "online")],
+                    strategy: None,
+                    active_server_id: None,
                 },
                 NodeView {
                     seq: 1,
@@ -2962,6 +3199,8 @@ mod tests {
                     status: Some("offline".into()),
                     member_count: 1,
                     members: vec![node_member("b", "东京-01", "offline")],
+                    strategy: Some("round_robin".into()),
+                    active_server_id: None,
                 },
                 NodeView {
                     seq: 2,
@@ -2971,6 +3210,8 @@ mod tests {
                     status: Some("abnormal".into()),
                     member_count: 1,
                     members: vec![node_member("c", "大阪-01", "abnormal")],
+                    strategy: Some("round_robin".into()),
+                    active_server_id: None,
                 },
                 NodeView {
                     seq: 3,
@@ -2980,12 +3221,305 @@ mod tests {
                     status: None,
                     member_count: 0,
                     members: Vec::new(),
+                    strategy: None,
+                    active_server_id: None,
                 },
             ]
         );
         // entry / exit 保留，node 与它们不冲突。
         assert_eq!(view.entry.as_ref().unwrap().server_id, "a");
         assert_eq!(view.exit.as_ref().unwrap().server_id, "c");
+    }
+
+    /// 拓扑节点的策略：入口组与链目标为 null，其余组取该组策略；
+    /// 库里的非法值回落 `round_robin`。
+    #[test]
+    fn node_strategy_normalizes_and_falls_back_to_round_robin() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![full_member("b", "B", "10.0.0.2", None, 21_002, 0)],
+                ),
+                (
+                    2,
+                    None,
+                    vec![full_member("c", "C", "10.0.0.3", None, 21_003, 0)],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        chain.groups[2].group.strategy = "garbage".into();
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
+        let nodes = &aggregate.chains[0].nodes;
+        assert_eq!(nodes[0].strategy, None, "入口组不执行选路");
+        assert_eq!(nodes[1].strategy.as_deref(), Some("failover"));
+        assert_eq!(
+            nodes[2].strategy.as_deref(),
+            Some("round_robin"),
+            "非法策略必须回落轮询，而不是让节点缺字段"
+        );
+        assert_eq!(nodes[3].strategy, None, "链目标没有选路策略");
+    }
+
+    /// 入口代表成员 → 第 1 跳选中 → 第 2 跳选中：通路逐跳串起来；
+    /// 入口组与链目标恒为 null。
+    #[test]
+    fn active_members_follows_the_reported_selection_hop_by_hop() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b", "B", "10.0.0.2", None, 21_002, 0),
+                        full_member("c", "C", "10.0.0.3", None, 21_003, 1),
+                    ],
+                ),
+                (
+                    2,
+                    None,
+                    vec![full_member("d", "D", "10.0.0.4", None, 21_004, 0)],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        chain.groups[2].group.strategy = "failover".into();
+        let latest = latest_probes(&[
+            (
+                forward("c1", 0, "a", 1),
+                &[("b", Some(false)), ("c", Some(true))][..],
+            ),
+            (forward("c1", 1, "c", 2), &[("d", Some(true))][..]),
+        ]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        let nodes = &aggregate.chains[0].nodes;
+        assert_eq!(nodes[0].active_server_id, None, "入口组恒为 null");
+        assert_eq!(nodes[1].active_server_id.as_deref(), Some("c"));
+        assert_eq!(nodes[2].active_server_id.as_deref(), Some("d"));
+        assert_eq!(nodes[3].active_server_id, None, "链目标恒为 null");
+    }
+
+    /// 上一跳没有探测记录：从该跳起全部 null，不能跳过它继续猜后面的。
+    #[test]
+    fn active_members_stops_when_a_hop_has_no_status_record() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b", "B", "10.0.0.2", None, 21_002, 0),
+                        full_member("c", "C", "10.0.0.3", None, 21_003, 1),
+                    ],
+                ),
+                (
+                    2,
+                    None,
+                    vec![full_member("d", "D", "10.0.0.4", None, 21_004, 0)],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        let latest = latest_probes(&[(
+            forward("c1", 0, "a", 1),
+            &[("b", Some(false)), ("c", Some(true))][..],
+        )]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        let nodes = &aggregate.chains[0].nodes;
+        assert_eq!(nodes[1].active_server_id.as_deref(), Some("c"));
+        assert_eq!(nodes[2].active_server_id, None);
+    }
+
+    /// 没有 `active=true`（旧 Agent / 非单一选中策略）：从该跳起 null。
+    #[test]
+    fn active_members_is_null_when_no_target_is_marked_active() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b", "B", "10.0.0.2", None, 21_002, 0),
+                        full_member("c", "C", "10.0.0.3", None, 21_003, 1),
+                    ],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        let latest = latest_probes(&[(
+            forward("c1", 0, "a", 1),
+            &[("b", None), ("c", Some(false))][..],
+        )]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        let nodes = &aggregate.chains[0].nodes;
+        assert_eq!(nodes[1].active_server_id, None);
+    }
+
+    /// 同一个规则出现多个 `Some(true)`（脏数据）：没有单一选中项，按无数据处理。
+    #[test]
+    fn active_members_rejects_multiple_active_targets() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b", "B", "10.0.0.2", None, 21_002, 0),
+                        full_member("c", "C", "10.0.0.3", None, 21_003, 1),
+                    ],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        let latest = latest_probes(&[(
+            forward("c1", 0, "a", 1),
+            &[("b", Some(true)), ("c", Some(true))][..],
+        )]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        assert_eq!(aggregate.chains[0].nodes[1].active_server_id, None);
+    }
+
+    /// active 的 server_id 不在本组（例如链改过成员后的历史数据）：该跳起 null。
+    #[test]
+    fn active_members_stops_when_the_selected_server_is_not_in_the_group() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b", "B", "10.0.0.2", None, 21_002, 0),
+                        full_member("c", "C", "10.0.0.3", None, 21_003, 1),
+                    ],
+                ),
+                (
+                    2,
+                    None,
+                    vec![full_member("d", "D", "10.0.0.4", None, 21_004, 0)],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        chain.groups[2].group.strategy = "failover".into();
+        let latest = latest_probes(&[
+            (forward("c1", 0, "a", 1), &[("ghost", Some(true))][..]),
+            (forward("c1", 1, "c", 2), &[("d", Some(true))][..]),
+        ]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        let nodes = &aggregate.chains[0].nodes;
+        assert_eq!(nodes[1].active_server_id, None);
+        assert_eq!(nodes[2].active_server_id, None);
+    }
+
+    /// 上一跳通路成员非 online：该跳（以及之后）全部 null，但上一跳已确定的
+    /// 成员仍然保留（它确实被选中了，只是不在线）。
+    #[test]
+    fn active_members_stops_after_an_offline_hop_member() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b", "B", "10.0.0.2", None, 21_002, 0),
+                        full_member("c", "C", "10.0.0.3", None, 21_003, 1),
+                    ],
+                ),
+                (
+                    2,
+                    None,
+                    vec![full_member("d", "D", "10.0.0.4", None, 21_004, 0)],
+                ),
+            ],
+        );
+        chain.groups[1].members[1].server_status = "offline".into();
+        chain.groups[1].group.strategy = "failover".into();
+        chain.groups[2].group.strategy = "failover".into();
+        let latest = latest_probes(&[
+            (
+                forward("c1", 0, "a", 1),
+                &[("b", Some(false)), ("c", Some(true))][..],
+            ),
+            (forward("c1", 1, "c", 2), &[("d", Some(true))][..]),
+        ]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        let nodes = &aggregate.chains[0].nodes;
+        assert_eq!(nodes[1].active_server_id.as_deref(), Some("c"));
+        assert_eq!(
+            nodes[2].active_server_id, None,
+            "上一跳成员离线后不能再往下走"
+        );
+    }
+
+    /// 单成员组走兼容字段时 `server_id` 是空串：唯一成员可确定，按该成员算。
+    #[test]
+    fn active_members_resolves_an_empty_server_id_to_the_only_member() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![full_member("b", "B", "10.0.0.2", None, 21_002, 0)],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        let latest = latest_probes(&[(forward("c1", 0, "a", 1), &[("", Some(true))][..])]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        assert_eq!(
+            aggregate.chains[0].nodes[1].active_server_id.as_deref(),
+            Some("b")
+        );
     }
 
     /// 多成员组的节点展开**全部**成员：顺序沿用 `(priority, server_id)`，
@@ -3011,7 +3545,7 @@ mod tests {
                 ),
             ],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert!(view.estimated);
         assert_eq!(view.nodes.len(), 3);
@@ -3059,7 +3593,7 @@ mod tests {
                 ),
             ],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(
             view.nodes[0].status.as_deref(),
@@ -3159,6 +3693,7 @@ mod tests {
             &[chain],
             &healthy_samples("c1"),
             &no_probes(),
+            &no_latest(),
             NOW,
             1,
             BUCKET,
@@ -3201,6 +3736,7 @@ mod tests {
             &[chain],
             &healthy_samples("c1"),
             &no_probes(),
+            &no_latest(),
             NOW,
             1,
             BUCKET,
@@ -3236,7 +3772,7 @@ mod tests {
             ],
         );
         // 完全没样本：缺样本不能抢在节点离线前面。
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.missing_hops, vec![3], "最后一跳确实没有样本");
         assert_eq!(view.status.kind, "blocked");
@@ -3279,7 +3815,15 @@ mod tests {
             sample(ts, "a", forward("c1", 0, "a", 1), "b1", 10),
             sample(ts, "b1", forward("c1", 1, "b1", 2), "", 5),
         ];
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         assert!(view.missing_hops.is_empty(), "在线成员的样本足够完整");
         assert_eq!(view.status.kind, "blocked");
@@ -3319,7 +3863,7 @@ mod tests {
                 ),
             ],
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert_eq!(view.missing_hops, vec![2]);
         assert_eq!(view.status.kind, "degraded");
@@ -3351,7 +3895,15 @@ mod tests {
             ],
         );
         let samples = slowed_samples("c1");
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            24,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         assert_eq!(view.status.kind, "degraded");
         assert_eq!(view.status.cause, Some("slow"));
@@ -3386,7 +3938,15 @@ mod tests {
             ],
         );
         let samples = slowed_samples("c1");
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            24,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         assert_eq!(aggregate.summary.slow_chains, 1, "数据本身确实满足变慢口径");
         assert_eq!(view.status.kind, "blocked");
@@ -3429,7 +3989,7 @@ mod tests {
             // 只有中间段有数据：最后一跳由 Agent 实际行为决定，永远没有样本。
             let samples = vec![sample(end - 60, "a", forward("c1", 0, "a", 1), "b", 20)];
             let probes = probes(&[(forward("c1", 0, "a", 1), 200, 2)]);
-            let aggregate = aggregate(&[chain], &samples, &probes, NOW, 1, BUCKET);
+            let aggregate = aggregate(&[chain], &samples, &probes, &no_latest(), NOW, 1, BUCKET);
             let view = &aggregate.chains[0];
             assert!(!view.last_hop.measurable, "{engine}/{protocol}");
             assert_eq!(view.last_hop.reason, Some(reason), "{engine}/{protocol}");
@@ -3464,7 +4024,7 @@ mod tests {
     #[test]
     fn a_chain_without_any_measurable_segment_is_unknown_not_no_samples() {
         let chain = with_runtime(chain("c1", vec![(0, vec![("a", "A")])]), "realm", "tcp");
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert!(!view.last_hop.measurable);
         assert!(view.missing_hops.is_empty(), "不可测不是缺失");
@@ -3504,7 +4064,15 @@ mod tests {
             "tcp",
         );
         let samples = slowed_samples("c1");
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 24, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            24,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         assert_eq!(view.status.kind, "unknown");
         assert_eq!(view.status.cause, Some("unmeasurable"));
@@ -3535,7 +4103,7 @@ mod tests {
             "realm",
             "tcp",
         );
-        let aggregate = aggregate(&[chain], &[], &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
         let view = &aggregate.chains[0];
         assert!(!view.last_hop.measurable);
         assert_eq!(view.status.kind, "blocked");
@@ -3554,7 +4122,15 @@ mod tests {
             sample(ts, "a", forward("c1", 0, "a", 1), "b", 20),
             sample(ts, "b", forward("c1", 1, "b", 1), "", 5),
         ];
-        let aggregate = aggregate(&[chain], &samples, &no_probes(), NOW, 1, BUCKET);
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
         let view = &aggregate.chains[0];
         assert_eq!(
             view.missing_hops,
@@ -3572,7 +4148,7 @@ mod tests {
             (forward("c1", 0, "a", 1), 100, 50),
             (forward("c2", 0, "c", 1), 100, 1),
         ]);
-        let aggregate = aggregate(&[a, b], &[], &probes, NOW, 1, BUCKET);
+        let aggregate = aggregate(&[a, b], &[], &probes, &no_latest(), NOW, 1, BUCKET);
         assert_eq!(aggregate.chains[0].loss_pct, Some(50.0));
         assert_eq!(aggregate.chains[1].loss_pct, Some(1.0));
         assert_eq!(aggregate.summary.loss_pct, Some(50.0));

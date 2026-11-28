@@ -88,6 +88,13 @@ legend — the row's numbers still carry the values.
 - Agent 每 30 秒对转发规则的目标做一次 TCP 握手探测（多成员组逐目标探测）。
 - `ForwardStatus` 从协议 26 起带 `probe_attempts` / `probe_failures`（自监听启动以来的
   **累计**次数，`Option`；不做探测的规则为 `None`，绝不写 0）。
+- `ForwardStatus.targets[]`（逐目标探测）从协议 30 起可带 `active: Option<bool>`：
+  只对 `failover` / `lowest_latency` 且有确定答案时上报，同一条规则至多一个
+  `Some(true)`（其余已探测目标 `Some(false)`）；轮询 / 哈希 / 加权 / 最少连接
+  没有单一选中项，与旧 Agent 一样为 `None`（缺键 / null 都表示未知）。
+  主控落库时 `None` 不输出键（旧 Agent 的 JSON 逐字节不变），链视图据此合成
+  `nodes[].active_server_id`。`active` 不替代 `ok` / `latency_ms`：它只回答
+  「这一轮选中了谁」，探测成败仍看 `ok`。
 - 主控把相邻两次心跳的累计值差成增量，落到 `forward_probe_samples` 的 **5 分钟桶**
   （`attempts` / `failures` 是增量，不是累计）；计数回绕时只换基线、不记负数。
 - 24h 可用率 = `1 - SUM(failures) / SUM(attempts)`，按探测次数加权（不是成员可用率的
@@ -107,7 +114,15 @@ legend — the row's numbers still carry the values.
 
 English: Every 30 seconds the agent performs a TCP handshake probe against each forward
 target. Since protocol 26 `ForwardStatus` carries cumulative `probe_attempts` /
-`probe_failures` (optional; rules that do not probe report `None`, never 0). The master
+`probe_failures` (optional; rules that do not probe report `None`, never 0). Since
+protocol 30 each reported target may also carry `active: Option<bool>`: it is set only
+for `failover` / `lowest_latency` when there is a definite answer, with at most one
+`Some(true)` per rule (`Some(false)` on the other probed targets). Round-robin / hashed /
+weighted / least-connections have no single selection and report `None` (a missing key or
+null both mean unknown). The master omits the key when the value is `None`, so an old
+agent's stored JSON is byte-for-byte unchanged, and uses it to build
+`nodes[].active_server_id`. `active` does not replace `ok` / `latency_ms`; it only says
+which target was selected in this round. The master
 diffs consecutive heartbeats into 5-minute buckets in `forward_probe_samples` (increments,
 not totals); a counter wrap only rebases the baseline. 24h availability is
 `1 - SUM(failures) / SUM(attempts)`, weighted by attempts (not an average of member
@@ -162,6 +177,12 @@ Insufficient samples never raise an alert.
   多跳链的落地只能看到上一跳地址，保存时 400 `chain.proxy_protocol_requires_single_hop`，
   历史多跳 + 开关的链在下发时整链 blocked、不静默下发。迁移 `0056_proxy_protocol.sql`
   只追加两列（见 `docs/ERRORS.md`）。
+- `PROTOCOL_VERSION` 30（链视图的当前选中）：`TargetProbe` 新增
+  `active: Option<bool>`（`#[serde(default)]`，序列化时 `None` 省略键）。
+  旧 Agent 没有该键 → `None`；新 Agent 对旧主控只多一个未知键，`TargetProbe` /
+  `ForwardStatus` 没有 `deny_unknown_fields`，serde 默认忽略。它只影响
+  `/api/v1/overview/chain-health` 的展示，不参与下发门禁，**不需要**像策略 /
+  PROXY 那样要求整链升级。无迁移：值存在既有 `forward_status.targets_json` 里。
 
 English: `PROTOCOL_VERSION` is 26 for the telemetry fields above; 27 adds the weighted /
 least-connections chain strategies and `ForwardTarget.weight` (default 1). Old agents ignore
@@ -172,7 +193,13 @@ paths require protocol >= 28. The switch is TCP + native only, and a chain may u
 **only with a single hop**: a multi-hop landing only sees the previous hop, so saving
 returns 400 `chain.proxy_protocol_requires_single_hop` and historical multi-hop chains
 with the flag on are blocked at dispatch, never delivered silently. Migration
-`0056_proxy_protocol.sql` only appends two columns.
+`0056_proxy_protocol.sql` only appends two columns. Protocol 30 adds
+`TargetProbe.active: Option<bool>` (`#[serde(default)]`, omitted when `None`): old agents
+report no key (→ `None`), and an old master simply ignores the unknown key because
+`TargetProbe` / `ForwardStatus` do not set `deny_unknown_fields`. It only feeds the
+`/api/v1/overview/chain-health` display and is **not** behind a dispatch version gate;
+there is no migration because the value lives in the existing
+`forward_status.targets_json`.
 
 English: `PROTOCOL_VERSION` is 26. `Heartbeat` gains `net_rx_bytes`, `net_tx_bytes`,
 `net_at`; `ForwardStatus` gains `probe_attempts` and `probe_failures`. All are optional and

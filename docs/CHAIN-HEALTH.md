@@ -126,16 +126,16 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 ```jsonc
 "nodes": [
   { "seq": 0, "server_id": "…", "name": "香港入口", "role": "source", "status": "online",
-    "member_count": 1,
+    "member_count": 1, "strategy": null, "active_server_id": null,
     "members": [{ "server_id": "…", "name": "香港-01", "status": "online" }] },
   { "seq": 1, "server_id": "…", "name": "东京中转（双路）", "role": "hop", "status": "offline",
-    "member_count": 2,
+    "member_count": 2, "strategy": "failover", "active_server_id": "…",
     "members": [
       { "server_id": "…", "name": "东京-01", "status": "online" },
       { "server_id": "…", "name": "东京-02", "status": "offline" }
     ] },
   { "seq": 2, "server_id": null, "name": "链目标", "role": "target", "status": null,
-    "member_count": 0, "members": [] }
+    "member_count": 0, "strategy": null, "active_server_id": null, "members": [] }
 ]
 ```
 
@@ -154,6 +154,23 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
   链目标节点的 `name` 固定为 `链目标`，`server_id` 是 `null`；
 - **seq**：组节点就是组的 `seq`；链目标节点是「最后一组 `seq` + 1」，与
   `missing_hops` 里最后一跳的编号一致；
+- **strategy**：该组的选路策略，取值 `round_robin` / `failover` /
+  `lowest_latency` / `ip_hashed` / `weighted` / `least_conn`。入口组没有上一跳、
+  链目标节点没有选路，两者恒为 `null`；库里的非法值回落 `round_robin`。
+  执行选路的是**上一跳**，所以这个字段描述的是「上一跳进入本组时用什么策略」；
+- **active_server_id**：从入口代表成员（`(priority, server_id)` 最小，与
+  `entry` 同口径）出发，沿 Agent 上报的「当前选中」逐跳走出的当前通路成员
+  （`server_id`）。每一跳看上一跳 forward 的逐目标探测：恰好一个
+  `targets[].active = true` 的成员就是这一跳的当前通路成员，再以它为起点
+  继续下一跳。入口组与链目标恒为 `null`。以下任一情况都会从**该跳起**
+  全部为 `null`（之前已经确定的成员保留）：上一跳通路成员不是 `online`、
+  该 forward 没有心跳状态记录、没有 `active = true`、有多个
+  `active = true`（没有单一选中项）、`active` 的 `server_id` 不在本组、
+  或者本组策略不是 `failover` / `lowest_latency`（这两者才有确定的单一
+  选中项；轮询 / 哈希 / 加权 / 最少连接即使收到脏的 `active` 也不采用）。
+  单成员组走旧兼容字段时 Agent 上报的 `server_id` 是空串，此时归到该组
+  唯一成员（与样本归属同一口径）。该字段是展示用的合成视图，不改变
+  下发与探测口径；
 - 多成员组全部展开后，链级 `estimated: true` 仍然只表示「段值是按多路径
   估算的」，不再表示 `nodes` 只展示一台；
 - 没有任何组的脏数据返回空数组。
@@ -387,10 +404,13 @@ UDP 可达）。引擎 / 协议是链级字段（`derive_forwards` 逐跳透传�
 4. `forward_latency_samples`：所有成员 forward id 一次 `IN (...)`，时间下界
    覆盖 `series` 与 24h 基线中更老的一侧；
 5. `forward_probe_samples`：同一批 forward id 在 `series` 窗口内的 5 分钟
-   探测桶，一次 `IN (...)` 读出；逐桶丢包在内存里按 `bucket` 再合并。
+   探测桶，一次 `IN (...)` 读出；逐桶丢包在内存里按 `bucket` 再合并；
+6. `forward_status`：同一批 forward id 的 `forward_id, targets_json`，一次
+   `IN (...)` 读出，用于 `nodes[].active_server_id`；id 列表为空时不查。
+   单行 JSON 解析失败只记 warn 并当「该跳没有数据」，不影响其它跳。
 
-起点/终点与逐段 `series` 都是这批结果的纯内存归并，**没有新增查询**，也不按
-段/按桶循环查库。
+起点/终点、逐段 `series` 与 `active_server_id` 都是这批结果的纯内存归并，
+**没有按段/按桶循环查库**；`active_server_id` 复用第 6 条查询，不按跳加查。
 
 在 `data/preview.db`（迁移建库、不跑 `ANALYZE`）上实测：
 
@@ -525,10 +545,10 @@ USE TEMP B-TREE FOR ORDER BY
   链组映射足够；`nodes[].members[].status` 直接读 `servers.status`，组级
   `nodes[].status` 是最差成员，`chains[].status` 是成员状态 + 已有样本的纯
   内存合成，不新增列；
-- 不改 `crates/proto`、`crates/agent`：Agent 只对 `engine = native &&
-  protocol = tcp` 的 forward 跑 `target_health_loop`（realm / nftables /
-  tunnel / udp / both 都不探测），主控用 `last_hop` 显式标注这个边界，
-  不需要新字段或协议版本；
+- 不改探测条件：Agent 只对 `engine = native && protocol = tcp` 的 forward 跑
+  `target_health_loop`（realm / nftables / tunnel / udp / both 都不探测），
+  主控用 `last_hop` 显式标注这个边界；`active` 只是同一轮探测上的标记
+  （协议 30），不新增探测动作；
 - 逐段序列只给 `p50` + `loss_pct`，不返回 `p10` / `p90` / `samples`，也不做
   段级 24h 基线；热力图需要更多分布字段时要再扩契约；
 - 丢包不单独提供曲线/基线：链级逐桶值随 `series[]`、段级逐桶值随
@@ -536,7 +556,8 @@ USE TEMP B-TREE FOR ORDER BY
   丢包基线；
 - 多路径按「段中位数求和」估算，不做按实际选路权重的加权；
 - 不做跨进程缓存失效（30 秒 TTL，单进程）；
-- 不改 `web/`、`agent/`、`proto/`。
+- 不改表结构：`active` 存在既有 `forward_status.targets_json` 里，没有迁移；
+  本轮只新增 `TargetProbe.active`（协议 30）与链视图的合成字段。
 
 ---
 
@@ -616,6 +637,22 @@ empty group falls back to `第 N 跳`). The target node's name is `链目标`, i
 matching the final-hop `seq` used by `missing_hops`. A multi-member group is
 fully expanded; the chain-level `estimated: true` still only means the segment
 value is an estimate. A chain with no groups returns an empty `nodes` array.
+Each group node also carries `strategy` and `active_server_id`. `strategy` is the
+group's routing strategy (`round_robin` / `failover` / `lowest_latency` /
+`ip_hashed` / `weighted` / `least_conn`); it is `null` for the entry group (no
+previous hop) and the target node, and invalid stored values fall back to
+`round_robin`. `active_server_id` walks the current path from the entry
+representative member (smallest `(priority, server_id)`, same rule as `entry`)
+using the previous hop's `targets[].active = true`: exactly one member must be
+marked active for the hop to be filled. Both fields are `null` on the entry
+group and target node. From the first hop that cannot be resolved onward
+everything is `null`: the previous path member is not `online`, the forward has
+no heartbeat record, no target is active, more than one target is active, the
+active `server_id` is not in this group, or this group's strategy is not
+`failover` / `lowest_latency` (only those have a single current selection).
+A legacy single-member group reports an empty `server_id`, which resolves to its
+only member (the same fallback used for sample attribution). This is a
+display-only composite and does not change dispatch or probing.
 
 `chains[].status` is the chain-level availability verdict combining member state
 with data quality: `kind` is `ok` / `degraded` / `blocked` / `unknown`, `cause`
@@ -742,11 +779,13 @@ is computed in memory from the same sample/probe rows—no SQL is issued per
 segment—so the query count is independent of the number of segments.
 
 Performance: three topology queries (chains / groups / members), one
-`forward_latency_samples` query with `forward_id IN (...)`, and one
+`forward_latency_samples` query with `forward_id IN (...)`, one
 `forward_probe_samples` query reading the 5-minute buckets across the series
-window with `forward_id IN (...)`; no N+1. Entry/exit, `nodes` and the
-per-segment series add no queries—they are derived from those same rows in
-memory. On the preview
+window with `forward_id IN (...)`, and one `forward_status` query selecting
+`forward_id, targets_json` for the same ids (skipped entirely when there are no
+ids; a row whose JSON fails to parse is logged and treated as missing data);
+no N+1. Entry/exit, `nodes`, `active_server_id` and the per-segment series add
+no queries—they are derived from those same rows in memory. On the preview
 database `EXPLAIN QUERY PLAN` shows `SCAN chains USING INDEX idx_chains_created`,
 `SCAN chain_groups USING INDEX idx_chain_groups_chain` (an index-order scan, not
 a full table scan), the `chain_group_members` primary-key index plus primary-key

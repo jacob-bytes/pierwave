@@ -64,6 +64,9 @@ struct StatusState {
     /// 规则 id → 每个候选目标的探测结果，顺序与规则里的 `targets` 一致。
     /// `health = None` = 这一轮还没测过（启动瞬间按健康处理，避免无谓断流）。
     target_health: HashMap<String, Vec<TargetSlot>>,
+    /// 规则 id → 选路策略。心跳据此判断要不要给目标打「当前选中」标记（协议 30）；
+    /// 轮询 / 哈希 / 加权 / 最少连接没有唯一选中项，`current` 会返回 `None`。
+    strategies: HashMap<String, ForwardStrategy>,
     /// 规则 id → TCP 双向累计字节。只在 `native` 且有 TCP 监听时存在；
     /// UDP-only / realm / nftables 没有这里的条目，心跳上报 null。
     traffic: HashMap<String, TrafficCounters>,
@@ -134,17 +137,33 @@ impl ForwardStatusHandle {
                     .and_then(|slots| overall_target_ok(slots));
                 // 只上报**已经探测过**的目标：未探测保持空数组（主控显示 null），
                 // 不能把「还没测」伪装成 ok=false 或 0ms。
+                //
+                // `current` 必须先用**完整**槽位（含未探测，按健康处理）算出来，
+                // 再在过滤时用**原始下标**打标记：否则未探测目标被过滤后下标左移，
+                // active 会指到另一台成员。这里也不能调用 `healthy_targets`——
+                // 它自己会再锁一次，当前已经持锁会死锁。
+                let strategy = state.strategies.get(&status.id).copied();
                 status.targets = state
                     .target_health
                     .get(&status.id)
                     .map(|slots| {
+                        let health: Vec<TargetHealth> = slots
+                            .iter()
+                            .map(|slot| slot.health.unwrap_or_else(TargetHealth::up))
+                            .collect();
+                        let current =
+                            strategy.and_then(|strategy| Selector::current(strategy, &health));
                         slots
                             .iter()
-                            .filter_map(|slot| {
+                            .enumerate()
+                            .filter_map(|(slot_index, slot)| {
                                 slot.health.map(|health| TargetProbe {
                                     server_id: slot.server_id.clone(),
                                     ok: health.healthy,
                                     latency_ms: health.latency_ms,
+                                    // 有确定答案时每个已探测目标都写 Some：选中的
+                                    // 是 true、其余 false；没有答案时整数组都是 None。
+                                    active: current.map(|current| current == slot_index),
                                 })
                             })
                             .collect()
@@ -171,6 +190,7 @@ impl ForwardStatusHandle {
         state.statuses = statuses;
         // 已经不在期望态里的规则不能留下探测/流量缓存。
         state.target_health.retain(|id, _| ids.contains(id));
+        state.strategies.retain(|id, _| ids.contains(id));
         state.traffic.retain(|id, _| ids.contains(id));
         state.probes.retain(|id, _| ids.contains(id));
     }
@@ -198,11 +218,12 @@ impl ForwardStatusHandle {
     /// 新规则接管监听前先建好逐目标槽位（全部未探测），并清零探测计数。
     ///
     /// 计数口径是「自本次监听启动以来」，规则重建时旧计数不能带过来。
-    fn init_target_health(&self, id: &str, targets: &[ForwardTarget]) {
+    fn init_target_health(&self, id: &str, targets: &[ForwardTarget], strategy: ForwardStrategy) {
         let mut state = self
             .inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.strategies.insert(id.to_string(), strategy);
         state.target_health.insert(
             id.to_string(),
             targets
@@ -258,12 +279,15 @@ impl ForwardStatusHandle {
             .unwrap_or_default()
     }
 
+    /// 规则删除 / 目标变化 / 切到 UDP：探测结果与策略一起清掉，不能留下
+    /// 上一版目标列表的 `active` 依据。
     fn clear_target_health(&self, id: &str) {
-        self.inner
+        let mut state = self
+            .inner
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .target_health
-            .remove(id);
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        state.target_health.remove(id);
+        state.strategies.remove(id);
     }
 
     /// 测试辅助：读逐目标原始探测结果（`None` = 尚未探测）。
@@ -545,8 +569,11 @@ impl ForwardSupervisor {
                 // 探测任务已在补 UDP 时停掉，且 receiver 已随任务释放；
                 // 这里只重置成「全部未知（按健康处理）」，避免健康列表为空
                 // 导致 TCP 连接全部被立即关闭。下一次完整重建会恢复周期探测。
-                self.status
-                    .init_target_health(&spec.id, &running.runtime.targets);
+                self.status.init_target_health(
+                    &spec.id,
+                    &running.runtime.targets,
+                    running.runtime.strategy,
+                );
                 self.udp_failures.remove(&spec.id);
                 tracing::info!(id = %spec.id, "关闭 UDP 监听（TCP 未中断）");
             }
@@ -738,7 +765,8 @@ impl ForwardSupervisor {
             // 带 UDP 的规则不做 TCP 目标探测：TCP 握手证明不了 UDP 可达，
             // 对「只开 UDP」的目标会报出假降级；`target_ok` 保持 `None`（未知）。
             let health_task = if wants_tcp && !wants_udp {
-                self.status.init_target_health(&spec.id, &targets);
+                self.status
+                    .init_target_health(&spec.id, &targets, spec.strategy);
                 Some(tokio::spawn(target_health_loop(
                     spec.id.clone(),
                     targets,
@@ -2627,6 +2655,141 @@ mod tests {
             .expect("UDP 规则必须有状态");
         assert_eq!(udp_status.probe_attempts, None);
         assert_eq!(udp_status.probe_failures, None);
+    }
+
+    // ---- 心跳的 active 标记（协议 30） ----
+
+    fn health_targets(server_ids: &[&str]) -> Vec<ForwardTarget> {
+        server_ids
+            .iter()
+            .map(|server_id| ForwardTarget {
+                host: "127.0.0.1".into(),
+                port: 9,
+                server_id: (*server_id).to_string(),
+                weight: 1,
+            })
+            .collect()
+    }
+
+    /// 直接构造一个只跑探测状态的心跳句柄（不建真实监听）。
+    fn probe_status_handle(
+        id: &str,
+        server_ids: &[&str],
+        strategy: ForwardStrategy,
+    ) -> ForwardStatusHandle {
+        let handle = ForwardStatusHandle::default();
+        handle.store(vec![ForwardStatus {
+            id: id.to_string(),
+            listening: true,
+            ..ForwardStatus::default()
+        }]);
+        handle.init_target_health(id, &health_targets(server_ids), strategy);
+        handle
+    }
+
+    fn probes_of(handle: &ForwardStatusHandle, id: &str) -> Vec<TargetProbe> {
+        handle
+            .snapshot()
+            .into_iter()
+            .find(|status| status.id == id)
+            .expect("规则必须有状态")
+            .targets
+    }
+
+    /// failover：只有第一个健康目标带 `active=true`，其余已探测目标显式 false。
+    #[test]
+    fn failover_heartbeat_marks_the_first_healthy_target_active() {
+        let handle = probe_status_handle("f1", &["a", "b"], ForwardStrategy::Failover);
+        handle.set_target_health("f1", 0, TargetHealth::down());
+        handle.set_target_health("f1", 1, TargetHealth::up());
+
+        let probes = probes_of(&handle, "f1");
+        assert_eq!(probes.len(), 2);
+        assert_eq!(probes[0].active, Some(false));
+        assert_eq!(probes[1].active, Some(true), "主目标不可达时备选是当前选中");
+
+        // 主目标恢复后必须切回 true，旧选中变 false。
+        handle.set_target_health("f1", 0, TargetHealth::up());
+        let probes = probes_of(&handle, "f1");
+        assert_eq!(probes[0].active, Some(true));
+        assert_eq!(probes[1].active, Some(false));
+    }
+
+    /// lowest_latency：延迟最低的健康目标带 `active=true`；失败目标不参与。
+    #[test]
+    fn lowest_latency_heartbeat_marks_the_fastest_healthy_target_active() {
+        let handle = probe_status_handle("f2", &["a", "b", "c"], ForwardStrategy::LowestLatency);
+        handle.set_target_health("f2", 0, TargetHealth::with_latency(50));
+        handle.set_target_health("f2", 1, TargetHealth::down());
+        handle.set_target_health("f2", 2, TargetHealth::with_latency(5));
+
+        let probes = probes_of(&handle, "f2");
+        assert_eq!(
+            probes.iter().map(|probe| probe.active).collect::<Vec<_>>(),
+            vec![Some(false), Some(false), Some(true)]
+        );
+    }
+
+    /// 轮询等没有单一选中项的策略：所有目标的 active 都是 None（不输出 true，
+    /// 也不能把「没有答案」写成 false）。
+    #[test]
+    fn strategies_without_a_single_selection_leave_active_unknown() {
+        for strategy in [
+            ForwardStrategy::RoundRobin,
+            ForwardStrategy::IpHashed,
+            ForwardStrategy::Weighted,
+            ForwardStrategy::LeastConn,
+        ] {
+            let handle = probe_status_handle("f3", &["a", "b"], strategy);
+            handle.set_target_health("f3", 0, TargetHealth::up());
+            handle.set_target_health("f3", 1, TargetHealth::up());
+            let probes = probes_of(&handle, "f3");
+            assert!(
+                probes.iter().all(|probe| probe.active.is_none()),
+                "{strategy:?} 不应报告当前选中：{probes:?}"
+            );
+        }
+    }
+
+    /// 全部不健康时没有当前选中：不能出现 `active=true`。
+    #[test]
+    fn all_targets_unhealthy_means_no_active_target() {
+        let handle = probe_status_handle("f4", &["a", "b"], ForwardStrategy::Failover);
+        handle.set_target_health("f4", 0, TargetHealth::down());
+        handle.set_target_health("f4", 1, TargetHealth::down());
+        let probes = probes_of(&handle, "f4");
+        assert_eq!(probes.len(), 2);
+        assert!(probes.iter().all(|probe| probe.active.is_none()));
+
+        // lowest_latency 同样没有答案。
+        let handle = probe_status_handle("f5", &["a", "b"], ForwardStrategy::LowestLatency);
+        handle.set_target_health("f5", 0, TargetHealth::down());
+        handle.set_target_health("f5", 1, TargetHealth::down());
+        assert!(probes_of(&handle, "f5")
+            .iter()
+            .all(|probe| probe.active.is_none()));
+    }
+
+    /// 未探测目标被过滤时不能打乱原始下标：过滤器只影响输出条目，不影响
+    /// `active` 对应的是哪个槽位。这里 0 不健康、1 未探测（按健康处理）、
+    /// 2 健康，完整列表的选中是 1；1 被过滤后不能把 true 错标到 2 上。
+    #[test]
+    fn unprobed_targets_do_not_shift_active_indices() {
+        let handle = probe_status_handle("f6", &["a", "b", "c"], ForwardStrategy::Failover);
+        handle.set_target_health("f6", 0, TargetHealth::down());
+        handle.set_target_health("f6", 2, TargetHealth::up());
+
+        let probes = probes_of(&handle, "f6");
+        assert_eq!(probes.len(), 2, "未探测目标不应出现在心跳里");
+        assert_eq!(probes[0].server_id, "a");
+        assert_eq!(probes[1].server_id, "c");
+        assert_eq!(probes[0].active, Some(false));
+        assert_eq!(
+            probes[1].active,
+            Some(false),
+            "当前选中是未探测的 b，不能错标到 c"
+        );
+        assert!(!probes.iter().any(|probe| probe.active == Some(true)));
     }
 
     /// 每条规则可以自带监听地址；空白值回落全局 forward_bind。

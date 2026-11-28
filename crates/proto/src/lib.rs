@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const PROTOCOL_VERSION: u32 = 29;
+pub const PROTOCOL_VERSION: u32 = 30;
 
 /// 主控开始支持 **nftables 多目标选路**（`DesiredForward.targets` 里超过一个
 /// 成员 + `strategy = round_robin / weighted / ip_hashed`）的最低 Agent 协议版本。
@@ -723,6 +723,16 @@ pub struct TargetProbe {
     /// TCP 握手往返毫秒数；失败 / 旧 Agent 未记录时为 `None`，绝不能是 0。
     #[serde(default)]
     pub latency_ms: Option<u32>,
+    /// 这一轮该目标是否是 Agent 的**当前选中**（协议 30 起）。
+    ///
+    /// 只对 `failover` / `lowest_latency` 且存在确定答案时上报：同一条规则的
+    /// 探测数组里至多一个 `Some(true)`，其余 `Some(false)`。轮询 / 哈希 /
+    /// 加权 / 最少连接没有单一选中项，以及旧 Agent 不认识该字段，一律 `None`
+    /// （`null` 与缺键都表示「未知」，不能当成 `false`）。
+    ///
+    /// 键只在有答案时出现（`None` 直接省略），旧主控会忽略未知键。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<bool>,
 }
 
 /// 期望态里的单个节点（仅 Agent 生成 tc 规则需要的字段）。
@@ -902,8 +912,8 @@ mod tests {
     #[test]
     fn forward_udp_defaults_to_false_for_old_masters() {
         assert_eq!(
-            PROTOCOL_VERSION, 29,
-            "nftables 多目标选路是新增语义，必须升协议版本"
+            PROTOCOL_VERSION, 30,
+            "逐目标 active 标记是新增语义，必须升协议版本"
         );
         assert_eq!(
             NFTABLES_MULTI_TARGET_PROTOCOL_VERSION, 29,
@@ -1075,11 +1085,13 @@ mod tests {
                     server_id: "srv-a".into(),
                     ok: true,
                     latency_ms: Some(23),
+                    active: None,
                 },
                 TargetProbe {
                     server_id: "srv-b".into(),
                     ok: false,
                     latency_ms: None,
+                    active: None,
                 },
             ],
             traffic_in: None,
@@ -1097,6 +1109,45 @@ mod tests {
         );
         let back: ForwardStatus = serde_json::from_value(json).unwrap();
         assert_eq!(back, status, "逐目标探测结果必须能往返");
+    }
+
+    /// `active` 是协议 30 新增的可选字段：旧 Agent 无键 / 显式 null 都解析成
+    /// None，Some(true) 能往返，None 不输出键（与旧 Agent 报文逐字节一致）。
+    #[test]
+    fn target_probe_active_is_optional_and_roundtrips() {
+        let old = r#"{"server_id":"srv-a","ok":true,"latency_ms":17}"#;
+        let probe: TargetProbe = serde_json::from_str(old).unwrap();
+        assert_eq!(
+            probe.active, None,
+            "旧 Agent 没有 active 键时必须解析为 None"
+        );
+
+        let explicit_null = r#"{"server_id":"srv-a","ok":true,"latency_ms":17,"active":null}"#;
+        let probe: TargetProbe = serde_json::from_str(explicit_null).unwrap();
+        assert_eq!(probe.active, None, "显式 null 同样表示未知");
+
+        let active = TargetProbe {
+            server_id: "srv-b".into(),
+            ok: true,
+            latency_ms: Some(5),
+            active: Some(true),
+        };
+        let json = serde_json::to_value(&active).unwrap();
+        assert_eq!(json["active"], true);
+        let back: TargetProbe = serde_json::from_value(json).unwrap();
+        assert_eq!(back, active, "active 必须能往返");
+
+        let inactive = TargetProbe {
+            server_id: "srv-c".into(),
+            ok: true,
+            latency_ms: Some(6),
+            active: None,
+        };
+        let json = serde_json::to_value(&inactive).unwrap();
+        assert!(
+            json.get("active").is_none(),
+            "None 不能输出 active 键（旧主控/旧 Agent 报文保持不变）：{json}"
+        );
     }
 
     /// 每跳流量是可选字段：旧 Agent 不上报时必须是 None（主控落 NULL），
