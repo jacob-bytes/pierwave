@@ -648,12 +648,33 @@ mod tests {
     async fn statuses_cover_disabled_offline_partial_and_missing_members() {
         let f = setup().await;
         let online = make_server(&f, "在线", true).await;
+        let online2 = make_server(&f, "在线二", true).await;
         let offline = make_server(&f, "离线", false).await;
+        let offline2 = make_server(&f, "离线二", false).await;
         let partial = make_template(
             &f,
             "部分离线",
             true,
             &[("round_robin", &[&online]), ("round_robin", &[&offline])],
+        )
+        .await;
+        // 同一组里 [online, offline]：组内还有在线成员，只降级。
+        let partial_members = make_template(
+            &f,
+            "组内部分离线",
+            true,
+            &[
+                ("round_robin", &[&online]),
+                ("round_robin", &[&online2, &offline]),
+            ],
+        )
+        .await;
+        // 同一组两台全离线：这一跳没有在线成员，模板阻断。
+        let all_offline_members = make_template(
+            &f,
+            "组内全离线",
+            true,
+            &[("round_robin", &[&offline, &offline2])],
         )
         .await;
         let all_offline = make_template(&f, "全离线", true, &[("round_robin", &[&offline])]).await;
@@ -686,6 +707,21 @@ mod tests {
         let by_id = |id: &str| items.iter().find(|item| item["id"] == id).unwrap();
         assert_eq!(by_id(&partial)["status"]["kind"], "blocked");
         assert_eq!(by_id(&partial)["status"]["cause"], "member_offline");
+        assert_eq!(
+            by_id(&partial_members)["status"]["kind"],
+            "degraded",
+            "组内还有在线候选时只降级"
+        );
+        assert!(by_id(&partial_members)["status"]["cause"].is_null());
+        assert_eq!(
+            by_id(&all_offline_members)["status"]["kind"],
+            "blocked",
+            "整组候选全部离线才阻断"
+        );
+        assert_eq!(
+            by_id(&all_offline_members)["status"]["cause"],
+            "member_offline"
+        );
         assert_eq!(by_id(&all_offline)["status"]["kind"], "blocked");
         assert_eq!(by_id(&all_offline)["status"]["cause"], "member_offline");
         assert_eq!(by_id(&disabled)["status"]["kind"], "blocked");

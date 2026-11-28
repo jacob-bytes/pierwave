@@ -8,9 +8,11 @@
 //!   含管理员链与用户链；`users` 是这些链里 `owner_user_id` 的去重数，
 //!   管理员链（owner 为空）不计入；
 //! * `status`：模板停用 → `blocked/disabled`；否则模板**每个组的候选成员**
-//!   里任一 `servers.status = offline` → `blocked/member_offline`；任一非
-//!   `online` → `degraded`（没有专门的 cause）；全部 online → `ok`；模板
-//!   没有任何候选成员 → `degraded`；
+//!   里某组**全部离线**（这一跳没有在线候选）→ `blocked/member_offline`；
+//!   组内还有在线候选、只是部分成员离线 → `degraded`（`cause` 为 `null`，
+//!   链路只是容量下降）；任一非 `online` 但未确认离线的候选（`abnormal` /
+//!   `no_data` / 服务器已删除）→ `degraded`（没有专门的 cause）；全部 online
+//!   → `ok`；模板没有任何候选成员 → `degraded`；
 //! * 详情 `nodes[].members[].chains` / `users` = 实际链在该组包含该成员的
 //!   去重链 / 用户数（键是真实组的 `seq`，不是模板的 `seq`）；
 //! * 详情的 `nodes` **只来自真实链的实际拓扑**（`chain_groups` /
@@ -371,6 +373,11 @@ fn paths_of(chains: &[&ChainWithGroups]) -> Vec<PathChain> {
 }
 
 /// 模板级状态：候选成员来自模板定义，而不是某条链的实际成员。
+///
+/// 与链级可用性同一口径，按**组**判断：某组的候选**全部离线**（这一跳没有
+/// 在线候选）才 `blocked/member_offline`；组内还有在线候选、只是掉了部分
+/// 成员 → `degraded`（容量下降）；其它非在线候选（`abnormal` / `no_data` /
+/// 服务器已删除）同样只 `degraded`。
 fn status_of(
     enabled: bool,
     groups: &[ChainTemplateGroup],
@@ -379,26 +386,37 @@ fn status_of(
     if !enabled {
         return TemplateStatus::blocked("disabled");
     }
-    let candidates: Vec<&String> = groups
+    if groups
         .iter()
-        .flat_map(|group| group.server_ids.iter())
-        .collect();
-    if candidates.is_empty() {
+        .all(|group| group.server_ids.iter().all(|id| id.trim().is_empty()))
+    {
         return TemplateStatus::degraded();
     }
     let mut offline = false;
     let mut non_online = false;
-    for server_id in candidates {
-        match servers.get(server_id) {
-            Some(server) if server.status == "online" => {}
-            Some(server) if server.status == "offline" => offline = true,
-            // 服务器被删除 / 状态缺失 / abnormal / no_data 都算「非在线」。
-            _ => non_online = true,
+    let mut blocked = false;
+    for group in groups {
+        let mut online = 0_usize;
+        let mut has_offline = false;
+        for server_id in &group.server_ids {
+            match servers.get(server_id) {
+                Some(server) if server.status == "online" => online += 1,
+                Some(server) if server.status == "offline" => {
+                    has_offline = true;
+                    offline = true;
+                }
+                // 服务器被删除 / 状态缺失 / abnormal / no_data 都算「非在线」，
+                // 但没被确认离线，只降级不阻断。
+                _ => non_online = true,
+            }
+        }
+        if online == 0 && has_offline {
+            blocked = true;
         }
     }
-    if offline {
+    if blocked {
         TemplateStatus::blocked("member_offline")
-    } else if non_online {
+    } else if offline || non_online {
         TemplateStatus::degraded()
     } else {
         TemplateStatus::ok()
@@ -1351,6 +1369,54 @@ mod tests {
         );
         assert_eq!(
             status_of(true, &shape_of(&all_offline), &servers),
+            TemplateStatus::blocked("member_offline")
+        );
+    }
+
+    /// 组内仍有一台在线候选时只降级；整组候选全部离线才阻断。
+    #[test]
+    fn a_group_with_all_candidates_offline_blocks_the_template() {
+        let servers = HashMap::from([
+            ("s1".to_string(), server("香港-01", "online")),
+            ("s2".to_string(), server("东京-01", "online")),
+            ("s3".to_string(), server("东京-02", "offline")),
+            ("s4".to_string(), server("大阪-01", "offline")),
+        ]);
+
+        // 同一组 [online, offline]：还有在线成员 → degraded。
+        let partial_group = template(
+            "t1",
+            "组内部分离线",
+            true,
+            &[("round_robin", &["s1"]), ("round_robin", &["s2", "s3"])],
+        );
+        assert_eq!(
+            status_of(true, &shape_of(&partial_group), &servers),
+            TemplateStatus::degraded(),
+            "组内还有在线候选，不能阻断整个模板"
+        );
+
+        // 入口组也是同一规则：组内有在线成员就不阻断。
+        let partial_entry = template(
+            "t2",
+            "入口部分离线",
+            true,
+            &[("round_robin", &["s1", "s3"]), ("round_robin", &["s2"])],
+        );
+        assert_eq!(
+            status_of(true, &shape_of(&partial_entry), &servers),
+            TemplateStatus::degraded()
+        );
+
+        // 同一组两台全离线：这一跳没有在线候选 → blocked。
+        let all_offline_group = template(
+            "t3",
+            "组内全离线",
+            true,
+            &[("round_robin", &["s1"]), ("round_robin", &["s3", "s4"])],
+        );
+        assert_eq!(
+            status_of(true, &shape_of(&all_offline_group), &servers),
             TemplateStatus::blocked("member_offline")
         );
     }

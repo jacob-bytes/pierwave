@@ -31,8 +31,10 @@
 //! （这类链是 `unknown` / `unmeasurable`）。`chains[].nodes` 额外给出拓扑节点
 //! （每个组的**全部**成员 + 链目标，组级 `status` 取最差成员），`entry` /
 //! `exit` 保留；
-//! `chains[].status` 把**每个成员**的状态与数据质量合成为
-//! `ok` / `degraded` / `blocked`（优先级见领域层 `ChainStatus`）。
+//! `chains[].status` 把节点状态与数据质量合成为 `ok` / `degraded` /
+//! `blocked`（优先级见领域层 `ChainStatus`）：按**跳**判断，任一必需跳
+//! **没有在线成员**（全部离线 / 空组）才 `blocked`，多成员组只掉一部分成员
+//! 只是 `degraded`（链路仍可用，容量下降）。
 //!
 //! `server_ids` 与 `/api/v1/overview`、`/overview/server-health` **完全同语义**：
 //! 不传 = 全部；空数组 = 空结果；未知 id 忽略并进 `warnings.unknown_ids`；
@@ -947,9 +949,10 @@ mod tests {
         assert_eq!(view["segments"].as_array().unwrap().len(), 2);
     }
 
-    /// 多成员组的第二台成员离线：链必须 blocked，并点名该成员（不是代表成员）。
+    /// 多成员组的第二台成员离线：只是容量下降，链仍可用 → `degraded` /
+    /// `node_offline`，并点名该成员（不是代表成员）。
     #[tokio::test]
-    async fn chain_health_blocks_when_the_second_member_of_a_group_is_offline() {
+    async fn chain_health_degrades_when_the_second_member_of_a_group_is_offline() {
         let (app, state, admin) = setup().await;
         let pool = &state.db.pool;
         let a = server(pool, "香港-01", "203.0.113.11").await;
@@ -977,7 +980,10 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "body: {body}");
         let view = &body["chains"][0];
         assert_eq!(view["missing_hops"], json!([]), "在线成员的数据完整");
-        assert_eq!(view["status"]["kind"], "blocked");
+        assert_eq!(
+            view["status"]["kind"], "degraded",
+            "多成员组只掉一台，链路仍然可用"
+        );
         assert_eq!(view["status"]["cause"], "node_offline");
         assert_eq!(view["status"]["node"]["seq"], 1);
         assert_eq!(view["status"]["node"]["name"], "东京-02");
@@ -987,6 +993,37 @@ mod tests {
         assert_eq!(nodes[1]["member_count"], 2);
         assert_eq!(nodes[1]["members"][0]["status"], "online");
         assert_eq!(nodes[1]["members"][1]["status"], "offline");
+    }
+
+    /// 多成员组的两台全部离线：这一跳没有在线成员 → 链 `blocked`。
+    #[tokio::test]
+    async fn chain_health_blocks_when_every_member_of_a_group_is_offline() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "203.0.113.11").await;
+        let b = server(pool, "东京-01", "198.51.100.21").await;
+        let c = server(pool, "东京-02", "198.51.100.22").await;
+        servers::mark_online(pool, &a).await.unwrap();
+        // b / c 都不标记在线：默认 offline。
+        let chain_id = chain(pool, "港日多路径", vec![vec![&a], vec![&b, &c]]).await;
+        let ts = end_at(repo::now(), 900) - 60;
+        // 在线入口的样本齐全：blocked 不能是因为缺样本。
+        latency::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), &b, 10)
+            .await
+            .unwrap();
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let view = &body["chains"][0];
+        assert_eq!(view["status"]["kind"], "blocked");
+        assert_eq!(view["status"]["cause"], "node_offline");
+        assert_eq!(view["status"]["node"]["seq"], 1);
+        assert_eq!(view["status"]["node"]["member_name"], "东京-01");
     }
 
     /// 筛选命中中转服务器时链被保留，但起点/终点仍是原链的第一/最后一组。

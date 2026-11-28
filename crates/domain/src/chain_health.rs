@@ -48,13 +48,16 @@
 //!   `server_id` / `status` 都是 null）。多成员组的成员全部可见，链级
 //!   `estimated = true` 只表示段值是估算。`entry` / `exit` 保留，前端可渐进
 //!   迁移。
-//! * `status` 是链级可用性状态：任一 `source` / `hop` 组的**任一成员**离线 →
-//!   `blocked`（`node_offline`，并点名该成员所在组与成员名）；否则任一成员
-//!   非在线 → `degraded`（`node_unhealthy`）；否则最后一跳不可测 →
-//!   `unknown`（`unmeasurable`，见上一条）；否则无当前样本 / 有断点 →
-//!   `degraded`（`no_samples`）；否则较基线变慢 → `degraded`（`slow`）；
-//!   否则 `ok`。成员状态优先于数据质量，所以掉线导致的缺样本不会被误判成
-//!   `no_samples`。链目标节点（`role = "target"`）没有成员，不参与判定。
+//! * `status` 是链级可用性状态，按**跳**判断而不是按成员：任一 `source` /
+//!   `hop` 组的**全部成员**都离线（这一跳没有在线成员）或组内没有成员 →
+//!   `blocked`（`node_offline`，有离线成员时点名第一台）；每跳都至少有一台
+//!   在线但存在离线成员 → 仍 `degraded`（`node_offline`，点名第一台离线
+//!   成员，链路只是容量下降）；存在 `abnormal` 等非在线成员 → `degraded`
+//!   （`node_unhealthy`）；否则最后一跳不可测 → `unknown`（`unmeasurable`，
+//!   见上一条）；否则无当前样本 / 有断点 → `degraded`（`no_samples`）；否则
+//!   较基线变慢 → `degraded`（`slow`）；否则 `ok`。成员状态优先于数据质量，
+//!   所以掉线导致的缺样本不会被误判成 `no_samples`。链目标节点
+//!   （`role = "target"`）没有成员，不参与判定。
 
 use std::collections::HashMap;
 
@@ -242,7 +245,9 @@ pub struct NodeView {
     /// `source`（第一组）/ `hop`（其余组）/ `target`（链目标）。
     pub role: &'static str,
     /// 组级聚合状态：取该组最差成员（offline > abnormal/no_data > online）。
-    /// 空组与链目标节点为 null。
+    /// 空组与链目标节点为 null。**这个字段只描述组内最差成员**：多成员组里
+    /// 一台离线会让组级变 `offline`，但链级是否阻断取决于该组还有没有在线
+    /// 成员（见 [`ChainStatus`]）——组级 `offline` 不等于链 `blocked`。
     pub status: Option<String>,
     /// `members` 的长度；链目标节点与空组为 0。
     pub member_count: usize,
@@ -278,7 +283,9 @@ pub struct TargetProbeRow {
 /// 链级可用性状态里被点名的节点（具体到成员）。
 ///
 /// 只带展示需要的 `seq` / `name` / `member_name`；具体原因由上层 `cause`
-/// 表达，不在这里重复。
+/// 表达，不在这里重复。`node_offline` 的 `blocked` 与 `degraded` 都会带
+/// 这个字段（前者是「整跳没有在线成员」，后者是「仍可用但少了成员」）；
+/// 空组导致 `blocked` 时没有成员可点名，`node` 为 `null`。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StatusNode {
     /// 离线成员所在组的 `seq`。
@@ -293,24 +300,29 @@ pub struct StatusNode {
 
 /// 链级可用性状态：把节点状态与链路数据合成为一个用户能直接看的状态。
 ///
-/// 判定优先级（高 → 低），节点状态按**组内每个成员**检查：
-/// 1. 任一 `source` / `hop` 组的任一成员 `status == "offline"` → `blocked` +
-///    `node_offline`，`node` 指向先遇到的那台离线成员（组 `seq` 升序、
-///    组内 `(priority, server_id)` 顺序）；
-/// 2. 任一 `source` / `hop` 组的任一成员 `status != "online"`（`abnormal` /
-///    `no_data` / 空组没有成员可引用等）→ `degraded` + `node_unhealthy`；
-/// 3. 最后一跳不可测（见 [`LastHop`]；引擎 / 协议是链级字段，所以这条链的
+/// 可用性按**跳**判断：多成员组里离线一台只降低容量，链路仍可用。
+/// 判定优先级（高 → 低）：
+/// 1. 任一 `source` / `hop` 组的成员**全部离线**（这一跳没有任何在线成员；
+///    只有 `abnormal` / `no_data`、没有离线成员的跳见第 3 条）或**没有成员**
+///    （空组）→ `blocked` + `node_offline`，`node` 指向拓扑上先遇到的那台
+///    离线成员（组 `seq` 升序、组内 `(priority, server_id)` 顺序）；空组没有
+///    成员可点名时为 `null`；
+/// 2. 每跳都至少有一台在线，但存在离线成员 → `degraded` + `node_offline`，
+///    `node` 同样指向第一台离线成员及其组（链路只是容量下降）；
+/// 3. 每跳都至少有一台在线，但存在 `abnormal` / `no_data` 等非在线成员 →
+///    `degraded` + `node_unhealthy`；
+/// 4. 最后一跳不可测（见 [`LastHop`]；引擎 / 协议是链级字段，所以这条链的
 ///    **所有段**都不可测）→ `unknown` + `unmeasurable`：这条链的探测数据
 ///    永远不会齐全，报 `no_samples` 会让用户误以为「Agent 没上报 / 链路坏了」，
 ///    而不是「这种引擎 / 协议本来就不测」；
-/// 4. 当前窗口没有整体样本，或 `missing_hops` 非空 → `degraded` + `no_samples`；
-/// 5. 整体较基线变慢（与 `summary.slow_chains` 同一个 [`SLOW_DELTA_MS`] 阈值）
+/// 5. 当前窗口没有整体样本，或 `missing_hops` 非空 → `degraded` + `no_samples`；
+/// 6. 整体较基线变慢（与 `summary.slow_chains` 同一个 [`SLOW_DELTA_MS`] 阈值）
 ///    → `degraded` + `slow`；
-/// 6. 其余 → `ok`，`cause` / `node` 都是 `null`。
+/// 7. 其余 → `ok`，`cause` / `node` 都是 `null`。
 ///
 /// `role = "target"` 的链目标节点不参与判定：它没有成员，`status` 恒为
 /// `null`。成员优先级高于数据质量，所以「成员掉线导致缺样本」会得到
-/// `blocked` / `node_offline`，不会被误判成 `no_samples`。
+/// `blocked` / `degraded` 的 `node_offline`，不会被误判成 `no_samples`。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ChainStatus {
     /// `ok` / `degraded` / `blocked` / `unknown`。
@@ -318,7 +330,8 @@ pub struct ChainStatus {
     /// `node_offline` / `node_unhealthy` / `no_samples` / `slow` /
     /// `unmeasurable`；`ok` 时为 `null`。
     pub cause: Option<&'static str>,
-    /// 只有 `node_offline` 时给出第一台离线节点；其余情况为 `null`。
+    /// 只有 `node_offline` 时给出第一台离线节点（`blocked` 与 `degraded`
+    /// 都可能带）；空组导致的 `blocked` 没有成员可点名，为 `null`。
     pub node: Option<StatusNode>,
 }
 
@@ -373,6 +386,11 @@ fn group_status(members: &[NodeMember]) -> Option<String> {
 
 /// 根据节点（组内全部成员）状态与数据质量判定链级可用性；优先级见
 /// [`ChainStatus`]。
+///
+/// 可用性按**跳**判断，不按成员：一个必需跳只要还有至少一台 `online` 成员，
+/// 这一跳就能承载流量，多掉的成员只降低容量（`degraded`）；整跳成员全部离线
+/// 或空组才会让整条链不可用（`blocked`）。只有 `abnormal` / `no_data`、没有
+/// 离线成员的跳仍按旧口径降级（没被确认离线，仍可能恢复）。
 fn chain_status(
     nodes: &[NodeView],
     missing_hops: &[i64],
@@ -380,39 +398,62 @@ fn chain_status(
     baseline_overall: Option<f64>,
     last_hop_measurable: bool,
 ) -> ChainStatus {
+    // 1. blocked：任一必需跳（source / hop）**成员全部离线**或根本没有成员。
+    // 2. degraded：每跳都还有在线成员，但存在离线成员（node_offline，点名第一
+    //    台离线成员）或状态异常成员（node_unhealthy）。
+    let mut blocked = false;
     let mut first_offline: Option<(&NodeView, &NodeMember)> = None;
     let mut unhealthy = false;
     for node in nodes.iter().filter(|node| node.role != "target") {
-        // 空组没有服务器可引用：不能当作「全部在线」。
+        // 空组没有任何成员能承载这一跳：与「全部离线」同档，都是 blocked。
         if node.members.is_empty() {
-            unhealthy = true;
+            blocked = true;
             continue;
         }
+        let mut online = 0_usize;
+        let mut has_offline = false;
         for member in &node.members {
             match member.status.as_str() {
-                "online" => {}
+                "online" => online += 1,
                 "offline" => {
+                    has_offline = true;
                     // nodes 按组 seq 升序、members 按 (priority, server_id) 升序，
                     // 所以第一台命中的就是「拓扑上最先遇到」的离线成员。
                     if first_offline.is_none() {
                         first_offline = Some((node, member));
                     }
                 }
-                // `abnormal` / `no_data` 等库内值都算「非在线」：链路上有一台
-                // 状态不明就不能说这条链健康。
+                // `abnormal` / `no_data` 等库内值都算「非在线」：跳仍可能在
+                // 线成员支撑，但这种状态说不清，整条链只能降级。
                 _ => unhealthy = true,
             }
         }
+        // 这一跳已经没有任何在线成员：多成员组也救不回来，整链不可用。
+        // 只有 abnormal / no_data、没有 offline 的跳沿用旧口径降级：它没被
+        // 确认离线，仍有恢复的可能，不能报成阻断。
+        if online == 0 && has_offline {
+            blocked = true;
+        }
     }
-    if let Some((node, member)) = first_offline {
+    let offline_node = first_offline.map(|(node, member)| StatusNode {
+        seq: node.seq,
+        name: member.name.clone(),
+        member_name: Some(member.name.clone()),
+    });
+    if blocked {
+        // 空组会让 `node` 为 null：没有成员可点名。
         return ChainStatus {
             kind: "blocked",
             cause: Some("node_offline"),
-            node: Some(StatusNode {
-                seq: node.seq,
-                name: member.name.clone(),
-                member_name: Some(member.name.clone()),
-            }),
+            node: offline_node,
+        };
+    }
+    if offline_node.is_some() {
+        // 每跳都还有在线成员：离线的那几台只是让链路降级（容量下降）。
+        return ChainStatus {
+            kind: "degraded",
+            cause: Some("node_offline"),
+            node: offline_node,
         };
     }
     if unhealthy {
@@ -483,8 +524,9 @@ pub struct ChainHealth {
     /// 最后一跳是否可被 Agent 探测；不可测时它不参与 `series` 齐全判定、
     /// 当前整体值与 `missing_hops`。口径见 [`LastHop`]。
     pub last_hop: LastHop,
-    /// 链级可用性状态：节点掉线 → `blocked`，节点异常 / 样本不足 / 变慢 →
-    /// `degraded`，不可测 → `unknown`，其余 `ok`。判定优先级见 [`ChainStatus`]。
+    /// 链级可用性状态（按跳判断）：整跳没有在线成员 → `blocked`，多成员组
+    /// 部分离线 / 成员异常 / 样本不足 / 变慢 → `degraded`，不可测 → `unknown`，
+    /// 其余 `ok`。判定优先级见 [`ChainStatus`]。
     pub status: ChainStatus,
     /// 固定长度 = `hours * 3600 / bucket`；无样本桶是 `null`。
     pub series: Vec<Option<SeriesPoint>>,
@@ -3788,9 +3830,10 @@ mod tests {
         );
     }
 
-    /// 多成员组里第二台成员离线：链必须 blocked，并点名那台成员（不是代表成员）。
+    /// 多成员组里第二台成员离线：只是容量下降，链仍可用 → `degraded` /
+    /// `node_offline`，并点名那台成员（不是代表成员）。
     #[test]
-    fn an_offline_second_member_blocks_the_chain_and_names_that_member() {
+    fn an_offline_second_member_degrades_the_chain_and_names_that_member() {
         let chain = topology(
             "c1",
             vec![
@@ -3826,7 +3869,10 @@ mod tests {
         );
         let view = &aggregate.chains[0];
         assert!(view.missing_hops.is_empty(), "在线成员的样本足够完整");
-        assert_eq!(view.status.kind, "blocked");
+        assert_eq!(
+            view.status.kind, "degraded",
+            "多成员组只掉一台：链路仍然可用，不能阻断"
+        );
         assert_eq!(view.status.cause, Some("node_offline"));
         assert_eq!(
             view.status.node,
@@ -3843,6 +3889,204 @@ mod tests {
             "组级状态取最差成员"
         );
         assert_eq!(view.nodes[1].member_count, 2);
+    }
+
+    /// 多成员组两台全离线：这一跳已经没有在线成员，链必须 `blocked`。
+    #[test]
+    fn a_group_without_any_online_member_blocks_the_chain() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        status_member("b1", "东京-01", "offline", 21_002),
+                        status_member("b2", "东京-02", "offline", 21_003),
+                    ],
+                ),
+                (
+                    2,
+                    None,
+                    vec![status_member("c", "大阪-01", "online", 21_004)],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.status.kind, "blocked");
+        assert_eq!(view.status.cause, Some("node_offline"));
+        assert_eq!(
+            view.status.node,
+            Some(StatusNode {
+                seq: 1,
+                name: "东京-01".into(),
+                member_name: Some("东京-01".into()),
+            }),
+            "点名该跳第一台离线成员"
+        );
+    }
+
+    /// 入口组同理：组内还有在线成员就不阻断，只降级并点名离线的那台。
+    #[test]
+    fn a_partially_offline_entry_group_only_degrades_the_chain() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![
+                        status_member("a1", "香港-01", "online", 21_001),
+                        status_member("a2", "香港-02", "offline", 21_002),
+                    ],
+                ),
+                (
+                    1,
+                    None,
+                    vec![status_member("b", "东京-01", "online", 21_003)],
+                ),
+            ],
+        );
+        let ts = end_at(NOW, BUCKET) - 60;
+        // 在线成员 a1 的样本完整：不能是因为缺样本才判降级。
+        let samples = vec![
+            sample(ts, "a1", forward("c1", 0, "a1", 2), "b", 10),
+            sample(ts, "b", forward("c1", 1, "b", 1), "", 5),
+        ];
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
+        let view = &aggregate.chains[0];
+        assert!(view.missing_hops.is_empty(), "在线成员的样本足够完整");
+        assert_eq!(view.status.kind, "degraded");
+        assert_eq!(view.status.cause, Some("node_offline"));
+        assert_eq!(
+            view.status.node,
+            Some(StatusNode {
+                seq: 0,
+                name: "香港-02".into(),
+                member_name: Some("香港-02".into()),
+            })
+        );
+    }
+
+    /// 多个组分别有成员离线（每组都还有在线成员）→ 仍只是 `degraded`。
+    #[test]
+    fn several_partially_offline_groups_stay_degraded() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![
+                        status_member("a1", "香港-01", "online", 21_001),
+                        status_member("a2", "香港-02", "offline", 21_002),
+                    ],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        status_member("b1", "东京-01", "online", 21_003),
+                        status_member("b2", "东京-02", "offline", 21_004),
+                    ],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.status.kind, "degraded");
+        assert_eq!(view.status.cause, Some("node_offline"));
+        assert_eq!(
+            view.status.node,
+            Some(StatusNode {
+                seq: 0,
+                name: "香港-02".into(),
+                member_name: Some("香港-02".into()),
+            }),
+            "点名拓扑上第一台离线成员"
+        );
+    }
+
+    /// 部分离线 + abnormal 混合：仍是 `degraded`，cause 优先 `node_offline`。
+    #[test]
+    fn a_partial_offline_member_outranks_an_abnormal_member() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![
+                        status_member("a1", "香港-01", "online", 21_001),
+                        status_member("a2", "香港-02", "offline", 21_002),
+                    ],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        status_member("b1", "东京-01", "online", 21_003),
+                        status_member("b2", "东京-02", "abnormal", 21_004),
+                    ],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.status.kind, "degraded");
+        assert_eq!(
+            view.status.cause,
+            Some("node_offline"),
+            "离线优先于 abnormal"
+        );
+        assert_eq!(
+            view.status.node,
+            Some(StatusNode {
+                seq: 0,
+                name: "香港-02".into(),
+                member_name: Some("香港-02".into()),
+            })
+        );
+    }
+
+    /// 空组：没有任何成员能承载这一跳 → `blocked`；没有成员可点名，`node` 为 null。
+    #[test]
+    fn an_empty_required_group_blocks_the_chain_without_naming_a_node() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![status_member("a", "香港-01", "online", 21_001)],
+                ),
+                (1, None, vec![]),
+                (
+                    2,
+                    None,
+                    vec![status_member("c", "大阪-01", "online", 21_002)],
+                ),
+            ],
+        );
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &no_latest(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.status.kind, "blocked");
+        assert_eq!(view.status.cause, Some("node_offline"));
+        assert_eq!(view.status.node, None, "空组没有成员可点名");
     }
 
     /// 节点在线、但当前窗口没有任何完整整体样本，且有断点 → `degraded` / `no_samples`。
