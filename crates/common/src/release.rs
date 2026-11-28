@@ -26,8 +26,11 @@ pub fn embedded_public_key() -> &'static str {
 }
 
 fn decode_key(raw: &str) -> Result<[u8; 32]> {
+    // CI 的 Secret 常被粘贴成带换行/空格的多行值；base64 引擎不接受空白，
+    // 这里先全部剔除再解码，避免“看起来是 44 个字符却报非法符号”。
+    let compact: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
     let bytes = base64::engine::general_purpose::STANDARD
-        .decode(raw.trim())
+        .decode(compact)
         .context("公钥/私钥不是合法的 base64")?;
     let actual = bytes.len();
     let arr: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
