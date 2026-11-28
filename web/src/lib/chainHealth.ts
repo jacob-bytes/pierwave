@@ -88,6 +88,29 @@ export interface ChainLossSamples {
   failures: number | null;
 }
 
+/**
+ * 段内一个成员：`chains[].segments[].members[]`。
+ *
+ * 多路径链的一段其实是若干台服务器组成的组；契约给出每台自己的当前窗口
+ * P50 / 丢包 / 探测计数，以及它是不是当前通路成员。旧主控没有该数组时整段
+ * `members` 为空，前端不渲染成员明细（tooltip 保持原样），不拿节点数据推测。
+ */
+export interface ChainSegmentMember {
+  /** `server_id`；只用于 key / 匹配 `active`，不直接展示。 */
+  serverId: string | null;
+  name: string;
+  /** 小写状态（`online` / `offline` …）；契约没给时为 null。 */
+  status: string | null;
+  /** 该成员的当前窗口 P50；没有样本为 null，不是 0。 */
+  p50: number | null;
+  /** 该成员的当前窗口丢包（0–100）；没有探测为 null。 */
+  lossPct: number | null;
+  attempts: number | null;
+  failures: number | null;
+  /** `true` = 当前通路成员；`null` = 契约没给（例如轮询没有单一选中）。 */
+  active: boolean | null;
+}
+
 /** 逐段行：`missing = true` 表示该跳没有历史数据（例如最后一跳）。 */
 export interface ChainHealthSegment {
   seq: number;
@@ -103,6 +126,11 @@ export interface ChainHealthSegment {
   attempts: number | null;
   /** 该段探测失败次数；契约缺失为 null。 */
   failures: number | null;
+  /**
+   * 组内成员明细（`segments[].members`）；旧主控 / 单成员契约没有该数组时
+   * 为空数组。只有它非空时逐段图的 tooltip 才追加成员表。
+   */
+  members: ChainSegmentMember[];
   /** 新契约可能直接给逐段序列；没有时由 `/chains/{id}/latency` 补齐。 */
   series: ChainHealthPoint[];
 }
@@ -493,6 +521,46 @@ function readEndpoint(raw: unknown): ChainEndpoint | null {
   return { ip, port, address, serverName };
 }
 
+/**
+ * `segments[].members[]` 归一化。
+ *
+ * 只认 `name` 存在的成员：没有名字的脏数据没有可展示文本，整体跳过。
+ * `p50_ms` 必须是非负有限数，`attempts = 0` / 失败数超过探测数按「没有计数」
+ * 处理；契约缺失（旧主控 / 单成员段）返回空数组，调用方不渲染明细。
+ */
+function readSegmentMember(raw: unknown): ChainSegmentMember | null {
+  if (!isRecord(raw)) return null;
+  const name = trimmedString(raw.name);
+  if (name === null) return null;
+  const rawStatus = trimmedString(raw.status);
+  const attempts = positiveInt(raw.attempts);
+  const failures = finiteInt(raw.failures);
+  // 失败数不能大于探测数：脏数据整组计数置空，不渲染不可能的比值。
+  const probesValid =
+    attempts === null || failures === null || failures <= attempts;
+  return {
+    serverId: trimmedString(raw.server_id),
+    name,
+    status: rawStatus === null ? null : rawStatus.toLowerCase(),
+    p50: nonNegativeNumber(raw.p50_ms),
+    lossPct: readLossPct(raw.loss_pct),
+    attempts: probesValid ? attempts : null,
+    failures: probesValid ? failures : null,
+    active: typeof raw.active === "boolean" ? raw.active : null,
+  };
+}
+
+/** 成员最多读 64 台；契约最多 8 组，多出来的只可能是脏数据。 */
+function readSegmentMembers(raw: unknown): ChainSegmentMember[] {
+  if (!Array.isArray(raw)) return [];
+  const members: ChainSegmentMember[] = [];
+  for (const entry of raw) {
+    const member = readSegmentMember(entry);
+    if (member) members.push(member);
+  }
+  return members.slice(0, 64);
+}
+
 function readSegment(
   raw: unknown,
   window?: SeriesWindowSpec,
@@ -518,6 +586,7 @@ function readSegment(
     lossPct: readLossPct(raw.loss_pct),
     attempts: probesValid ? attempts : null,
     failures: probesValid ? failures : null,
+    members: readSegmentMembers(raw.members),
     series: readSeries(raw.series, window),
   };
 }
@@ -568,6 +637,7 @@ function buildSegments(
       lossPct: null,
       attempts: null,
       failures: null,
+      members: [],
       series: [],
     });
   }
@@ -1277,6 +1347,93 @@ export function chainColumnPlan(
     return { kind: "balanced", strategy, count: memberCount };
   }
   return null;
+}
+
+/**
+ * 链里是否存在**多成员跳**：整体时延卡的「多路径 · 按各跳中位数叠加」
+ * 说明只在这样的链上出现。
+ *
+ * 只看中继跳（去掉入口与链目标）：入口组选一台成员、目标不是服务器组，
+ * 两者都不构成「多路径」。只要这一跳真的有多台成员就算多路径，与策略名
+ * 无关——契约的 `strategy` 缺失（旧主控）时，整链 P50 仍然是各跳中位数
+ * 叠加。`member_count` 与 `members.length` 取较大值（后端可能只回前几台）。
+ * 旧主控没有 `nodes` 时按单路径处理，不显示说明。
+ */
+export function chainHasMultiPathHop(
+  chain: Pick<ChainHealthChain, "nodes">,
+): boolean {
+  const nodes = chain.nodes;
+  for (let index = 1; index < nodes.length - 1; index += 1) {
+    const node = nodes[index];
+    const count = Math.max(node.members.length, node.memberCount ?? 0);
+    if (count > 1) return true;
+  }
+  return false;
+}
+
+/**
+ * 逐段标题的策略口径：`第 2 段 · 最低延迟 · 3 选 1` / `第 2 段 · 轮询 · 3 台分担`。
+ *
+ * 段的 `seq` 是**目标组**的 seq（见 [`chainTopologyGraph`]），但策略与成员明细
+ * 属于该段的**源组**：契约 `segments[].members[]` 给的就是源组成员（每台成员
+ * 自己的 forward 规则），`active` 也标的是源组的当前通路成员。所以标题取
+ * `nodes[index - 1]` 的策略与台数，和悬停明细说的是同一组，不会出现
+ * 「标题 3 选 1、明细 1 台」的错位。
+ *
+ * 入口组没有「上一跳进入本组」的策略（契约恒为 null）→ 不显示策略；
+ * 单成员段 / 契约缺策略时也返回 null，标题保持旧的「第 N 段」。
+ */
+export interface ChainSegmentTitlePlan {
+  strategy: ChainRouteStrategy;
+  kind: "choose" | "balanced";
+  count: number;
+}
+
+export function chainSegmentTitlePlan(
+  segment: Pick<ChainHealthSegment, "seq" | "members">,
+  nodes: readonly ChainHealthNode[],
+): ChainSegmentTitlePlan | null {
+  if (nodes.length < 3) return null;
+  const index = nodes.findIndex((node) => node.seq === segment.seq);
+  // 目标组 index；源组是它前面那个节点。入口段（index 1，源组 index 0）的
+  // 源组策略恒为 null，自然落到「第 N 段」。
+  if (index <= 0) return null;
+  const source = nodes[index - 1];
+  const count = Math.max(
+    segment.members.length,
+    source.memberCount ?? 0,
+    source.members.length,
+  );
+  if (count <= 1) return null;
+  const strategy = source.strategy;
+  if (strategy === null) return null;
+  if (isChainSingleChoiceStrategy(strategy)) {
+    return { strategy, kind: "choose", count };
+  }
+  if (isChainBalancedStrategy(strategy)) {
+    return { strategy, kind: "balanced", count };
+  }
+  return null;
+}
+
+/** tooltip 成员明细最多显示的行数；其余折成 `+N`。 */
+export const SEGMENT_MEMBER_ROW_LIMIT = 8;
+
+/**
+ * 成员明细的展示行：当前通路成员排第一（不会被 `+N` 吃掉），其余保持契约
+ * 顺序；超过 `limit` 的部分只计数，不再渲染。
+ */
+export function chainSegmentMemberRows(
+  members: readonly ChainSegmentMember[],
+  limit = SEGMENT_MEMBER_ROW_LIMIT,
+): { rows: ChainSegmentMember[]; overflow: number } {
+  const ordered = [
+    ...members.filter((member) => member.active === true),
+    ...members.filter((member) => member.active !== true),
+  ];
+  const capped = Math.max(0, Math.floor(limit));
+  const rows = ordered.slice(0, capped);
+  return { rows, overflow: Math.max(0, ordered.length - rows.length) };
 }
 
 /**

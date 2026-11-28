@@ -57,19 +57,39 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
       { "seq": 1, "from": "香港-01", "to": "东京-01",
         "series": [ null, "…", { "ts": 1795450500, "p50": 14.5, "loss_pct": 0.4167 }, "…" ],
         "p50": 15.5, "delta_ms": 0.0, "contribution_pct": 0,
-        "attempts": 5280, "failures": 8, "loss_pct": 0.1515 },
+        "attempts": 5280, "failures": 8, "loss_pct": 0.1515,
+        "members": [
+          { "server_id": "…", "name": "香港-01", "status": "online",
+            "p50_ms": 15.5, "loss_pct": 0.1515,
+            "attempts": 5280, "failures": 8, "active": false }
+        ] },
       { "seq": 2, "from": "东京-01", "to": "新加坡-01",
         "series": [ null, "…", { "ts": 1795450500, "p50": 20.5, "loss_pct": 2.9167 }, "…" ],
         "p50": 21.5, "delta_ms": 0.0, "contribution_pct": 0,
-        "attempts": 5280, "failures": 154, "loss_pct": 2.9167 },
+        "attempts": 5280, "failures": 154, "loss_pct": 2.9167,
+        "members": [
+          { "server_id": "…", "name": "东京-01", "status": "online",
+            "p50_ms": 21.5, "loss_pct": 2.9167,
+            "attempts": 5280, "failures": 154, "active": false }
+        ] },
       { "seq": 3, "from": "新加坡-01", "to": "大阪-01",
         "series": [ null, "…", { "ts": 1795443300, "p50": 33.0, "loss_pct": 0.4167 }, "…", null ],
         "p50": null, "delta_ms": null, "contribution_pct": 0,
-        "attempts": 0, "failures": 0, "loss_pct": null },
+        "attempts": 0, "failures": 0, "loss_pct": null,
+        "members": [
+          { "server_id": "…", "name": "新加坡-01", "status": "online",
+            "p50_ms": null, "loss_pct": null,
+            "attempts": 0, "failures": 0, "active": false }
+        ] },
       { "seq": 4, "from": "大阪-01", "to": "链目标",
         "series": [ null, "…", { "ts": 1795443300, "p50": 8.0, "loss_pct": 0.4167 }, "…", null ],
         "p50": null, "delta_ms": null, "contribution_pct": 0,
-        "attempts": 0, "failures": 0, "loss_pct": null }
+        "attempts": 0, "failures": 0, "loss_pct": null,
+        "members": [
+          { "server_id": "…", "name": "大阪-01", "status": "offline",
+            "p50_ms": null, "loss_pct": null,
+            "attempts": 0, "failures": 0, "active": false }
+        ] }
     ],
     "loss_pct": 3.0638,
     "loss_samples": { "attempts": 10560, "failures": 162 },
@@ -91,6 +111,8 @@ GET /api/v1/overview/chain-health?hours=24&bucket=900[&server_ids=...]
 链没有任何组或组内没有成员时 `entry` / `exit` 是 `null`。`series` 固定长度
 = `hours*3600/bucket`，从旧到新；没有样本的桶是 `null`，不是 0。
 `segments[].p50` / `delta_ms` / `segments[].series[]` 无数据时同样是 `null`。
+`segments[].members` 是段**源组**的成员明细（口径见 §4.3），单成员段也返回
+长度 1 的数组；它不提供逐成员时间序列。
 
 ## 1.1 起点与终点
 
@@ -404,6 +426,55 @@ UDP 可达）。引擎 / 协议是链级字段（`derive_forwards` 逐跳透传�
 - **性能**：段级序列完全由同一批 `forward_latency_samples` /
   `forward_probe_samples` 内存归并得到，**不按段发 SQL**。查询次数与段数无关。
 
+### 4.3 逐段成员明细（`segments[].members`）
+
+`segments[].members` 给前端「逐段时延」悬停展开用：每个段返回其**源组**的
+全部成员，但**不提供逐成员时间序列**（轮询段只画聚合线，悬停看明细）。
+
+```jsonc
+"segments": [
+  { "seq": 2, "from": "东京-01", "to": "新加坡-01", "p50": 21.5, "loss_pct": 2.9167,
+    "members": [
+      { "server_id": "…", "name": "东京-01", "status": "online",
+        "p50_ms": 21.5, "loss_pct": 2.9167, "attempts": 5280, "failures": 154,
+        "active": true },
+      { "server_id": "…", "name": "东京-02", "status": "offline",
+        "p50_ms": null, "loss_pct": null, "attempts": 0, "failures": 0,
+        "active": false }
+    ] }
+]
+```
+
+- **成员来源与顺序**：段 i（组 i → 组 i+1，最后一组 → 链目标）的成员就是
+  组 i 的全部成员，顺序与 `nodes[i].members` 完全一致
+  （`priority ASC, server_id ASC`）。单成员段也返回**一个元素**的数组，前端
+  可据长度判断要不要展开；
+- **字段**：`server_id` 是真实成员（`servers.id`），`name` 是服务器名，
+  `status` 是 `servers.status` 原样透传（online / offline / abnormal /
+  no_data …），不做二次推断；
+- **`p50_ms`**：与段级当前值**同一个当前窗口**（最近 2 小时
+  `CURRENT_WINDOW_SECS`，`hours < 2` 时退化为请求窗口，按 `bucket` 对齐），
+  只取该成员自己 forward 规则的时延样本：先算每个桶的 p50，再取这些桶 p50
+  的中位数（与段级同一个算法）。该成员没有样本时是 `null`，不是 0；
+- **`loss_pct` / `attempts` / `failures`**：同一当前窗口内该成员 forward 的
+  探测计数，`loss_pct = failures / attempts × 100`（保留 4 位小数）。
+  `attempts = 0` 时 `loss_pct` 是 `null`，**不补 0**。`attempts` /
+  `failures` 是该成员自己的计数，不是段级合计；
+- **`active`**：该成员是否是源组的**当前通路成员**，即是否等于
+  `nodes[i].active_server_id`（源组下标 = 段下标，口径见 §1.2）。只有
+  **多成员组**且策略为 `failover` / `lowest_latency` 时才可能为 `true`：
+  入口组没有上一跳、轮询 / 哈希 / 加权 / 最少连接没有单一选中项、单成员组
+  没有「选中哪一台」可言，全部为 `false`；
+- **段级口径不变**：段 `p50` 仍是该段所有成员样本池的中位数，段
+  `attempts` / `failures` 仍是成员之和，段 `loss_pct` 仍是「先加计数再算
+  比值」。`members` 只是把同一批数据按成员再切一刀，不改变
+  `segments[].p50` / `loss_pct` / `series`、链级 `series` / `loss_pct`、
+  `nodes` 与 `status`；
+- **离线成员**：`status` 照常透传 `offline`；样本不按状态过滤（与段级
+  一致），刚掉线的成员可能仍有当前窗口样本，也可能 `p50_ms: null`；
+- **性能**：只由同一批 `forward_latency_samples` / `forward_probe_samples`
+  内存归并，不新增 SQL，查询次数与成员数无关。
+
 ## 5. 筛选
 
 `server_ids` 与 `/api/v1/overview`、`/overview/server-health` 完全同语义：
@@ -433,7 +504,8 @@ UDP 可达）。引擎 / 协议是链级字段（`derive_forwards` 逐跳透传�
    `IN (...)` 读出，用于 `nodes[].active_server_id`；id 列表为空时不查。
    单行 JSON 解析失败只记 warn 并当「该跳没有数据」，不影响其它跳。
 
-起点/终点、逐段 `series` 与 `active_server_id` 都是这批结果的纯内存归并，
+起点/终点、逐段 `series`、逐段成员明细与 `active_server_id` 都是这批结果的
+纯内存归并，
 **没有按段/按桶循环查库**；`active_server_id` 复用第 6 条查询，不按跳加查。
 
 在 `data/preview.db`（迁移建库、不跑 `ANALYZE`）上实测：
@@ -566,6 +638,12 @@ USE TEMP B-TREE FOR ORDER BY
   内网地址兜底 + `address_source`、IPv6 方括号、缺端口保留 `ip`、空组 →
   `null`；逐段序列与链级同长、缺桶 null、`attempts=0` → loss null、有时延
   无探测 → loss null、有探测无时延 → 整桶 null、多成员同桶合并；
+  `segments[].members` 三成员段的长度 / 顺序（与 `nodes[].members` 一致）/
+  逐成员 p50 与丢包、没有样本的成员 → null、`attempts=0` 不补 0、单成员段
+  长度 1 且 `active=false`、failover / lowest_latency 只标当前成员 `active=true`、轮询段
+  即使上报单一 active 也全 false、单成员 failover 组不标 active、离线成员
+  `status=offline` 且 p50 可为 null、成员 p50 与段级同当前窗口（窗口外样本
+  不计入、series 仍保留）；
 - 路由层（`crates/master/src/routes/chain_health.rs`）：单跳/多跳映射、
   最后一跳的 p50 / loss / `missing_hops`、整体 p50 含最后一跳、
   realm / nftables / tunnel / udp / both 链的 `last_hop.measurable = false`、
@@ -574,7 +652,9 @@ USE TEMP B-TREE FOR ORDER BY
   role / 组级 status / 全部成员 JSON / 链目标空数组与 `entry`/`exit` 保留、
   第二台成员离线 → `degraded` 并点名 `member_name`、整组离线 → `blocked`、
   `status` 的 blocked / degraded(no_samples) / ok 与节点点名、段/整链丢包与时延
-  回归、`series[]` 逐桶丢包、`entry` / `exit` 的 `public_port` 与
+  回归、`series[]` 逐桶丢包、`segments[].members` 的三成员明细 JSON
+  （p50 / 丢包 / 顺序 / active / 离线成员）、单成员段长度 1 与轮询全 false、
+  `entry` / `exit` 的 `public_port` 与
   `listen_port` 口径、多成员优先级、`server_ids` 筛选后 entry/exit 仍取
   原链首尾、筛选后只汇总保留的链、筛选（命中/未知/空数组/非法/201 个 id）、
   非法 `hours`/`bucket`、缓存 key 隔离、非管理员 401/403；
@@ -595,6 +675,9 @@ USE TEMP B-TREE FOR ORDER BY
   （协议 30），不新增探测动作；
 - 逐段序列只给 `p50` + `loss_pct`，不返回 `p10` / `p90` / `samples`，也不做
   段级 24h 基线；热力图需要更多分布字段时要再扩契约；
+- `segments[].members` **不提供逐成员时间序列**（用户明确：轮询段只显示聚合
+  线，悬停看明细）。成员明细只给当前窗口的 `p50_ms` / `loss_pct` /
+  `attempts` / `failures` / `active`，需要成员级曲线时要另立契约；
 - 丢包不单独提供曲线/基线：链级逐桶值随 `series[]`、段级逐桶值随
   `segments[].series[]` 一起返回，链级/段级当前值都取最近 2h 窗口，不做 24h
   丢包基线；
@@ -849,13 +932,48 @@ from each other. All of this
 is computed in memory from the same sample/probe rows—no SQL is issued per
 segment—so the query count is independent of the number of segments.
 
+`segments[].members` is the per-member breakdown of a segment, meant for the
+hover/detail view of the per-segment latency card. Every segment lists **all
+members of its source group** (segment i is group i → group i+1, or the last
+group → chain target), in the same order as `nodes[i].members`
+(`priority ASC, server_id ASC`). A single-member segment still returns a
+one-element array so the client can decide from the length whether to expand.
+`server_id` is the real member (`servers.id`), `name` is the server name, and
+`status` is `servers.status` verbatim (`online` / `offline` / `abnormal` /
+`no_data` …). `p50_ms` uses the **same current window as the segment value**
+(the last 2 hours of `CURRENT_WINDOW_SECS`, or the request window when
+`hours < 2`, aligned to `bucket`) and only that member's own forward samples:
+per-bucket p50, then the median of those bucket p50s—the same algorithm as the
+segment value. A member with no samples is `null`, never 0. `loss_pct`,
+`attempts` and `failures` use the same current window and that member's own
+probe counts: `loss_pct = failures / attempts × 100` rounded to 4 decimals,
+`null` when `attempts = 0`; the counts are per member, not the segment totals.
+`active` says whether the member is the source group's current-path member
+(`nodes[i].active_server_id`, with the segment index equal to the source group
+index). It can only be `true` for a **multi-member group** whose strategy is
+`failover` / `lowest_latency`: the entry group has no previous hop, round
+robin / hashed / weighted / least-conn have no single selection, and a
+single-member group has nothing to select, so all of those are `false`. The
+segment-level rules are unchanged: the segment `p50` is still the median of the
+pooled member samples, segment `attempts` / `failures` are member sums, and the
+segment loss still divides summed counts. `members` only re-slices the same
+rows per member and changes none of `segments[].p50` / `loss_pct` / `series`,
+the chain-level `series` / `loss_pct`, `nodes` or `status`. Offline members keep
+their verbatim `offline` status; samples are not filtered by status (matching
+the segment value), so a just-offline member may still have samples or may have
+`p50_ms: null`. It adds no SQL: everything is merged in memory from the same
+latency-sample and probe rows, so the query count is independent of the number
+of members. No per-member time series is returned—polling segments draw the
+aggregate line only and the hover shows the breakdown.
+
 Performance: three topology queries (chains / groups / members), one
 `forward_latency_samples` query with `forward_id IN (...)`, one
 `forward_probe_samples` query reading the 5-minute buckets across the series
 window with `forward_id IN (...)`, and one `forward_status` query selecting
 `forward_id, targets_json` for the same ids (skipped entirely when there are no
 ids; a row whose JSON fails to parse is logged and treated as missing data);
-no N+1. Entry/exit, `nodes`, `active_server_id` and the per-segment series add
+no N+1. Entry/exit, `nodes`, `active_server_id`, the per-segment series and the
+per-segment `members` breakdown add
 no queries—they are derived from those same rows in memory. On the preview
 database `EXPLAIN QUERY PLAN` shows `SCAN chains USING INDEX idx_chains_created`,
 `SCAN chain_groups USING INDEX idx_chain_groups_chain` (an index-order scan, not
@@ -960,7 +1078,15 @@ multi-member priority,
 `address_source`, IPv6 bracketing, missing port keeping `ip`, empty groups →
 `null`), per-segment series (same length as the chain series, missing buckets
 `null`, `attempts = 0` → `loss_pct: null`, probes without latency → `null`,
-multi-member buckets pooled), summary worst-loss selection, filtering
+multi-member buckets pooled), per-segment `members` (three members in node
+order, per-member p50/loss from each member's own samples, a member without
+samples → `null`, `attempts = 0` not filled with 0, a single-member segment
+returning one element with `active: false`, failover / lowest-latency marking
+only the current member `active: true`, round robin staying all `false` even with a polluted
+single `active` flag, a single-member failover group never active, an offline
+member keeping `status: offline` with `p50` possibly `null`, and member p50
+sharing the segment's current 2-hour window while the series still keeps older
+samples), summary worst-loss selection, filtering
 (hit/unknown/empty/invalid/201 ids), entry/exit preserved under `server_ids`
 filtering, loss under `server_ids` filtering, latency regression, bad
 `hours`/`bucket`, cache-key isolation, cross-view representative agreement plus

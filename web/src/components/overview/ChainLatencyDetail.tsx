@@ -15,6 +15,7 @@ import {
   SLOW_CHAIN_DELTA_MS,
   chainDiagnosis,
   chainDiagnosisReason,
+  chainHasMultiPathHop,
   chainLastHopUnmeasurable,
   chainLatestSeriesTs,
   chainLossTone,
@@ -164,6 +165,8 @@ function OverallChartCard({
   const hasCurve = chain.series.some(
     (point) => point.p50 !== null && point.samples > 0,
   );
+  // 多成员跳才有的「多路径」说明：单路径链不显示，避免多一行噪音。
+  const multiPath = chainHasMultiPathHop(chain);
   const chartLabel = t("overview.chainLatency.overallChartAria", {
     name: chain.name,
     p50: formatMs(chain.latestP50),
@@ -198,9 +201,22 @@ function OverallChartCard({
     <Card className="min-w-0 gap-0" data-chain-overall-card>
       <CardHeader className="border-b border-border pb-4">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <CardTitle className="text-sm font-medium">
-            {t("overview.chainLatency.overallTitle")}
-          </CardTitle>
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <CardTitle className="text-sm font-medium">
+              {t("overview.chainLatency.overallTitle")}
+            </CardTitle>
+            {multiPath ? (
+              // 多路径说明是事实边界（叠加值 ≠ 单连接 RTT），不是功能导语：
+              // 只有存在多成员跳时才出现，避免单路径链多一行解释。
+              <span
+                data-chain-multipath-note
+                title={t("overview.chainLatency.multiPathNoteHint")}
+                className="min-w-0 text-[11px] leading-normal text-muted-foreground"
+              >
+                {t("overview.chainLatency.multiPathNote")}
+              </span>
+            ) : null}
+          </div>
           <div className="flex min-w-0 items-center gap-2">
             <ChainLatencyUpdatedBadge generatedAt={snapshot.generatedAt} />
             <ChainLatencyRangeTabs
@@ -479,6 +495,7 @@ function SegmentsCard({
               segments={chain.segments}
               trends={trends}
               bucketSecs={bucket}
+              nodes={chain.nodes}
               trendPending={trendPending}
               unmeasurableSeq={
                 lastHopUnmeasurable ? lastSeq : null

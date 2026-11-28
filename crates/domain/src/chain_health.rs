@@ -42,6 +42,13 @@
 //! * `segments[].series` 与链级 `series` 同桶宽、同长度：每桶 p50 来自该段
 //!   时延样本，loss_pct 来自该段探测桶（attempts = 0 → null），无样本桶为
 //!   null。它与 entry/exit 一样只做内存归并，不新增 SQL。
+//! * `segments[].members` 是段**源组**的成员明细，顺序与 `nodes[].members`
+//!   一致（`(priority, server_id)`）：`p50_ms` / `loss_pct` 用与段级**同一个
+//!   当前窗口**（最近 2h，请求窗口不足时退化），按该成员自己的 forward 规则
+//!   样本 / 探测聚合，无样本为 null；`active` 标出当前通路成员（只有多成员组
+//!   且策略为 failover / lowest_latency 时才可能为 true，单成员组恒 false）。
+//!   不提供逐成员时间序列：轮询段只展示聚合线，悬停看明细。段级口径（p50
+//!   为成员样本池中位数、attempts/failures 为成员之和、丢包先加计数）不变。
 //! * `nodes` 是链的拓扑节点：每个组一个（组级 `status` 取最差成员，
 //!   `members` 按 `(priority, server_id)` 给出该组全部成员），末尾再补一个
 //!   `role = target` 的链目标节点（`members` 是空数组、
@@ -169,6 +176,45 @@ pub struct SegmentView {
     pub failures: i64,
     /// `failures / attempts × 100`（保留 4 位）；attempts = 0 时 null，不是 0。
     pub loss_pct: Option<f64>,
+    /// 该段的成员明细：来自该段的**源组**，顺序同 `nodes[].members`
+    /// （`(priority, server_id)`）。单成员段也返回一个元素的数组，前端可据
+    /// 长度判断要不要展开。只给当前窗口的聚合值，**不给逐成员时间序列**。
+    /// 口径见 [`SegmentMember`]。
+    pub members: Vec<SegmentMember>,
+}
+
+/// 段内一个源组成员的明细（供前端悬停展开）。
+///
+/// * 成员来自该段的**源组**：`server_id` / `name` / `status` 与
+///   `nodes[].members` 同源（`status` 是 `servers.status` 原样透传）；
+/// * `p50_ms` / `loss_pct` 用与段级**同一个当前窗口**（最近
+///   [`CURRENT_WINDOW_SECS`]，请求窗口不足时退化为请求窗口），只取该成员
+///   自己 forward 规则的样本 / 探测；没有数据为 `null`，不补 0；
+/// * 段级聚合口径不变：段 `p50` 是段内所有成员样本池的中位数，段
+///   attempts / failures 是成员之和，丢包是「先加计数再算比值」；
+/// * `active` = 该成员是否是源组的当前通路成员（`nodes[].active_server_id`，
+///   源组下标 = 段下标）。只有**多成员组**的 `failover` / `lowest_latency`
+///   可能为 true；入口组没有上一跳、轮询 / 哈希 / 加权 / 最少连接没有单一
+///   选中项、单成员组没有「选中哪一台」可言，全部为 false。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SegmentMember {
+    /// `chain_group_members.server_id`，即 `servers.id`。
+    pub server_id: String,
+    /// `servers.name`。
+    pub name: String,
+    /// 成员服务器的 `servers.status`（online / offline / abnormal / no_data …）。
+    pub status: String,
+    /// 当前窗口的桶中位数；该成员没有样本时 null，不是 0。
+    pub p50_ms: Option<f64>,
+    /// 该成员在当前窗口的 `failures / attempts × 100`（保留 4 位）；
+    /// attempts = 0 时 null，不是 0。
+    pub loss_pct: Option<f64>,
+    /// 该成员在当前窗口内的探测次数；没有探测时 0（`loss_pct` 为 null）。
+    pub attempts: i64,
+    /// 该成员在当前窗口内的探测失败次数。
+    pub failures: i64,
+    /// 该成员是否是该段源组的当前通路成员；单成员组恒为 false。
+    pub active: bool,
 }
 
 /// 逐段时间序列的一个点。空桶在 `SegmentView::series` 里是 `null`。
@@ -707,11 +753,15 @@ pub fn aggregate(
     let mut segment_probe_buckets: HashMap<(usize, usize, i64), ProbeCounts> = HashMap::new();
     // 同一批桶里落在当前窗口（最近 2h）的部分，用于整链窗口丢包。
     let mut segment_probes: HashMap<(usize, usize), ProbeCounts> = HashMap::new();
+    // 同一批桶里落在当前窗口的逐成员探测计数，用于 segments[].members[].loss_pct。
+    // forward 是「每跳入口」的规则，一个成员一条 forward，所以这里天然按成员聚合。
+    let mut member_probes: HashMap<(usize, usize, usize), ProbeCounts> = HashMap::new();
     // 每条链的最后一跳是否在窗口内出现过时延样本或探测桶；只有完全没有数据
     // 时才把它写进 missing_hops。
     let mut final_hop_seen = vec![false; layouts.len()];
     for row in probes {
-        let Some(&(chain_index, group_index, _)) = forward_map.get(&row.forward_id) else {
+        let Some(&(chain_index, group_index, member_index)) = forward_map.get(&row.forward_id)
+        else {
             continue;
         };
         let layout = &layouts[chain_index];
@@ -741,11 +791,17 @@ pub fn aggregate(
                 .entry((chain_index, group_index))
                 .or_default()
                 .add(counts);
+            member_probes
+                .entry((chain_index, group_index, member_index))
+                .or_default()
+                .add(counts);
         }
     }
 
     // (chain, segment, bucket) → 原始延迟值；桶内再算分位数。
     let mut bucket_values: HashMap<(usize, usize, i64), Vec<f64>> = HashMap::new();
+    // 当前窗口内逐成员（源组成员）的时延样本，用于 segments[].members[].p50_ms。
+    let mut member_bucket_values: HashMap<(usize, usize, usize, i64), Vec<f64>> = HashMap::new();
     // 当前窗口内 (源, 目标) 的样本数，用来给多路径段挑代表成员。
     let mut pair_counts: PairCounts = HashMap::new();
     let mut unmapped_forwards = 0_i64;
@@ -826,6 +882,11 @@ pub fn aggregate(
                 .entry((source.id.clone(), target_id))
                 .and_modify(|count| *count += 1)
                 .or_insert(1);
+            // 成员明细与段级同窗口：只把当前窗口的样本记到源成员名下。
+            member_bucket_values
+                .entry((chain_index, group_index, member_index, bucket_ts))
+                .or_default()
+                .push(sample.latency_ms as f64);
         }
     }
 
@@ -835,6 +896,21 @@ pub fn aggregate(
         values.sort_by(|a, b| a.total_cmp(b));
         stats.insert(
             (chain_index, segment_index, ts),
+            BucketStats {
+                p10: percentile(&values, 0.10),
+                p50: percentile(&values, 0.50),
+                p90: percentile(&values, 0.90),
+                samples: values.len() as i64,
+            },
+        );
+    }
+
+    // 成员级桶统计（只覆盖当前窗口）：p50 与段级同算法（逐桶 p50 再取中位数）。
+    let mut member_stats: HashMap<(usize, usize, usize, i64), BucketStats> = HashMap::new();
+    for ((chain_index, segment_index, member_index, ts), mut values) in member_bucket_values {
+        values.sort_by(|a, b| a.total_cmp(b));
+        member_stats.insert(
+            (chain_index, segment_index, member_index, ts),
             BucketStats {
                 p10: percentile(&values, 0.10),
                 p50: percentile(&values, 0.50),
@@ -974,6 +1050,48 @@ pub fn aggregate(
                 None => {}
             }
             let (from, to) = layout.representative(chain_index, segment_index, &pair_counts);
+            // 成员明细：源组成员（顺序已在 Layout 里按 (priority, server_id)
+            // 排好，与 nodes[].members 同序）。p50 / 丢包只覆盖当前窗口，与
+            // 段级同窗口；active 取源组的当前通路成员。
+            let source_members = &layout.groups[segment_index];
+            let active_member = layout.nodes[segment_index].active_server_id.as_deref();
+            let member_p50s = window_member_p50s(
+                &member_stats,
+                chain_index,
+                segment_index,
+                source_members.len(),
+                current_start,
+                end,
+                bucket,
+            );
+            let members: Vec<SegmentMember> = source_members
+                .iter()
+                .enumerate()
+                .map(|(member_index, member)| {
+                    let member_counts = member_probes
+                        .get(&(chain_index, segment_index, member_index))
+                        .copied()
+                        .unwrap_or_default();
+                    let member_loss = (member_counts.attempts > 0).then(|| {
+                        (member_counts.failures.max(0) as f64 / member_counts.attempts as f64)
+                            .clamp(0.0, 1.0)
+                    });
+                    SegmentMember {
+                        server_id: member.id.clone(),
+                        name: member.name.clone(),
+                        status: member.status.clone(),
+                        p50_ms: member_p50s[member_index].map(round1),
+                        loss_pct: member_loss.map(|loss| round4(loss * 100.0)),
+                        attempts: member_counts.attempts,
+                        failures: member_counts.failures,
+                        // 单成员组没有「选中哪一台」可言，恒为 false；多成员组
+                        // 只有当前通路成员为 true（active_server_id 本身只对
+                        // failover / lowest_latency 有值，其余策略恒 null）。
+                        active: source_members.len() > 1
+                            && active_member == Some(member.id.as_str()),
+                    }
+                })
+                .collect();
             segments.push(SegmentView {
                 seq: layout.segment_seq[segment_index],
                 from,
@@ -985,6 +1103,7 @@ pub fn aggregate(
                 attempts: counts.attempts,
                 failures: counts.failures,
                 loss_pct: loss.map(|loss| round4(loss * 100.0)),
+                members,
             });
         }
         // 各跳独立：整链 = 1 - Π(1 - loss_i)。缺数据的段已跳过，不能把
@@ -1586,6 +1705,39 @@ fn window_segment_p50s(
         .collect();
     result.overall = overall;
     result
+}
+
+/// 段内每个源组成员在当前窗口的 p50：逐桶 p50 再取中位数，与段级当前值
+/// **同一个窗口、同一个算法**，只是样本按成员再切一刀。
+///
+/// 成员没有样本时对应元素是 `None`（不是 0）。窗口为空、桶宽非法或没有成员
+/// 时返回同样长度的全 `None`，调用方无需单独判空。
+fn window_member_p50s(
+    stats: &HashMap<(usize, usize, usize, i64), BucketStats>,
+    chain_index: usize,
+    segment_index: usize,
+    member_count: usize,
+    start: i64,
+    end: i64,
+    bucket: i64,
+) -> Vec<Option<f64>> {
+    if member_count == 0 || end <= start || bucket <= 0 {
+        return vec![None; member_count];
+    }
+    let mut per_member: Vec<Vec<f64>> = vec![Vec::new(); member_count];
+    let mut ts = start;
+    while ts < end {
+        for (member_index, values) in per_member.iter_mut().enumerate() {
+            if let Some(bucket_stats) = stats.get(&(chain_index, segment_index, member_index, ts)) {
+                values.push(bucket_stats.p50);
+            }
+        }
+        ts += bucket;
+    }
+    per_member
+        .into_iter()
+        .map(|values| median(&values))
+        .collect()
 }
 
 fn diagnose(
@@ -3108,6 +3260,300 @@ mod tests {
         assert_eq!(last.failures, 3);
         assert_eq!(last.loss_pct, Some(1.5));
         assert_eq!(view.loss_pct, Some(1.5));
+        // 成员明细按各自样本聚合：b1 的 10/50 → 30，b2 的 30 → 30；
+        // 顺序与 nodes[].members 一致，段级聚合口径不变。
+        assert_eq!(last.members.len(), 2);
+        assert_eq!(
+            last.members
+                .iter()
+                .map(|member| (member.server_id.as_str(), member.p50_ms))
+                .collect::<Vec<_>>(),
+            vec![("b1", Some(30.0)), ("b2", Some(30.0))]
+        );
+        assert_eq!(last.members[0].loss_pct, Some(1.0));
+        assert_eq!(last.members[0].attempts, 100);
+        assert_eq!(last.members[1].loss_pct, Some(2.0));
+        assert_eq!(last.members[1].attempts, 100);
+        assert!(
+            last.members.iter().all(|member| !member.active),
+            "轮询段不标 active"
+        );
+    }
+
+    /// 三成员段：成员明细长度 = 3、顺序与 `nodes[].members` 一致，
+    /// `p50_ms` / `loss_pct` 分别对应各自的样本与探测；没有样本的成员是
+    /// null，attempts = 0 也不补 0。单成员段同样返回一个元素的数组。
+    #[test]
+    fn segment_members_carry_per_member_latency_and_loss() {
+        let chain = chain(
+            "c1",
+            vec![
+                (0, vec![("a", "A")]),
+                (1, vec![("b1", "B1"), ("b2", "B2"), ("b3", "B3")]),
+            ],
+        );
+        let ts = end_at(NOW, BUCKET) - 60;
+        let samples = vec![
+            sample(ts, "a", forward("c1", 0, "a", 1), "b1", 20),
+            sample(ts, "b1", forward("c1", 1, "b1", 3), "", 10),
+            sample(ts, "b2", forward("c1", 1, "b2", 3), "", 30),
+            // b3 没有时延样本。
+        ];
+        let probes = probes(&[
+            (forward("c1", 1, "b1", 3), 100, 1),
+            (forward("c1", 1, "b2", 3), 100, 4),
+            (forward("c1", 1, "b3", 3), 0, 0),
+        ]);
+        let aggregate = aggregate(&[chain], &samples, &probes, &no_latest(), NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        let last = &view.segments[1];
+        assert_eq!(last.members.len(), 3);
+        let ids: Vec<&str> = last
+            .members
+            .iter()
+            .map(|member| member.server_id.as_str())
+            .collect();
+        let node_ids: Vec<&str> = view.nodes[1]
+            .members
+            .iter()
+            .map(|member| member.server_id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["b1", "b2", "b3"]);
+        assert_eq!(ids, node_ids, "成员顺序必须与 nodes[].members 一致");
+        assert_eq!(last.members[0].name, "B1");
+        assert_eq!(last.members[0].p50_ms, Some(10.0));
+        assert_eq!(last.members[0].loss_pct, Some(1.0));
+        assert_eq!(last.members[0].attempts, 100);
+        assert_eq!(last.members[0].failures, 1);
+        assert_eq!(last.members[1].p50_ms, Some(30.0));
+        assert_eq!(last.members[1].loss_pct, Some(4.0));
+        assert_eq!(last.members[1].attempts, 100);
+        assert_eq!(last.members[1].failures, 4);
+        assert_eq!(last.members[2].p50_ms, None, "没有样本的成员是 null");
+        assert_eq!(last.members[2].loss_pct, None, "attempts = 0 不补 0");
+        assert_eq!(last.members[2].attempts, 0);
+        // 段级聚合口径不变：成员样本一起取中位数、计数相加。
+        assert_eq!(last.p50, Some(20.0), "10 / 30 的中位数");
+        assert_eq!(last.attempts, 200);
+        assert_eq!(last.failures, 5);
+        assert_eq!(last.loss_pct, Some(2.5));
+        // 单成员段：长度 1、active = false（即使有样本）。
+        assert_eq!(view.segments[0].members.len(), 1);
+        assert_eq!(view.segments[0].members[0].server_id, "a");
+        assert_eq!(view.segments[0].members[0].p50_ms, Some(20.0));
+        assert!(!view.segments[0].members[0].active);
+    }
+
+    /// failover：源组的当前通路成员 `active = true`，其余 false；
+    /// 入口组没有上一跳，恒为 false。
+    #[test]
+    fn a_failover_segment_marks_only_the_current_member_active() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b", "B", "10.0.0.2", None, 21_002, 0),
+                        full_member("c", "C", "10.0.0.3", None, 21_003, 1),
+                    ],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        let latest = latest_probes(&[(
+            forward("c1", 0, "a", 1),
+            &[("b", Some(false)), ("c", Some(true))][..],
+        )]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.nodes[1].active_server_id.as_deref(), Some("c"));
+        assert_eq!(view.segments[1].members.len(), 2);
+        assert!(!view.segments[1].members[0].active, "b 不是当前成员");
+        assert!(view.segments[1].members[1].active, "c 是当前成员");
+        assert!(!view.segments[0].members[0].active, "入口组没有上一跳");
+    }
+
+    /// 轮询 / 哈希等没有单一选中项——即使 Agent 上报了单个 `active = true`
+    /// 也不能采用，段成员全为 false（与 nodes 同口径）。
+    #[test]
+    fn a_round_robin_segment_never_marks_a_member_active() {
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b", "B", "10.0.0.2", None, 21_002, 0),
+                        full_member("c", "C", "10.0.0.3", None, 21_003, 1),
+                    ],
+                ),
+            ],
+        );
+        let latest = latest_probes(&[(
+            forward("c1", 0, "a", 1),
+            &[("b", Some(false)), ("c", Some(true))][..],
+        )]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.nodes[1].active_server_id, None);
+        assert!(
+            view.segments[1].members.iter().all(|member| !member.active),
+            "轮询段全 false"
+        );
+    }
+
+    /// `lowest_latency` 与 failover 一样有单一选中项：当前成员标 active。
+    #[test]
+    fn a_lowest_latency_segment_marks_the_current_member_active() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b", "B", "10.0.0.2", None, 21_002, 0),
+                        full_member("c", "C", "10.0.0.3", None, 21_003, 1),
+                    ],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "lowest_latency".into();
+        let latest = latest_probes(&[(
+            forward("c1", 0, "a", 1),
+            &[("b", Some(true)), ("c", Some(false))][..],
+        )]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments[1].members[0].server_id, "b");
+        assert!(view.segments[1].members[0].active);
+        assert!(!view.segments[1].members[1].active);
+    }
+
+    /// 单成员组即使策略是 failover、`nodes[].active_server_id` 有值，
+    /// 段成员的 active 也恒为 false：没有「选中哪一台」可言。
+    #[test]
+    fn a_single_member_segment_is_never_active() {
+        let mut chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![full_member("b", "B", "10.0.0.2", None, 21_002, 0)],
+                ),
+            ],
+        );
+        chain.groups[1].group.strategy = "failover".into();
+        let latest = latest_probes(&[(forward("c1", 0, "a", 1), &[("b", Some(true))][..])]);
+        let aggregate = aggregate(&[chain], &[], &no_probes(), &latest, NOW, 1, BUCKET);
+        let view = &aggregate.chains[0];
+        assert_eq!(view.nodes[1].active_server_id.as_deref(), Some("b"));
+        assert_eq!(view.segments[1].members.len(), 1);
+        assert!(!view.segments[1].members[0].active);
+    }
+
+    /// 成员离线：`status` 原样透传，没有样本时 `p50_ms` / `loss_pct` 都是
+    /// null，不能按「在线成员才有值」二次推断。
+    #[test]
+    fn an_offline_segment_member_keeps_its_status_and_null_latency() {
+        let mut offline = full_member("b2", "B2", "10.0.0.2", None, 21_002, 1);
+        offline.server_status = "offline".into();
+        let chain = topology(
+            "c1",
+            vec![
+                (
+                    0,
+                    None,
+                    vec![full_member("a", "A", "10.0.0.1", None, 21_001, 0)],
+                ),
+                (
+                    1,
+                    None,
+                    vec![
+                        full_member("b1", "B1", "10.0.0.3", None, 21_003, 0),
+                        offline,
+                    ],
+                ),
+            ],
+        );
+        let ts = end_at(NOW, BUCKET) - 60;
+        let samples = vec![
+            sample(ts, "a", forward("c1", 0, "a", 1), "b1", 12),
+            sample(ts, "b1", forward("c1", 1, "b1", 2), "", 8),
+        ];
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            1,
+            BUCKET,
+        );
+        let view = &aggregate.chains[0];
+        let members = &view.segments[1].members;
+        assert_eq!(members.len(), 2);
+        assert_eq!(members[0].server_id, "b1");
+        assert_eq!(members[0].status, "online");
+        assert_eq!(members[0].p50_ms, Some(8.0));
+        assert_eq!(members[1].server_id, "b2");
+        assert_eq!(members[1].status, "offline");
+        assert_eq!(members[1].p50_ms, None);
+        assert_eq!(members[1].loss_pct, None);
+        assert!(members.iter().all(|member| !member.active));
+        // 节点视图不受影响（回归）。
+        assert_eq!(view.nodes[1].status.as_deref(), Some("offline"));
+    }
+
+    /// 成员 p50 与段级同窗口：只在当前窗口之前出现的样本不计入（series 仍
+    /// 保留它）。`hours = 3` 时当前窗口仍是最近 2h。
+    #[test]
+    fn segment_member_p50_uses_the_same_current_window_as_the_segment() {
+        let chain = chain("c1", vec![(0, vec![("a", "A")]), (1, vec![("b", "B")])]);
+        let end = end_at(NOW, BUCKET);
+        // 3h 时间轴内、但落在最近 2h 之外（当前窗口 = [end-8 桶, end)）。
+        let older = end - 9 * BUCKET;
+        let samples = vec![sample(older, "a", forward("c1", 0, "a", 1), "b", 12)];
+        let aggregate = aggregate(
+            &[chain],
+            &samples,
+            &no_probes(),
+            &no_latest(),
+            NOW,
+            3,
+            BUCKET,
+        );
+        let view = &aggregate.chains[0];
+        assert_eq!(view.segments[0].p50, None, "段级只看当前 2h 窗口");
+        assert_eq!(view.segments[0].members[0].p50_ms, None, "成员与段级同窗口");
+        assert!(
+            view.segments[0].series.iter().any(Option::is_some),
+            "series 仍包含当前窗口之外的那个样本"
+        );
     }
 
     /// 同一台服务器既做中间段的源、又做最后一跳的源时，必须按 target 区分：

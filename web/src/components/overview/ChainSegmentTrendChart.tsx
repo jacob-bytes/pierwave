@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Line,
   LineChart,
@@ -6,15 +6,23 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  useActiveTooltipCoordinate,
+  useActiveTooltipLabel,
+  useYAxisScale,
 } from "recharts";
 import {
   formatChainTime,
   formatLossPct,
   formatMs,
+  chainSegmentMemberRows,
+  chainSegmentTitlePlan,
   segmentSeries,
+  type ChainHealthNode,
   type ChainHealthPoint,
   type ChainHealthSegment,
+  type ChainSegmentMember,
 } from "@/lib/chainHealth";
+import { chainSegmentTitle } from "@/lib/chainSegmentText";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { seriesVisual } from "@/lib/seriesStyle";
@@ -94,15 +102,123 @@ function axisTick(ts: number, bucket: number): string {
   return bucket >= 3600 ? text.slice(0, 5) : text.slice(6);
 }
 
+/**
+ * 成员状态点：与拓扑卡片同一套语义色（在线 primary / 离线 destructive /
+ * 异常 warning / 未知 muted），不引入新色相。`status` 是契约原样透传的小写
+ * 状态，未知值按 muted。
+ */
+function memberDotClass(status: string | null): string {
+  if (status === "online") return "bg-primary";
+  if (status === "offline") return "bg-destructive";
+  if (status === "degraded" || status === "abnormal" || status === "no_data") {
+    return "bg-warning";
+  }
+  return "bg-muted-foreground/40";
+}
+
+/**
+ * 段内成员明细表：成员名、状态点、P50、丢包；`active` 成员标「当前」。
+ *
+ * 只在契约 `segments[].members[]` 存在时渲染；最多 8 行，其余折成 `+N`
+ * （当前成员排第一，不会被 `+N` 吃掉）。旧主控 / 单成员段没有该数组，
+ * 调用方不会渲染这个组件，tooltip 保持原样。
+ */
+function SegmentMemberTable({ segment }: { segment: ChainHealthSegment }) {
+  const { rows, overflow } = chainSegmentMemberRows(segment.members);
+  if (rows.length === 0) return null;
+  return (
+    <div
+      data-segment-member-table
+      data-seq={segment.seq}
+      className="mt-1 flex flex-col gap-0.5 border-t border-border/60 pt-1"
+    >
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <span aria-hidden="true" className="size-1.5 shrink-0" />
+        <span className="min-w-0 flex-1">
+          {t("overview.chainLatency.segmentMemberName")}
+        </span>
+        <span className="w-14 shrink-0 text-right">P50</span>
+        <span className="w-11 shrink-0 text-right">
+          {t("overview.chainLatency.windowLoss")}
+        </span>
+      </div>
+      {rows.map((member) => (
+        <MemberRow
+          key={member.serverId ?? member.name}
+          member={member}
+        />
+      ))}
+      {overflow > 0 ? (
+        <div
+          data-segment-member-more
+          className="text-right text-[11px] leading-normal text-muted-foreground tabular-nums"
+        >
+          {t("overview.chainLatency.segmentMemberMore", { n: overflow })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MemberRow({
+  member,
+}: {
+  member: ChainSegmentMember;
+}) {
+  const active = member.active === true;
+  return (
+    <div
+      data-segment-member-row
+      data-active={active ? "true" : undefined}
+      data-member-status={member.status ?? undefined}
+      className="flex items-center gap-1.5 text-[11px] leading-normal"
+    >
+      <span
+        aria-hidden="true"
+        data-segment-member-dot
+        className={cn(
+          "size-1.5 shrink-0 rounded-full",
+          memberDotClass(member.status),
+        )}
+      />
+      <span className="min-w-0 flex-1 truncate" title={member.name}>
+        {member.name}
+      </span>
+      {active ? (
+        <span
+          data-segment-member-current
+          className="shrink-0 rounded-sm bg-primary/10 px-1 text-[11px] leading-4 text-primary"
+        >
+          {t("overview.chainLatency.segmentMemberCurrent")}
+        </span>
+      ) : null}
+      <span
+        data-segment-member-p50
+        className="w-14 shrink-0 text-right font-mono tabular-nums"
+      >
+        {formatMs(member.p50)}
+      </span>
+      <span
+        data-segment-member-loss
+        className="w-11 shrink-0 text-right font-mono text-muted-foreground tabular-nums"
+      >
+        {formatLossPct(member.lossPct)}
+      </span>
+    </div>
+  );
+}
+
 /** 逐段趋势的纯文本替代；窄屏横向滚动。 */
 function SegmentTrendTable({
   rows,
   entries,
   bucket,
+  titleFor,
 }: {
   rows: readonly SegmentTrendRow[];
   entries: readonly SegmentTrendEntry[];
   bucket: number;
+  titleFor: (segment: ChainHealthSegment) => string;
 }) {
   return (
     <div
@@ -121,9 +237,7 @@ function SegmentTrendTable({
                 scope="col"
                 className="px-2 py-1.5 font-medium text-muted-foreground"
               >
-                {t("overview.chainLatency.segment", {
-                  seq: entry.segment.seq,
-                })}
+                {titleFor(entry.segment)}
               </th>
             ))}
           </tr>
@@ -167,11 +281,16 @@ function SegmentTrendTooltip({
   payload,
   entries,
   bucket,
+  titleFor,
+  hoverSeq = null,
 }: {
   active?: boolean;
   payload?: TooltipRow[];
   entries: readonly SegmentTrendEntry[];
   bucket: number;
+  titleFor: (segment: ChainHealthSegment) => string;
+  /** 光标最靠近的那条线所属的段；只有它追加成员明细。 */
+  hoverSeq?: number | null;
 }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload;
@@ -185,6 +304,7 @@ function SegmentTrendTooltip({
         seq: entry.segment.seq,
         p50: typeof p50 === "number" && Number.isFinite(p50) ? p50 : null,
         loss: typeof loss === "number" && Number.isFinite(loss) ? loss : null,
+        segment: entry.segment,
       };
     })
     .sort((a, b) => a.seq - b.seq);
@@ -208,7 +328,7 @@ function SegmentTrendTooltip({
       data-segment-tooltip
       role="tooltip"
       aria-live="polite"
-      className="min-w-52 max-w-72"
+      className="min-w-52 max-w-80"
     >
       <ChartTooltipHeading>
         {formatChainTime(row.ts, bucket)}
@@ -218,42 +338,47 @@ function SegmentTrendTooltip({
           const isHighest = distinct && highest?.seq === item.seq;
           const isLowest = distinct && lowest?.seq === item.seq;
           return (
-            <div
-              key={item.seq}
-              data-segment-tooltip-row
-              data-seq={item.seq}
-              data-highest={isHighest ? "true" : undefined}
-              data-lowest={isLowest ? "true" : undefined}
-              className={cn(
-                "flex items-center justify-between gap-4 rounded-sm px-1 py-0.5",
-                isHighest && "bg-primary/5",
-              )}
-            >
-              <span className="shrink-0 text-[11px] text-muted-foreground">
-                {t("overview.chainLatency.segment", { seq: item.seq })}
-              </span>
-              <span className="flex shrink-0 items-baseline gap-2 font-mono tabular-nums">
-                <span data-segment-tooltip-p50>
-                  {formatMs(item.p50)}
+            <div key={item.seq} className="flex flex-col">
+              <div
+                data-segment-tooltip-row
+                data-seq={item.seq}
+                data-highest={isHighest ? "true" : undefined}
+                data-lowest={isLowest ? "true" : undefined}
+                className={cn(
+                  "flex items-center justify-between gap-4 rounded-sm px-1 py-0.5",
+                  isHighest && "bg-primary/5",
+                )}
+              >
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {titleFor(item.segment)}
                 </span>
-                <span
-                  data-segment-tooltip-loss
-                  className="text-[11px] text-muted-foreground"
-                >
-                  {t("overview.chainLatency.lossAtTime")}{" "}
-                  {formatLossPct(item.loss)}
+                <span className="flex shrink-0 items-baseline gap-2 font-mono tabular-nums">
+                  <span data-segment-tooltip-p50>
+                    {formatMs(item.p50)}
+                  </span>
+                  <span
+                    data-segment-tooltip-loss
+                    className="text-[11px] text-muted-foreground"
+                  >
+                    {t("overview.chainLatency.lossAtTime")}{" "}
+                    {formatLossPct(item.loss)}
+                  </span>
+                  {isHighest ? (
+                    <span className="font-sans text-[11px] text-primary">
+                      {t("overview.chainLatency.highest")}
+                    </span>
+                  ) : null}
+                  {isLowest ? (
+                    <span className="font-sans text-[11px] text-muted-foreground">
+                      {t("overview.chainLatency.lowest")}
+                    </span>
+                  ) : null}
                 </span>
-                {isHighest ? (
-                  <span className="font-sans text-[11px] text-primary">
-                    {t("overview.chainLatency.highest")}
-                  </span>
-                ) : null}
-                {isLowest ? (
-                  <span className="font-sans text-[11px] text-muted-foreground">
-                    {t("overview.chainLatency.lowest")}
-                  </span>
-                ) : null}
-              </span>
+              </div>
+              {/* 悬停到这条线才追加它自己那段的成员明细；契约缺失时为空。 */}
+              {item.seq === hoverSeq ? (
+                <SegmentMemberTable segment={item.segment} />
+              ) : null}
             </div>
           );
         })}
@@ -267,6 +392,8 @@ function SegmentLegend({
   entries,
   hidden,
   onToggle,
+  titleFor,
+  onHoverSegment,
   unmeasurableSeq = null,
   unmeasurableLabel = null,
 }: {
@@ -274,6 +401,9 @@ function SegmentLegend({
   entries: readonly SegmentTrendEntry[];
   hidden: ReadonlySet<number>;
   onToggle: (seq: number) => void;
+  titleFor: (segment: ChainHealthSegment) => string;
+  /** 悬停 / 聚焦图例：显示该段成员明细；离开时传 null。 */
+  onHoverSegment: (seq: number | null) => void;
   /** 最后一跳不可测的段号；图例显示原因，而不是「无历史数据」。 */
   unmeasurableSeq?: number | null;
   unmeasurableLabel?: string | null;
@@ -293,6 +423,8 @@ function SegmentLegend({
         const unmeasurable =
           !usable && unmeasurableSeq === segment.seq && unmeasurableLabel !== null;
         const visual = segmentVisual(index);
+        // 只有契约给了段内成员才把图例做成可悬停的明细入口。
+        const hasMembers = segment.members.length > 0;
         return (
           <button
             key={segment.seq}
@@ -304,6 +436,20 @@ function SegmentLegend({
             data-has-data={usable ? "true" : "false"}
             data-hidden={hiddenHere ? "true" : "false"}
             data-unmeasurable={unmeasurable ? "true" : "false"}
+            data-has-members={hasMembers ? "true" : "false"}
+            data-segment-title={titleFor(segment)}
+            onMouseEnter={() => {
+              if (hasMembers) onHoverSegment(segment.seq);
+            }}
+            onMouseLeave={() => {
+              if (hasMembers) onHoverSegment(null);
+            }}
+            onFocus={() => {
+              if (hasMembers) onHoverSegment(segment.seq);
+            }}
+            onBlur={() => {
+              if (hasMembers) onHoverSegment(null);
+            }}
             onClick={() => {
               if (usable) onToggle(segment.seq);
             }}
@@ -317,9 +463,7 @@ function SegmentLegend({
             )}
           >
             <LineSwatch visual={visual} muted={!usable} />
-            <span className="shrink-0">
-              {t("overview.chainLatency.segment", { seq: segment.seq })}
-            </span>
+            <span className="shrink-0">{titleFor(segment)}</span>
             {usable ? null : (
               <span
                 data-segment-legend-note
@@ -338,17 +482,73 @@ function SegmentLegend({
 }
 
 /**
+ * 光标最靠近哪条线：决定 tooltip 追加哪一段的成员明细。
+ *
+ * Recharts 的共享 tooltip 只给出该时刻所有段的值，不告诉你指着哪条线。
+ * 这里用 `useYAxisScale` 把每段的值换算成容器内的像素 y，和 tooltip 的指针
+ * 坐标比距离，取最近的一条；离开图表 / 没有活跃点时清空。两者都是同一个
+ * `LineChart` 容器的坐标，不需要另外量 DOM。
+ */
+function SegmentHoverProbe({
+  rowsByTs,
+  entries,
+  onHover,
+}: {
+  rowsByTs: ReadonlyMap<number, SegmentTrendRow>;
+  entries: readonly SegmentTrendEntry[];
+  onHover: (seq: number | null) => void;
+}) {
+  const label = useActiveTooltipLabel();
+  const coordinate = useActiveTooltipCoordinate();
+  const yScale = useYAxisScale();
+  const x = coordinate?.x ?? null;
+  const y = coordinate?.y ?? null;
+
+  useEffect(() => {
+    if (x === null || y === null || yScale === undefined) {
+      onHover(null);
+      return;
+    }
+    const row =
+      typeof label === "number" ? rowsByTs.get(label) : undefined;
+    if (row === undefined) {
+      onHover(null);
+      return;
+    }
+    let nearest: number | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const entry of entries) {
+      const value = row[p50Key(entry.segment.seq)];
+      if (typeof value !== "number" || !Number.isFinite(value)) continue;
+      const pixel = yScale(value);
+      if (pixel === undefined || !Number.isFinite(pixel)) continue;
+      const distance = Math.abs(pixel - y);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = entry.segment.seq;
+      }
+    }
+    onHover(nearest);
+  }, [x, y, label, yScale, rowsByTs, entries, onHover]);
+
+  return null;
+}
+
+/**
  * 详情里的逐段折线：**一张图、每段一条线**。
  *
  * - x = 时间（跟随 24h/7d 时窗），y = 时延 ms；
  * - 颜色只用 primary 明度阶梯 + 线型区分，变慢不换色相；
  * - 无数据段不进图例线条，图例灰显「无历史数据」；
- * - tooltip 同时给该时刻每段的时延与逐桶丢包（null → —），按段序排列。
+ * - tooltip 同时给该时刻每段的时延与逐桶丢包（null → —），按段序排列；
+ * - 段的 `members[]` 存在时，悬停该段的线 / 图例追加成员明细（首屏不画
+ *   成员曲线）；契约缺失时明细整体不出现，tooltip 保持原样。
  */
 export function ChainSegmentTrendChart({
   segments,
   trends,
   bucketSecs,
+  nodes = [],
   trendPending = false,
   unmeasurableSeq = null,
   unmeasurableLabel = null,
@@ -356,6 +556,8 @@ export function ChainSegmentTrendChart({
   segments: readonly ChainHealthSegment[];
   trends: ReadonlyMap<number, ChainHealthPoint[]>;
   bucketSecs: number;
+  /** 链拓扑节点：段标题的策略 / 台数从这里取；旧主控为空。 */
+  nodes?: readonly ChainHealthNode[];
   /** 逐段延迟接口仍在请求中：此时空态是「加载中」而不是「无历史数据」。 */
   trendPending?: boolean;
   /** 最后一跳不可测的段号；图例与空态显示原因，而不是「无历史数据」。 */
@@ -366,6 +568,53 @@ export function ChainSegmentTrendChart({
   const chartEnter = useChartEnterAnimation();
   const [hidden, setHidden] = useState<Set<number>>(() => new Set());
   const [tableView, setTableView] = useState(false);
+  // 悬停来源分开记：图的 tooltip 与图例下方的明细卡不能同时出现两份。
+  const [hover, setHover] = useState<{
+    seq: number;
+    source: "chart" | "legend";
+  } | null>(null);
+
+  const titles = useMemo(
+    () =>
+      new Map(
+        segments.map((segment) => [
+          segment.seq,
+          chainSegmentTitle(segment, chainSegmentTitlePlan(segment, nodes)),
+        ]),
+      ),
+    [segments, nodes],
+  );
+  const titleFor = useCallback(
+    (segment: ChainHealthSegment) =>
+      titles.get(segment.seq) ?? chainSegmentTitle(segment, null),
+    [titles],
+  );
+
+  const handleChartHover = useCallback((seq: number | null) => {
+    setHover((previous) => {
+      // 图表探针在没有指针坐标时也会清空：只能清自己那一路，否则会把
+      // 图例悬停刚设置的明细一起抹掉（探针每次 render 都会跑一次）。
+      if (seq === null) {
+        return previous?.source === "chart" ? null : previous;
+      }
+      if (previous?.source === "chart" && previous.seq === seq) return previous;
+      return { seq, source: "chart" };
+    });
+  }, []);
+  const handleLegendHover = useCallback((seq: number | null) => {
+    setHover((previous) => {
+      if (seq === null) {
+        return previous?.source === "legend" ? null : previous;
+      }
+      if (previous?.source === "legend" && previous.seq === seq) return previous;
+      return { seq, source: "legend" };
+    });
+  }, []);
+  const hovered = hover === null
+    ? null
+    : (segments.find((segment) => segment.seq === hover.seq) ?? null);
+  const legendMember = hover?.source === "legend" ? hovered : null;
+  const chartHoverSeq = hover?.source === "chart" ? hover.seq : null;
 
   const entries = useMemo<SegmentTrendEntry[]>(
     () =>
@@ -429,6 +678,12 @@ export function ChainSegmentTrendChart({
       .map((row) => row.ts);
   }, [bucketSecs, data]);
 
+  // 悬停探针按 ts 查该时刻的行值；只做一层 Map，不给 tooltip 加状态。
+  const rowsByTs = useMemo(
+    () => new Map<number, SegmentTrendRow>(data.map((row) => [row.ts, row])),
+    [data],
+  );
+
   function toggle(seq: number) {
     setHidden((previous) => {
       const next = new Set(previous);
@@ -443,19 +698,40 @@ export function ChainSegmentTrendChart({
       data-chain-segment-chart
       data-series-count={usable.length}
       data-visible-count={visible.length}
+      data-hover-seq={hover?.seq}
+      data-hover-source={hover?.source}
       role="group"
       aria-label={t("overview.chainLatency.segmentChartAria", {
         n: usable.length,
       })}
     >
-      <SegmentLegend
-        segments={segments}
-        entries={entries}
-        hidden={hidden}
-        onToggle={toggle}
-        unmeasurableSeq={unmeasurableSeq}
-        unmeasurableLabel={unmeasurableLabel}
-      />
+      <div className="relative">
+        <SegmentLegend
+          segments={segments}
+          entries={entries}
+          hidden={hidden}
+          onToggle={toggle}
+          titleFor={titleFor}
+          onHoverSegment={handleLegendHover}
+          unmeasurableSeq={unmeasurableSeq}
+          unmeasurableLabel={unmeasurableLabel}
+        />
+        {legendMember !== null && legendMember.members.length > 0 ? (
+          // 图例悬停的成员明细：复用图表 tooltip 外壳，绝对定位覆盖在图上，
+          // 不把图往下挤。
+          <ChartTooltipShell
+            data-segment-member-panel
+            data-seq={legendMember.seq}
+            role="tooltip"
+            className="absolute top-full left-0 z-20 mt-1 w-[18rem] max-w-[calc(100vw-2rem)] p-2"
+          >
+            <ChartTooltipHeading className="mb-1">
+              {titleFor(legendMember)}
+            </ChartTooltipHeading>
+            <SegmentMemberTable segment={legendMember} />
+          </ChartTooltipShell>
+        ) : null}
+      </div>
       {usable.length > 0 ? (
         <div className="flex justify-end pb-1">
           <Button
@@ -495,6 +771,7 @@ export function ChainSegmentTrendChart({
           rows={data}
           entries={visible}
           bucket={bucketSecs}
+          titleFor={titleFor}
         />
       ) : (
         <div className="h-[240px] w-full sm:h-[260px]">
@@ -528,10 +805,24 @@ export function ChainSegmentTrendChart({
               />
               <Tooltip
                 content={
-                  <SegmentTrendTooltip entries={visible} bucket={bucketSecs} />
+                  <SegmentTrendTooltip
+                    entries={visible}
+                    bucket={bucketSecs}
+                    titleFor={titleFor}
+                    hoverSeq={chartHoverSeq}
+                  />
                 }
                 cursor={CHART_CURSOR}
               />
+              {visible.some(
+                (entry) => entry.segment.members.length > 0,
+              ) ? (
+                <SegmentHoverProbe
+                  rowsByTs={rowsByTs}
+                  entries={visible}
+                  onHover={handleChartHover}
+                />
+              ) : null}
               {visible.map((entry) => {
                 const index = segments.findIndex(
                   (segment) => segment.seq === entry.segment.seq,
@@ -542,9 +833,7 @@ export function ChainSegmentTrendChart({
                     key={entry.segment.seq}
                     type="monotone"
                     dataKey={p50Key(entry.segment.seq)}
-                    name={t("overview.chainLatency.segment", {
-                      seq: entry.segment.seq,
-                    })}
+                    name={titleFor(entry.segment)}
                     stroke={visual.color}
                     strokeOpacity={visual.opacity}
                     strokeDasharray={visual.dash}

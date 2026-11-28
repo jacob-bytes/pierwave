@@ -1,0 +1,1418 @@
+{
+  "generatedAt": "2026-11-28T03:04:09.477Z",
+  "base": "http://localhost:5199",
+  "shots": [
+    {
+      "name": "failover-dark-1440.png",
+      "bytes": 94827,
+      "fixture": "failover",
+      "theme": "暗色",
+      "width": 1440,
+      "badge": "降级 · 东京-01 离线",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 3 选 1"
+      ]
+    },
+    {
+      "name": "failover-dark-1440-members.png",
+      "bytes": 69636,
+      "fixture": "failover",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 1,
+        "current": "当前",
+        "more": "",
+        "first": "东京-02",
+        "names": [
+          "东京-02",
+          "东京-01",
+          "东京-03"
+        ]
+      }
+    },
+    {
+      "name": "failover-dark-1440-tooltip.png",
+      "bytes": 50899,
+      "fixture": "failover",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 3,
+      "tooltipTable": 1
+    },
+    {
+      "name": "failover-dark-390.png",
+      "bytes": 64364,
+      "fixture": "failover",
+      "theme": "暗色",
+      "width": 390,
+      "badge": "降级 · 东京-01 离线",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 3 选 1"
+      ]
+    },
+    {
+      "name": "failover-dark-390-members.png",
+      "bytes": 40958,
+      "fixture": "failover",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 1,
+        "current": "当前",
+        "more": "",
+        "first": "东京-02",
+        "names": [
+          "东京-02",
+          "东京-01",
+          "东京-03"
+        ]
+      }
+    },
+    {
+      "name": "failover-dark-390-tooltip.png",
+      "bytes": 33734,
+      "fixture": "failover",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 3,
+      "tooltipTable": 1
+    },
+    {
+      "name": "failover-light-1440.png",
+      "bytes": 102387,
+      "fixture": "failover",
+      "theme": "亮色",
+      "width": 1440,
+      "badge": "降级 · 东京-01 离线",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 3 选 1"
+      ]
+    },
+    {
+      "name": "failover-light-1440-members.png",
+      "bytes": 75520,
+      "fixture": "failover",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 1,
+        "current": "当前",
+        "more": "",
+        "first": "东京-02",
+        "names": [
+          "东京-02",
+          "东京-01",
+          "东京-03"
+        ]
+      }
+    },
+    {
+      "name": "failover-light-1440-tooltip.png",
+      "bytes": 53288,
+      "fixture": "failover",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 3,
+      "tooltipTable": 1
+    },
+    {
+      "name": "failover-light-390.png",
+      "bytes": 70142,
+      "fixture": "failover",
+      "theme": "亮色",
+      "width": 390,
+      "badge": "降级 · 东京-01 离线",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 3 选 1"
+      ]
+    },
+    {
+      "name": "failover-light-390-members.png",
+      "bytes": 44834,
+      "fixture": "failover",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 1,
+        "current": "当前",
+        "more": "",
+        "first": "东京-02",
+        "names": [
+          "东京-02",
+          "东京-01",
+          "东京-03"
+        ]
+      }
+    },
+    {
+      "name": "failover-light-390-tooltip.png",
+      "bytes": 35915,
+      "fixture": "failover",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 3,
+      "tooltipTable": 1
+    },
+    {
+      "name": "roundRobin-dark-1440.png",
+      "bytes": 93625,
+      "fixture": "roundRobin",
+      "theme": "暗色",
+      "width": 1440,
+      "badge": "正常",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 轮询 · 3 台分担"
+      ]
+    },
+    {
+      "name": "roundRobin-dark-1440-members.png",
+      "bytes": 70412,
+      "fixture": "roundRobin",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 0,
+        "current": "",
+        "more": "",
+        "first": "香港-01",
+        "names": [
+          "香港-01",
+          "香港-02",
+          "香港-03"
+        ]
+      }
+    },
+    {
+      "name": "roundRobin-dark-1440-tooltip.png",
+      "bytes": 47774,
+      "fixture": "roundRobin",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 1,
+      "tooltipTable": 1
+    },
+    {
+      "name": "roundRobin-dark-390.png",
+      "bytes": 63140,
+      "fixture": "roundRobin",
+      "theme": "暗色",
+      "width": 390,
+      "badge": "正常",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 轮询 · 3 台分担"
+      ]
+    },
+    {
+      "name": "roundRobin-dark-390-members.png",
+      "bytes": 40963,
+      "fixture": "roundRobin",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 0,
+        "current": "",
+        "more": "",
+        "first": "香港-01",
+        "names": [
+          "香港-01",
+          "香港-02",
+          "香港-03"
+        ]
+      }
+    },
+    {
+      "name": "roundRobin-dark-390-tooltip.png",
+      "bytes": 32215,
+      "fixture": "roundRobin",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 1,
+      "tooltipTable": 1
+    },
+    {
+      "name": "roundRobin-light-1440.png",
+      "bytes": 102227,
+      "fixture": "roundRobin",
+      "theme": "亮色",
+      "width": 1440,
+      "badge": "正常",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 轮询 · 3 台分担"
+      ]
+    },
+    {
+      "name": "roundRobin-light-1440-members.png",
+      "bytes": 76077,
+      "fixture": "roundRobin",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 0,
+        "current": "",
+        "more": "",
+        "first": "香港-01",
+        "names": [
+          "香港-01",
+          "香港-02",
+          "香港-03"
+        ]
+      }
+    },
+    {
+      "name": "roundRobin-light-1440-tooltip.png",
+      "bytes": 50244,
+      "fixture": "roundRobin",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 1,
+      "tooltipTable": 1
+    },
+    {
+      "name": "roundRobin-light-390.png",
+      "bytes": 69566,
+      "fixture": "roundRobin",
+      "theme": "亮色",
+      "width": 390,
+      "badge": "正常",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 轮询 · 3 台分担"
+      ]
+    },
+    {
+      "name": "roundRobin-light-390-members.png",
+      "bytes": 44893,
+      "fixture": "roundRobin",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 0,
+        "current": "",
+        "more": "",
+        "first": "香港-01",
+        "names": [
+          "香港-01",
+          "香港-02",
+          "香港-03"
+        ]
+      }
+    },
+    {
+      "name": "roundRobin-light-390-tooltip.png",
+      "bytes": 34265,
+      "fixture": "roundRobin",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 1,
+      "tooltipTable": 1
+    },
+    {
+      "name": "single-dark-1440.png",
+      "bytes": 77655,
+      "fixture": "single",
+      "theme": "暗色",
+      "width": 1440,
+      "badge": "正常",
+      "note": false,
+      "titles": [
+        "第 1 段",
+        "第 2 段"
+      ]
+    },
+    {
+      "name": "single-dark-1440-members.png",
+      "bytes": 59951,
+      "fixture": "single",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 1,
+        "active": 0,
+        "current": "",
+        "more": "",
+        "first": "东京-01",
+        "names": [
+          "东京-01"
+        ]
+      }
+    },
+    {
+      "name": "single-dark-1440-tooltip.png",
+      "bytes": 43809,
+      "fixture": "single",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 1,
+      "tooltipTable": 1
+    },
+    {
+      "name": "single-dark-390.png",
+      "bytes": 49622,
+      "fixture": "single",
+      "theme": "暗色",
+      "width": 390,
+      "badge": "正常",
+      "note": false,
+      "titles": [
+        "第 1 段",
+        "第 2 段"
+      ]
+    },
+    {
+      "name": "single-dark-390-members.png",
+      "bytes": 38759,
+      "fixture": "single",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 1,
+        "active": 0,
+        "current": "",
+        "more": "",
+        "first": "东京-01",
+        "names": [
+          "东京-01"
+        ]
+      }
+    },
+    {
+      "name": "single-dark-390-tooltip.png",
+      "bytes": 30399,
+      "fixture": "single",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 1,
+      "tooltipTable": 1
+    },
+    {
+      "name": "single-light-1440.png",
+      "bytes": 83863,
+      "fixture": "single",
+      "theme": "亮色",
+      "width": 1440,
+      "badge": "正常",
+      "note": false,
+      "titles": [
+        "第 1 段",
+        "第 2 段"
+      ]
+    },
+    {
+      "name": "single-light-1440-members.png",
+      "bytes": 65185,
+      "fixture": "single",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 1,
+        "active": 0,
+        "current": "",
+        "more": "",
+        "first": "东京-01",
+        "names": [
+          "东京-01"
+        ]
+      }
+    },
+    {
+      "name": "single-light-1440-tooltip.png",
+      "bytes": 45759,
+      "fixture": "single",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 1,
+      "tooltipTable": 1
+    },
+    {
+      "name": "single-light-390.png",
+      "bytes": 54902,
+      "fixture": "single",
+      "theme": "亮色",
+      "width": 390,
+      "badge": "正常",
+      "note": false,
+      "titles": [
+        "第 1 段",
+        "第 2 段"
+      ]
+    },
+    {
+      "name": "single-light-390-members.png",
+      "bytes": 42693,
+      "fixture": "single",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 1,
+        "active": 0,
+        "current": "",
+        "more": "",
+        "first": "东京-01",
+        "names": [
+          "东京-01"
+        ]
+      }
+    },
+    {
+      "name": "single-light-390-tooltip.png",
+      "bytes": 32498,
+      "fixture": "single",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 1,
+      "tooltipTable": 1
+    },
+    {
+      "name": "missingMembers-dark-1440.png",
+      "bytes": 95487,
+      "fixture": "missingMembers",
+      "theme": "暗色",
+      "width": 1440,
+      "badge": "降级 · 东京-01 离线",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 3 选 1"
+      ]
+    },
+    {
+      "name": "missingMembers-dark-1440-members.png",
+      "bytes": 59709,
+      "fixture": "missingMembers",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": null
+    },
+    {
+      "name": "missingMembers-dark-1440-tooltip.png",
+      "bytes": 43312,
+      "fixture": "missingMembers",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 0,
+      "tooltipTable": 0
+    },
+    {
+      "name": "missingMembers-dark-390.png",
+      "bytes": 64908,
+      "fixture": "missingMembers",
+      "theme": "暗色",
+      "width": 390,
+      "badge": "降级 · 东京-01 离线",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 3 选 1"
+      ]
+    },
+    {
+      "name": "missingMembers-dark-390-members.png",
+      "bytes": 34428,
+      "fixture": "missingMembers",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "legend",
+      "panel": null
+    },
+    {
+      "name": "missingMembers-dark-390-tooltip.png",
+      "bytes": 28581,
+      "fixture": "missingMembers",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 0,
+      "tooltipTable": 0
+    },
+    {
+      "name": "missingMembers-light-1440.png",
+      "bytes": 103072,
+      "fixture": "missingMembers",
+      "theme": "亮色",
+      "width": 1440,
+      "badge": "降级 · 东京-01 离线",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 3 选 1"
+      ]
+    },
+    {
+      "name": "missingMembers-light-1440-members.png",
+      "bytes": 63826,
+      "fixture": "missingMembers",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": null
+    },
+    {
+      "name": "missingMembers-light-1440-tooltip.png",
+      "bytes": 45288,
+      "fixture": "missingMembers",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 0,
+      "tooltipTable": 0
+    },
+    {
+      "name": "missingMembers-light-390.png",
+      "bytes": 70707,
+      "fixture": "missingMembers",
+      "theme": "亮色",
+      "width": 390,
+      "badge": "降级 · 东京-01 离线",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 3 选 1"
+      ]
+    },
+    {
+      "name": "missingMembers-light-390-members.png",
+      "bytes": 36981,
+      "fixture": "missingMembers",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "legend",
+      "panel": null
+    },
+    {
+      "name": "missingMembers-light-390-tooltip.png",
+      "bytes": 30584,
+      "fixture": "missingMembers",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 0,
+      "tooltipTable": 0
+    },
+    {
+      "name": "many-dark-1440.png",
+      "bytes": 106352,
+      "fixture": "many",
+      "theme": "暗色",
+      "width": 1440,
+      "badge": "正常",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 10 选 1"
+      ]
+    },
+    {
+      "name": "many-dark-1440-members.png",
+      "bytes": 83599,
+      "fixture": "many",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 8,
+        "active": 1,
+        "current": "当前",
+        "more": "+2",
+        "first": "法兰克福-10",
+        "names": [
+          "法兰克福-10",
+          "法兰克福-01",
+          "法兰克福-02",
+          "法兰克福-03",
+          "法兰克福-04",
+          "法兰克福-05",
+          "法兰克福-06",
+          "法兰克福-07"
+        ]
+      }
+    },
+    {
+      "name": "many-dark-1440-tooltip.png",
+      "bytes": 63112,
+      "fixture": "many",
+      "theme": "暗色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 8,
+      "tooltipTable": 1
+    },
+    {
+      "name": "many-dark-390.png",
+      "bytes": 72226,
+      "fixture": "many",
+      "theme": "暗色",
+      "width": 390,
+      "badge": "正常",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 10 选 1"
+      ]
+    },
+    {
+      "name": "many-dark-390-members.png",
+      "bytes": 45108,
+      "fixture": "many",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 8,
+        "active": 1,
+        "current": "当前",
+        "more": "+2",
+        "first": "法兰克福-10",
+        "names": [
+          "法兰克福-10",
+          "法兰克福-01",
+          "法兰克福-02",
+          "法兰克福-03",
+          "法兰克福-04",
+          "法兰克福-05",
+          "法兰克福-06",
+          "法兰克福-07"
+        ]
+      }
+    },
+    {
+      "name": "many-dark-390-tooltip.png",
+      "bytes": 36066,
+      "fixture": "many",
+      "theme": "暗色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 8,
+      "tooltipTable": 1
+    },
+    {
+      "name": "many-light-1440.png",
+      "bytes": 114773,
+      "fixture": "many",
+      "theme": "亮色",
+      "width": 1440,
+      "badge": "正常",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 10 选 1"
+      ]
+    },
+    {
+      "name": "many-light-1440-members.png",
+      "bytes": 90066,
+      "fixture": "many",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 8,
+        "active": 1,
+        "current": "当前",
+        "more": "+2",
+        "first": "法兰克福-10",
+        "names": [
+          "法兰克福-10",
+          "法兰克福-01",
+          "法兰克福-02",
+          "法兰克福-03",
+          "法兰克福-04",
+          "法兰克福-05",
+          "法兰克福-06",
+          "法兰克福-07"
+        ]
+      }
+    },
+    {
+      "name": "many-light-1440-tooltip.png",
+      "bytes": 66075,
+      "fixture": "many",
+      "theme": "亮色",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 8,
+      "tooltipTable": 1
+    },
+    {
+      "name": "many-light-390.png",
+      "bytes": 78891,
+      "fixture": "many",
+      "theme": "亮色",
+      "width": 390,
+      "badge": "正常",
+      "note": true,
+      "titles": [
+        "第 1 段",
+        "第 2 段 · 主备 · 10 选 1"
+      ]
+    },
+    {
+      "name": "many-light-390-members.png",
+      "bytes": 49131,
+      "fixture": "many",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 8,
+        "active": 1,
+        "current": "当前",
+        "more": "+2",
+        "first": "法兰克福-10",
+        "names": [
+          "法兰克福-10",
+          "法兰克福-01",
+          "法兰克福-02",
+          "法兰克福-03",
+          "法兰克福-04",
+          "法兰克福-05",
+          "法兰克福-06",
+          "法兰克福-07"
+        ]
+      }
+    },
+    {
+      "name": "many-light-390-tooltip.png",
+      "bytes": 38317,
+      "fixture": "many",
+      "theme": "亮色",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 8,
+      "tooltipTable": 1
+    },
+    {
+      "name": "failover-en-1440-dark-members.png",
+      "bytes": 72237,
+      "fixture": "failover",
+      "theme": "en dark",
+      "width": 1440,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 1,
+        "current": "Current",
+        "more": "",
+        "first": "东京-02",
+        "names": [
+          "东京-02",
+          "东京-01",
+          "东京-03"
+        ]
+      }
+    },
+    {
+      "name": "failover-en-390-dark-members.png",
+      "bytes": 43941,
+      "fixture": "failover",
+      "theme": "en dark",
+      "width": 390,
+      "hover": "legend",
+      "panel": {
+        "seq": "2",
+        "rows": 3,
+        "active": 1,
+        "current": "Current",
+        "more": "",
+        "first": "东京-02",
+        "names": [
+          "东京-02",
+          "东京-01",
+          "东京-03"
+        ]
+      }
+    }
+  ],
+  "checks": [
+    {
+      "name": "failover/dark/1440",
+      "value": {
+        "badge": "降级 · 东京-01 离线",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 3 选 1"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 3,
+          "active": 1,
+          "current": "当前",
+          "more": "",
+          "first": "东京-02",
+          "names": [
+            "东京-02",
+            "东京-01",
+            "东京-03"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 3
+        }
+      }
+    },
+    {
+      "name": "failover/dark/390",
+      "value": {
+        "badge": "降级 · 东京-01 离线",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 3 选 1"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 3,
+          "active": 1,
+          "current": "当前",
+          "more": "",
+          "first": "东京-02",
+          "names": [
+            "东京-02",
+            "东京-01",
+            "东京-03"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 3
+        }
+      }
+    },
+    {
+      "name": "failover/light/1440",
+      "value": {
+        "badge": "降级 · 东京-01 离线",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 3 选 1"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 3,
+          "active": 1,
+          "current": "当前",
+          "more": "",
+          "first": "东京-02",
+          "names": [
+            "东京-02",
+            "东京-01",
+            "东京-03"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 3
+        }
+      }
+    },
+    {
+      "name": "failover/light/390",
+      "value": {
+        "badge": "降级 · 东京-01 离线",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 3 选 1"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 3,
+          "active": 1,
+          "current": "当前",
+          "more": "",
+          "first": "东京-02",
+          "names": [
+            "东京-02",
+            "东京-01",
+            "东京-03"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 3
+        }
+      }
+    },
+    {
+      "name": "roundRobin/dark/1440",
+      "value": {
+        "badge": "正常",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 轮询 · 3 台分担"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 3,
+          "active": 0,
+          "current": "",
+          "more": "",
+          "first": "香港-01",
+          "names": [
+            "香港-01",
+            "香港-02",
+            "香港-03"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 1
+        }
+      }
+    },
+    {
+      "name": "roundRobin/dark/390",
+      "value": {
+        "badge": "正常",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 轮询 · 3 台分担"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 3,
+          "active": 0,
+          "current": "",
+          "more": "",
+          "first": "香港-01",
+          "names": [
+            "香港-01",
+            "香港-02",
+            "香港-03"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 1
+        }
+      }
+    },
+    {
+      "name": "roundRobin/light/1440",
+      "value": {
+        "badge": "正常",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 轮询 · 3 台分担"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 3,
+          "active": 0,
+          "current": "",
+          "more": "",
+          "first": "香港-01",
+          "names": [
+            "香港-01",
+            "香港-02",
+            "香港-03"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 1
+        }
+      }
+    },
+    {
+      "name": "roundRobin/light/390",
+      "value": {
+        "badge": "正常",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 轮询 · 3 台分担"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 3,
+          "active": 0,
+          "current": "",
+          "more": "",
+          "first": "香港-01",
+          "names": [
+            "香港-01",
+            "香港-02",
+            "香港-03"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 1
+        }
+      }
+    },
+    {
+      "name": "single/dark/1440",
+      "value": {
+        "badge": "正常",
+        "note": "",
+        "titles": [
+          "第 1 段",
+          "第 2 段"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 1,
+          "active": 0,
+          "current": "",
+          "more": "",
+          "first": "东京-01",
+          "names": [
+            "东京-01"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 1
+        }
+      }
+    },
+    {
+      "name": "single/dark/390",
+      "value": {
+        "badge": "正常",
+        "note": "",
+        "titles": [
+          "第 1 段",
+          "第 2 段"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 1,
+          "active": 0,
+          "current": "",
+          "more": "",
+          "first": "东京-01",
+          "names": [
+            "东京-01"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 1
+        }
+      }
+    },
+    {
+      "name": "single/light/1440",
+      "value": {
+        "badge": "正常",
+        "note": "",
+        "titles": [
+          "第 1 段",
+          "第 2 段"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 1,
+          "active": 0,
+          "current": "",
+          "more": "",
+          "first": "东京-01",
+          "names": [
+            "东京-01"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 1
+        }
+      }
+    },
+    {
+      "name": "single/light/390",
+      "value": {
+        "badge": "正常",
+        "note": "",
+        "titles": [
+          "第 1 段",
+          "第 2 段"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 1,
+          "active": 0,
+          "current": "",
+          "more": "",
+          "first": "东京-01",
+          "names": [
+            "东京-01"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 1
+        }
+      }
+    },
+    {
+      "name": "missingMembers/dark/1440",
+      "value": {
+        "badge": "降级 · 东京-01 离线",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 3 选 1"
+        ],
+        "panel": null,
+        "tooltip": {
+          "tables": 0,
+          "rows": 0
+        }
+      }
+    },
+    {
+      "name": "missingMembers/dark/390",
+      "value": {
+        "badge": "降级 · 东京-01 离线",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 3 选 1"
+        ],
+        "panel": null,
+        "tooltip": {
+          "tables": 0,
+          "rows": 0
+        }
+      }
+    },
+    {
+      "name": "missingMembers/light/1440",
+      "value": {
+        "badge": "降级 · 东京-01 离线",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 3 选 1"
+        ],
+        "panel": null,
+        "tooltip": {
+          "tables": 0,
+          "rows": 0
+        }
+      }
+    },
+    {
+      "name": "missingMembers/light/390",
+      "value": {
+        "badge": "降级 · 东京-01 离线",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 3 选 1"
+        ],
+        "panel": null,
+        "tooltip": {
+          "tables": 0,
+          "rows": 0
+        }
+      }
+    },
+    {
+      "name": "many/dark/1440",
+      "value": {
+        "badge": "正常",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 10 选 1"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 8,
+          "active": 1,
+          "current": "当前",
+          "more": "+2",
+          "first": "法兰克福-10",
+          "names": [
+            "法兰克福-10",
+            "法兰克福-01",
+            "法兰克福-02",
+            "法兰克福-03",
+            "法兰克福-04",
+            "法兰克福-05",
+            "法兰克福-06",
+            "法兰克福-07"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 8
+        }
+      }
+    },
+    {
+      "name": "many/dark/390",
+      "value": {
+        "badge": "正常",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 10 选 1"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 8,
+          "active": 1,
+          "current": "当前",
+          "more": "+2",
+          "first": "法兰克福-10",
+          "names": [
+            "法兰克福-10",
+            "法兰克福-01",
+            "法兰克福-02",
+            "法兰克福-03",
+            "法兰克福-04",
+            "法兰克福-05",
+            "法兰克福-06",
+            "法兰克福-07"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 8
+        }
+      }
+    },
+    {
+      "name": "many/light/1440",
+      "value": {
+        "badge": "正常",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 10 选 1"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 8,
+          "active": 1,
+          "current": "当前",
+          "more": "+2",
+          "first": "法兰克福-10",
+          "names": [
+            "法兰克福-10",
+            "法兰克福-01",
+            "法兰克福-02",
+            "法兰克福-03",
+            "法兰克福-04",
+            "法兰克福-05",
+            "法兰克福-06",
+            "法兰克福-07"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 8
+        }
+      }
+    },
+    {
+      "name": "many/light/390",
+      "value": {
+        "badge": "正常",
+        "note": "多路径 · 按各跳中位数叠加",
+        "titles": [
+          "第 1 段",
+          "第 2 段 · 主备 · 10 选 1"
+        ],
+        "panel": {
+          "seq": "2",
+          "rows": 8,
+          "active": 1,
+          "current": "当前",
+          "more": "+2",
+          "first": "法兰克福-10",
+          "names": [
+            "法兰克福-10",
+            "法兰克福-01",
+            "法兰克福-02",
+            "法兰克福-03",
+            "法兰克福-04",
+            "法兰克福-05",
+            "法兰克福-06",
+            "法兰克福-07"
+          ]
+        },
+        "tooltip": {
+          "tables": 1,
+          "rows": 8
+        }
+      }
+    }
+  ]
+}

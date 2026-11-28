@@ -354,7 +354,9 @@ function ChainListRow({
               data-chain-status-reason
               className={cn(
                 "truncate text-[11px] leading-4",
-                issue?.kind === "offline" ? "text-destructive" : "text-warning",
+                // 多成员组掉一部分成员是「降级」，不是阻断：小字跟徽章同色，
+                // 只有整跳没有在线成员（blocked）才用 destructive。
+                state === "blocked" ? "text-destructive" : "text-warning",
               )}
               title={issueText}
             >

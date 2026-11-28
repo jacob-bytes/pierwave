@@ -9,8 +9,10 @@
 //! `forward_id IN (...)`）。剩下的归并全部在
 //! [`pierwave_domain::chain_health`] 里做。
 //! 查询次数与链数、成员数无关，没有 N+1。`entry` / `exit`、逐段
-//! `segments[].series` 与 `nodes[].active_server_id` 也全部由同一批结果内存
-//! 归并，不新增 SQL。
+//! `segments[].series`、`segments[].members`（段源组成员明细）与
+//! `nodes[].active_server_id` 也全部由同一批结果内存归并，不新增 SQL；
+//! 成员明细的 `p50_ms` / `loss_pct` 与段级同一个当前窗口，按成员自己的
+//! forward 规则聚合，没有样本时为 null。
 //!
 //! `targets[].active`（协议 30）只对 failover / lowest_latency 有值：同一
 //! forward 至多一个 `Some(true)`，`None`（旧 Agent / 非单一选中策略）表示
@@ -653,6 +655,24 @@ mod tests {
         assert_eq!(segments[1]["from"], "东京-01");
         assert_eq!(segments[1]["to"], "链目标");
         assert_eq!(segments[1]["p50"], 9.0);
+        // 单成员段也返回一个元素的 `members`；成员来自段源组，状态原样透传
+        // （东京-01 未标记在线 → offline），单成员段 active 恒 false。
+        assert_eq!(
+            segments[0]["members"],
+            json!([{
+                "server_id": a, "name": "香港-01", "status": "online",
+                "p50_ms": 17.0, "loss_pct": Value::Null,
+                "attempts": 0, "failures": 0, "active": false,
+            }])
+        );
+        assert_eq!(
+            segments[1]["members"],
+            json!([{
+                "server_id": b, "name": "东京-01", "status": "offline",
+                "p50_ms": 9.0, "loss_pct": Value::Null,
+                "attempts": 0, "failures": 0, "active": false,
+            }])
+        );
         // 没有探测样本：attempts = 0、loss_pct 为 null；整链无数据不标 partial。
         for segment in segments {
             assert_eq!(segment["attempts"], 0);
@@ -947,6 +967,28 @@ mod tests {
         assert_eq!(nodes[2]["members"], json!([]));
         assert_eq!(view["missing_hops"], json!([2]));
         assert_eq!(view["segments"].as_array().unwrap().len(), 2);
+        // 段成员明细与 nodes 同序、同 status；轮询策略不标 active。
+        let hop_members = view["segments"][1]["members"].as_array().unwrap();
+        assert_eq!(hop_members.len(), 2);
+        assert_eq!(
+            hop_members
+                .iter()
+                .map(|member| &member["server_id"])
+                .collect::<Vec<_>>(),
+            nodes[1]["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|member| &member["server_id"])
+                .collect::<Vec<_>>()
+        );
+        for member in hop_members {
+            assert_eq!(member["status"], "offline");
+            assert_eq!(member["p50_ms"], Value::Null);
+            assert_eq!(member["active"], false, "轮询段全 false");
+        }
+        assert_eq!(view["segments"][0]["members"].as_array().unwrap().len(), 1);
+        assert_eq!(view["segments"][0]["members"][0]["active"], false);
     }
 
     /// 多成员组的第二台成员离线：只是容量下降，链仍可用 → `degraded` /
@@ -1706,6 +1748,129 @@ mod tests {
         assert_eq!(filtered["summary"]["total_chains"], 1);
         assert_eq!(filtered["chains"][0]["nodes"][1]["active_server_id"], c);
         assert_eq!(filtered["chains"][0]["nodes"][2]["active_server_id"], d);
+    }
+
+    /// 逐段成员明细（`segments[].members`）：成员来自段源组、顺序与
+    /// `nodes[].members` 一致；`p50_ms` / `loss_pct` 按成员自己的 forward
+    /// 聚合（与段级同一当前窗口），没有样本为 null；failover 只把当前成员
+    /// 标成 active，单成员段恒 false；离线成员的 status 原样透传。
+    /// 段级聚合口径（p50 取成员池中位数、计数相加）不变。
+    #[tokio::test]
+    async fn chain_health_exposes_per_segment_member_details() {
+        let (app, state, admin) = setup().await;
+        let pool = &state.db.pool;
+        let a = server(pool, "香港-01", "203.0.113.11").await;
+        let b = server(pool, "东京-01", "198.51.100.21").await;
+        let c = server(pool, "东京-02", "198.51.100.22").await;
+        let d = server(pool, "东京-03", "198.51.100.23").await;
+        servers::mark_online(pool, &a).await.unwrap();
+        servers::mark_online(pool, &b).await.unwrap();
+        servers::mark_online(pool, &c).await.unwrap();
+        // d 不标记在线：默认 offline，用来验证成员 status 透传与缺样本 null。
+        let chain_id = chain_with_strategies(
+            pool,
+            "港日三路",
+            vec![(vec![&a], "round_robin"), (vec![&b, &c, &d], "failover")],
+        )
+        .await;
+        let end = end_at(repo::now(), 900);
+        let ts = end - 60;
+        // 单成员入口段：a 的 forward 指向 b；三成员段：b / c 各有自己的
+        // forward，d 没有时延样本。
+        latency::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), &b, 20)
+            .await
+            .unwrap();
+        latency::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 3), "", 10)
+            .await
+            .unwrap();
+        latency::record_sample(pool, ts, &c, &forward_id(&chain_id, 1, &c, 3), "", 30)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, ts, &a, &forward_id(&chain_id, 0, &a, 1), 100, 0)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, ts, &b, &forward_id(&chain_id, 1, &b, 3), 100, 1)
+            .await
+            .unwrap();
+        chain_probe::record_sample(pool, ts, &c, &forward_id(&chain_id, 1, &c, 3), 100, 4)
+            .await
+            .unwrap();
+        // 入口规则把 c 标成当前选中（b 未选中、d 离线）。
+        save_probes(
+            &state,
+            &a,
+            &forward_id(&chain_id, 0, &a, 1),
+            &[
+                (b.as_str(), true, Some(12), Some(false)),
+                (c.as_str(), true, Some(23), Some(true)),
+                (d.as_str(), false, None, Some(false)),
+            ],
+        )
+        .await;
+
+        let (status, _, body) = request(
+            &app,
+            Some(&admin),
+            "/api/v1/overview/chain-health?hours=1&bucket=900",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "body: {body}");
+        let view = &body["chains"][0];
+        let segments = view["segments"].as_array().unwrap();
+        assert_eq!(segments.len(), 2);
+
+        // 单成员段也返回一个元素的数组。
+        assert_eq!(
+            segments[0]["members"],
+            json!([{
+                "server_id": a, "name": "香港-01", "status": "online",
+                "p50_ms": 20.0, "loss_pct": 0.0,
+                "attempts": 100, "failures": 0, "active": false,
+            }])
+        );
+
+        let members = segments[1]["members"].as_array().unwrap();
+        assert_eq!(members.len(), 3);
+        // 顺序与 nodes[].members 一致（priority, server_id）。
+        assert_eq!(
+            members
+                .iter()
+                .map(|member| &member["server_id"])
+                .collect::<Vec<_>>(),
+            view["nodes"][1]["members"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|member| &member["server_id"])
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(members[0]["server_id"], b);
+        assert_eq!(members[0]["name"], "东京-01");
+        assert_eq!(members[0]["status"], "online");
+        assert_eq!(members[0]["p50_ms"], 10.0);
+        assert_eq!(members[0]["loss_pct"], 1.0);
+        assert_eq!(members[0]["attempts"], 100);
+        assert_eq!(members[0]["failures"], 1);
+        assert_eq!(members[0]["active"], false);
+        assert_eq!(members[1]["server_id"], c);
+        assert_eq!(members[1]["p50_ms"], 30.0);
+        assert_eq!(members[1]["loss_pct"], 4.0);
+        assert_eq!(members[1]["active"], true, "failover 的当前成员");
+        assert_eq!(members[2]["server_id"], d);
+        assert_eq!(members[2]["status"], "offline");
+        assert_eq!(members[2]["p50_ms"], Value::Null);
+        assert_eq!(members[2]["loss_pct"], Value::Null);
+        assert_eq!(members[2]["attempts"], 0);
+        assert_eq!(members[2]["active"], false);
+
+        // 段级口径不变：成员样本一起取中位数、计数相加。
+        assert_eq!(segments[1]["p50"], 20.0, "10 / 30 的中位数");
+        assert_eq!(segments[1]["attempts"], 200);
+        assert_eq!(segments[1]["failures"], 5);
+        assert_eq!(segments[1]["loss_pct"], 2.5);
+        // 既有节点断言回归。
+        assert_eq!(view["nodes"][1]["member_count"], 3);
+        assert_eq!(view["nodes"][1]["active_server_id"], c);
     }
 
     /// 上一跳通路成员离线：该跳之后的 active 全部中断，但已确定的成员保留。
