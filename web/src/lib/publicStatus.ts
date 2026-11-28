@@ -193,30 +193,67 @@ export function statusLabelKey(state: ServerState): string {
   }
 }
 
+/** 环境字段的空白 / 缺失归一：非字符串与纯空白都算没有数据。 */
+function specPart(value: string | null | undefined): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/** 环境字段里唯一需要特殊处理的虚拟化值：裸机不占位（不是「未知」）。 */
+function virtualisation(value: string | null | undefined): string {
+  const virt = specPart(value);
+  return virt.toLowerCase() === "none" ? "" : virt;
+}
+
+export interface ServerEnvironmentFields {
+  os_name?: string | null;
+  os_version?: string | null;
+  virt?: string | null;
+  arch?: string | null;
+}
+
+/**
+ * 「环境」列第一行：`发行版 版本`（如 `Debian GNU/Linux 12`）。
+ *
+ * 名称与版本各自可选：只有版本时也照实显示；全缺返回 null，由调用方
+ * 显示 `—`（而不是空串）。
+ */
+export function serverOsLine(
+  server: ServerEnvironmentFields,
+): string | null {
+  const os = [specPart(server.os_name), specPart(server.os_version)]
+    .filter((part) => part.length > 0)
+    .join(" ");
+  return os.length > 0 ? os : null;
+}
+
+/**
+ * 「环境」列第二行：`虚拟化 · 架构`（如 `kvm · x86_64`）。
+ *
+ * `virt = none`（裸机）不占位；缺哪项跳过哪项，全缺返回 null（显示 `—`）。
+ * 两个值都不为空时才用 ` · ` 连接，绝不拼出 ` · x86_64` 这种半截文案。
+ */
+export function serverPlatformLine(
+  server: ServerEnvironmentFields,
+): string | null {
+  const parts = [virtualisation(server.virt), specPart(server.arch)].filter(
+    (part) => part.length > 0,
+  );
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 /**
  * 卡片副行：`发行版 版本 · 虚拟化 · 架构`。
  *
+ * 与列表「环境」列同源：`serverOsLine` + `serverPlatformLine` 用 ` · ` 合并。
  * 缺哪项就跳过哪项（空串、null、`virt = none` 都不占位），全缺返回 null，
  * 由调用方决定不渲染这一行 —— 绝不让 `undefined` / `null` 漏进界面。
  *
  * 架构放在最后：它是最短的一段，正常宽度下不会多占一行；OS 名称过长时
  * 由整行的 truncate 收尾，卡片不会被顶成两行。
  */
-export function serverSpecLine(server: {
-  os_name?: string | null;
-  os_version?: string | null;
-  virt?: string | null;
-  arch?: string | null;
-}): string | null {
-  const clean = (value: string | null | undefined) =>
-    typeof value === "string" ? value.trim() : "";
-  const os = [clean(server.os_name), clean(server.os_version)]
-    .filter((part) => part.length > 0)
-    .join(" ");
-  const virt = clean(server.virt);
-  const arch = clean(server.arch);
-  const parts = [os, virt.toLowerCase() === "none" ? "" : virt, arch].filter(
-    (part) => part.length > 0,
+export function serverSpecLine(server: ServerEnvironmentFields): string | null {
+  const parts = [serverOsLine(server), serverPlatformLine(server)].filter(
+    (part): part is string => part !== null,
   );
   return parts.length > 0 ? parts.join(" · ") : null;
 }

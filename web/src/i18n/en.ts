@@ -445,6 +445,7 @@ const en = {
     table: {
       caption: "Node status table",
       server: "Node",
+      environment: "Environment",
       lastHeartbeat: "Last heartbeat",
     },
     error: {
@@ -705,6 +706,12 @@ const en = {
       flowTopologyAria: "Full topology for chain {name}: {nodes} nodes, {edges} paths",
       flowPreferred: "Preferred",
       flowCandidate: "Candidate",
+      flowActive: "Current",
+      flowPathTag: "Path",
+      flowBalanced: "Balanced across {n}",
+      flowStrategyFailover: "Failover",
+      flowStrategyLowestLatency: "Lowest latency",
+      flowStrategyChoose: "{strategy} · 1/{n}",
       flowSegmentLoss: "Loss",
       flowSegmentAria: "{source} → {target}, latency {value}, loss {loss}{estimated}",
       flowChainCardAria: "{name}, {status}{tag}",

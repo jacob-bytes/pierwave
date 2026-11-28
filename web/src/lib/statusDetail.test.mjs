@@ -91,6 +91,31 @@ test("the detail page never exposes addresses or users", () => {
   }
 });
 
+test("last reported / refresh hint move to the top row, right of the back link", () => {
+  const page = read("../pages/StatusDetail.tsx");
+  const topStart = page.indexOf('data-slot="detail-top"');
+  const back = page.indexOf('data-slot="detail-back"');
+  const meta = page.indexOf('data-slot="detail-meta"');
+  assert.ok(topStart >= 0, "顶部行需要有可断言的 data-slot");
+  assert.ok(back > topStart, "返回列表在顶部行里");
+  assert.ok(meta > back, "最后上报 / 刷新说明在返回列表右侧（DOM 顺序）");
+
+  // 顶部行允许换行，右侧信息用 ml-auto 贴右；390 放不下时整组落到下一行。
+  const top = page.slice(topStart, page.indexOf("</div>", meta) + 6);
+  assert.match(top, /flex-wrap/);
+  assert.match(top, /justify-between/);
+  assert.match(top, /ml-auto/);
+
+  // 刷新节奏说明不能删，和「最后上报」同组。
+  assert.match(page, /publicStatus\.detail\.lastReported/);
+  assert.match(page, /publicStatus\.detail\.refreshHint/);
+
+  // 底部那一行已删除，避免重复。
+  assert.doesNotMatch(page, /data-slot="detail-footer"/);
+  assert.doesNotMatch(page, /<Footer\b/);
+  assert.doesNotMatch(page, /function Footer\(/);
+});
+
 test("two-column 2x2 grid and stretch alignment are explicit", () => {
   const page = read("../pages/StatusDetail.tsx");
   assert.match(page, /lg:grid-cols-\[420px_minmax\(0,1fr\)\]/);

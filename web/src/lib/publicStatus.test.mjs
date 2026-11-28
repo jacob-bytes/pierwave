@@ -42,6 +42,8 @@ import {
   publicServerCounts,
   reportedLatency,
   resourcePercent,
+  serverOsLine,
+  serverPlatformLine,
   serverSpecLine,
   serverState,
   STATUS_STALE_SECONDS,
@@ -122,6 +124,42 @@ test("serverSpecLine joins os, virt and arch, skipping missing parts", () => {
     }),
     null,
     "全缺必须返回 null，卡片据此不渲染整行",
+  );
+});
+
+test("serverOsLine and serverPlatformLine split the environment column in two", () => {
+  // 列表的「环境」列第一行发行版、第二行 `虚拟化 · 架构`，缺项不留空段。
+  assert.equal(
+    serverOsLine({
+      os_name: "Debian GNU/Linux",
+      os_version: "12",
+    }),
+    "Debian GNU/Linux 12",
+  );
+  assert.equal(
+    serverPlatformLine({ virt: "kvm", arch: "x86_64" }),
+    "kvm · x86_64",
+  );
+  // 只有名称 / 只有版本 / 都没有。
+  assert.equal(serverOsLine({ os_name: "Alpine Linux", os_version: null }), "Alpine Linux");
+  assert.equal(serverOsLine({ os_name: null, os_version: "12" }), "12");
+  assert.equal(serverOsLine({ os_name: "  ", os_version: null }), null);
+  // 虚拟化缺失只剩架构；`virt = none`（裸机）不占位。
+  assert.equal(serverPlatformLine({ virt: null, arch: "x86_64" }), "x86_64");
+  assert.equal(serverPlatformLine({ virt: "none", arch: "aarch64" }), "aarch64");
+  assert.equal(serverPlatformLine({ virt: "kvm", arch: "" }), "kvm");
+  // 全缺返回 null，由调用方显示 `—`；绝不返回空串或 " · "。
+  assert.equal(serverPlatformLine({ virt: "  ", arch: "" }), null);
+  assert.equal(serverPlatformLine({ virt: null, arch: null }), null);
+  // 与卡片副行同源：合并后仍是一行 `OS · 虚拟化 · 架构`。
+  assert.equal(
+    serverSpecLine({
+      os_name: "Debian GNU/Linux",
+      os_version: "12",
+      virt: "kvm",
+      arch: "x86_64",
+    }),
+    [serverOsLine({ os_name: "Debian GNU/Linux", os_version: "12" }), serverPlatformLine({ virt: "kvm", arch: "x86_64" })].join(" · "),
   );
 });
 

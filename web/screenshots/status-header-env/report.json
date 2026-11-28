@@ -1,0 +1,317 @@
+{
+  "baseUrl": "http://localhost:4173",
+  "detail": {
+    "dark-1440": {
+      "top": {
+        "x": 44,
+        "y": 81,
+        "width": 1352,
+        "height": 40,
+        "top": 81,
+        "right": 1396,
+        "bottom": 121,
+        "left": 44
+      },
+      "back": {
+        "x": 36,
+        "y": 81,
+        "width": 96,
+        "height": 40,
+        "top": 81,
+        "right": 132,
+        "bottom": 121,
+        "left": 36
+      },
+      "meta": {
+        "x": 1202.609375,
+        "y": 93,
+        "width": 193.390625,
+        "height": 16,
+        "top": 93,
+        "right": 1396,
+        "bottom": 109,
+        "left": 1202.609375
+      },
+      "metaText": "最后上报 刚刚 数据每 20 秒刷新",
+      "footer": null,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "requests": 2
+    },
+    "dark-390": {
+      "top": {
+        "x": 16,
+        "y": 81,
+        "width": 358,
+        "height": 40,
+        "top": 81,
+        "right": 374,
+        "bottom": 121,
+        "left": 16
+      },
+      "back": {
+        "x": 8,
+        "y": 81,
+        "width": 96,
+        "height": 40,
+        "top": 81,
+        "right": 104,
+        "bottom": 121,
+        "left": 8
+      },
+      "meta": {
+        "x": 189.609375,
+        "y": 93,
+        "width": 184.390625,
+        "height": 16,
+        "top": 93,
+        "right": 374,
+        "bottom": 109,
+        "left": 189.609375
+      },
+      "metaText": "最后上报 刚刚 数据每 20 秒刷新",
+      "footer": null,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "requests": 2
+    },
+    "light-1440": {
+      "top": {
+        "x": 44,
+        "y": 81,
+        "width": 1352,
+        "height": 40,
+        "top": 81,
+        "right": 1396,
+        "bottom": 121,
+        "left": 44
+      },
+      "back": {
+        "x": 36,
+        "y": 81,
+        "width": 96,
+        "height": 40,
+        "top": 81,
+        "right": 132,
+        "bottom": 121,
+        "left": 36
+      },
+      "meta": {
+        "x": 1202.609375,
+        "y": 93,
+        "width": 193.390625,
+        "height": 16,
+        "top": 93,
+        "right": 1396,
+        "bottom": 109,
+        "left": 1202.609375
+      },
+      "metaText": "最后上报 刚刚 数据每 20 秒刷新",
+      "footer": null,
+      "scrollWidth": 1440,
+      "clientWidth": 1440,
+      "requests": 2
+    },
+    "light-390": {
+      "top": {
+        "x": 16,
+        "y": 81,
+        "width": 358,
+        "height": 40,
+        "top": 81,
+        "right": 374,
+        "bottom": 121,
+        "left": 16
+      },
+      "back": {
+        "x": 8,
+        "y": 81,
+        "width": 96,
+        "height": 40,
+        "top": 81,
+        "right": 104,
+        "bottom": 121,
+        "left": 8
+      },
+      "meta": {
+        "x": 189.609375,
+        "y": 93,
+        "width": 184.390625,
+        "height": 16,
+        "top": 93,
+        "right": 374,
+        "bottom": 109,
+        "left": 189.609375
+      },
+      "metaText": "最后上报 刚刚 数据每 20 秒刷新",
+      "footer": null,
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "requests": 2
+    }
+  },
+  "detailEn390": {
+    "top": {
+      "x": 16,
+      "y": 81,
+      "width": 358,
+      "height": 60,
+      "top": 81,
+      "right": 374,
+      "bottom": 141,
+      "left": 16
+    },
+    "back": {
+      "x": 8,
+      "y": 81,
+      "width": 114.28125,
+      "height": 40,
+      "top": 81,
+      "right": 122.28125,
+      "bottom": 121,
+      "left": 8
+    },
+    "meta": {
+      "x": 75.078125,
+      "y": 125,
+      "width": 298.921875,
+      "height": 16,
+      "top": 125,
+      "right": 374,
+      "bottom": 141,
+      "left": 75.078125
+    },
+    "metaText": "Last reported Just now Refreshes every 20 seconds",
+    "scrollWidth": 390,
+    "clientWidth": 390
+  },
+  "list": {
+    "header": [
+      "节点",
+      "环境",
+      "负载",
+      "内存",
+      "硬盘",
+      "24h 可用率",
+      "最后心跳"
+    ],
+    "env": [
+      [
+        "Debian GNU/Linux 12",
+        "kvm · x86_64"
+      ],
+      [
+        "—",
+        "kvm · x86_64"
+      ],
+      [
+        "Debian GNU/Linux 12",
+        "aarch64"
+      ],
+      [
+        "—",
+        "—"
+      ],
+      [
+        "Ubuntu 24.04",
+        "arm64"
+      ],
+      [
+        "Debian GNU/Linux 12",
+        "kvm · x86_64"
+      ],
+      [
+        "Debian GNU/Linux 12",
+        "kvm · x86_64"
+      ],
+      [
+        "Debian GNU/Linux 12",
+        "kvm · x86_64"
+      ]
+    ],
+    "headAlign": [
+      "left",
+      "left",
+      "left",
+      "left",
+      "left",
+      "left",
+      "left"
+    ],
+    "loadFontVariant": "tabular-nums",
+    "tableWidth": 1350,
+    "requests": 1,
+    "hoverBackground": {
+      "before": "rgba(0, 0, 0, 0)",
+      "hovered": "oklab(0.225 0.0012941 -0.00482963 / 0.4)"
+    },
+    "click": "http://localhost:4173/status/srv-kpi-2",
+    "keyboard": "http://localhost:4173/status/srv-kpi-3"
+  },
+  "rowGuard": {
+    "afterButton": "http://localhost:4173/status",
+    "copyClicks": 1,
+    "afterPlainCell": "http://localhost:4173/status/srv-hk"
+  },
+  "cards": {
+    "dark": {
+      "spec": "Debian GNU/Linux 12 · kvm · x86_64 · 延迟 18 ms",
+      "href": "/status/srv-hk",
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "light": {
+      "spec": "Debian GNU/Linux 12 · kvm · x86_64 · 延迟 18 ms",
+      "href": "/status/srv-hk",
+      "scrollWidth": 390,
+      "clientWidth": 390
+    }
+  },
+  "files": [
+    {
+      "file": "cards-dark-390.png",
+      "kb": 256
+    },
+    {
+      "file": "cards-light-390.png",
+      "kb": 273
+    },
+    {
+      "file": "detail-dark-1440.png",
+      "kb": 122
+    },
+    {
+      "file": "detail-dark-390-en.png",
+      "kb": 104
+    },
+    {
+      "file": "detail-dark-390.png",
+      "kb": 105
+    },
+    {
+      "file": "detail-light-1440.png",
+      "kb": 127
+    },
+    {
+      "file": "detail-light-390.png",
+      "kb": 111
+    },
+    {
+      "file": "list-clicked-detail-dark-1440.png",
+      "kb": 109
+    },
+    {
+      "file": "list-dark-1440.png",
+      "kb": 158
+    },
+    {
+      "file": "list-hover-dark-1440.png",
+      "kb": 158
+    },
+    {
+      "file": "list-light-1440.png",
+      "kb": 163
+    }
+  ],
+  "failures": []
+}

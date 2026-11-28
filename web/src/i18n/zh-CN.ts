@@ -435,6 +435,7 @@ const zhCN = {
     table: {
       caption: "节点状态列表",
       server: "节点",
+      environment: "环境",
       lastHeartbeat: "最后心跳",
     },
     error: {
@@ -682,6 +683,12 @@ const zhCN = {
       flowTopologyAria: "链路 {name} 的完整拓扑：{nodes} 个节点，{edges} 条路径",
       flowPreferred: "首选",
       flowCandidate: "候选",
+      flowActive: "当前",
+      flowPathTag: "路径",
+      flowBalanced: "{n} 台分担",
+      flowStrategyFailover: "故障转移",
+      flowStrategyLowestLatency: "最低延迟",
+      flowStrategyChoose: "{strategy}·{n}选1",
       flowSegmentLoss: "丢包",
       flowSegmentAria: "{source} → {target}，时延 {value}，丢包 {loss}{estimated}",
       flowChainCardAria: "{name}，{status}{tag}",

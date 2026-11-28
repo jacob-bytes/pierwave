@@ -1086,30 +1086,6 @@ function BillingTrafficCard({
   );
 }
 
-function Footer({ server }: { server: PublicStatusServer }) {
-  const { t } = useI18n();
-  const lastSeen = server.last_seen;
-  const hasLastSeen =
-    typeof lastSeen === "number" && Number.isFinite(lastSeen) && lastSeen > 0;
-  const relative = hasLastSeen
-    ? formatRelativeTime(lastSeen)
-    : t("publicStatus.server.neverSeen");
-  const absolute = hasLastSeen ? formatAbsoluteTime(lastSeen) : undefined;
-
-  return (
-    <div
-      data-slot="detail-footer"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground"
-    >
-      <span className="tnum" title={absolute}>
-        {t("publicStatus.detail.lastReported", { time: relative })}
-      </span>
-      <span aria-hidden="true" className="hidden h-3 w-px bg-border sm:block" />
-      <span>{t("publicStatus.detail.refreshHint")}</span>
-    </div>
-  );
-}
-
 function DetailContent({
   server,
   generatedAt,
@@ -1140,9 +1116,6 @@ function DetailContent({
           server={server}
           className="order-4 lg:col-start-2 lg:row-start-2"
         />
-      </div>
-      <div className="mt-4">
-        <Footer server={server} />
       </div>
     </div>
   );
@@ -1188,6 +1161,14 @@ export default function StatusDetailPage({ id }: { id: string }) {
   const lastSuccessAt =
     status.isError && !disabled && status.dataUpdatedAt > 0
       ? formatClockTime(status.dataUpdatedAt / 1_000)
+      : null;
+  // 「最后上报」用相对时间，hover 给绝对时间；从未上报时只保留「从未上报」。
+  const lastSeenRaw = server?.last_seen ?? null;
+  const lastSeenAt =
+    typeof lastSeenRaw === "number" &&
+    Number.isFinite(lastSeenRaw) &&
+    lastSeenRaw > 0
+      ? lastSeenRaw
       : null;
 
   return (
@@ -1265,7 +1246,13 @@ export default function StatusDetailPage({ id }: { id: string }) {
           </div>
         ) : (
           <>
-            <div className="mb-4 flex items-center">
+            {/* 顶部操作行：返回列表在左，最后上报与刷新节奏在右。
+                390 放不下时整组换到下一行，靠 ml-auto 仍然右对齐，
+                返回按钮不参与压缩（shrink-0）。 */}
+            <div
+              data-slot="detail-top"
+              className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-1"
+            >
               <Button
                 variant="ghost"
                 asChild
@@ -1276,6 +1263,33 @@ export default function StatusDetailPage({ id }: { id: string }) {
                   {t("publicStatus.detail.back")}
                 </Link>
               </Button>
+              <div
+                data-slot="detail-meta"
+                className="ml-auto flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 px-1 text-xs text-muted-foreground"
+              >
+                <span
+                  className="tnum whitespace-nowrap"
+                  title={
+                    lastSeenAt === null
+                      ? undefined
+                      : formatAbsoluteTime(lastSeenAt)
+                  }
+                >
+                  {t("publicStatus.detail.lastReported", {
+                    time:
+                      lastSeenAt === null
+                        ? t("publicStatus.server.neverSeen")
+                        : formatRelativeTime(lastSeenAt),
+                  })}
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="h-3 w-px self-center bg-border max-sm:hidden"
+                />
+                <span className="whitespace-nowrap">
+                  {t("publicStatus.detail.refreshHint")}
+                </span>
+              </div>
             </div>
             <DetailContent
               server={server}
