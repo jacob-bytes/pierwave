@@ -33,7 +33,7 @@ fix: 一句话说清修了什么
 | 项 | 位置 |
 |---|---|
 | 私钥（32 字节，base64） | 仓库 Secret `PIERWAVE_RELEASE_SIGNING_KEY` |
-| 公钥（32 字节，base64） | `crates/domain/src/release.rs` 的 `DEV_PUBLIC_KEY_B64` 与 `scripts/install.sh` 的 `RELEASE_PUBKEY` |
+| 公钥（32 字节，base64） | `crates/common/src/release.rs` 的 `DEV_PUBLIC_KEY_B64` 与 `scripts/install.sh` 的 `RELEASE_PUBKEY` |
 
 两处公钥必须一致，私钥绝不能进仓库。没配 Secret 时发布会跳过签名（安装脚本会 WARN 并退回校验和）。
 
@@ -109,7 +109,7 @@ cargo check --workspace   # 让 Cargo.lock 跟上
 | 项 | 位置 |
 |---|---|
 | 私钥（32 字节，base64） | 仓库 Secret `PIERWAVE_RELEASE_SIGNING_KEY` |
-| 公钥（32 字节，base64） | `crates/domain/src/release.rs` 的 `DEV_PUBLIC_KEY_B64` 与 `scripts/install.sh` 的 `RELEASE_PUBKEY` |
+| 公钥（32 字节，base64） | `crates/common/src/release.rs` 的 `DEV_PUBLIC_KEY_B64` 与 `scripts/install.sh` 的 `RELEASE_PUBKEY` |
 
 两处公钥必须一致，私钥绝不能进仓库。没配 Secret 时发布会跳过签名（安装脚本会 WARN 并退回校验和）。
 

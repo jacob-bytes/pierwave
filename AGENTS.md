@@ -25,12 +25,17 @@ CARGO_HOME=$PWD/.cargo-home cargo test -p pierwave-domain
 | 目录 | 职责 | 禁止 |
 |---|---|---|
 | `crates/proto` | 主控↔Agent 线协议、跨端 DTO | 引入 axum / sqlx |
+| `crates/common` | 主控与 Agent 共用的底层工具（私有文件权限、发布验签、错误类型） | 引入 sqlx / tokio / axum、业务模型 |
 | `crates/domain` | 数据模型、SQL、业务规则 | 引入 axum、读 HTTP 上下文 |
 | `crates/master` | axum 路由、鉴权、静态资源 | 直接写 SQL（走 repo） |
-| `crates/agent` | 收敛器、进程监督、上报 | 依赖 master 的代码 |
+| `crates/agent` | 收敛器、进程监督、上报 | 依赖 master 的代码、依赖 `pierwave-domain` |
 | `web/` | SPA（React 19 + TS + Tailwind 4 + **shadcn/ui**） | 手改 `dist/`、手写 Button/Dialog/Toast |
 
 所有 SQL 只能在 `crates/domain/src/repo.rs` 里出现。
+
+`crates/agent` 只依赖 `pierwave-common` 与 `pierwave-proto`；`cargo tree -p pierwave-agent`
+里不应出现 `pierwave-domain`。`crates/domain` 通过 re-export 保留
+`pierwave_domain::{error, fs_security, release}` 路径，既有调用方无需改动。
 
 ## 硬性规则
 

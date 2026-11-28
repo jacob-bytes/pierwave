@@ -72,6 +72,20 @@
 主控只生成 DesiredState：节点配置、证书文件、转发与隧道。Agent 先跑 `xray -test`，
 按目标权限落盘证书，再原子替换配置，失败保留旧配置；心跳只上报事实，Agent 侧唯一的动作是「收敛到期望态」。
 
+### Crate 划分
+
+| Crate | 职责 |
+|---|---|
+| `pierwave-proto` | 主控↔Agent 线协议、跨端 DTO |
+| `pierwave-common` | 主控与 Agent 共用的底层工具：私有文件权限、发布验签/校验和、可翻译错误 |
+| `pierwave-domain` | 数据模型、SQL 与业务规则；re-export `pierwave-common` |
+| `pierwave-master` | axum API、鉴权、SPA 静态资源 |
+| `pierwave-agent` | 收敛器、进程监督、上报；只依赖 `common` + `proto`，**不依赖** `domain` |
+| `pierwave-mcp` | 只读 MCP stdio 服务 |
+
+Agent 不依赖 `pierwave-domain`：它只共享 `pierwave-common`，因此可以独立发版、拆到单独仓库，
+而不用把主控的 SQL/tokio 依赖一起带走。
+
 ## 界面
 
 | 公开探针 | 服务器 |

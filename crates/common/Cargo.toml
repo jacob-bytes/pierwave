@@ -1,0 +1,23 @@
+[package]
+name = "pierwave-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# 主控（pierwave-domain）与 Agent 共用、但不属于业务领域的最小工具：
+# 私有文件权限、发布产物验签、可翻译错误类型。
+#
+# 这里刻意**不引入 sqlx / tokio / axum**：Agent 需要能独立发版与拆仓，
+# 依赖图越轻越好。新增依赖前先确认它真的只服务于本 crate 的模块。
+[dependencies]
+anyhow = { workspace = true }
+base64 = { workspace = true }
+ed25519-dalek = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+# fs_security 的临时目录命名；只在测试里用。
+uuid = { workspace = true }

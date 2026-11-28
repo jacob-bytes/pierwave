@@ -9,7 +9,9 @@ name = "pierwave-agent"
 path = "src/main.rs"
 
 [dependencies]
-pierwave-domain = { path = "../domain" }
+# Agent 只需要 pierwave-common 里的私有文件权限与发布验签；
+# 刻意不依赖 pierwave-domain，为将来 Agent 独立发版 / 拆仓留出边界。
+pierwave-common = { path = "../common" }
 pierwave-proto = { path = "../proto" }
 anyhow = { workspace = true }
 tokio = { workspace = true }

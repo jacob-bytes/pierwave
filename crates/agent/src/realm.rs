@@ -1380,15 +1380,15 @@ pub fn config_hash(content: &str) -> u64 {
 /// 配置里可能带 PSK / 证书路径，落盘权限固定 0600；state_dir 同步收紧到 0700。
 fn write_config_atomic(path: &Path, content: &str) -> io::Result<()> {
     if let Some(parent) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
-        pierwave_domain::fs_security::create_private_dir(parent)?;
+        pierwave_common::fs_security::create_private_dir(parent)?;
     }
     let tmp = tmp_path(path);
-    pierwave_domain::fs_security::write_private_file(&tmp, content.as_bytes())?;
+    pierwave_common::fs_security::write_private_file(&tmp, content.as_bytes())?;
     if let Err(error) = std::fs::rename(&tmp, path) {
         let _ = std::fs::remove_file(&tmp);
         return Err(error);
     }
-    pierwave_domain::fs_security::ensure_private_file(path)
+    pierwave_common::fs_security::ensure_private_file(path)
 }
 
 fn tmp_path(path: &Path) -> PathBuf {

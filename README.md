@@ -76,6 +76,20 @@ The master only renders desired state: node configs, certificate files, forwards
 `xray -test`, writes certificates with their target modes, swaps the config atomically and keeps the old one on
 failure. Heartbeats carry facts only; the agent's single action is "converge to desired state".
 
+### Crates
+
+| Crate | Responsibility |
+|---|---|
+| `pierwave-proto` | Wire protocol and cross-end DTOs |
+| `pierwave-common` | Shared low-level utilities: private-file permissions, release signature/checksum verification, translatable errors |
+| `pierwave-domain` | Data models, SQL and business rules; re-exports `pierwave-common` |
+| `pierwave-master` | axum API, auth, SPA assets |
+| `pierwave-agent` | Converger, process supervision, reporting; depends on `common` + `proto`, **not** on `domain` |
+| `pierwave-mcp` | Read-only MCP stdio server |
+
+The agent does not depend on `pierwave-domain`: it only shares `pierwave-common`, so it can be versioned and
+split into its own repository without dragging in the control plane's SQL/tokio stack.
+
 ## Screens
 
 | Public status | Servers |

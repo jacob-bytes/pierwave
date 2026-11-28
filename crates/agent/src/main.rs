@@ -22,7 +22,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
-use pierwave_domain::fs_security;
+use pierwave_common::fs_security;
 use pierwave_proto::{
     AgentHello, AgentMessage, AgentUpgradePlan, ApplyResult, DesiredForward, DesiredState,
     ForwardEngine, ForwardStatus, Heartbeat, MasterMessage, NetworkInterface, TrafficReport,
@@ -791,7 +791,7 @@ async fn run_agent_upgrade(
         current_exe,
         state_dir: PathBuf::from(&cfg.upgrade_state_dir),
         restart_command: cfg.upgrade_restart_command.clone(),
-        public_key: pierwave_domain::release::embedded_public_key().to_string(),
+        public_key: pierwave_common::release::embedded_public_key().to_string(),
         watchdog,
     };
     upgrade::run(

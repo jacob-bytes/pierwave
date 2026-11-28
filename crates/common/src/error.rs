@@ -1,4 +1,8 @@
-//! 领域层可翻译错误：`code` + `params` + 中文兜底文案。
+//! 可翻译错误：`code` + `params` + 中文兜底文案。
+//!
+//! 放在 common 是因为发布校验（[`crate::release`]）也用它；`pierwave-domain`
+//! 通过 re-export 继续暴露为 `pierwave_domain::error::DomainError`，master 的
+//! 错误链 downcast 与既有错误码都不变。
 //!
 //! 领域层不依赖 axum，也不需要知道 HTTP 状态码；它只负责把「面向用户的校验失败」
 //! 标注成稳定错误码，方便 master 在响应里带上 `code`/`params`，让英文界面查词典。

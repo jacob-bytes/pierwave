@@ -1131,15 +1131,15 @@ async fn table_exists(bin: &Path) -> bool {
 
 fn write_script(path: &Path, content: &str) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
-        pierwave_domain::fs_security::create_private_dir(parent)?;
+        pierwave_common::fs_security::create_private_dir(parent)?;
     }
     let tmp = path.with_extension("nft.new");
-    pierwave_domain::fs_security::write_private_file(&tmp, content.as_bytes())?;
+    pierwave_common::fs_security::write_private_file(&tmp, content.as_bytes())?;
     if let Err(error) = std::fs::rename(&tmp, path) {
         let _ = std::fs::remove_file(&tmp);
         return Err(error);
     }
-    pierwave_domain::fs_security::ensure_private_file(path)
+    pierwave_common::fs_security::ensure_private_file(path)
 }
 
 #[cfg(test)]

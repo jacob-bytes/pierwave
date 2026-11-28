@@ -1,6 +1,11 @@
 //! 领域层：数据模型、仓储与不依赖 HTTP 的业务规则。
 //! 这里不允许出现 axum / 请求上下文，方便被 master、CLI、测试共用。
 
+// 通用工具已下沉到 `pierwave-common`：Agent 只需要这些能力，不应因此依赖
+// 整个领域层（连带 sqlx / tokio）。这里 re-export，保持
+// `pierwave_domain::{error, fs_security, release}` 路径对既有调用方可用。
+pub use pierwave_common::{error, fs_security, release};
+
 pub mod apply;
 pub mod backup;
 pub mod billing;
@@ -13,9 +18,7 @@ pub mod country;
 pub mod credentials;
 pub mod enforcement;
 pub mod engine;
-pub mod error;
 pub mod forwards;
-pub mod fs_security;
 pub mod fx;
 pub mod hop_transport;
 pub mod metering;
@@ -24,7 +27,6 @@ pub mod password;
 pub mod port_policy;
 pub mod protocol;
 pub mod reality;
-pub mod release;
 pub mod remote_backup;
 pub mod repo;
 pub mod reset;

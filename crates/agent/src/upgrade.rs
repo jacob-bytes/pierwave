@@ -22,7 +22,7 @@ use std::pin::Pin;
 use std::process::Stdio;
 
 use anyhow::{anyhow, bail, Context, Result};
-use pierwave_domain::release::{is_newer, verify_asset, verify_manifest};
+use pierwave_common::release::{is_newer, verify_asset, verify_manifest};
 use pierwave_proto::AgentUpgradePlan;
 use tokio::io::AsyncWriteExt;
 
@@ -858,7 +858,7 @@ mod tests {
     fn signed_manifest(secret: &str, asset: &str, bytes: &[u8]) -> (String, String) {
         let hash = hex::encode(Sha256::digest(bytes));
         let manifest = format!("{hash}  {asset}\n");
-        let sig = pierwave_domain::release::sign_manifest(secret, &manifest).unwrap();
+        let sig = pierwave_common::release::sign_manifest(secret, &manifest).unwrap();
         (manifest, sig)
     }
 

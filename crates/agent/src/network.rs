@@ -60,7 +60,8 @@ pub fn collect_or_warn() -> Vec<NetworkInterface> {
 /// * 内容无法解析（内核格式变化 / 空文件）。
 ///
 /// 注意：这是**自内核启动以来**的累计值，重启会让计数回绕；主控侧的差分
-/// 逻辑必须丢弃回绕那一次（见 `pierwave_domain::telemetry`）。
+/// 逻辑必须丢弃回绕那一次（见主控侧 `crates/domain/src/telemetry.rs`；Agent
+/// 不依赖 `pierwave-domain`，这里只作为文档引用）。
 pub fn collect_net_counters() -> Option<NetCounters> {
     match std::fs::read_to_string(PROC_NET_DEV) {
         Ok(raw) => parse_proc_net_dev(&raw),
