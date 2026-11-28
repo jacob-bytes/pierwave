@@ -27,7 +27,7 @@ readonly SYSTEMCTL="${PIERWAVE_SYSTEMCTL:-systemctl}"
 readonly REPO="jacob-bytes/pierwave"
 # 发布产物下载根；测试时指向本地目录（curl 支持 file://）
 readonly RELEASE_BASE="${PIERWAVE_RELEASE_BASE:-https://github.com/${REPO}/releases/download}"
-readonly RELEASE_PUBKEY="vTmZY2HhvEOMbXKvxKYFuSWJLa5e5qjwxBNBSpJVhMM="
+readonly RELEASE_PUBKEY="7jv3o9IbYpCPIrQyVEyxDph66U8A0Q0NspkoK1cY/RE="
 
 # realm 是可选的转发引擎（TCP/UDP 转发）。版本与哈希都写死：
 # 配置格式是我们与 realm 之间的隐式契约，跟 latest 会在某天悄悄失效。
