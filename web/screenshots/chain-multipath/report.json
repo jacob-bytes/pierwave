@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-28T03:04:09.477Z",
+  "generatedAt": "2026-11-28T03:07:24.851Z",
   "base": "http://localhost:5199",
   "shots": [
     {
@@ -82,7 +82,7 @@
     },
     {
       "name": "failover-dark-390-tooltip.png",
-      "bytes": 33734,
+      "bytes": 34378,
       "fixture": "failover",
       "theme": "暗色",
       "width": 390,
@@ -105,7 +105,7 @@
     },
     {
       "name": "failover-light-1440-members.png",
-      "bytes": 75520,
+      "bytes": 75523,
       "fixture": "failover",
       "theme": "亮色",
       "width": 1440,
@@ -170,7 +170,7 @@
     },
     {
       "name": "failover-light-390-tooltip.png",
-      "bytes": 35915,
+      "bytes": 36426,
       "fixture": "failover",
       "theme": "亮色",
       "width": 390,
@@ -258,7 +258,7 @@
     },
     {
       "name": "roundRobin-dark-390-tooltip.png",
-      "bytes": 32215,
+      "bytes": 32742,
       "fixture": "roundRobin",
       "theme": "暗色",
       "width": 390,
@@ -346,7 +346,7 @@
     },
     {
       "name": "roundRobin-light-390-tooltip.png",
-      "bytes": 34265,
+      "bytes": 34944,
       "fixture": "roundRobin",
       "theme": "亮色",
       "width": 390,
@@ -578,7 +578,7 @@
     },
     {
       "name": "missingMembers-dark-390-tooltip.png",
-      "bytes": 28581,
+      "bytes": 28877,
       "fixture": "missingMembers",
       "theme": "暗色",
       "width": 390,
@@ -642,7 +642,7 @@
     },
     {
       "name": "missingMembers-light-390-tooltip.png",
-      "bytes": 30584,
+      "bytes": 30788,
       "fixture": "missingMembers",
       "theme": "亮色",
       "width": 390,
@@ -740,7 +740,7 @@
     },
     {
       "name": "many-dark-390-tooltip.png",
-      "bytes": 36066,
+      "bytes": 35608,
       "fixture": "many",
       "theme": "暗色",
       "width": 390,
@@ -838,7 +838,7 @@
     },
     {
       "name": "many-light-390-tooltip.png",
-      "bytes": 38317,
+      "bytes": 37711,
       "fixture": "many",
       "theme": "亮色",
       "width": 390,
@@ -868,6 +868,15 @@
       }
     },
     {
+      "name": "failover-en-1440-dark-tooltip.png",
+      "bytes": 52331,
+      "fixture": "failover",
+      "theme": "en dark",
+      "width": 1440,
+      "hover": "chart",
+      "tooltipRows": 3
+    },
+    {
       "name": "failover-en-390-dark-members.png",
       "bytes": 43941,
       "fixture": "failover",
@@ -887,6 +896,15 @@
           "东京-03"
         ]
       }
+    },
+    {
+      "name": "failover-en-390-dark-tooltip.png",
+      "bytes": 35698,
+      "fixture": "failover",
+      "theme": "en dark",
+      "width": 390,
+      "hover": "chart",
+      "tooltipRows": 3
     }
   ],
   "checks": [

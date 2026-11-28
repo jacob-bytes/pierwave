@@ -313,6 +313,7 @@ function fixtureFolded() {
 /**
  * failover：当前通路 = 东京-03；东京-02 离线（主备组里非代表成员离线）。
  * 列头显示 `故障转移·2选1`，东京-03 是「当前」，东京-02 是「候选」。
+ * 多成员组只掉一台 → `degraded`（链路仍可用），不是 `blocked`。
  */
 function fixtureFailover() {
   const entry = members("香港", 1);
@@ -325,7 +326,7 @@ function fixtureFailover() {
     id: "chain-failover",
     name: "香港 → 东京（主备）→ 新加坡",
     status: {
-      kind: "blocked",
+      kind: "degraded",
       cause: "node_offline",
       node: { seq: 1, name: "东京-02", member_name: "东京-02" },
     },

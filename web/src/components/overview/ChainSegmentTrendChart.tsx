@@ -328,7 +328,7 @@ function SegmentTrendTooltip({
       data-segment-tooltip
       role="tooltip"
       aria-live="polite"
-      className="min-w-52 max-w-80"
+      className="min-w-52 max-w-72 sm:max-w-80"
     >
       <ChartTooltipHeading>
         {formatChainTime(row.ts, bucket)}
@@ -345,11 +345,16 @@ function SegmentTrendTooltip({
                 data-highest={isHighest ? "true" : undefined}
                 data-lowest={isLowest ? "true" : undefined}
                 className={cn(
-                  "flex items-center justify-between gap-4 rounded-sm px-1 py-0.5",
+                  // 段标题可能带策略与台数（英文更长）：空间不够时让数值换到
+                  // 第二行，而不是把 Highest / 丢包裁掉。
+                  "flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 rounded-sm px-1 py-0.5",
                   isHighest && "bg-primary/5",
                 )}
               >
-                <span className="shrink-0 text-[11px] text-muted-foreground">
+                <span
+                  className="min-w-0 text-[11px] text-muted-foreground"
+                  title={titleFor(item.segment)}
+                >
                   {titleFor(item.segment)}
                 </span>
                 <span className="flex shrink-0 items-baseline gap-2 font-mono tabular-nums">
